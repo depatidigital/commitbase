@@ -45,10 +45,11 @@ import {
   WifiOff
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useApplication, useStartApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication } from "@/hooks/useApplications";
+import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication } from "@/hooks/useApplications";
 import { useApplicationLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useQueryClient } from "@tanstack/react-query";
-import { Application, UpdateApplicationData } from "@/lib/applications";
+import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/applications";
+import DeploymentHistory from "@/components/DeploymentHistory";
 import {
   Tooltip,
   TooltipContent,
@@ -93,18 +94,17 @@ export default function ApplicationDetail() {
   const [showRawLogs, setShowRawLogs] = useState(false);
   const [logs, setLogs] = useState<ApplicationLogs>({});
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'start' | 'stop' | 'restart' | 'delete';
+    type: 'start' | 'start-existing' | 'stop' | 'restart' | 'delete';
     appName: string;
   } | null>(null);
 
   // API hooks
-  const { data: applicationData, isLoading, error, refetch } = useApplication(id!);
+  const { application, isLoading, error } = useApplicationStatus(id!);
   const startApp = useStartApplication();
+  const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
   const deleteApp = useDeleteApplication();
-
-  const application = applicationData;
 
   // Logs hooks
   const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, selectedLogType, logLines);
@@ -125,10 +125,20 @@ export default function ApplicationDetail() {
     refetchLogs();
   };
 
+  const refetchApplication = () => {
+    // The real-time monitoring will handle refetching automatically
+    // This is just a placeholder for manual refresh if needed
+  };
+
   // Handle actions
   const handleStart = () => {
     if (!application) return;
     setConfirmAction({ type: 'start', appName: application.name });
+  };
+
+  const handleStartExisting = () => {
+    if (!application) return;
+    setConfirmAction({ type: 'start-existing', appName: application.name });
   };
 
   const handleStop = () => {
@@ -153,6 +163,9 @@ export default function ApplicationDetail() {
       switch (confirmAction.type) {
         case 'start':
           await startApp.mutateAsync(id);
+          break;
+        case 'start-existing':
+          await startExistingApp.mutateAsync(id);
           break;
         case 'stop':
           await stopApp.mutateAsync(id);
@@ -236,8 +249,16 @@ export default function ApplicationDetail() {
 
   const dialogContent = confirmAction ? {
     start: {
+      title: hasBeenDeployed(application) ? 'Redeploy & Start Application' : 'Deploy & Start Application',
+      description: hasBeenDeployed(application) 
+        ? `Are you sure you want to redeploy and start "${confirmAction.appName}"? This will rebuild and run the application.`
+        : `Are you sure you want to deploy and start "${confirmAction.appName}"? This will build and run the application for the first time.`,
+      actionText: hasBeenDeployed(application) ? 'Redeploy & Start' : 'Deploy & Start',
+      variant: 'default' as const,
+    },
+    'start-existing': {
       title: 'Start Application',
-      description: `Are you sure you want to start "${confirmAction.appName}"? This will deploy and run the application.`,
+      description: `Are you sure you want to start "${confirmAction.appName}"? This will start the existing built application without rebuilding.`,
       actionText: 'Start Application',
       variant: 'default' as const,
     },
@@ -288,53 +309,122 @@ export default function ApplicationDetail() {
           <div className="flex items-center space-x-2">
             <Button
               variant="outline"
-              onClick={() => refetch()}
+              onClick={() => refetchApplication()}
               disabled={isRefreshing}
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
               Refresh
             </Button>
             
+            {/* Application Action Buttons */}
             {application.status === 'RUNNING' ? (
-              <Button
-                variant="outline"
-                onClick={handleStop}
-                disabled={stopApp.isPending}
-              >
-                {stopApp.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Square className="h-4 w-4 mr-2" />
-                )}
-                Stop
-              </Button>
+              // Running application - Show Stop button
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    onClick={handleStop}
+                    disabled={stopApp.isPending}
+                  >
+                    {stopApp.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Square className="h-4 w-4 mr-2" />
+                    )}
+                    Stop
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Stop the running application</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : hasBeenDeployed(application) ? (
+              // Previously deployed but not running - Show both Start and Redeploy & Start
+              <div className="flex items-center space-x-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handleStartExisting}
+                      disabled={startExistingApp.isPending}
+                      className="bg-gradient-primary"
+                    >
+                      {startExistingApp.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-2" />
+                      )}
+                      Start
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Start the existing built application</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      onClick={handleStart}
+                      disabled={startApp.isPending}
+                    >
+                      {startApp.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                      )}
+                      Redeploy & Start
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Rebuild and start the application</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             ) : (
-              <Button
-                onClick={handleStart}
-                disabled={startApp.isPending}
-                className="bg-gradient-primary"
-              >
-                {startApp.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                Start
-              </Button>
+              // Never deployed - Show Deploy & Start
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleStart}
+                    disabled={startApp.isPending}
+                    className="bg-gradient-primary"
+                  >
+                    {startApp.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4 mr-2" />
+                    )}
+                    Deploy & Start
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Deploy and start the application for the first time</p>
+                </TooltipContent>
+              </Tooltip>
             )}
             
-            <Button
-              variant="outline"
-              onClick={handleRestart}
-              disabled={restartApp.isPending}
-            >
-              {restartApp.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RotateCcw className="h-4 w-4 mr-2" />
-              )}
-              Restart
-            </Button>
+            {/* Restart button - only show if application is running */}
+            {application.status === 'RUNNING' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    onClick={handleRestart}
+                    disabled={restartApp.isPending}
+                  >
+                    {restartApp.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                    )}
+                    Restart
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Restart the application</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -689,58 +779,7 @@ export default function ApplicationDetail() {
 
           {/* Deployments Tab */}
           <TabsContent value="deployments" className="space-y-6">
-            <Card className="bg-gradient-card border-border/50">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Zap className="h-5 w-5 text-primary" />
-                  <span>Deployment History</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {application.deployments && application.deployments.length > 0 ? (
-                  <div className="space-y-4">
-                    {application.deployments.map((deployment, index) => (
-                      <div key={deployment.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center space-x-2">
-                            <Badge variant={deployment.status === 'SUCCESS' ? 'default' : 'destructive'}>
-                              {deployment.status}
-                            </Badge>
-                            <span className="text-sm text-muted-foreground">
-                              {new Date(deployment.createdAt).toLocaleString()}
-                            </span>
-                          </div>
-                          <span className="text-sm text-muted-foreground">
-                            #{application.deployments!.length - index}
-                          </span>
-                        </div>
-                        {deployment.buildLogs && (
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-sm font-medium">Build Logs</summary>
-                            <pre className="text-xs font-mono bg-muted p-2 rounded mt-2 whitespace-pre-wrap">
-                              {deployment.buildLogs}
-                            </pre>
-                          </details>
-                        )}
-                        {deployment.buildLogs && (
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-sm font-medium">Build Logs</summary>
-                            <pre className="text-xs font-mono bg-muted p-2 rounded mt-2 whitespace-pre-wrap">
-                              {deployment.buildLogs}
-                            </pre>
-                          </details>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    <Zap className="h-8 w-8 mx-auto mb-2" />
-                    <p>No deployments yet</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <DeploymentHistory application={application} />
           </TabsContent>
 
           {/* Settings Tab */}

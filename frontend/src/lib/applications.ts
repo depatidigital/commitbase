@@ -132,41 +132,67 @@ export const deleteApplication = async (id: string): Promise<void> => {
   }
 };
 
-// Start application
-export const startApplication = async (id: string): Promise<Application> => {
+// Start existing application (without redeploying)
+export const startExistingApplication = async (id: string): Promise<Application | boolean> => {
+  const response = await apiRequest<Application>(`/applications/${id}/start-existing`, {
+    method: 'POST',
+  });
+  
+  if (response.success) {
+    return response.data || true;
+  }
+  
+  throw new Error(response.error || 'Failed to start existing application');
+};
+
+// Start application (with redeploy)
+export const startApplication = async (id: string): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/start`, {
     method: 'POST',
   });
   
-  if (response.success && response.data) {
-    return response.data;
+  if (response.success) {
+    return response.data || true;
   }
   
   throw new Error(response.error || 'Failed to start application');
 };
 
 // Stop application
-export const stopApplication = async (id: string): Promise<Application> => {
+export const stopApplication = async (id: string): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/stop`, {
     method: 'POST',
   });
   
-  if (response.success && response.data) {
-    return response.data;
+  if (response.success) {
+    return response.data || true;
   }
   
   throw new Error(response.error || 'Failed to stop application');
 };
 
 // Restart application
-export const restartApplication = async (id: string): Promise<Application> => {
+export const restartApplication = async (id: string): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/restart`, {
     method: 'POST',
   });
   
-  if (response.success && response.data) {
-    return response.data;
+  if (response.success) {
+    return response.data || true;
   }
   
   throw new Error(response.error || 'Failed to restart application');
+};
+
+// Check if application has been deployed before
+export const hasBeenDeployed = (application: Application): boolean => {
+  // Check if there are any successful deployments
+  if (application.deployments && application.deployments.length > 0) {
+    return application.deployments.some(deployment => 
+      deployment.status === 'SUCCESS'
+    );
+  }
+  
+  // Check if lastDeployment exists (from backend)
+  return !!(application as any).lastDeployment;
 }; 

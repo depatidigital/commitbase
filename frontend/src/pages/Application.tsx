@@ -21,7 +21,8 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { useApplications, useStartApplication, useStopApplication, useRestartApplication, useDeleteApplication } from "@/hooks/useApplications";
+import { useApplicationsWithRealtime, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication } from "@/hooks/useApplications";
+import { hasBeenDeployed } from "@/lib/applications";
 import {
   Tooltip,
   TooltipContent,
@@ -43,15 +44,16 @@ import {
 export default function Application() {
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'start' | 'stop' | 'restart' | 'delete';
+    type: 'start' | 'start-existing' | 'stop' | 'restart' | 'delete';
     appId: string;
     appName: string;
   } | null>(null);
   const { toast } = useToast();
   
   // API hooks
-  const { data: applicationsData, isLoading, error } = useApplications();
+  const { data: applicationsData, isLoading, error } = useApplicationsWithRealtime();
   const startApp = useStartApplication();
+  const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
   const deleteApp = useDeleteApplication();
@@ -66,6 +68,10 @@ export default function Application() {
 
   const handleStart = async (id: string, name: string) => {
     setConfirmAction({ type: 'start', appId: id, appName: name });
+  };
+
+  const handleStartExisting = async (id: string, name: string) => {
+    setConfirmAction({ type: 'start-existing', appId: id, appName: name });
   };
 
   const handleStop = async (id: string, name: string) => {
@@ -87,6 +93,9 @@ export default function Application() {
       switch (confirmAction.type) {
         case 'start':
           await startApp.mutateAsync(confirmAction.appId);
+          break;
+        case 'start-existing':
+          await startExistingApp.mutateAsync(confirmAction.appId);
           break;
         case 'stop':
           await stopApp.mutateAsync(confirmAction.appId);
@@ -110,11 +119,23 @@ export default function Application() {
 
     const { type, appName } = confirmAction;
     
+    // Find the application to check if it has been deployed
+    const app = applications.find(a => a.id === confirmAction.appId);
+    
     switch (type) {
       case 'start':
         return {
+          title: hasBeenDeployed(app!) ? 'Redeploy & Start Application' : 'Deploy & Start Application',
+          description: hasBeenDeployed(app!) 
+            ? `Are you sure you want to redeploy and start "${appName}"? This will rebuild and run the application.`
+            : `Are you sure you want to deploy and start "${appName}"? This will build and run the application for the first time.`,
+          actionText: hasBeenDeployed(app!) ? 'Redeploy & Start' : 'Deploy & Start',
+          variant: 'default' as const,
+        };
+      case 'start-existing':
+        return {
           title: 'Start Application',
-          description: `Are you sure you want to start "${appName}"? This will deploy and run the application.`,
+          description: `Are you sure you want to start "${appName}"? This will start the existing built application without rebuilding.`,
           actionText: 'Start Application',
           variant: 'default' as const,
         };
@@ -144,6 +165,7 @@ export default function Application() {
 
   const runningApps = filteredApps.filter(app => app.status === "RUNNING").length;
   const errorApps = filteredApps.filter(app => app.status === "ERROR").length;
+  const deployingApps = filteredApps.filter(app => app.status === "DEPLOYING" || app.status === "BUILDING").length;
 
   if (isLoading) {
     return (
@@ -202,6 +224,12 @@ export default function Application() {
           <div className="flex items-center space-x-2 text-sm text-muted-foreground">
             <Activity className="h-4 w-4 text-success" />
             <span>{runningApps} running</span>
+            {deployingApps > 0 && (
+              <>
+                <Loader2 className="h-4 w-4 text-yellow-500 ml-4 animate-spin" />
+                <span>{deployingApps} deploying</span>
+              </>
+            )}
             {errorApps > 0 && (
               <>
                 <AlertCircle className="h-4 w-4 text-destructive ml-4" />
@@ -267,13 +295,16 @@ export default function Application() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            app.status === 'RUNNING' ? 'bg-green-500' : 
-                            app.status === 'STOPPED' ? 'bg-gray-500' : 
-                            app.status === 'ERROR' ? 'bg-red-500' :
-                            app.status === 'DEPLOYING' ? 'bg-yellow-500' :
-                            'bg-blue-500'
-                          }`} />
+                          {app.status === 'DEPLOYING' || app.status === 'BUILDING' ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />
+                          ) : (
+                            <div className={`w-2 h-2 rounded-full ${
+                              app.status === 'RUNNING' ? 'bg-green-500' : 
+                              app.status === 'STOPPED' ? 'bg-gray-500' : 
+                              app.status === 'ERROR' ? 'bg-red-500' :
+                              'bg-blue-500'
+                            }`} />
+                          )}
                           <span className="capitalize">{app.status.toLowerCase()}</span>
                         </div>
                       </TableCell>
@@ -287,47 +318,116 @@ export default function Application() {
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           {app.status === 'RUNNING' ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleStop(app.id, app.name)}
-                              disabled={stopApp.isPending}
-                              className="h-8 w-8 p-0"
-                            >
-                              {stopApp.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Square className="h-4 w-4" />
-                              )}
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleStop(app.id, app.name)}
+                                  disabled={stopApp.isPending}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  {stopApp.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Square className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Stop Application</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : hasBeenDeployed(app) ? (
+                            // Show both Start and Redeploy buttons for previously deployed apps
+                            <div className="flex items-center space-x-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleStartExisting(app.id, app.name)}
+                                    disabled={startExistingApp.isPending}
+                                    className="h-8 px-2 text-xs"
+                                  >
+                                    {startExistingApp.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Play className="h-3 w-3" />
+                                    )}
+                                    Start
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Start existing application</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleStart(app.id, app.name)}
+                                    disabled={startApp.isPending}
+                                    className="h-8 px-2 text-xs"
+                                  >
+                                    {startApp.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <RotateCcw className="h-3 w-3" />
+                                    )}
+                                    Redeploy
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Rebuild and start application</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
                           ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleStart(app.id, app.name)}
-                              disabled={startApp.isPending}
-                              className="h-8 w-8 p-0"
-                            >
-                              {startApp.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Play className="h-4 w-4" />
-                              )}
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleStart(app.id, app.name)}
+                                  disabled={startApp.isPending}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  {startApp.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Play className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Deploy & Start</p>
+                              </TooltipContent>
+                            </Tooltip>
                           )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRestart(app.id, app.name)}
-                            disabled={restartApp.isPending}
-                            className="h-8 w-8 p-0"
-                          >
-                            {restartApp.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <RotateCcw className="h-4 w-4" />
-                            )}
-                          </Button>
+                          {/* Restart button - only show if application is running */}
+                          {app.status === 'RUNNING' && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleRestart(app.id, app.name)}
+                                  disabled={restartApp.isPending}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  {restartApp.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <RotateCcw className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Restart Application</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button

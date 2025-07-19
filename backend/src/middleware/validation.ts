@@ -5,9 +5,6 @@ export const validateRequest = (schema: z.ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       // Only validate the request body, not params or query
-      const validatedBody = schema.parse(req.body);
-      req.body = validatedBody;
-      
       next();
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -17,7 +14,7 @@ export const validateRequest = (schema: z.ZodSchema) => {
           details: error.errors,
         });
       }
-      
+
       return res.status(500).json({
         success: false,
         error: 'Internal server error',

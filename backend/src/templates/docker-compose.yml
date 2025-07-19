@@ -1,11 +1,12 @@
 services:
   {{containerName}}:
+    container_name: {{containerName}}
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "{{hostPort}}:{{containerPort}}"
+      - "{{containerPort}}"
     volumes:
       - {{appVolume}}:/app
       - ../logs:/app/logs

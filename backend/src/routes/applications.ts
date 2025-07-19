@@ -177,7 +177,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 
     const { id } = req.params || {};
     const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body || {};
-
+    console.log(req.body);
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -229,7 +229,9 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         envVars,
       },
     });
-
+    console.log('Updated application:', updatedApp, {
+      port: port,
+    });
     res.json({
       success: true,
       data: updatedApp,
@@ -308,7 +310,86 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
   }
 });
 
-// Start application
+// Start existing application (without redeploying)
+router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    console.log('Start existing application request:', {
+      params: req.params,
+      url: req.url,
+      method: req.method
+    });
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    // Get application
+    const application = await prisma.application.findFirst({
+      where: {
+        id,
+        userId: req.user!.userId,
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      } as ApiResponse);
+    }
+
+    if (application.status === 'RUNNING') {
+      return res.status(400).json({
+        success: false,
+        error: 'Application is already running',
+      } as ApiResponse);
+    }
+
+    // Update application status
+    await prisma.application.update({
+      where: { id },
+      data: { status: 'DEPLOYING' },
+    });
+
+    // Start existing container without redeploying
+    const started = await deploymentService.startDockerCompose(application.domain);
+
+    if (started) {
+      await prisma.application.update({
+        where: { id },
+        data: { status: 'RUNNING' },
+      });
+
+      res.json({
+        success: true,
+        message: 'Application started successfully',
+      } as ApiResponse);
+    } else {
+      await prisma.application.update({
+        where: { id },
+        data: { status: 'ERROR' },
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to start application',
+      } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error starting existing application:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Start application (with redeploy)
 router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     console.log('Start application request:', {
@@ -369,13 +450,13 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       deployment,
       envVars: application.envVars as Record<string, string> || {},
     }).then(async (result) => {
-      // Update deployment record
+      // Update deployment record with logs
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: {
           status: result.success ? 'SUCCESS' : 'FAILED',
-          buildLogs: result.buildLogs,
-          deployLogs: result.startLogs,
+          buildLogs: result.buildLogs || '',
+          deployLogs: result.deployLogs || '',
         },
       });
 
@@ -395,7 +476,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         where: { id: deployment.id },
         data: {
           status: 'FAILED',
-          deployLogs: error.message,
+          buildLogs: error.message || 'Deployment failed',
         },
       });
 

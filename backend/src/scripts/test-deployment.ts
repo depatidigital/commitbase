@@ -1,61 +1,69 @@
-import { DeploymentService } from '../services/deployment';
-import { prisma } from '../lib/prisma';
+import { PrismaClient } from '@prisma/client';
 
-async function testDeployment() {
+const prisma = new PrismaClient();
+
+async function createTestDeployment() {
   try {
-    console.log('🧪 Testing deployment service...');
-
-    const deploymentService = new DeploymentService();
-
-    // Test app directory preparation
-    console.log('📁 Testing app directory preparation...');
-    const appDir = await deploymentService.prepareAppDirectory('test-app');
-    console.log('✅ App directory prepared:', appDir);
-
-    // Test repository sync (if you have a test repo)
-    console.log('📥 Testing repository sync...');
-    try {
-      await deploymentService.syncRepository(
-        appDir, 
-        'https://github.com/your-test-repo.git',
-        'main'
-      );
-      console.log('✅ Repository synced successfully');
-    } catch (error) {
-      console.log('⚠️ Repository sync failed (expected for test):', error.message);
+    // Get the first application
+    const application = await prisma.application.findFirst();
+    
+    if (!application) {
+      console.log('No applications found. Please create an application first.');
+      return;
     }
 
-    // Test dependency installation
-    console.log('📦 Testing dependency installation...');
-    try {
-      const result = await deploymentService.installDependencies(appDir);
-      console.log('✅ Dependencies installed:', result);
-    } catch (error) {
-      console.log('⚠️ Dependency installation failed (expected for test):', error.message);
-    }
+    console.log('Creating test deployment for application:', application.name);
 
-    // Test build command
-    console.log('🔨 Testing build command...');
-    const buildResult = await deploymentService.runBuildCommand(
-      appDir,
-      'echo "Build completed successfully"',
-      { NODE_ENV: 'production' }
-    );
-    console.log('✅ Build result:', buildResult);
+    // Create a test deployment
+    const deployment = await prisma.deployment.create({
+      data: {
+        applicationId: application.id,
+        userId: application.userId,
+        status: 'SUCCESS',
+        buildLogs: 'Test build logs\nBuilding application...\nBuild completed successfully',
+        deployLogs: 'Test deploy logs\nStarting application...\nApplication started successfully',
+        buildTime: 120, // 2 minutes
+        buildSize: '45MB',
+      },
+      include: {
+        application: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+          },
+        },
+      },
+    });
 
-    // Test application status
-    console.log('📊 Testing application status...');
-    const status = await deploymentService.getApplicationStatus('test-app');
-    console.log('✅ Application status:', status);
+    console.log('Test deployment created:', deployment);
 
-    console.log('🎉 All deployment service tests completed!');
+    // Test the deployment history API
+    const deployments = await prisma.deployment.findMany({
+      where: {
+        applicationId: application.id,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: {
+        application: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+          },
+        },
+      },
+    });
+
+    console.log('Deployment history:', deployments);
 
   } catch (error) {
-    console.error('❌ Test failed:', error);
+    console.error('Error creating test deployment:', error);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-// Run the test
-testDeployment(); 
+createTestDeployment(); 

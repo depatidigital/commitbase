@@ -212,8 +212,6 @@ export interface Database {
 export interface Deployment {
   id: string;
   status: 'PENDING' | 'BUILDING' | 'DEPLOYING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
-  buildLogs?: string;
-  deployLogs?: string;
   commitHash?: string;
   commitMessage?: string;
   buildTime?: number;
