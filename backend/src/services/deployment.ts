@@ -3,6 +3,8 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Application, Deployment } from '@prisma/client';
+import * as crypto from 'crypto';
+import { TemplateEngine, TemplateData } from '../utils/templateEngine';
 
 const execAsync = promisify(exec);
 
@@ -25,11 +27,17 @@ export interface StartResult {
   pid?: number | undefined;
 }
 
+export function getDockerContainerName(application: Application) {
+  return application.domain.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
 export class DeploymentService {
   private baseDir: string;
+  private templateEngine: TemplateEngine;
 
   constructor() {
     this.baseDir = process.env.APPS_DIR || path.join(process.cwd(), 'apps_dir');
+    this.templateEngine = new TemplateEngine();
   }
 
   /**
@@ -37,22 +45,22 @@ export class DeploymentService {
    */
   async prepareAppDirectory(domain: string): Promise<string> {
     const appDir = path.join(this.baseDir, domain);
-    
+
     try {
       // Create apps_dir directory if it doesn't exist
       await fs.mkdir(this.baseDir, { recursive: true });
-      
+
       // Create app directory if it doesn't exist
       await fs.mkdir(appDir, { recursive: true });
-      
+
       // Create logs directory
       const logsDir = path.join(appDir, 'logs');
       await fs.mkdir(logsDir, { recursive: true });
-      
+
       // Create sources directory
       const sourcesDir = path.join(appDir, 'sources');
       await fs.mkdir(sourcesDir, { recursive: true });
-      
+
       return appDir;
     } catch (error) {
       throw new Error(`Failed to prepare app directory: ${error}`);
@@ -65,7 +73,7 @@ export class DeploymentService {
   async syncRepository(appDir: string, repository: string, branch: string = 'main'): Promise<string> {
     try {
       const sourcesDir = path.join(appDir, 'sources');
-      
+
       // Check if directory is already a git repository
       const gitDir = path.join(sourcesDir, '.git');
       const gitExists = await fs.access(gitDir).then(() => true).catch(() => false);
@@ -92,9 +100,9 @@ export class DeploymentService {
   async installDependencies(appDir: string): Promise<string> {
     try {
       console.log('Installing dependencies...');
-      
+
       const sourcesDir = path.join(appDir, 'sources');
-      
+
       // Check if package.json exists
       const packageJsonPath = path.join(sourcesDir, 'package.json');
       const packageExists = await fs.access(packageJsonPath).then(() => true).catch(() => false);
@@ -111,39 +119,318 @@ export class DeploymentService {
     }
   }
 
+
   /**
-   * Run build command in sources directory
+   * Generate Docker container name for application
    */
-  async runBuildCommand(appDir: string, buildCommand: string, envVars: Record<string, string> = {}): Promise<BuildResult> {
+  private generateContainerName(domain: string): string {
+    const sanitizedDomain = domain.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+    return `${sanitizedDomain}`;
+  }
+
+  /**
+   * Create Dockerfile for the application using templates
+   */
+  async createDockerfile(appDir: string, application: Application): Promise<string> {
+    const sourcesDir = path.join(appDir, 'sources');
+    const dockerfilePath = path.join(sourcesDir, 'Dockerfile');
+
+    // Map application types to template names
+    const templateMap: Record<string, string> = {
+      'NODEJS': 'nodejs',
+      'STATIC': 'static',
+      'PYTHON': 'python',
+      'GO': 'go',
+      'RUST': 'rust',
+      'PHP': 'php',
+      'JAVA': 'java'
+    };
+
+    const templateName = templateMap[application.type];
+    if (!templateName) {
+      throw new Error(`Unsupported application type: ${application.type}`);
+    }
+
+    // Prepare template data
+    const templateData: TemplateData = {
+      port: application.port || this.getDefaultPort(application.type),
+      startCommand: application.startCommand || this.getDefaultStartCommand(application.type),
+      buildCommand: application.buildCommand || '',
+      nginxConfig: false // Will be set to true if nginx.conf exists
+    };
+
+    // Check for nginx.conf for static sites
+    if (application.type === 'STATIC') {
+      const nginxConfigPath = path.join(sourcesDir, 'nginx.conf');
+      try {
+        await fs.access(nginxConfigPath);
+        templateData.nginxConfig = true;
+      } catch {
+        // nginx.conf doesn't exist, use default
+      }
+    }
+
+    // Validate template data
+    const validation = this.templateEngine.validateTemplateData(templateName, templateData);
+    if (!validation.valid) {
+      throw new Error(`Template validation failed: ${validation.errors.join(', ')}`);
+    }
+
+    // Render template
+    const dockerfileContent = await this.templateEngine.renderTemplate(templateName, templateData);
+
+    // Write Dockerfile
+    await fs.writeFile(dockerfilePath, dockerfileContent);
+    return dockerfilePath;
+  }
+  /**
+   * Create Docker Compose file for the application with persistent volumes
+   */
+  async createDockerCompose(appDir: string, application: Application): Promise<string> {
+    const sourcesDir = path.join(appDir, 'sources');
+    const composePath = path.join(sourcesDir, 'docker-compose.yml');
+
+    // Generate unique names for volumes and networks
+    const containerName = getDockerContainerName(application);
+    const networkName = `${containerName}_network`;
+
+    // Prepare template data for Docker Compose
+    const templateData: TemplateData = {
+      containerName: containerName,
+      startCommand: application.startCommand,
+      domain: application.domain,
+      hostPort: application.port || this.getDefaultPort(application.type),
+      containerPort: application.port || this.getDefaultPort(application.type),
+      appVolume: `${containerName}_app`,
+      networkName: networkName,
+      nodeEnv: 'production',
+      environmentVariables: this.formatEnvironmentVariables(application.envVars as Record<string, string> || {}),
+      resourceLimits: this.getResourceLimits(application)
+    };
+
+    // Render Docker Compose template using template engine
+    const composeContent = await this.templateEngine.renderTemplate('docker-compose', templateData, 'compose');
+    console.log('composeContent', composeContent);
+    console.log('composePath', composePath);
+    // Debug: Log the generated content
+    console.log('Generated Docker Compose content:', composeContent);
+    console.log('Template data used:', templateData);
+
+    // Write Docker Compose file
+    await fs.writeFile(composePath, composeContent);
+    console.log(`Docker Compose file written to: ${composePath}`);
+    return composePath;
+  }
+
+  /**
+   * Get default port for application type
+   */
+  private getDefaultPort(type: string): number {
+    const defaultPorts: Record<string, number> = {
+      'NODEJS': 3000,
+      'STATIC': 80,
+      'PYTHON': 8000,
+      'GO': 8080,
+      'RUST': 8080,
+      'PHP': 80,
+      'JAVA': 8080
+    };
+    return defaultPorts[type] || 3000;
+  }
+
+  /**
+   * Get default start command for application type
+   */
+  private getDefaultStartCommand(type: string): string {
+    const defaultCommands: Record<string, string> = {
+      'NODEJS': 'npm start',
+      'STATIC': 'nginx -g "daemon off;"',
+      'PYTHON': 'python app.py',
+      'GO': './main',
+      'RUST': './app',
+      'PHP': 'apache2-foreground',
+      'JAVA': 'java -jar app.jar'
+    };
+    return defaultCommands[type] || 'npm start';
+  }
+
+  /**
+   * Format environment variables for Docker Compose
+   */
+  private formatEnvironmentVariables(envVars: Record<string, string>): string {
+    if (Object.keys(envVars).length === 0) {
+      return '';
+    }
+    return '\n' + Object.entries(envVars)
+      .map(([key, value]) => `      - ${key}=${value}`)
+      .join('\n');
+  }
+
+  /**
+   * Get health check configuration for application type
+   */
+  private getHealthCheck(type: string): string {
+    const healthChecks: Record<string, string> = {
+      'NODEJS': '["CMD", "curl", "-f", "http://localhost:3000/health"]',
+      'PYTHON': '["CMD", "curl", "-f", "http://localhost:8000/health"]',
+      'GO': '["CMD", "curl", "-f", "http://localhost:8080/health"]',
+      'RUST': '["CMD", "curl", "-f", "http://localhost:8080/health"]',
+      'JAVA': '["CMD", "curl", "-f", "http://localhost:8080/health"]',
+      'PHP': '["CMD", "curl", "-f", "http://localhost:80/health"]',
+      'STATIC': '["CMD", "curl", "-f", "http://localhost:80/health"]'
+    };
+
+    const healthCheck = healthChecks[type];
+    if (!healthCheck) {
+      return '';
+    }
+
+    return `    healthcheck:
+      test: ${healthCheck}
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s`;
+  }
+
+  /**
+   * Get resource limits configuration
+   */
+  private getResourceLimits(application: Application): string {
+    // if (!application.memory && !application.cpu) {
+    //   return '';
+    // }
+
+    const memoryLimit = application.memory || '512M';
+    const cpuLimit = application.cpu || '0.5';
+    const memoryReservation = this.calculateMemoryReservation(memoryLimit);
+    const cpuReservation = this.calculateCpuReservation(cpuLimit);
+
+    return `deploy:
+      resources:
+        limits:
+          memory: ${memoryLimit}
+          cpus: '${cpuLimit}'
+        reservations:
+          memory: ${memoryReservation}
+          cpus: '${cpuReservation}'`;
+  }
+
+  /**
+   * Calculate memory reservation (50% of limit)
+   */
+  private calculateMemoryReservation(memoryLimit: string): string {
+    const value = parseInt(memoryLimit);
+    const unit = memoryLimit.replace(/[0-9]/g, '');
+    const reservation = Math.floor(value * 0.5);
+    return `${reservation}${unit}`;
+  }
+
+  /**
+   * Calculate CPU reservation (50% of limit)
+   */
+  private calculateCpuReservation(cpuLimit: string): string {
+    const value = parseFloat(cpuLimit);
+    const reservation = (value * 0.5).toFixed(2);
+    return reservation;
+  }
+
+  /**
+   * Create .dockerignore file
+   */
+  async createDockerignore(appDir: string): Promise<string> {
+    const sourcesDir = path.join(appDir, 'sources');
+    const dockerignorePath = path.join(sourcesDir, '.dockerignore');
+
+    const dockerignoreContent = `node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+.env
+.nyc_output
+coverage
+.DS_Store
+*.log
+dist
+build
+.cache
+.parcel-cache`;
+
+    await fs.writeFile(dockerignorePath, dockerignoreContent);
+    return dockerignorePath;
+  }
+
+  /**
+   * Build Docker image for the application
+   */
+  async runDockerCompose(appDir: string, application: Application): Promise<BuildResult> {
     try {
-      console.log(`Running build command: ${buildCommand}`);
-      
+      console.log(`Running Docker Compose for application: ${application.name}`);
+      console.log('appDir', appDir);
       const sourcesDir = path.join(appDir, 'sources');
       const logsDir = path.join(appDir, 'logs');
-      
-      const env = { ...process.env, ...envVars };
-      const { stdout, stderr } = await execAsync(buildCommand, {
-        cwd: sourcesDir,
-        env,
-        timeout: 300000, // 5 minutes timeout
-      });
-
-      // Save build logs to file
+      console.log('sourcesDir', sourcesDir);
+      console.log('logsDir', logsDir);
+      // Ensure logs directory exists
+      await fs.mkdir(logsDir, { recursive: true });
+      await this.createDockerCompose(appDir, application);
       const buildLogPath = path.join(logsDir, 'build.log');
       const timestamp = new Date().toISOString();
-      const logEntry = `[${timestamp}] BUILD LOG:\n${stdout}\n${stderr}\n\n`;
-      await fs.appendFile(buildLogPath, logEntry);
+
+      // Write build start to log
+      await fs.appendFile(buildLogPath, `[${timestamp}] DOCKER COMPOSE STARTED\n`);
+
+      // Create Dockerfile
+      console.log('Creating Dockerfile');
+      await this.createDockerfile(appDir, application);
+
+      // Create .dockerignore
+      console.log('Creating .dockerignore');
+      await this.createDockerignore(appDir);
+
+      // Stop and remove existing containers first
+      console.log('Stopping and removing existing containers');
+      try {
+        await execAsync(`docker compose down --remove-orphans`, {
+          cwd: sourcesDir,
+          timeout: 60000, // 1 minute timeout
+        });
+      } catch (error) {
+        console.log('No existing containers to remove or error during cleanup:', error);
+      }
+
+      // Run Docker Compose
+      console.log('Running Docker Compose');
+      const { stdout, stderr } = await execAsync(`docker compose up -d --build`, {
+        cwd: sourcesDir,
+        timeout: 600000, // 10 minutes timeout
+      });
+      
+      // Clean up unused images
+      console.log('Cleaning up unused images');
+      try {
+        await execAsync(`docker image prune -a -f`);
+      } catch (error) {
+        console.log('Error during image cleanup:', error);
+      }
+      // Log build completion
+      const completionTimestamp = new Date().toISOString();
+      const buildLogEntry = `[${completionTimestamp}] DOCKER COMPOSE COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
+      console.log('buildLogEntry', buildLogEntry); console.log('buildLogEntry', buildLogEntry);
+      await fs.appendFile(buildLogPath, buildLogEntry);
 
       return {
         success: true,
         logs: stdout,
       };
     } catch (error: any) {
-      // Save build error logs to file
+      // Log build error
       const logsDir = path.join(appDir, 'logs');
       const buildLogPath = path.join(logsDir, 'build.log');
-      const timestamp = new Date().toISOString();
-      const errorLogEntry = `[${timestamp}] BUILD ERROR:\n${error.stderr || error.message}\n\n`;
+      const errorTimestamp = new Date().toISOString();
+      const errorLogEntry = `[${errorTimestamp}] DOCKER COMPOSE FAILED:\n${error.stderr || error.message}\n\n`;
+      console.log('errorLogEntry', errorLogEntry); console.log('errorLogEntry', errorLogEntry);
       await fs.appendFile(buildLogPath, errorLogEntry);
 
       return {
@@ -155,77 +442,47 @@ export class DeploymentService {
   }
 
   /**
-   * Start the application using PM2
+   * Start the application using Docker
    */
-  async startApplication(appDir: string, startCommand: string, port: number, envVars: Record<string, string> = {}): Promise<StartResult> {
+  async startApplication(appDir: string): Promise<StartResult> {
     try {
-      console.log(`Starting application with PM2: ${startCommand} on port ${port}`);
-      
+      console.log(`Starting application with Docker Compose`);
+
       const sourcesDir = path.join(appDir, 'sources');
-      const logsDir = path.join(appDir, 'logs');
-      
-      // Create app name from domain
-      const domain = path.basename(appDir);
-      const appName = `app-${domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
-      
-      // Create logs directory
-      await fs.mkdir(logsDir, { recursive: true });
-      
-      const env = { 
-        ...process.env, 
-        ...envVars,
-        PORT: port.toString(),
-        NODE_ENV: 'production',
-      };
+      const containerName = this.generateContainerName(appDir);
 
-      // Create PM2 ecosystem file
-      const ecosystemPath = path.join(appDir, 'ecosystem.config.js');
-      const ecosystemContent = `module.exports = {
-  apps: [{
-    name: '${appName}',
-    script: '${startCommand}',
-    cwd: '${sourcesDir}',
-    instances: 1,
-    autorestart: true,
-    watch: false,
-    max_memory_restart: '1G',
-    env: {
-      NODE_ENV: 'production',
-      PORT: '${port}',
-      ${Object.entries(envVars).map(([key, value]) => `${key}: '${value}'`).join(',\n      ')}
-    },
-    log_file: '${path.join(logsDir, 'combined.log')}',
-    out_file: '${path.join(logsDir, 'out.log')}',
-    error_file: '${path.join(logsDir, 'error.log')}',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-    merge_logs: true,
-    time: true
-  }]
-};`;
+      // Stop and remove existing container if it exists
+      try {
+        await execAsync(`docker stop ${containerName} || true`);
+        await execAsync(`docker rm ${containerName} || true`);
+      } catch (error) {
+        // Container doesn't exist, which is fine
+      }
 
-      await fs.writeFile(ecosystemPath, ecosystemContent);
+      // Start Docker container
+      const { stdout, stderr } = await execAsync(`docker-compose up -d`, {
+        cwd: sourcesDir,
+        timeout: 600000, // 10 minutes timeout
+      });
 
-      // Start application with PM2
-      const { stdout } = await execAsync(`cd "${appDir}" && pm2 start ecosystem.config.js --no-daemon`);
-      
-      // Wait a bit to see if the process starts successfully
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Wait a bit to see if the container starts successfully
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
-      // Check if PM2 process is running
-      const isRunning = await this.checkPM2ProcessRunning(appName);
+      // Check if container is running
+      const isRunning = await this.checkDockerContainerRunning(containerName);
 
       if (isRunning) {
-        const pid = await this.getPM2ProcessId(appName);
+        const containerId = await this.getDockerContainerId(containerName);
         return {
           success: true,
-          logs: `Application started successfully with PM2 (${appName})`,
-          pid: pid || undefined,
+          logs: `Application started successfully with Docker (${containerName})`,
+          pid: undefined, // Docker doesn't use PIDs in the same way
         };
       } else {
         return {
           success: false,
           logs: '',
-          error: 'Application failed to start with PM2',
+          error: 'Application failed to start with Docker',
         };
       }
     } catch (error: any) {
@@ -238,69 +495,219 @@ export class DeploymentService {
   }
 
   /**
-   * Stop the application using PM2
+   * Check if Docker container is running
    */
-  async stopApplication(appName?: string): Promise<boolean> {
+  private async checkDockerContainerRunning(containerName: string): Promise<boolean> {
     try {
-      if (appName) {
-        await execAsync(`pm2 stop ${appName}`);
-        await execAsync(`pm2 delete ${appName}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Failed to stop PM2 application:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Restart the application using PM2
-   */
-  async restartApplication(appName?: string): Promise<boolean> {
-    try {
-      if (appName) {
-        await execAsync(`pm2 restart ${appName}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Failed to restart PM2 application:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Check if PM2 process is running
-   */
-  private async checkPM2ProcessRunning(appName: string): Promise<boolean> {
-    try {
-      const { stdout } = await execAsync(`pm2 list | grep ${appName}`);
-      return stdout.includes('online');
+      const { stdout } = await execAsync(`docker ps --filter "name=${containerName}" --format "table {{.Names}}\t{{.Status}}"`);
+      return stdout.includes(containerName) && stdout.includes('Up');
     } catch {
       return false;
     }
   }
 
   /**
-   * Get PM2 process ID
+   * Get Docker container ID
    */
-  private async getPM2ProcessId(appName: string): Promise<number | undefined> {
+  private async getDockerContainerId(containerName: string): Promise<string | undefined> {
     try {
-      const { stdout } = await execAsync(`pm2 list | grep ${appName}`);
-      const match = stdout.match(/(\d+)/);
-      return match ? parseInt(match[1]) : undefined;
+      const { stdout } = await execAsync(`docker ps --filter "name=${containerName}" --format "{{.ID}}"`);
+      return stdout.trim() || undefined;
     } catch {
       return undefined;
     }
   }
 
   /**
-   * Get application logs from PM2
+   * Stop the application using Docker
    */
-  async getApplicationLogs(appName: string, lines: number = 100): Promise<string> {
+  async stopApplication(containerName?: string): Promise<boolean> {
     try {
-      const { stdout } = await execAsync(`pm2 logs ${appName} --lines ${lines} --nostream`);
+      if (containerName) {
+        await execAsync(`docker stop ${containerName}`);
+        await execAsync(`docker rm ${containerName}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to stop Docker application:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Start Docker Compose for an application
+   */
+  async startDockerCompose(domain: string): Promise<boolean> {
+    try {
+      const appDir = path.join(this.baseDir, domain);
+      const sourcesDir = path.join(appDir, 'sources');
+      const composePath = path.join(sourcesDir, 'docker-compose.yml');
+
+      // Check if docker-compose.yml exists
+      const exists = await fs.access(composePath).then(() => true).catch(() => false);
+      if (!exists) {
+        throw new Error('Docker Compose file not found');
+      }
+
+      // Stop and remove existing containers first
+      console.log(`Stopping existing containers for ${domain}`);
+      try {
+        await execAsync('docker-compose down --remove-orphans', {
+          cwd: sourcesDir,
+          timeout: 60000, // 1 minute timeout
+        });
+      } catch (error) {
+        console.log(`No existing containers to remove for ${domain} or error during cleanup:`, error);
+      }
+
+      // Start containers with Docker Compose
+      const { stdout, stderr } = await execAsync('docker-compose up -d', {
+        cwd: sourcesDir,
+        timeout: 120000, // 2 minutes timeout
+      });
+
+      console.log(`Docker Compose started for ${domain}:`, stdout);
+      return true;
+    } catch (error) {
+      console.error(`Failed to start Docker Compose for ${domain}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Stop Docker Compose for an application
+   */
+  async stopDockerCompose(domain: string): Promise<boolean> {
+    try {
+      const appDir = path.join(this.baseDir, domain);
+      const sourcesDir = path.join(appDir, 'sources');
+      const composePath = path.join(sourcesDir, 'docker-compose.yml');
+
+      // Check if docker-compose.yml exists
+      const exists = await fs.access(composePath).then(() => true).catch(() => false);
+      if (!exists) {
+        return true; // No compose file, nothing to stop
+      }
+
+      // Stop containers with Docker Compose
+      const { stdout, stderr } = await execAsync('docker-compose down', {
+        cwd: sourcesDir,
+        timeout: 60000, // 1 minute timeout
+      });
+
+      console.log(`Docker Compose stopped for ${domain}:`, stdout);
+      return true;
+    } catch (error: any) {
+      // If container doesn't exist, consider it a success
+      if (error.stderr && error.stderr.includes('No such container')) {
+        console.log(`Container for ${domain} doesn't exist, considering stop successful`);
+        return true;
+      }
+
+      console.error(`Failed to stop Docker Compose for ${domain}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Restart Docker Compose for an application
+   */
+  async restartDockerCompose(domain: string): Promise<boolean> {
+    try {
+      await this.stopDockerCompose(domain);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      return await this.startDockerCompose(domain);
+    } catch (error) {
+      console.error(`Failed to restart Docker Compose for ${domain}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get Docker Compose status for an application
+   */
+  async getDockerComposeStatus(domain: string): Promise<'RUNNING' | 'STOPPED' | 'ERROR'> {
+    try {
+      const appDir = path.join(this.baseDir, domain);
+      const sourcesDir = path.join(appDir, 'sources');
+      const composePath = path.join(sourcesDir, 'docker-compose.yml');
+
+      // Check if docker-compose.yml exists
+      const exists = await fs.access(composePath).then(() => true).catch(() => false);
+      if (!exists) {
+        return 'STOPPED';
+      }
+
+      // Check Docker Compose status
+      const { stdout } = await execAsync('docker-compose ps', {
+        cwd: sourcesDir,
+        timeout: 30000, // 30 seconds timeout
+      });
+
+      if (stdout.includes('Up')) {
+        return 'RUNNING';
+      } else if (stdout.includes('Exit')) {
+        return 'ERROR';
+      } else {
+        return 'STOPPED';
+      }
+    } catch (error) {
+      console.error(`Failed to get Docker Compose status for ${domain}:`, error);
+      return 'ERROR';
+    }
+  }
+
+  /**
+   * Get Docker Compose logs for an application
+   */
+  async getDockerComposeLogs(domain: string, service?: string, lines: number = 100): Promise<string> {
+    try {
+      const appDir = path.join(this.baseDir, domain);
+      const sourcesDir = path.join(appDir, 'sources');
+      const composePath = path.join(sourcesDir, 'docker-compose.yml');
+
+      // Check if docker-compose.yml exists
+      const exists = await fs.access(composePath).then(() => true).catch(() => false);
+      if (!exists) {
+        return 'Docker Compose file not found';
+      }
+
+      // Get logs from Docker Compose
+      const serviceArg = service ? ` ${service}` : '';
+      const { stdout, stderr } = await execAsync(`docker-compose logs --tail=${lines}${serviceArg}`, {
+        cwd: sourcesDir,
+        timeout: 30000, // 30 seconds timeout
+      });
+
+      return stdout || stderr || 'No logs available';
+    } catch (error) {
+      return `Failed to get Docker Compose logs: ${error}`;
+    }
+  }
+
+  /**
+   * Restart the application using Docker
+   */
+  async restartApplication(containerName?: string): Promise<boolean> {
+    try {
+      if (containerName) {
+        await execAsync(`docker restart ${containerName}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to restart Docker application:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get application logs from Docker container
+   */
+  async getApplicationLogs(containerName: string, lines: number = 100): Promise<string> {
+    try {
+      const { stdout } = await execAsync(`docker logs --tail ${lines} ${containerName}`);
       return stdout;
     } catch (error) {
       return `Failed to get logs: ${error}`;
@@ -308,14 +715,14 @@ export class DeploymentService {
   }
 
   /**
-   * Get application status from PM2
+   * Get application status from Docker
    */
-  async getPM2ApplicationStatus(appName: string): Promise<'RUNNING' | 'STOPPED' | 'ERROR'> {
+  async getDockerApplicationStatus(containerName: string): Promise<'RUNNING' | 'STOPPED' | 'ERROR'> {
     try {
-      const { stdout } = await execAsync(`pm2 list | grep ${appName}`);
-      if (stdout.includes('online')) {
+      const { stdout } = await execAsync(`docker ps --filter "name=${containerName}" --format "{{.Status}}"`);
+      if (stdout.includes('Up')) {
         return 'RUNNING';
-      } else if (stdout.includes('stopped')) {
+      } else if (stdout.includes('Exited')) {
         return 'STOPPED';
       } else {
         return 'ERROR';
@@ -351,40 +758,36 @@ export class DeploymentService {
         await this.syncRepository(appDir, application.repository, branch);
       }
 
-      // 3. Install dependencies
-      await this.installDependencies(appDir);
-
-      // 4. Run build command
+      // 3. Create Docker Compose file with persistent volumes
+      // 4. Build Docker image
       let buildLogs = '';
-      if (application.buildCommand) {
-        const buildResult = await this.runBuildCommand(appDir, application.buildCommand, envVars);
-        buildLogs = buildResult.logs;
-        
-        if (!buildResult.success) {
-          return {
-            success: false,
-            buildLogs,
-            startLogs: '',
-            error: buildResult.error || 'Build failed',
-          };
-        }
+      const buildResult = await this.runDockerCompose(appDir, application);
+      buildLogs = buildResult.logs;
+
+      if (!buildResult.success) {
+        return {
+          success: false,
+          buildLogs,
+          startLogs: '',
+          error: buildResult.error || 'Docker build failed',
+        };
       }
 
-      // 5. Start application (only for Node.js apps)
+
+      // 5. Start application with Docker Compose
       let startLogs = '';
-      if (application.type === 'NODEJS' && application.startCommand && application.port) {
-        const startResult = await this.startApplication(appDir, application.startCommand, application.port, envVars);
-        startLogs = startResult.logs;
-        
-        if (!startResult.success) {
-          return {
-            success: false,
-            buildLogs,
-            startLogs,
-            error: startResult.error || 'Application failed to start',
-          };
-        }
+      const startResult = await this.startDockerCompose(application.domain);
+
+      if (!startResult) {
+        return {
+          success: false,
+          buildLogs,
+          startLogs: '',
+          error: 'Application failed to start with Docker Compose',
+        };
       }
+
+      startLogs = 'Docker Compose deployment started successfully';
 
       return {
         success: true,
@@ -403,52 +806,52 @@ export class DeploymentService {
   }
 
   /**
-   * Get application status
+   * Get application status using Docker Compose
    */
   async getApplicationStatus(domain: string): Promise<'RUNNING' | 'STOPPED' | 'ERROR'> {
     try {
       if (!domain) {
         return 'ERROR';
       }
-      
+
       // Check if app directory exists
       const appDir = path.join(this.baseDir, domain);
       const exists = await fs.access(appDir).then(() => true).catch(() => false);
-      
+
       if (!exists) {
         return 'STOPPED';
       }
 
-      // Check PM2 status
-      const appName = `app-${domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
-      return await this.getPM2ApplicationStatus(appName);
+      // Check Docker Compose status
+      return await this.getDockerComposeStatus(domain);
     } catch (error) {
       return 'ERROR';
     }
   }
 
   /**
-   * List all PM2 processes
+   * List all Docker containers
    */
-  async listPM2Processes(): Promise<any[]> {
+  async listDockerContainers(): Promise<any[]> {
     try {
-      const { stdout } = await execAsync('pm2 list --format json');
-      return JSON.parse(stdout);
+      const { stdout } = await execAsync('docker ps -a --format json');
+      return stdout.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
     } catch (error) {
-      console.error('Failed to list PM2 processes:', error);
+      console.error('Failed to list Docker containers:', error);
       return [];
     }
   }
 
   /**
-   * Clean up PM2 processes for an application
+   * Clean up Docker containers for an application
    */
-  async cleanupPM2Processes(domain: string): Promise<void> {
+  async cleanupDockerContainers(domain: string): Promise<void> {
     try {
-      const appName = `app-${domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
-      await execAsync(`pm2 delete ${appName} || true`);
+      const containerName = this.generateContainerName(domain);
+      await execAsync(`docker stop ${containerName} || true`);
+      await execAsync(`docker rm ${containerName} || true`);
     } catch (error) {
-      console.error('Failed to cleanup PM2 processes:', error);
+      console.error('Failed to cleanup Docker containers:', error);
     }
   }
 
@@ -457,9 +860,13 @@ export class DeploymentService {
    */
   async getApplicationLogsFromFiles(domain: string, logType: string = 'combined', lines: number = 100): Promise<string> {
     try {
+      if (!domain) {
+        return 'No domain provided';
+      }
+
       const appDir = path.join(this.baseDir, domain);
       const logsDir = path.join(appDir, 'logs');
-      
+
       let logFile = '';
       switch (logType) {
         case 'out':
@@ -475,11 +882,136 @@ export class DeploymentService {
           logFile = path.join(logsDir, 'combined.log');
       }
 
+      // Check if log file exists
+      const logExists = await fs.access(logFile).then(() => true).catch(() => false);
+      if (!logExists) {
+        return `Log file not found: ${logFile}`;
+      }
+
       const logContent = await fs.readFile(logFile, 'utf-8');
       const logLines = logContent.split('\n').slice(-lines).join('\n');
       return logLines;
     } catch (error) {
-      return `No logs available for ${logType}`;
+      return `No logs available for ${logType}: ${error}`;
+    }
+  }
+
+  /**
+   * Check if build log exists for a domain
+   */
+  async checkBuildLogExists(domain: string): Promise<{ exists: boolean; path: string; size?: number }> {
+    try {
+      if (!domain) {
+        return { exists: false, path: '' };
+      }
+
+      const appDir = path.join(this.baseDir, domain);
+      const logsDir = path.join(appDir, 'logs');
+      const buildLogPath = path.join(logsDir, 'build.log');
+
+      const exists = await fs.access(buildLogPath).then(() => true).catch(() => false);
+
+      if (exists) {
+        const stats = await fs.stat(buildLogPath);
+        return {
+          exists: true,
+          path: buildLogPath,
+          size: stats.size
+        };
+      }
+
+      return {
+        exists: false,
+        path: buildLogPath
+      };
+    } catch (error) {
+      return {
+        exists: false,
+        path: ''
+      };
+    }
+  }
+
+  /**
+   * Create a test build log entry for debugging
+   */
+  async createTestBuildLog(domain: string, message: string = 'Test build log entry'): Promise<boolean> {
+    try {
+      if (!domain) {
+        return false;
+      }
+
+      const appDir = path.join(this.baseDir, domain);
+      const logsDir = path.join(appDir, 'logs');
+
+      // Ensure logs directory exists
+      await fs.mkdir(logsDir, { recursive: true });
+
+      const buildLogPath = path.join(logsDir, 'build.log');
+      const timestamp = new Date().toISOString();
+      const testEntry = `[${timestamp}] TEST: ${message}\n`;
+
+      await fs.appendFile(buildLogPath, testEntry);
+      console.log(`Test build log entry created at: ${buildLogPath}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to create test build log: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Get available Docker templates
+   */
+  async getAvailableTemplates(): Promise<string[]> {
+    return await this.templateEngine.getAvailableTemplates();
+  }
+
+  /**
+   * Get template content
+   */
+  async getTemplateContent(templateName: string): Promise<string> {
+    try {
+      const templatePath = path.join(process.cwd(), 'src', 'templates', 'dockerfiles', `${templateName}.Dockerfile`);
+      return await fs.readFile(templatePath, 'utf-8');
+    } catch (error) {
+      throw new Error(`Template ${templateName} not found`);
+    }
+  }
+
+  /**
+   * Update template content
+   */
+  async updateTemplateContent(templateName: string, content: string): Promise<void> {
+    try {
+      const templatePath = path.join(process.cwd(), 'src', 'templates', 'dockerfiles', `${templateName}.Dockerfile`);
+      await fs.writeFile(templatePath, content);
+    } catch (error) {
+      throw new Error(`Failed to update template ${templateName}`);
+    }
+  }
+
+  /**
+   * Create new template
+   */
+  async createTemplate(templateName: string, content: string): Promise<void> {
+    try {
+      const templatePath = path.join(process.cwd(), 'src', 'templates', 'dockerfiles', `${templateName}.Dockerfile`);
+      await fs.writeFile(templatePath, content);
+    } catch (error) {
+      throw new Error(`Failed to create template ${templateName}`);
+    }
+  }
+
+  /**
+   * Delete template
+   */
+  async deleteTemplate(templateName: string): Promise<void> {
+    try {
+      const templatePath = path.join(process.cwd(), 'src', 'templates', 'dockerfiles', `${templateName}.Dockerfile`);
+      await fs.unlink(templatePath);
+    } catch (error) {
+      throw new Error(`Failed to delete template ${templateName}`);
     }
   }
 }

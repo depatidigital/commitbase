@@ -1,4 +1,4 @@
-import apiRequest, { PaginatedResponse } from './api';
+import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
 
 export interface Log {
   id: string;
@@ -45,7 +45,7 @@ export const getLogs = async (
 // Get real-time logs (for WebSocket or SSE)
 export const getRealTimeLogs = async (applicationId: string): Promise<EventSource> => {
   const token = localStorage.getItem('authToken');
-  const eventSource = new EventSource(`http://localhost:3001/logs/${applicationId}/stream?token=${token}`);
+  const eventSource = new EventSource(`${API_BASE_URL}/logs/${applicationId}/stream?token=${token}`);
   return eventSource;
 };
 
@@ -76,7 +76,7 @@ export const exportLogs = async (
   });
 
   const token = localStorage.getItem('authToken');
-  const response = await fetch(`http://localhost:3001/logs/export?${params.toString()}`, {
+  const response = await fetch(`${API_BASE_URL}/logs/export?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

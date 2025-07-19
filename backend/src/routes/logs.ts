@@ -38,10 +38,16 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
-    // Get logs from files using domain
+    // Get logs based on type
     let logs = '';
     try {
-      logs = await deploymentService.getApplicationLogsFromFiles(application.domain, logType, lines);
+      if (logType === 'build') {
+        // For build logs, use file-based logs
+        logs = await deploymentService.getApplicationLogsFromFiles(application.domain, logType, lines);
+      } else {
+        // For runtime logs, use Docker logs
+        logs = await deploymentService.getDockerComposeLogs(application.domain, undefined, lines);
+      }
     } catch (error) {
       logs = `No logs available for ${logType}`;
     }
@@ -106,59 +112,196 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
     // Send initial connection message
     res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Log stream started' })}\n\n`);
 
-    // Get log file path using domain
-    const appDir = path.join(process.env.APPS_DIR || './apps_dir', application.domain);
-    const logsDir = path.join(appDir, 'logs');
-    
-    let logFile = '';
-    switch (logType) {
-      case 'out':
-        logFile = path.join(logsDir, 'out.log');
-        break;
-      case 'error':
-        logFile = path.join(logsDir, 'error.log');
-        break;
-      case 'build':
-        logFile = path.join(logsDir, 'build.log');
-        break;
-      default:
-        logFile = path.join(logsDir, 'combined.log');
+    // Get logs based on type
+    if (!application.domain) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Application domain not found' })}\n\n`);
+      return;
     }
 
-    // Monitor log file for changes
-    let lastSize = 0;
-    const interval = setInterval(async () => {
-      try {
-        const stats = await fs.stat(logFile);
-        if (stats.size > lastSize) {
-          const stream = require('fs').createReadStream(logFile, {
-            start: lastSize,
-            end: stats.size,
-          });
+    if (logType === 'build') {
+      // For build logs, monitor file changes
+      const appDir = path.join(process.env.APPS_DIR || './apps_dir', application.domain);
+      const logsDir = path.join(appDir, 'logs');
+      const logFile = path.join(logsDir, 'build.log');
 
-          stream.on('data', (chunk: Buffer) => {
-            const lines = chunk.toString().split('\n').filter(line => line.trim());
-            lines.forEach(line => {
-              res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
+      // Monitor log file for changes
+      let lastSize = 0;
+      const interval = setInterval(async () => {
+        try {
+          const stats = await fs.stat(logFile);
+          if (stats.size > lastSize) {
+            const stream = require('fs').createReadStream(logFile, {
+              start: lastSize,
+              end: stats.size,
             });
-          });
 
-          lastSize = stats.size;
+            stream.on('data', (chunk: Buffer) => {
+              const lines = chunk.toString().split('\n').filter(line => line.trim());
+              lines.forEach(line => {
+                res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
+              });
+            });
+
+            lastSize = stats.size;
+          }
+        } catch (error) {
+          // Log file doesn't exist or other error
+          res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}\n\n`);
         }
-      } catch (error) {
-        // Log file doesn't exist or other error
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}\n\n`);
-      }
-    }, 1000);
+      }, 1000);
 
-    // Clean up on client disconnect
-    req.on('close', () => {
-      clearInterval(interval);
-    });
+      // Clean up on client disconnect
+      req.on('close', () => {
+        clearInterval(interval);
+      });
+    } else {
+      // For runtime logs, use Docker logs with follow
+      const { exec } = require('child_process');
+      const dockerLogsProcess = exec(`docker compose logs -f --tail=100 ${application.domain}`, {
+        cwd: path.join(process.env.APPS_DIR || './apps_dir', application.domain, 'sources')
+      });
+
+      dockerLogsProcess.stdout?.on('data', (data: Buffer) => {
+        const lines = data.toString().split('\n').filter(line => line.trim());
+        lines.forEach(line => {
+          res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
+        });
+      });
+
+      dockerLogsProcess.stderr?.on('data', (data: Buffer) => {
+        res.write(`data: ${JSON.stringify({ type: 'error', message: data.toString() })}\n\n`);
+      });
+
+      // Clean up on client disconnect
+      req.on('close', () => {
+        dockerLogsProcess.kill();
+      });
+    }
 
   } catch (error) {
     console.error('Error setting up log stream:', error);
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to setup log stream' })}\n\n`);
+  }
+});
+
+// Test build log functionality
+router.post('/test-build-log/:appId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { appId } = req.params;
+    const { message } = req.body;
+
+    if (!appId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    // Verify application belongs to user
+    const application = await prisma.application.findFirst({
+      where: {
+        id: appId,
+        userId: req.user!.userId,
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      } as ApiResponse);
+    }
+
+    if (!application.domain) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application domain is required',
+      } as ApiResponse);
+    }
+
+    // Create test build log entry
+    const success = await deploymentService.createTestBuildLog(application.domain, message || 'Test build log entry');
+
+    if (success) {
+      // Check if build log exists
+      const logStatus = await deploymentService.checkBuildLogExists(application.domain);
+      
+      res.json({
+        success: true,
+        data: {
+          message: 'Test build log created successfully',
+          logStatus,
+          domain: application.domain,
+        },
+        message: 'Test build log created successfully',
+      } as ApiResponse);
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create test build log',
+      } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error creating test build log:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Check build log status
+router.get('/build-log-status/:appId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { appId } = req.params;
+
+    if (!appId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    // Verify application belongs to user
+    const application = await prisma.application.findFirst({
+      where: {
+        id: appId,
+        userId: req.user!.userId,
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      } as ApiResponse);
+    }
+
+    if (!application.domain) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application domain is required',
+      } as ApiResponse);
+    }
+
+    // Check build log status
+    const logStatus = await deploymentService.checkBuildLogExists(application.domain);
+    
+    res.json({
+      success: true,
+      data: {
+        logStatus,
+        domain: application.domain,
+        applicationId: appId,
+      },
+      message: 'Build log status retrieved successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error checking build log status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
   }
 });
 
@@ -207,12 +350,12 @@ router.get('/system', authenticateToken, async (req: AuthenticatedRequest, res: 
   }
 });
 
-// Get PM2 status and logs
-router.get('/pm2/status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+// Get Docker container status and logs
+router.get('/docker/status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const processes = await deploymentService.listPM2Processes();
+    const containers = await deploymentService.listDockerContainers();
     
-    // Filter processes for current user's applications
+    // Filter containers for current user's applications
     const userApplications = await prisma.application.findMany({
       where: {
         userId: req.user!.userId,
@@ -224,18 +367,18 @@ router.get('/pm2/status', authenticateToken, async (req: AuthenticatedRequest, r
       },
     });
 
-    const userAppIds = userApplications.map(app => app.id);
-    const userProcesses = processes.filter((process: any) => 
-      userAppIds.some(appId => process.name.includes(appId))
+    const userDomains = userApplications.map(app => app.domain);
+    const userContainers = containers.filter((container: any) => 
+      userDomains.some(domain => container.Names.includes(domain))
     );
 
     res.json({
       success: true,
-      data: userProcesses,
-      message: 'PM2 status retrieved successfully',
+      data: userContainers,
+      message: 'Docker container status retrieved successfully',
     } as ApiResponse);
   } catch (error) {
-    console.error('Error fetching PM2 status:', error);
+    console.error('Error fetching Docker container status:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

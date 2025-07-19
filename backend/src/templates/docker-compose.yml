@@ -1,0 +1,28 @@
+services:
+  {{containerName}}:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "{{hostPort}}:{{containerPort}}"
+    volumes:
+      - {{appVolume}}:/app
+      - ../logs:/app/logs
+    environment:
+      - NODE_ENV={{nodeEnv}}
+      - PORT={{containerPort}}
+      {{environmentVariables}}
+    networks:
+      - {{networkName}}
+    {{resourceLimits}}
+
+networks:
+  {{networkName}}:
+    driver: bridge
+    name: {{networkName}}
+
+volumes:
+  {{appVolume}}:
+    driver: local
+    name: {{containerName}}_app 

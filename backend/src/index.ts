@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
+import { ContainerWatcher } from './services/containerWatcher';
 
 // Load environment variables
 config();
@@ -16,6 +17,7 @@ import deploymentsRoutes from './routes/deployments';
 import logsRoutes from './routes/logs';
 import metricsRoutes from './routes/metrics';
 import domainsRoutes from './routes/domains';
+import templatesRoutes from './routes/templates';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,6 +63,17 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Container watcher status endpoint
+app.get('/health/containers', (req, res) => {
+  const containerWatcher = new ContainerWatcher();
+  const status = containerWatcher.getWatcherStatus();
+  res.json({
+    status: 'OK',
+    containerWatcher: status,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/applications', applicationsRoutes);
@@ -69,6 +82,7 @@ app.use('/api/deployments', deploymentsRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/domains', domainsRoutes);
+app.use('/api/templates', templatesRoutes);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -117,8 +131,13 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  
+  // Start container watcher
+  const containerWatcher = new ContainerWatcher();
+  await containerWatcher.startWatching();
+  console.log('🔍 Container watcher started');
 }); 

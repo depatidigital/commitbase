@@ -246,7 +246,14 @@ export default function Application() {
                 <TableBody>
                   {filteredApps.map((app) => (
                     <TableRow key={app.id}>
-                      <TableCell className="font-medium">{app.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link 
+                          to={`/application/${app.id}`}
+                          className="hover:text-primary transition-colors"
+                        >
+                          {app.name}
+                        </Link>
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           <Globe className="h-4 w-4 text-muted-foreground" />

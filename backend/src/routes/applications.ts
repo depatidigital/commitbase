@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { DeploymentService } from '../services/deployment';
+import { DeploymentService, getDockerContainerName } from '../services/deployment';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -68,8 +68,14 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
 // Get a specific application by ID
 router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    
+    console.log('Get application request:', {
+      params: req.params,
+      url: req.url,
+      method: req.method
+    });
+
+    const { id } = req.params || {};
+
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -162,8 +168,15 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
 // Update an application
 router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body;
+    console.log('Update application request:', {
+      params: req.params,
+      body: req.body,
+      url: req.url,
+      method: req.method
+    });
+
+    const { id } = req.params || {};
+    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body || {};
 
     if (!id) {
       return res.status(400).json({
@@ -224,6 +237,13 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     } as ApiResponse<Application>);
   } catch (error) {
     console.error('Error updating application:', error);
+    console.error('Request details:', {
+      params: req.params,
+      body: req.body,
+      url: req.url,
+      method: req.method,
+      headers: req.headers
+    });
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -234,7 +254,13 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 // Delete an application
 router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    console.log('Delete application request:', {
+      params: req.params,
+      url: req.url,
+      method: req.method
+    });
+
+    const { id } = req.params || {};
 
     if (!id) {
       return res.status(400).json({
@@ -285,7 +311,13 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
 // Start application
 router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    console.log('Start application request:', {
+      params: req.params,
+      url: req.url,
+      method: req.method
+    });
+
+    const { id } = req.params || {};
 
     if (!id) {
       return res.status(400).json({
@@ -350,14 +382,14 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       // Update application status
       await prisma.application.update({
         where: { id },
-        data: { 
+        data: {
           status: result.success ? 'RUNNING' : 'ERROR',
           lastDeployment: new Date(),
         },
       });
     }).catch(async (error) => {
       console.error('Deployment failed:', error);
-      
+
       // Update deployment record
       await prisma.deployment.update({
         where: { id: deployment.id },
@@ -423,8 +455,8 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
     }
 
     // Stop PM2 process
-    const appName = `app-${application.domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
-    const stopped = await deploymentService.stopApplication(appName);
+    const containerName = getDockerContainerName(application);
+    const stopped = await deploymentService.stopApplication(containerName);
 
     if (stopped) {
       await prisma.application.update({
@@ -477,10 +509,22 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
         error: 'Application not found',
       } as ApiResponse);
     }
-
+    // check if application is running
+    const status = await deploymentService.getApplicationStatus(application.domain);
+    if (status === 'STOPPED') {
+      //update application status to running
+      await prisma.application.update({
+        where: { id },
+        data: { status: 'STOPPED' },
+      });
+      return res.json({
+        success: false,
+        error: 'Application is not running',
+      } as ApiResponse);
+    }
     // Restart PM2 process
-    const appName = `app-${application.domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
-    const restarted = await deploymentService.restartApplication(appName);
+    const containerName = getDockerContainerName(application);
+    const restarted = await deploymentService.restartApplication(containerName);
 
     if (restarted) {
       await prisma.application.update({
