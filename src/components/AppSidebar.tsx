@@ -40,7 +40,7 @@ export function AppSidebar() {
                 </div>
                 <div>
                   <h1 className="text-lg font-bold bg-gradient-primary bg-clip-text text-transparent">
-                    DeployHub
+                    Portalin
                   </h1>
                   <p className="text-xs text-muted-foreground">Self-hosted platform</p>
                 </div>
