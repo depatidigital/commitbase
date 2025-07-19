@@ -321,7 +321,7 @@ export default function Application() {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
-                                  variant="outline"
+                                  variant="destructive"
                                   size="sm"
                                   onClick={() => handleStop(app.id, app.name)}
                                   disabled={stopApp.isPending}

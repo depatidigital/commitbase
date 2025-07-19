@@ -322,7 +322,7 @@ export default function ApplicationDetail() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="outline"
+                    variant="destructive"
                     onClick={handleStop}
                     disabled={stopApp.isPending}
                   >
