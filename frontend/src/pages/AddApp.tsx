@@ -106,11 +106,6 @@ export default function AddApp() {
   const appTypeOptions = [
     { value: "NODEJS", label: "Node.js Application", icon: "⚡" },
     { value: "STATIC", label: "Static Website", icon: "🌐" },
-    { value: "PYTHON", label: "Python Application", icon: "🐍" },
-    { value: "GO", label: "Go Application", icon: "🐹" },
-    { value: "RUST", label: "Rust Application", icon: "🦀" },
-    { value: "PHP", label: "PHP Application", icon: "🐘" },
-    { value: "JAVA", label: "Java Application", icon: "☕" },
   ];
 
   const availableDomains = domains?.filter(domain => domain.status === 'ACTIVE') || [];

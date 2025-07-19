@@ -58,6 +58,7 @@ export default function Application() {
 
   const applications = applicationsData?.data || [];
   const filteredApps = applications.filter(app =>
+    searchTerm.toLowerCase() === "" ||
     app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     app.domain.toLowerCase().includes(searchTerm.toLowerCase()) ||
     app.type.toLowerCase().includes(searchTerm.toLowerCase())

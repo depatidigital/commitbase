@@ -1,15 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
-import { 
-  CreateApplicationSchema, 
-  UpdateApplicationSchema, 
-  ApiResponse,
-  PaginatedResponse 
-} from '../types';
+import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { DeploymentService } from '../services/deployment';
 
 const router = Router();
+const deploymentService = new DeploymentService();
 
 // Get all applications for the authenticated user
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -25,13 +22,17 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
         },
         include: {
           deployments: {
-            orderBy: { createdAt: 'desc' },
+            orderBy: {
+              createdAt: 'desc',
+            },
             take: 1,
           },
         },
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: {
+          createdAt: 'desc',
+        },
       }),
       prisma.application.count({
         where: {
@@ -53,9 +54,10 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           totalPages,
         },
       },
-    } as ApiResponse<PaginatedResponse<any>>);
+      message: 'Applications retrieved successfully',
+    } as ApiResponse<PaginatedResponse<Application>>);
   } catch (error) {
-    console.error('Get applications error:', error);
+    console.error('Error fetching applications:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -63,10 +65,17 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
   }
 });
 
-// Get single application
+// Get a specific application by ID
 router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
 
     const application = await prisma.application.findFirst({
       where: {
@@ -75,13 +84,9 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       },
       include: {
         deployments: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-        databases: true,
-        logs: {
-          orderBy: { timestamp: 'desc' },
-          take: 50,
+          orderBy: {
+            createdAt: 'desc',
+          },
         },
       },
     });
@@ -96,9 +101,10 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     res.json({
       success: true,
       data: application,
-    } as ApiResponse);
+      message: 'Application retrieved successfully',
+    } as ApiResponse<Application>);
   } catch (error) {
-    console.error('Get application error:', error);
+    console.error('Error fetching application:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -106,14 +112,14 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
   }
 });
 
-// Create new application
+// Create a new application
 router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const applicationData = req.body;
+    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body;
 
-    // Check if domain is already taken
+    // Check if domain already exists
     const existingApp = await prisma.application.findUnique({
-      where: { domain: applicationData.domain },
+      where: { domain },
     });
 
     if (existingApp) {
@@ -123,15 +129,19 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       } as ApiResponse);
     }
 
+    // Create application
     const application = await prisma.application.create({
       data: {
-        ...applicationData,
+        name,
+        domain,
+        type,
+        repository,
+        branch,
+        buildCommand,
+        startCommand,
+        port,
+        envVars,
         userId: req.user!.userId,
-        envVars: applicationData.envVars || {},
-      },
-      include: {
-        deployments: true,
-        databases: true,
       },
     });
 
@@ -139,9 +149,9 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       success: true,
       data: application,
       message: 'Application created successfully',
-    } as ApiResponse);
+    } as ApiResponse<Application>);
   } catch (error) {
-    console.error('Create application error:', error);
+    console.error('Error creating application:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -149,11 +159,18 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
   }
 });
 
-// Update application
+// Update an application
 router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params as { id: string };
-    const updateData = req.body;
+    const { id } = req.params;
+    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
 
     // Check if application exists and belongs to user
     const existingApp = await prisma.application.findFirst({
@@ -170,13 +187,13 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       } as ApiResponse);
     }
 
-    // If domain is being updated, check if it's available
-    if (updateData.domain && updateData.domain !== existingApp.domain) {
-      const domainExists = await prisma.application.findUnique({
-        where: { domain: updateData.domain },
+    // Check if new domain conflicts with existing application
+    if (domain && domain !== existingApp.domain) {
+      const domainConflict = await prisma.application.findUnique({
+        where: { domain },
       });
 
-      if (domainExists) {
+      if (domainConflict) {
         return res.status(400).json({
           success: false,
           error: 'Domain already in use',
@@ -184,22 +201,29 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       }
     }
 
-    const application = await prisma.application.update({
+    // Update application
+    const updatedApp = await prisma.application.update({
       where: { id },
-      data: updateData,
-      include: {
-        deployments: true,
-        databases: true,
+      data: {
+        name,
+        domain,
+        type,
+        repository,
+        branch,
+        buildCommand,
+        startCommand,
+        port,
+        envVars,
       },
     });
 
     res.json({
       success: true,
-      data: application,
+      data: updatedApp,
       message: 'Application updated successfully',
-    } as ApiResponse);
+    } as ApiResponse<Application>);
   } catch (error) {
-    console.error('Update application error:', error);
+    console.error('Error updating application:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -207,10 +231,17 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
   }
 });
 
-// Delete application
+// Delete an application
 router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
 
     // Check if application exists and belongs to user
     const application = await prisma.application.findFirst({
@@ -227,17 +258,23 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
 
+    // Stop the application if it's running
+    if (application.status === 'RUNNING') {
+      // TODO: Implement proper process management
+      console.log(`Stopping application: ${application.name}`);
+    }
+
+    // Delete application
     await prisma.application.delete({
       where: { id },
     });
 
     res.json({
       success: true,
-      data: application,
       message: 'Application deleted successfully',
     } as ApiResponse);
   } catch (error) {
-    console.error('Delete application error:', error);
+    console.error('Error deleting application:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -248,8 +285,16 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
 // Start application
 router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    // Get application
     const application = await prisma.application.findFirst({
       where: {
         id,
@@ -264,19 +309,78 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       } as ApiResponse);
     }
 
-    // Update status to running
+    if (application.status === 'RUNNING') {
+      return res.status(400).json({
+        success: false,
+        error: 'Application is already running',
+      } as ApiResponse);
+    }
+
+    // Create deployment record
+    const deployment = await prisma.deployment.create({
+      data: {
+        status: 'PENDING',
+        applicationId: application.id,
+        userId: req.user!.userId,
+      },
+    });
+
+    // Update application status
     await prisma.application.update({
       where: { id },
-      data: { status: 'RUNNING' },
+      data: { status: 'DEPLOYING' },
+    });
+
+    // Start deployment in background
+    deploymentService.deploy({
+      application,
+      deployment,
+      envVars: application.envVars as Record<string, string> || {},
+    }).then(async (result) => {
+      // Update deployment record
+      await prisma.deployment.update({
+        where: { id: deployment.id },
+        data: {
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          buildLogs: result.buildLogs,
+          deployLogs: result.startLogs,
+        },
+      });
+
+      // Update application status
+      await prisma.application.update({
+        where: { id },
+        data: { 
+          status: result.success ? 'RUNNING' : 'ERROR',
+          lastDeployment: new Date(),
+        },
+      });
+    }).catch(async (error) => {
+      console.error('Deployment failed:', error);
+      
+      // Update deployment record
+      await prisma.deployment.update({
+        where: { id: deployment.id },
+        data: {
+          status: 'FAILED',
+          deployLogs: error.message,
+        },
+      });
+
+      // Update application status
+      await prisma.application.update({
+        where: { id },
+        data: { status: 'ERROR' },
+      });
     });
 
     res.json({
       success: true,
-      data: application,
-      message: 'Application started successfully',
+      data: { deploymentId: deployment.id },
+      message: 'Application deployment started',
     } as ApiResponse);
   } catch (error) {
-    console.error('Start application error:', error);
+    console.error('Error starting application:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -287,8 +391,16 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
 // Stop application
 router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    // Get application
     const application = await prisma.application.findFirst({
       where: {
         id,
@@ -303,19 +415,91 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
       } as ApiResponse);
     }
 
-    // Update status to stopped
-    await prisma.application.update({
-      where: { id },
-      data: { status: 'STOPPED' },
+    if (application.status !== 'RUNNING') {
+      return res.status(400).json({
+        success: false,
+        error: 'Application is not running',
+      } as ApiResponse);
+    }
+
+    // Stop PM2 process
+    const appName = `app-${application.domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
+    const stopped = await deploymentService.stopApplication(appName);
+
+    if (stopped) {
+      await prisma.application.update({
+        where: { id },
+        data: { status: 'STOPPED' },
+      });
+
+      res.json({
+        success: true,
+        message: 'Application stopped successfully',
+      } as ApiResponse);
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to stop application',
+      } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error stopping application:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Restart application
+router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    // Get application
+    const application = await prisma.application.findFirst({
+      where: {
+        id,
+        userId: req.user!.userId,
+      },
     });
 
-    res.json({
-      success: true,
-      data: application,
-      message: 'Application stopped successfully',
-    } as ApiResponse);
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      } as ApiResponse);
+    }
+
+    // Restart PM2 process
+    const appName = `app-${application.domain.replace(/[^a-zA-Z0-9]/g, '-')}`;
+    const restarted = await deploymentService.restartApplication(appName);
+
+    if (restarted) {
+      await prisma.application.update({
+        where: { id },
+        data: { status: 'RUNNING' },
+      });
+
+      res.json({
+        success: true,
+        message: 'Application restarted successfully',
+      } as ApiResponse);
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to restart application',
+      } as ApiResponse);
+    }
   } catch (error) {
-    console.error('Stop application error:', error);
+    console.error('Error restarting application:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
