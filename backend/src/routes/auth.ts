@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { CreateUserSchema, LoginSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -75,7 +76,16 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
 // Login user
 router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Response) => {
   try {
+    console.log('Login request received:', {
+      body: req.body,
+      headers: req.headers['content-type'],
+      method: req.method,
+      url: req.url
+    });
+
     const { email, password } = req.body;
+
+    console.log('Extracted credentials:', { email, password: password ? '[REDACTED]' : 'undefined' });
 
     // Find user
     const user = await prisma.user.findUnique({
@@ -125,6 +135,45 @@ router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Re
     } as ApiResponse);
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Validate user token
+router.get('/validate', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // If we reach here, the token is valid (authenticateToken middleware passed)
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not found',
+      } as ApiResponse);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user,
+        valid: true,
+      },
+      message: 'Token is valid',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Token validation error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

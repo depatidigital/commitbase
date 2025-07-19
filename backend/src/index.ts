@@ -1,21 +1,21 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
+
+// Load environment variables
+config();
 
 // Import routes
 import authRoutes from './routes/auth';
-import applicationRoutes from './routes/applications';
-import deploymentRoutes from './routes/deployments';
-import databaseRoutes from './routes/databases';
-import logRoutes from './routes/logs';
-import metricRoutes from './routes/metrics';
-
-// Load environment variables
-dotenv.config();
+import applicationsRoutes from './routes/applications';
+import databasesRoutes from './routes/databases';
+import deploymentsRoutes from './routes/deployments';
+import logsRoutes from './routes/logs';
+import metricsRoutes from './routes/metrics';
+import domainsRoutes from './routes/domains';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,47 +25,88 @@ app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.CORS_ORIGIN 
+    : true, // Allow all origins in development
   credentials: true,
 }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // limit each IP to 100 requests per windowMs
-  message: {
-    success: false,
-    error: 'Too many requests from this IP, please try again later.',
-  },
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
 });
 app.use(limiter);
 
-// Compression
+// Compression middleware
 app.use(compression());
-
-// Logging
-app.use(morgan('combined'));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Server is running',
+  res.json({ 
+    status: 'OK', 
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// API routes
+// Mount routes
 app.use('/api/auth', authRoutes);
-app.use('/api/applications', applicationRoutes);
-app.use('/api/deployments', deploymentRoutes);
-app.use('/api/databases', databaseRoutes);
-app.use('/api/logs', logRoutes);
-app.use('/api/metrics', metricRoutes);
+app.use('/api/applications', applicationsRoutes);
+app.use('/api/databases', databasesRoutes);
+app.use('/api/deployments', deploymentsRoutes);
+app.use('/api/logs', logsRoutes);
+app.use('/api/metrics', metricsRoutes);
+app.use('/api/domains', domainsRoutes);
+
+// Global error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Global error handler:', err);
+  
+  // Handle CORS errors
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({
+      success: false,
+      error: 'Not allowed by CORS',
+    });
+  }
+
+  // Handle validation errors
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: err.details,
+    });
+  }
+
+  // Handle Prisma errors
+  if (err.code === 'P2002') {
+    return res.status(400).json({
+      success: false,
+      error: 'Resource already exists',
+    });
+  }
+
+  // Default error response
+  res.status(500).json({
+    success: false,
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message || 'Internal server error',
+  });
+});
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -75,23 +116,9 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Global error handler:', err);
-  
-  res.status(err.status || 500).json({
-    success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : err.message,
-  });
-});
-
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-});
-
-export default app; 
+}); 

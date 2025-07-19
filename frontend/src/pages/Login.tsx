@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLogin } from '@/hooks/useAuth';
 import { LoginCredentials } from '@/lib/auth';
+import { isAuthenticated } from '@/lib/auth';
+import { Loader2 } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -21,6 +23,7 @@ const Login = () => {
   const navigate = useNavigate();
   const login = useLogin();
   const [isRegister, setIsRegister] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const {
     register,
@@ -29,6 +32,19 @@ const Login = () => {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
   });
+
+  // Check if user is already authenticated
+  useEffect(() => {
+    const checkAuth = () => {
+      if (isAuthenticated()) {
+        navigate('/');
+      } else {
+        setIsCheckingAuth(false);
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
 
   const onSubmit = async (data: LoginForm) => {
     try {
@@ -42,6 +58,18 @@ const Login = () => {
       // Error is handled by the mutation
     }
   };
+
+  // Show loading while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">

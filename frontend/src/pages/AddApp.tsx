@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,20 +13,34 @@ import {
   GitBranch,
   Terminal,
   Zap,
-  CheckCircle
+  CheckCircle,
+  AlertCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
+import { useDomains } from "@/hooks/useDomains";
 import { CreateApplicationData } from "@/lib/applications";
+
+// Function to slugify text (convert to URL-friendly format)
+const slugify = (text: string): string => {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '') // Remove special characters except hyphens
+    .replace(/[\s_-]+/g, '-') // Replace spaces and underscores with hyphens
+    .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+};
 
 export default function AddApp() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const createApp = useCreateApplication();
+  const { data: domains, isLoading: domainsLoading, error: domainsError } = useDomains();
 
   const [formData, setFormData] = useState({
     name: "",
-    domain: "",
+    selectedDomain: "",
+    subdomain: "",
     type: "",
     repository: "",
     branch: "main",
@@ -36,8 +50,23 @@ export default function AddApp() {
     envVars: ""
   });
 
+  // Auto-generate subdomain from application name
+  useEffect(() => {
+    if (formData.name && !formData.subdomain) {
+      const sluggedName = slugify(formData.name);
+      if (sluggedName) {
+        setFormData(prev => ({ ...prev, subdomain: sluggedName }));
+      }
+    }
+  }, [formData.name]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Construct full domain from selected domain and subdomain
+    const fullDomain = formData.subdomain
+      ? `${formData.subdomain}.${formData.selectedDomain}`
+      : formData.selectedDomain;
 
     // Parse environment variables
     const envVars: Record<string, string> = {};
@@ -52,7 +81,7 @@ export default function AddApp() {
 
     const applicationData: CreateApplicationData = {
       name: formData.name,
-      domain: formData.domain,
+      domain: fullDomain,
       type: formData.type as any,
       repository: formData.repository || undefined,
       branch: formData.branch,
@@ -84,12 +113,78 @@ export default function AddApp() {
     { value: "JAVA", label: "Java Application", icon: "☕" },
   ];
 
+  const availableDomains = domains?.filter(domain => domain.status === 'ACTIVE') || [];
+
+  if (domainsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-current border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Loading domains...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (domainsError) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Error Loading Domains</h3>
+          <p className="text-muted-foreground">Failed to load domains. Please try again.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (availableDomains.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
+        <div className="flex items-center space-x-4">
+          <Button
+            variant="ghost"
+            onClick={() => navigate("/")}
+            className="hover:bg-muted"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Applications
+          </Button>
+        </div>
+
+        <Card className="bg-gradient-card border-border/50">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Globe className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Active Domains</h3>
+            <p className="text-muted-foreground text-center max-w-md mb-4">
+              You need to have at least one active domain to deploy applications.
+              Please add a domain first.
+            </p>
+            <Button
+              onClick={() => navigate("/domains")}
+              className="bg-gradient-primary"
+            >
+              <Globe className="h-4 w-4 mr-2" />
+              Manage Domains
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  // use Effect swhen form.name change
+  useEffect(() => {
+    if (formData.name) {
+      setFormData(prev => ({ ...prev, subdomain: slugify(formData.name) }));
+    }
+  }, [formData.name]);
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
       {/* Header */}
       <div className="flex items-center space-x-4">
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           onClick={() => navigate("/")}
           className="hover:bg-muted"
         >
@@ -118,7 +213,9 @@ export default function AddApp() {
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="name">Application Name</Label>
+                <Label htmlFor="name">
+                  Application Name <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="name"
                   placeholder="my-awesome-app"
@@ -127,26 +224,56 @@ export default function AddApp() {
                   required
                 />
               </div>
-              
+
               <div className="space-y-2">
-                <Label htmlFor="domain">Domain</Label>
-                <div className="flex items-center space-x-2">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="domain"
-                    placeholder="app.yourdomain.com"
-                    value={formData.domain}
-                    onChange={(e) => handleInputChange("domain", e.target.value)}
-                    required
-                  />
+                <Label>
+                  Domain Configuration <span className="text-red-500">*</span>
+                </Label>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <Globe className="min-w-4 min-h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="app"
+                      value={formData.subdomain}
+                      onChange={(e) => handleInputChange("subdomain", e.target.value)}
+                    />
+                    <span className="text-muted-foreground">.</span>
+                    <Select
+                      value={formData.selectedDomain}
+                      onValueChange={(value) => handleInputChange("selectedDomain", value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a domain" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDomains.map((domain) => (
+                          <SelectItem key={domain.id} value={domain.name}>
+                            <div className="flex items-center space-x-2">
+                              <CheckCircle className="h-4 w-4 text-green-500" />
+                              <span>{domain.name}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {formData.selectedDomain && (
+                    <div className="text-xs text-muted-foreground">
+                      Full domain: <span className="font-mono">
+                        {formData.subdomain}.{formData.selectedDomain}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Application Type</Label>
-              <Select 
-                value={formData.type} 
+              <Label>
+                Application Type <span className="text-red-500">*</span>
+              </Label>
+              <Select
+                value={formData.type}
                 onValueChange={(value) => handleInputChange("type", value)}
               >
                 <SelectTrigger>
@@ -263,7 +390,7 @@ export default function AddApp() {
         {/* Deploy Button */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            {formData.name && formData.domain && formData.type && (
+            {formData.name && formData.selectedDomain && formData.type && (
               <Badge variant="outline" className="bg-success/10 text-success border-success/20">
                 <CheckCircle className="h-3 w-3 mr-1" />
                 Ready to Deploy
@@ -271,9 +398,9 @@ export default function AddApp() {
             )}
           </div>
 
-          <Button 
-            type="submit" 
-            disabled={!formData.name || !formData.domain || !formData.type || createApp.isPending}
+          <Button
+            type="submit"
+            disabled={!formData.name || !formData.selectedDomain || !formData.type || createApp.isPending}
             className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300 min-w-[140px]"
           >
             {createApp.isPending ? (

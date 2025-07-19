@@ -24,6 +24,9 @@ export interface AuthResponse {
   token: string;
 }
 
+// Re-export removeAuthToken for convenience
+export { removeAuthToken };
+
 // Login user
 export const login = async (credentials: LoginCredentials): Promise<AuthResponse> => {
   const response = await apiRequest<AuthResponse>('/auth/login', {
@@ -58,6 +61,24 @@ export const register = async (credentials: RegisterCredentials): Promise<AuthRe
 export const logout = (): void => {
   removeAuthToken();
   window.location.href = '/login';
+};
+
+// Validate user token with backend
+export const validateUserToken = async (): Promise<boolean> => {
+  try {
+    const token = localStorage.getItem('authToken');
+    if (!token) return false;
+
+    // Try to make an authenticated request to validate the token
+    const response = await apiRequest('/auth/validate', {
+      method: 'GET',
+    });
+
+    return response.success;
+  } catch (error) {
+    console.error('Token validation failed:', error);
+    return false;
+  }
 };
 
 // Get current user from token

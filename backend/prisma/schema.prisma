@@ -23,6 +23,7 @@ model User {
   applications Application[]
   logs        Log[]
   deployments Deployment[]
+  domains     Domain[]
 
   @@map("users")
 }
@@ -135,6 +136,28 @@ model Log {
   @@map("logs")
 }
 
+model Domain {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  status      DomainStatus @default(ACTIVE)
+  dnsRecords  Json? // Store DNS records as JSON
+  sslStatus   SSLStatus @default(PENDING)
+  sslExpiry   DateTime?
+  
+  // Configuration
+  redirectTo  String? // Domain redirect target
+  customConfig Json? // Custom domain configuration
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("domains")
+}
+
 model SystemMetric {
   id          String   @id @default(cuid())
   type        MetricType
@@ -191,6 +214,20 @@ enum DatabaseStatus {
   CREATING
   RUNNING
   STOPPED
+  ERROR
+}
+
+enum DomainStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  ERROR
+}
+
+enum SSLStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
   ERROR
 }
 

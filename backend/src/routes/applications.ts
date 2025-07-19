@@ -66,7 +66,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
 // Get single application
 router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
 
     const application = await prisma.application.findFirst({
       where: {
@@ -152,7 +152,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
 // Update application
 router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const updateData = req.body;
 
     // Check if application exists and belongs to user
@@ -210,7 +210,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 // Delete application
 router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
 
     // Check if application exists and belongs to user
     const application = await prisma.application.findFirst({
@@ -233,6 +233,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
 
     res.json({
       success: true,
+      data: application,
       message: 'Application deleted successfully',
     } as ApiResponse);
   } catch (error) {
@@ -247,7 +248,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
 // Start application
 router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
 
     const application = await prisma.application.findFirst({
       where: {
@@ -271,6 +272,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
 
     res.json({
       success: true,
+      data: application,
       message: 'Application started successfully',
     } as ApiResponse);
   } catch (error) {
@@ -285,7 +287,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
 // Stop application
 router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
 
     const application = await prisma.application.findFirst({
       where: {
@@ -309,6 +311,7 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
 
     res.json({
       success: true,
+      data: application,
       message: 'Application stopped successfully',
     } as ApiResponse);
   } catch (error) {
