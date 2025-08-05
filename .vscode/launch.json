@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+
+    {
+      "name": "Backend: Start",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Frontend: Start",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal"
+    },
+  ],
+  "compounds": [
+    {
+      "name": "All",
+      "configurations": [
+        "Backend: Start",
+        "Frontend: Start"
+      ],
+      "stopAll": true
+    }
+  ]
+}
