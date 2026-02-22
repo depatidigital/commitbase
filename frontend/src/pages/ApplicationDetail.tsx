@@ -487,7 +487,7 @@ export default function ApplicationDetail() {
         </Card>
 
         {/* Main Content */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="logs">Logs</TabsTrigger>
@@ -516,6 +516,12 @@ export default function ApplicationDetail() {
                     <Badge variant="secondary">{application.type}</Badge>
                   </div>
                   <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Deployment Mode</label>
+                    <p className="font-medium">
+                      {application.type === 'STATIC' ? 'Static Site (S3)' : 'Runtime Container'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">Domain</label>
                     <div className="flex items-center space-x-2">
                       <Globe className="h-4 w-4 text-muted-foreground" />
@@ -532,31 +538,59 @@ export default function ApplicationDetail() {
                 </CardContent>
               </Card>
 
-              {/* Runtime Info */}
+              {/* Runtime / Static Info */}
               <Card className="bg-gradient-card border-border/50">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Server className="h-5 w-5 text-primary" />
-                    <span>Runtime Information</span>
+                    <span>{application.type === 'STATIC' ? 'Static Site' : 'Runtime Information'}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Port</label>
-                    <p className="font-medium">{application.port || 'Not configured'}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Memory Usage</label>
-                    <p className="font-medium">Not available</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">CPU Usage</label>
-                    <p className="font-medium">Not available</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Uptime</label>
-                    <p className="font-medium">Not available</p>
-                  </div>
+                  {application.type === 'STATIC' ? (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Static Site URL</label>
+                        {application.staticSiteUrl ? (
+                          <div className="flex items-center space-x-2">
+                            <span className="font-mono text-xs break-all">{application.staticSiteUrl}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => copyToClipboard(application.staticSiteUrl || '')}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <p className="font-medium text-muted-foreground">Not deployed yet</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Hosting</label>
+                        <p className="font-medium">Object storage (S3-compatible)</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Port</label>
+                        <p className="font-medium">{application.port || 'Not configured'}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Memory Usage</label>
+                        <p className="font-medium">Not available</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">CPU Usage</label>
+                        <p className="font-medium">Not available</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">Uptime</label>
+                        <p className="font-medium">Not available</p>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 

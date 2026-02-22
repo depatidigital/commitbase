@@ -6,7 +6,7 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import * as crypto from 'crypto';
 import { TemplateEngine, TemplateData } from '../utils/templateEngine';
-import { uploadBuildLog } from './s3Service';
+import { uploadBuildLog, uploadDirectoryToS3 } from './s3Service';
 
 const execAsync = promisify(exec);
 
@@ -41,11 +41,15 @@ export class DeploymentService {
     this.templateEngine = new TemplateEngine();
   }
 
+  private getAppDir(applicationId: string): string {
+    return path.join(this.baseDir, applicationId);
+  }
+
   /**
    * Prepare the application directory using subdomain.domain.tld format
    */
-  async prepareAppDirectory(domain: string): Promise<string> {
-    const appDir = path.join(this.baseDir, domain);
+  async prepareAppDirectory(applicationId: string): Promise<string> {
+    const appDir = this.getAppDir(applicationId);
 
     try {
       // Create apps_dir directory if it doesn't exist
@@ -54,11 +58,9 @@ export class DeploymentService {
       // Create app directory if it doesn't exist
       await fs.mkdir(appDir, { recursive: true });
 
-      // Create logs directory
       const logsDir = path.join(appDir, 'logs');
       await fs.mkdir(logsDir, { recursive: true });
 
-      // Create sources directory
       const sourcesDir = path.join(appDir, 'sources');
       await fs.mkdir(sourcesDir, { recursive: true });
 
@@ -550,12 +552,6 @@ build
    */
   async startDockerCompose(domain: string): Promise<boolean> {
     try {
-      const appDir = path.join(this.baseDir, domain);
-      const logsDir = path.join(appDir, 'logs');
-      const deployLogPath = path.join(logsDir, 'deploy.log');
-
-      await fs.mkdir(logsDir, { recursive: true });
-
       const application = await prisma.application.findFirst({
         where: { domain },
       });
@@ -563,6 +559,12 @@ build
       if (!application) {
         throw new Error('Application not found for domain');
       }
+
+      const appDir = this.getAppDir(application.id);
+      const logsDir = path.join(appDir, 'logs');
+      const deployLogPath = path.join(logsDir, 'deploy.log');
+
+      await fs.mkdir(logsDir, { recursive: true });
 
       let imageName: string | undefined;
 
@@ -666,7 +668,7 @@ build
       }
 
       const domain = application.domain;
-      const appDir = path.join(this.baseDir, domain);
+      const appDir = this.getAppDir(application.id);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
 
@@ -725,7 +727,7 @@ build
       return status === 'RUNNING';
     } catch (error) {
       const domain = application.domain;
-      const appDir = path.join(this.baseDir, domain);
+      const appDir = this.getAppDir(application.id);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
       const errorTimestamp = new Date().toISOString();
@@ -850,11 +852,7 @@ build
         data: { status: 'BUILDING' },
       });
 
-      // 1. Prepare app directory using domain
-      if (!application.domain) {
-        throw new Error('Application domain is required');
-      }
-      const appDir = await this.prepareAppDirectory(application.domain);
+      const appDir = await this.prepareAppDirectory(application.id);
 
       // Clear build logs for this deployment
       const logsDir = path.join(appDir, 'logs');
@@ -878,6 +876,101 @@ build
           const { stdout: commitStdout } = await execAsync(`cd "${sourcesDir}" && git rev-parse HEAD`);
           commitSha = commitStdout.trim();
         } catch (error) {
+        }
+      }
+
+      if (application.type === 'STATIC') {
+        const sourcesDir = path.join(appDir, 'sources');
+        const buildCommand = application.buildCommand || 'npm run build';
+
+        const staticBuildEnv = {
+          ...process.env,
+          ...envVars,
+          NODE_ENV: 'production',
+        };
+
+        try {
+          const staticStartTimestamp = new Date().toISOString();
+          await fs.appendFile(buildLogPath, `[${staticStartTimestamp}] STATIC BUILD STARTED\n`);
+
+          const { stdout, stderr } = await execAsync(buildCommand, {
+            cwd: sourcesDir,
+            timeout: 600000,
+            env: staticBuildEnv,
+          });
+
+          const staticCompletionTimestamp = new Date().toISOString();
+          const staticBuildLogEntry = `[${staticCompletionTimestamp}] STATIC BUILD COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
+          await fs.appendFile(buildLogPath, staticBuildLogEntry);
+
+          const distCandidates = ['dist', 'build'];
+          let distDir: string | null = null;
+          for (const candidate of distCandidates) {
+            const candidatePath = path.join(sourcesDir, candidate);
+            const exists = await fs
+              .access(candidatePath)
+              .then(() => true)
+              .catch(() => false);
+            if (exists) {
+              distDir = candidatePath;
+              break;
+            }
+          }
+
+          if (!distDir) {
+            throw new Error('Static build directory not found (expected dist/ or build/)');
+          }
+
+          await uploadDirectoryToS3(distDir, application.id);
+
+          await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+
+          const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+
+          await prisma.deployment.update({
+            where: { id: deployment.id },
+            data: {
+              status: 'SUCCESS',
+              buildLogs,
+              deployLogs: 'Static site deployed to object storage',
+            },
+          });
+
+          await prisma.application.update({
+            where: { id: application.id },
+            data: {
+              status: 'RUNNING',
+              lastDeployment: new Date(),
+            },
+          });
+
+          return {
+            success: true,
+            buildLogs,
+            deployLogs: 'Static site deployed to object storage',
+          };
+        } catch (error: any) {
+          const errorTimestamp = new Date().toISOString();
+          const message = error.stderr || error.message || String(error);
+          const errorLogEntry = `[${errorTimestamp}] STATIC BUILD FAILED:\n${message}\n\n`;
+          await fs.appendFile(buildLogPath, errorLogEntry);
+          await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+
+          const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+
+          await prisma.deployment.update({
+            where: { id: deployment.id },
+            data: {
+              status: 'FAILED',
+              buildLogs,
+            },
+          });
+
+          return {
+            success: false,
+            error: message,
+            buildLogs,
+          };
         }
       }
 
@@ -1116,12 +1209,11 @@ build
         return false;
       }
 
-      const appDir = path.join(this.baseDir, deployment.application.domain);
+      const appDir = this.getAppDir(deployment.applicationId);
       const logsDir = path.join(appDir, 'logs');
       const buildLogPath = path.join(logsDir, 'build.log');
       const deployLogPath = path.join(logsDir, 'deploy.log');
 
-      // Clear both build and deploy logs
       await fs.writeFile(buildLogPath, '');
       await fs.writeFile(deployLogPath, '');
 
@@ -1156,7 +1248,7 @@ build
         return 'Deployment not found';
       }
 
-      const appDir = path.join(this.baseDir, deployment.application.domain);
+      const appDir = this.getAppDir(deployment.applicationId);
       const logsDir = path.join(appDir, 'logs');
 
       let logFile = '';
@@ -1194,7 +1286,7 @@ build
         return 'No domain provided';
       }
 
-      const appDir = path.join(this.baseDir, domain);
+      const appDir = this.getAppDir(domain);
       const logsDir = path.join(appDir, 'logs');
 
       let logFile = '';
@@ -1235,7 +1327,7 @@ build
         return { exists: false, path: '' };
       }
 
-      const appDir = path.join(this.baseDir, domain);
+      const appDir = this.getAppDir(domain);
       const logsDir = path.join(appDir, 'logs');
       const buildLogPath = path.join(logsDir, 'build.log');
 
@@ -1271,7 +1363,7 @@ build
         return false;
       }
 
-      const appDir = path.join(this.baseDir, domain);
+      const appDir = this.getAppDir(domain);
       const logsDir = path.join(appDir, 'logs');
 
       // Ensure logs directory exists

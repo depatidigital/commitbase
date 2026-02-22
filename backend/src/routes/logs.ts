@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { DeploymentService } from '../services/deployment';
+import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -38,11 +39,37 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
-    // Get logs based on type
     let logs = '';
     try {
       if (logType === 'build') {
-        logs = await deploymentService.getApplicationLogsFromFiles(application.domain, logType, lines);
+        const latestDeployment = await prisma.deployment.findFirst({
+          where: {
+            applicationId: appId,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        });
+
+        if (!latestDeployment) {
+          logs = 'No deployments found for application';
+        } else {
+          const key = getBuildLogKey(latestDeployment.applicationId, latestDeployment.id);
+
+          if (!key) {
+            logs = 'Build logs are not available (S3 not configured)';
+          } else {
+            const approxBytes = Math.max(lines * 500, 5000);
+            const content = await downloadObjectToString(key, approxBytes);
+
+            if (!content) {
+              logs = 'Build logs are not available in S3';
+            } else {
+              const logLines = content.split('\n');
+              logs = logLines.slice(-lines).join('\n');
+            }
+          }
+        }
       } else {
         logs = await deploymentService.getApplicationLogs(application.domain, lines);
       }

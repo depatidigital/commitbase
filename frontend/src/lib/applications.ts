@@ -15,6 +15,7 @@ export interface Application {
   userId: string;
   createdAt: string;
   updatedAt: string;
+  staticSiteUrl?: string | null;
   deployments?: Deployment[];
   databases?: Database[];
   logs?: Log[];

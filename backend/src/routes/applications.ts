@@ -4,6 +4,7 @@ import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Applicat
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { DeploymentService, getDockerContainerName } from '../services/deployment';
+import { getStaticSiteBaseUrl } from '../services/s3Service';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -104,11 +105,16 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       } as ApiResponse);
     }
 
+    const staticSiteUrl = application.type === 'STATIC' ? getStaticSiteBaseUrl(application.id) : undefined;
+
     return res.json({
       success: true,
-      data: application,
+      data: {
+        ...application,
+        staticSiteUrl,
+      },
       message: 'Application retrieved successfully',
-    } as ApiResponse<Application>);
+    } as ApiResponse<Application & { staticSiteUrl?: string | null }>);
   } catch (error) {
     console.error('Error fetching application:', error);
     return res.status(500).json({

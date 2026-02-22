@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { DeploymentService } from '../services/deployment';
-import { getBuildLogUrl } from '../services/s3Service';
+import { getBuildLogPresignedUrl, getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -169,7 +169,7 @@ router.get('/:deploymentId/build-log-url', authenticateToken, async (req: Authen
       } as ApiResponse);
     }
 
-    const url = getBuildLogUrl(deployment.applicationId, deployment.id);
+    const url = await getBuildLogPresignedUrl(deployment.applicationId, deployment.id);
 
     if (!url) {
       return res.status(500).json({
@@ -234,7 +234,21 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
     let logs = '';
     try {
       if (logType === 'build') {
-        logs = await deploymentService.getDeploymentLogs(deploymentId, logType, lines);
+        const key = getBuildLogKey(deployment.applicationId, deployment.id);
+
+        if (!key) {
+          logs = 'Build logs are not available (S3 not configured)';
+        } else {
+          const approxBytes = Math.max(lines * 500, 5000);
+          const content = await downloadObjectToString(key, approxBytes);
+
+          if (!content) {
+            logs = 'Build logs are not available in S3';
+          } else {
+            const logLines = content.split('\n');
+            logs = logLines.slice(-lines).join('\n');
+          }
+        }
       } else {
         logs = await deploymentService.getApplicationLogs(deployment.application.domain, lines);
       }
