@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getRdashAccountProfile, registerRdashDomain, updateRdashDomainNameservers, listRdashDomains } from '../services/rdashService';
+import { getRdashAccountProfile, registerRdashDomain, updateRdashDomainNameservers, listRdashDomains, getRdashBalance } from '../services/rdashService';
 import { setIntegrationConfigValue, getRdashConfigFromDb } from '../services/integrationConfigService';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiResponse } from '../types';
@@ -51,18 +51,11 @@ router.get('/domains', authenticateToken, async (req: AuthenticatedRequest, res:
 
 router.get('/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const [profile, domains] = await Promise.all([
+    const [profile, domains, balance] = await Promise.all([
       getRdashAccountProfile(),
       listRdashDomains(req.query as Record<string, any>),
+      getRdashBalance(),
     ]);
-
-    const balance =
-      profile &&
-      (profile.balance ??
-        profile.credit ??
-        profile.available_balance ??
-        profile.availableBalance ??
-        null);
 
     return res.json({
       success: true,

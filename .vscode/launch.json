@@ -8,7 +8,7 @@
       "request": "launch",
       "cwd": "${workspaceFolder}/backend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev:nodemon"],
       "console": "integratedTerminal"
     },
     {

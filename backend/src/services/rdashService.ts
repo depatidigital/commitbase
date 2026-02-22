@@ -109,6 +109,54 @@ export async function getRdashAccountProfile(): Promise<any | null> {
   }
 }
 
+export async function getRdashBalance(): Promise<number | string | null> {
+  try {
+    const result = await rdashRequest<any>('GET', '/account/balance');
+
+    if (result === null || result === undefined) {
+      return null;
+    }
+
+    if (typeof result === 'number' || typeof result === 'string') {
+      return result;
+    }
+
+    if (typeof result === 'object') {
+      const direct =
+        (result as any).balance ??
+        (result as any).credit ??
+        (result as any).available_balance ??
+        (result as any).availableBalance ??
+        null;
+
+      if (direct !== null && direct !== undefined) {
+        return direct;
+      }
+
+      const nestedKeys = ['data', 'result', 'account'];
+      for (const key of nestedKeys) {
+        const nested = (result as any)[key];
+        if (!nested || typeof nested !== 'object') {
+          continue;
+        }
+        const nestedBalance =
+          nested.balance ??
+          nested.credit ??
+          nested.available_balance ??
+          nested.availableBalance ??
+          null;
+        if (nestedBalance !== null && nestedBalance !== undefined) {
+          return nestedBalance;
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function registerRdashDomain(payload: any): Promise<any> {
   const body = { ...payload };
   const nameservers = await getRdashNameservers();

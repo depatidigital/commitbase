@@ -14,7 +14,7 @@ export async function getIntegrationConfigValue(provider: Provider, key: string)
       },
     },
   });
-
+  console.log('Integration config:', entry);
   if (!entry) {
     return null;
   }

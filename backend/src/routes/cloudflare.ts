@@ -9,7 +9,7 @@ const router = Router();
 router.get('/config', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const config = await getCloudflareConfigFromDb();
-
+    console.log('Cloudflare config:', config);
     return res.json({
       success: true,
       data: {
