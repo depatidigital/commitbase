@@ -49,7 +49,7 @@ The application uses a comprehensive database schema with the following main ent
 
 - Node.js 18+ 
 - PostgreSQL 12+
-- npm or yarn
+- Yarn
 
 ### Installation
 
@@ -60,7 +60,7 @@ The application uses a comprehensive database schema with the following main ent
 
 2. **Install dependencies**
    ```bash
-   npm install
+   yarn install
    ```
 
 3. **Set up environment variables**
@@ -78,18 +78,18 @@ The application uses a comprehensive database schema with the following main ent
 4. **Set up the database**
    ```bash
    # Generate Prisma client
-   npm run db:generate
+   yarn db:generate
    
    # Push schema to database
-   npm run db:push
+   yarn db:push
    
    # Seed the database with sample data
-   npm run db:seed
+   yarn db:seed
    ```
 
 5. **Start the development server**
    ```bash
-   npm run dev
+   yarn dev
    ```
 
 The server will start on `http://localhost:3001`
@@ -141,14 +141,14 @@ The server will start on `http://localhost:3001`
 
 ### Available Scripts
 
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run db:generate` - Generate Prisma client
-- `npm run db:push` - Push schema to database
-- `npm run db:migrate` - Run database migrations
-- `npm run db:studio` - Open Prisma Studio
-- `npm run db:seed` - Seed database with sample data
+- `yarn dev` - Start development server with hot reload
+- `yarn build` - Build for production
+- `yarn start` - Start production server
+- `yarn db:generate` - Generate Prisma client
+- `yarn db:push` - Push schema to database
+- `yarn db:migrate` - Run database migrations
+- `yarn db:studio` - Open Prisma Studio
+- `yarn db:seed` - Seed database with sample data
 
 ### Database Management
 
@@ -156,16 +156,16 @@ The application uses Prisma as the ORM. Key commands:
 
 ```bash
 # Generate Prisma client after schema changes
-npm run db:generate
+yarn db:generate
 
 # Push schema changes to database
-npm run db:push
+yarn db:push
 
 # Create and run migrations
-npm run db:migrate
+yarn db:migrate
 
 # Open Prisma Studio for database management
-npm run db:studio
+yarn db:studio
 ```
 
 ### Environment Variables

@@ -8,7 +8,7 @@ The deployment system handles the complete lifecycle of application deployment u
 
 1. **App Directory Preparation** - Creates and manages application directories
 2. **Repository Sync** - Clones or pulls the latest code from Git repositories
-3. **Dependency Installation** - Installs npm dependencies automatically
+3. **Dependency Installation** - Installs dependencies automatically
 4. **Build Process** - Runs build commands with environment variables
 5. **Application Startup** - Starts applications with PM2 and proper port configuration
 6. **Log Management** - All logs are written to files for easy tailing
@@ -35,14 +35,14 @@ chmod +x scripts/setup-pm2.sh
 ## Supported Application Types
 
 ### Node.js Applications ⚡
-- **Build Command**: `npm run build`, `yarn build`, etc.
-- **Start Command**: `npm start`, `node app.js`, etc.
+- **Build Command**: `yarn build`, `npm run build`, etc.
+- **Start Command**: `yarn start`, `npm start`, `node app.js`, etc.
 - **Port Configuration**: Automatically sets PORT environment variable
 - **Environment Variables**: Full support for custom environment variables
 - **PM2 Management**: Automatic process management with PM2
 
 ### Static Websites 🌐
-- **Build Command**: `npm run build`, `yarn build`, etc.
+- **Build Command**: `yarn build`, `npm run build`, etc.
 - **No Runtime**: Static files are served directly
 - **Environment Variables**: Support for build-time environment variables
 
@@ -88,7 +88,7 @@ apps_dir/
 
 #### Step 3: Install Dependencies
 - Automatically detects `package.json` in `sources/` directory
-- Runs `npm install` or `yarn install`
+- Runs `yarn install` (or `npm install` if you prefer)
 - Installs production dependencies
 - Handles dependency conflicts
 
@@ -215,7 +215,7 @@ Each application gets an `ecosystem.config.js` file:
 module.exports = {
   apps: [{
     name: 'app-subdomain-domain-tld',
-    script: 'npm start',
+    script: 'yarn start',
     cwd: '/path/to/apps_dir/subdomain.domain.tld/sources',
     instances: 1,
     autorestart: true,
@@ -244,8 +244,8 @@ module.exports = {
   "domain": "app.example.com",
   "repository": "https://github.com/user/repo.git",
   "branch": "main",
-  "buildCommand": "npm run build",
-  "startCommand": "npm start",
+  "buildCommand": "yarn build",
+  "startCommand": "yarn start",
   "port": 3000,
   "envVars": {
     "DATABASE_URL": "postgresql://...",
@@ -387,7 +387,7 @@ pm2 monit
 
 Run the deployment test:
 ```bash
-npm run test:deployment
+yarn test:deployment
 # or
 npx ts-node src/scripts/test-deployment.ts
 ```

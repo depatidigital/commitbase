@@ -12,7 +12,7 @@ CommitBase is an application management platform with a frontend and backend arc
 ### Prerequisites
 
 - Node.js (v16 or higher)
-- npm or yarn
+- Yarn
 - PM2 (installed globally or through the project dependencies)
 
 ### Installation
@@ -22,16 +22,16 @@ CommitBase is an application management platform with a frontend and backend arc
 
 ```bash
 # Install root dependencies (including PM2)
-npm install
+yarn install
 
 # Install backend dependencies
 cd backend
-npm install
+yarn install
 cd ..
 
 # Install frontend dependencies
 cd frontend
-npm install
+yarn install
 cd ..
 ```
 
@@ -41,13 +41,13 @@ This project uses PM2 to manage both the frontend and backend processes. The con
 
 ### Available Scripts
 
-- `npm start`: Start both frontend and backend in production mode
-- `npm run start:dev`: Start both frontend and backend in development mode
-- `npm run stop`: Stop all running processes
-- `npm run restart`: Restart all processes
-- `npm run delete`: Delete all processes from PM2
-- `npm run logs`: View logs from all processes
-- `npm run status`: Check the status of all processes
+- `yarn start`: Start both frontend and backend in production mode
+- `yarn start:dev`: Start both frontend and backend in development mode
+- `yarn stop`: Stop all running processes
+- `yarn restart`: Restart all processes
+- `yarn delete`: Delete all processes from PM2
+- `yarn logs`: View logs from all processes
+- `yarn status`: Check the status of all processes
 
 ### IDE Run Configurations
 
@@ -86,7 +86,7 @@ To use these configurations:
 To start the application in development mode with hot-reloading:
 
 ```bash
-npm run start:dev
+yarn start:dev
 ```
 
 ### Production Mode
@@ -94,7 +94,7 @@ npm run start:dev
 To start the application in production mode:
 
 ```bash
-npm start
+yarn start
 ```
 
 ## License

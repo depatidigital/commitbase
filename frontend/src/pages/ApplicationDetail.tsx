@@ -952,11 +952,11 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
         <Input
           value={formData.buildCommand}
           onChange={(e) => handleInputChange('buildCommand', e.target.value)}
-          placeholder="npm run build"
+          placeholder="yarn build"
           className="font-mono"
         />
         <p className="text-xs text-muted-foreground">
-          Command to build your application (e.g., npm run build, yarn build)
+          Command to build your application (e.g., yarn build, npm run build)
         </p>
       </div>
 
@@ -969,11 +969,11 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
         <Input
           value={formData.startCommand}
           onChange={(e) => handleInputChange('startCommand', e.target.value)}
-          placeholder="npm start"
+          placeholder="yarn start"
           className="font-mono"
         />
         <p className="text-xs text-muted-foreground">
-          Command to start your application (e.g., npm start, node app.js)
+          Command to start your application (e.g., yarn start, npm start, node app.js)
         </p>
       </div>
 
@@ -1041,18 +1041,18 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div>
             <p className="font-medium mb-1">Node.js</p>
-            <p className="text-muted-foreground">Build: npm run build</p>
-            <p className="text-muted-foreground">Start: npm start</p>
+            <p className="text-muted-foreground">Build: yarn build</p>
+            <p className="text-muted-foreground">Start: yarn start</p>
           </div>
           <div>
             <p className="font-medium mb-1">React</p>
-            <p className="text-muted-foreground">Build: npm run build</p>
-            <p className="text-muted-foreground">Start: npm start</p>
+            <p className="text-muted-foreground">Build: yarn build</p>
+            <p className="text-muted-foreground">Start: yarn start</p>
           </div>
           <div>
             <p className="font-medium mb-1">Vue.js</p>
-            <p className="text-muted-foreground">Build: npm run build</p>
-            <p className="text-muted-foreground">Start: npm run serve</p>
+            <p className="text-muted-foreground">Build: yarn build</p>
+            <p className="text-muted-foreground">Start: yarn run serve</p>
           </div>
         </div>
       </div>
