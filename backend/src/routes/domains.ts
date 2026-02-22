@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { syncDomainDns } from '../services/cloudflareService';
+import { syncDomainDns, getOrCreateCloudflareZone } from '../services/cloudflareService';
 
 const router = Router();
 
@@ -78,9 +78,10 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
   try {
     const { name, redirectTo, customConfig } = req.body;
 
-    // Check if domain already exists
+    const trimmedName = String(name).trim().toLowerCase();
+
     const existingDomain = await prisma.domain.findUnique({
-      where: { name },
+      where: { name: trimmedName },
     });
 
     if (existingDomain) {
@@ -92,8 +93,24 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
 
     let dnsRecords: any = null;
     let status: Domain['status'] = 'PENDING';
+    let mergedCustomConfig: any = customConfig || null;
 
-    const cloudflareRecords = await syncDomainDns(name);
+    const cloudflareZone = await getOrCreateCloudflareZone(trimmedName);
+    if (cloudflareZone) {
+      mergedCustomConfig = {
+        ...(mergedCustomConfig || {}),
+        cloudflare: {
+          zoneId: cloudflareZone.id,
+          zoneName: cloudflareZone.name,
+          nameservers: cloudflareZone.nameServers,
+          synced: true,
+        },
+      };
+
+      status = 'ACTIVE';
+    }
+
+    const cloudflareRecords = await syncDomainDns(trimmedName);
     if (cloudflareRecords) {
       dnsRecords = cloudflareRecords;
       status = 'ACTIVE';
@@ -101,11 +118,11 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
 
     const domain = await prisma.domain.create({
       data: {
-        name,
+        name: trimmedName,
         status,
         dnsRecords,
         redirectTo,
-        customConfig,
+        customConfig: mergedCustomConfig,
         userId: req.user!.userId,
       },
     });

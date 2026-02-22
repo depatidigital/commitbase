@@ -17,16 +17,15 @@ type DnsSummary = {
   cname?: string;
 };
 
-export async function listCloudflareZones(params?: { page?: number; perPage?: number }): Promise<any[] | null> {
+export interface CloudflareZoneInfo {
+  id: string;
+  name: string;
+  nameServers: string[];
+}
+
+async function getCloudflareFetchConfig(): Promise<{ fetchFn: any; config: CloudflareConfig } | null> {
   const config = await getCloudflareConfigFromDb();
-  if (!config) {
-    return null;
-  }
-
-  const apiToken = config.apiToken;
-  const apiBase = config.apiBase;
-
-  if (!apiToken) {
+  if (!config || !config.apiToken) {
     return null;
   }
 
@@ -34,6 +33,18 @@ export async function listCloudflareZones(params?: { page?: number; perPage?: nu
   if (!fetchFn) {
     return null;
   }
+
+  return { fetchFn, config };
+}
+
+export async function listCloudflareZones(params?: { page?: number; perPage?: number }): Promise<any[] | null> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    return null;
+  }
+
+  const { fetchFn, config } = shared;
+  const apiBase = config.apiBase;
 
   const page = params?.page && params.page > 0 ? params.page : 1;
   const perPage = params?.perPage && params.perPage > 0 ? params.perPage : 50;
@@ -44,7 +55,7 @@ export async function listCloudflareZones(params?: { page?: number; perPage?: nu
     const response = await fetchFn(url, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${apiToken}`,
+        Authorization: `Bearer ${config.apiToken}`,
         'Content-Type': 'application/json',
       },
     });
@@ -60,6 +71,90 @@ export async function listCloudflareZones(params?: { page?: number; perPage?: nu
     }
 
     return result;
+  } catch {
+    return null;
+  }
+}
+
+export async function getOrCreateCloudflareZone(domain: string): Promise<CloudflareZoneInfo | null> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    return null;
+  }
+
+  const { fetchFn, config } = shared;
+  const apiBase = config.apiBase;
+
+  const trimmedDomain = domain.trim().toLowerCase();
+
+  const searchUrl = `${apiBase}/zones?name=${encodeURIComponent(trimmedDomain)}`;
+
+  try {
+    const searchResponse = await fetchFn(searchUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (searchResponse.ok) {
+      const searchData = await searchResponse.json();
+      const zones = Array.isArray(searchData.result) ? searchData.result : [];
+      const existing = zones[0];
+
+      if (existing && existing.id) {
+        const nameServers =
+          Array.isArray(existing.name_servers) && existing.name_servers.length > 0
+            ? existing.name_servers
+            : [];
+
+        return {
+          id: String(existing.id),
+          name: String(existing.name || trimmedDomain),
+          nameServers,
+        };
+      }
+    }
+  } catch {
+  }
+
+  const createUrl = `${apiBase}/zones`;
+  const createBody = {
+    name: trimmedDomain,
+    jump_start: false,
+  };
+
+  try {
+    const createResponse = await fetchFn(createUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(createBody),
+    });
+
+    if (!createResponse.ok) {
+      return null;
+    }
+
+    const createData = await createResponse.json();
+    const result = createData && createData.result;
+    if (!result || !result.id) {
+      return null;
+    }
+
+    const nameServers =
+      Array.isArray(result.name_servers) && result.name_servers.length > 0
+        ? result.name_servers
+        : [];
+
+    return {
+      id: String(result.id),
+      name: String(result.name || trimmedDomain),
+      nameServers,
+    };
   } catch {
     return null;
   }
@@ -114,17 +209,14 @@ export async function getCloudflareNameservers(): Promise<string[] | null> {
 }
 
 export async function syncDomainDns(domain: string): Promise<DnsSummary | null> {
-  const config = await getCloudflareConfigFromDb();
-  if (!config) {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
     return null;
   }
+
+  const { fetchFn, config } = shared;
 
   if (!config.dnsTarget || !config.zoneId) {
-    return null;
-  }
-
-  const fetchFn: any = (globalThis as any).fetch;
-  if (!fetchFn) {
     return null;
   }
 

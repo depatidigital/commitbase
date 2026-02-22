@@ -23,7 +23,7 @@ import {
   Settings
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useDomains, useDeleteDomain, useVerifyDomain, useRenewSSL } from "@/hooks/useDomains";
+import { useDomains, useDeleteDomain, useVerifyDomain, useRenewSSL, useCreateDomain } from "@/hooks/useDomains";
 import { Domain } from "@/types/domain";
 import {
   AlertDialog,
@@ -47,9 +47,10 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 
 export default function Domains() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -59,6 +60,10 @@ export default function Domains() {
     domainName: string;
   } | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addMode, setAddMode] = useState<'existing' | 'register'>('existing');
+  const [newDomainName, setNewDomainName] = useState('');
+  const [newRedirectTo, setNewRedirectTo] = useState('');
   const { toast } = useToast();
   
   // API hooks
@@ -66,6 +71,7 @@ export default function Domains() {
   const deleteDomain = useDeleteDomain();
   const verifyDomain = useVerifyDomain();
   const renewSSL = useRenewSSL();
+  const createDomain = useCreateDomain();
 
   const domains = domainsData || [];
   const filteredDomains = domains.filter(domain =>
@@ -82,6 +88,30 @@ export default function Domains() {
 
   const handleRenewSSL = async (id: string, name: string) => {
     setConfirmAction({ type: 'renew', domainId: id, domainName: name });
+  };
+
+  const handleAddDomain = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = newDomainName.trim();
+    if (!value) {
+      return;
+    }
+
+    try {
+      await createDomain.mutateAsync({
+        name: value,
+        redirectTo: newRedirectTo || undefined,
+        customConfig: {
+          mode: addMode,
+        },
+      });
+
+      setAddDialogOpen(false);
+      setNewDomainName('');
+      setNewRedirectTo('');
+      setAddMode('existing');
+    } catch {
+    }
   };
 
   const executeAction = async () => {
@@ -231,10 +261,99 @@ export default function Domains() {
               Manage your custom domains and SSL certificates.
             </p>
           </div>
-          <Button className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Domain
-          </Button>
+          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+            <Button
+              className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
+              onClick={() => setAddDialogOpen(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Domain
+            </Button>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Add Domain</DialogTitle>
+                <DialogDescription>
+                  Connect an existing domain or register a new one through your registrar.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleAddDomain} className="space-y-6">
+                <div className="space-y-3">
+                  <Label className="text-sm">Domain type</Label>
+                  <RadioGroup
+                    className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                    value={addMode}
+                    onValueChange={(value) => setAddMode(value as 'existing' | 'register')}
+                  >
+                    <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
+                      <RadioGroupItem value="existing" id="domain-mode-existing" />
+                      <div className="space-y-1">
+                        <Label htmlFor="domain-mode-existing">Use existing domain</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Use a domain you already own and connect it to Cloudflare automatically.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                      <RadioGroupItem value="register" id="domain-mode-register" />
+                      <div className="space-y-1">
+                        <Label htmlFor="domain-mode-register">Register new domain</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Mark this domain as new. Registration is handled externally or via RDASH.
+                        </p>
+                      </div>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="new-domain-name">
+                    Domain name
+                  </Label>
+                  <Input
+                    id="new-domain-name"
+                    placeholder="example.com"
+                    value={newDomainName}
+                    onChange={(e) => setNewDomainName(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="new-domain-redirect">
+                    Redirect to (optional)
+                  </Label>
+                  <Input
+                    id="new-domain-redirect"
+                    placeholder="https://your-app.example.com"
+                    value={newRedirectTo}
+                    onChange={(e) => setNewRedirectTo(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If set, HTTP traffic to this domain will be redirected to the target URL.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end space-x-3 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setAddDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-gradient-primary"
+                    disabled={createDomain.isPending || !newDomainName.trim()}
+                  >
+                    {createDomain.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Save domain
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Search */}
@@ -264,7 +383,10 @@ export default function Domains() {
                 <p className="text-muted-foreground text-center max-w-md mb-4">
                   Get started by adding your first custom domain to the platform.
                 </p>
-                <Button className="bg-gradient-primary">
+                <Button
+                  className="bg-gradient-primary"
+                  onClick={() => setAddDialogOpen(true)}
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   Add Your First Domain
                 </Button>
