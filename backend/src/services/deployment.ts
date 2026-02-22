@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma';
 import * as crypto from 'crypto';
 import { TemplateEngine, TemplateData } from '../utils/templateEngine';
 import { uploadBuildLog, uploadDirectoryToS3 } from './s3Service';
+import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication } from './caddyService';
 
 const execAsync = promisify(exec);
 
@@ -944,6 +945,11 @@ build
             },
           });
 
+          try {
+            await configureCaddyForStaticApplication(application.id, application.domain);
+          } catch {
+          }
+
           return {
             success: true,
             buildLogs,
@@ -1082,6 +1088,11 @@ build
         where: { id: application.id },
         data: { activeReleaseId: release.id },
       });
+
+      try {
+        await configureCaddyForRuntimeApplication(application.domain, hostPort);
+      } catch {
+      }
 
       return {
         success: true,

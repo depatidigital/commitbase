@@ -377,6 +377,15 @@ pm2 monit
 - **Docker Support**: Container-based deployments
 - **SSL/TLS**: Automatic SSL certificate management
 
+### Caddy Integration
+
+When `CADDY_API_URL` is configured, the deployment service can update a Caddy server through its admin API:
+
+- For runtime applications, routes are created that proxy `{domain}` to `http://localhost:{hostPort}`.
+- For static applications, routes are created that redirect `{domain}` to the static site URL hosted on the configured S3-compatible storage.
+
+The configuration is applied to the `commitbase` HTTP server inside the Caddy configuration.
+
 ### Monitoring
 - **Resource Usage**: CPU, memory, disk usage
 - **Performance Metrics**: Response times, throughput
