@@ -51,6 +51,8 @@ const App = () => (
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
             <Route path="integrations/domains" element={<RdashOverview />} />
+            <Route path="integrations/rdash" element={<RdashOverview />} />
+            <Route path="integrations/cloudflare" element={<RdashOverview />} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

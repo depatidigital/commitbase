@@ -67,15 +67,14 @@ export async function getCloudflareConfigFromDb() {
     getIntegrationConfigValue(CLOUDFLARE_PROVIDER, 'apiBase'),
   ]);
 
-  if (!apiToken || !zoneId || !dnsTarget) {
+  if (!apiToken) {
     return null;
   }
 
   return {
     apiToken,
-    zoneId,
-    dnsTarget,
+    zoneId: zoneId || null,
+    dnsTarget: dnsTarget || null,
     apiBase: apiBase || 'https://api.cloudflare.com/client/v4',
   };
 }
-

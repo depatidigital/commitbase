@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { getRdashSummary, getCloudflareZones, getRdashConfigStatus, getCloudflareConfigStatus, updateRdashConfig, updateCloudflareConfig, RdashSummary, RdashConfigStatus, CloudflareConfigStatus, RdashConfigUpdatePayload, CloudflareConfigUpdatePayload } from '@/lib/rdash';
 
-export const useRdashSummary = () => {
+export const useRdashSummary = (enabled: boolean = true) => {
   const { toast } = useToast();
 
   return useQuery<RdashSummary>({
@@ -19,10 +19,11 @@ export const useRdashSummary = () => {
         throw error;
       }
     },
+    enabled,
   });
 };
 
-export const useCloudflareZones = (page?: number, perPage?: number) => {
+export const useCloudflareZones = (page?: number, perPage?: number, enabled: boolean = true) => {
   const { toast } = useToast();
 
   return useQuery<any[]>({
@@ -39,6 +40,7 @@ export const useCloudflareZones = (page?: number, perPage?: number) => {
         throw error;
       }
     },
+    enabled,
   });
 };
 

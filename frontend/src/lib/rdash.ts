@@ -19,8 +19,6 @@ export interface RdashConfigStatus {
 export interface CloudflareConfigStatus {
   apiBase: string;
   apiTokenSet: boolean;
-  zoneIdSet: boolean;
-  dnsTargetSet: boolean;
 }
 
 export interface RdashConfigUpdatePayload {
@@ -32,8 +30,6 @@ export interface RdashConfigUpdatePayload {
 export interface CloudflareConfigUpdatePayload {
   apiBase?: string;
   apiToken?: string;
-  zoneId?: string;
-  dnsTarget?: string;
 }
 
 export const getRdashSummary = async (): Promise<RdashSummary> => {

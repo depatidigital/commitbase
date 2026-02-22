@@ -15,8 +15,6 @@ router.get('/config', authenticateToken, async (req: AuthenticatedRequest, res: 
       data: {
         apiBase: config?.apiBase || 'https://api.cloudflare.com/client/v4',
         apiTokenSet: !!config?.apiToken,
-        zoneIdSet: !!config?.zoneId,
-        dnsTargetSet: !!config?.dnsTarget,
       },
       message: 'Cloudflare config retrieved successfully',
     } as ApiResponse);
@@ -31,11 +29,9 @@ router.get('/config', authenticateToken, async (req: AuthenticatedRequest, res: 
 
 router.put('/config', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { apiBase, apiToken, zoneId, dnsTarget } = req.body as {
+    const { apiBase, apiToken } = req.body as {
       apiBase?: string;
       apiToken?: string;
-      zoneId?: string;
-      dnsTarget?: string;
     };
 
     if (apiBase && typeof apiBase === 'string') {
@@ -43,12 +39,6 @@ router.put('/config', authenticateToken, async (req: AuthenticatedRequest, res: 
     }
     if (apiToken && typeof apiToken === 'string') {
       await setIntegrationConfigValue('cloudflare', 'apiToken', apiToken);
-    }
-    if (zoneId && typeof zoneId === 'string') {
-      await setIntegrationConfigValue('cloudflare', 'zoneId', zoneId);
-    }
-    if (dnsTarget && typeof dnsTarget === 'string') {
-      await setIntegrationConfigValue('cloudflare', 'dnsTarget', dnsTarget);
     }
 
     const config = await getCloudflareConfigFromDb();
@@ -58,8 +48,6 @@ router.put('/config', authenticateToken, async (req: AuthenticatedRequest, res: 
       data: {
         apiBase: config?.apiBase || 'https://api.cloudflare.com/client/v4',
         apiTokenSet: !!config?.apiToken,
-        zoneIdSet: !!config?.zoneId,
-        dnsTargetSet: !!config?.dnsTarget,
       },
       message: 'Cloudflare config updated successfully',
     } as ApiResponse);
@@ -104,4 +92,3 @@ router.get('/zones', authenticateToken, async (req: AuthenticatedRequest, res: R
 });
 
 export default router;
-

@@ -2,9 +2,9 @@ import { getCloudflareConfigFromDb } from './integrationConfigService';
 
 interface CloudflareConfig {
   apiToken: string;
-  zoneId: string;
   apiBase: string;
-  dnsTarget: string;
+  zoneId?: string | null;
+  dnsTarget?: string | null;
 }
 
 function isIPv4(value: string): boolean {
@@ -75,6 +75,10 @@ export async function getCloudflareNameservers(): Promise<string[] | null> {
   const zoneId = config.zoneId;
   const apiBase = config.apiBase;
 
+  if (!apiToken || !zoneId) {
+    return null;
+  }
+
   const fetchFn: any = (globalThis as any).fetch;
   if (!fetchFn) {
     return null;
@@ -112,6 +116,10 @@ export async function getCloudflareNameservers(): Promise<string[] | null> {
 export async function syncDomainDns(domain: string): Promise<DnsSummary | null> {
   const config = await getCloudflareConfigFromDb();
   if (!config) {
+    return null;
+  }
+
+  if (!config.dnsTarget || !config.zoneId) {
     return null;
   }
 

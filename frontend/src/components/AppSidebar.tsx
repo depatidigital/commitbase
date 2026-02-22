@@ -9,6 +9,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
   useSidebar,
 } from "@/components/ui/sidebar";
 
@@ -16,7 +19,6 @@ const items = [
   { title: "Application", url: "/", icon: Server },
   { title: "Database", url: "/database", icon: Database },
   { title: "Domains", url: "/domains", icon: Globe },
-  { title: "Domain Integrations", url: "/integrations/domains", icon: Link2 },
   { title: "Logs", url: "/logs", icon: Terminal },
 ];
 
@@ -79,6 +81,35 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+
+              <SidebarMenuItem>
+                <SidebarMenuButton className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
+                  <Link2 className="h-4 w-4" />
+                  {!collapsed && <span>Integration</span>}
+                </SidebarMenuButton>
+                <SidebarMenuSub>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={location.pathname.startsWith("/integrations/rdash")}
+                    >
+                      <NavLink to="/integrations/rdash">
+                        <span>Rdash</span>
+                      </NavLink>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={location.pathname.startsWith("/integrations/cloudflare")}
+                    >
+                      <NavLink to="/integrations/cloudflare">
+                        <span>Cloudflare</span>
+                      </NavLink>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                </SidebarMenuSub>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
