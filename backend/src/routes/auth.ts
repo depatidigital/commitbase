@@ -45,18 +45,17 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
       },
     });
 
-    // Generate JWT token
     const token = jwt.sign(
       {
         userId: user.id,
         email: user.email,
         role: user.role,
       },
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      process.env.JWT_SECRET as any,
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: {
         user,
@@ -66,7 +65,7 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
     } as ApiResponse);
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -109,18 +108,17 @@ router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Re
       } as ApiResponse);
     }
 
-    // Generate JWT token
     const token = jwt.sign(
       {
         userId: user.id,
         email: user.email,
         role: user.role,
       },
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      process.env.JWT_SECRET as any,
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         user: {
@@ -135,7 +133,7 @@ router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Re
     } as ApiResponse);
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -164,7 +162,7 @@ router.get('/validate', authenticateToken, async (req: AuthenticatedRequest, res
       } as ApiResponse);
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         user,
@@ -174,7 +172,7 @@ router.get('/validate', authenticateToken, async (req: AuthenticatedRequest, res
     } as ApiResponse);
   } catch (error) {
     console.error('Token validation error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

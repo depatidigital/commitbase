@@ -42,7 +42,7 @@ router.get('/:templateName', authenticateToken, async (req: AuthenticatedRequest
 
     const content = await deploymentService.getTemplateContent(templateName);
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         templateName,
@@ -52,7 +52,7 @@ router.get('/:templateName', authenticateToken, async (req: AuthenticatedRequest
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching template content:', error);
-    res.status(404).json({
+    return res.status(404).json({
       success: false,
       error: error instanceof Error ? error.message : 'Template not found',
     } as ApiResponse);
@@ -81,7 +81,7 @@ router.post('/', authenticateToken, async (req: AuthenticatedRequest, res: Respo
 
     await deploymentService.createTemplate(templateName, content);
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         templateName,
@@ -90,7 +90,7 @@ router.post('/', authenticateToken, async (req: AuthenticatedRequest, res: Respo
     } as ApiResponse);
   } catch (error) {
     console.error('Error creating template:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to create template',
     } as ApiResponse);
@@ -112,7 +112,7 @@ router.put('/:templateName', authenticateToken, async (req: AuthenticatedRequest
 
     await deploymentService.updateTemplateContent(templateName, content);
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         templateName,
@@ -121,7 +121,7 @@ router.put('/:templateName', authenticateToken, async (req: AuthenticatedRequest
     } as ApiResponse);
   } catch (error) {
     console.error('Error updating template:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to update template',
     } as ApiResponse);
@@ -142,7 +142,7 @@ router.delete('/:templateName', authenticateToken, async (req: AuthenticatedRequ
 
     await deploymentService.deleteTemplate(templateName);
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         templateName,
@@ -151,7 +151,7 @@ router.delete('/:templateName', authenticateToken, async (req: AuthenticatedRequ
     } as ApiResponse);
   } catch (error) {
     console.error('Error deleting template:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete template',
     } as ApiResponse);
@@ -180,7 +180,7 @@ router.post('/:templateName/preview', authenticateToken, async (req: Authenticat
       previewContent = previewContent.replace(regex, String(value));
     });
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         templateName,
@@ -192,7 +192,7 @@ router.post('/:templateName/preview', authenticateToken, async (req: Authenticat
     } as ApiResponse);
   } catch (error) {
     console.error('Error generating template preview:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to generate template preview',
     } as ApiResponse);

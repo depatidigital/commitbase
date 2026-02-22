@@ -104,14 +104,14 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       } as ApiResponse);
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: application,
       message: 'Application retrieved successfully',
     } as ApiResponse<Application>);
   } catch (error) {
     console.error('Error fetching application:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -135,7 +135,6 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       } as ApiResponse);
     }
 
-    // Create application
     const application = await prisma.application.create({
       data: {
         name,
@@ -151,14 +150,14 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       },
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: application,
       message: 'Application created successfully',
     } as ApiResponse<Application>);
   } catch (error) {
     console.error('Error creating application:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -232,7 +231,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     console.log('Updated application:', updatedApp, {
       port: port,
     });
-    res.json({
+    return res.json({
       success: true,
       data: updatedApp,
       message: 'Application updated successfully',
@@ -246,7 +245,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       method: req.method,
       headers: req.headers
     });
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -297,13 +296,13 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       where: { id },
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Application deleted successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error deleting application:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -350,7 +349,6 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
       } as ApiResponse);
     }
 
-    // Update application status
     await prisma.application.update({
       where: { id },
       data: { status: 'DEPLOYING' },
@@ -365,7 +363,7 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
         data: { status: 'RUNNING' },
       });
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Application started successfully',
       } as ApiResponse);
@@ -375,14 +373,14 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
         data: { status: 'ERROR' },
       });
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to start application',
       } as ApiResponse);
     }
   } catch (error) {
     console.error('Error starting existing application:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -460,7 +458,6 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         },
       });
 
-      // Update application status
       await prisma.application.update({
         where: { id },
         data: {
@@ -480,21 +477,20 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         },
       });
 
-      // Update application status
       await prisma.application.update({
         where: { id },
         data: { status: 'ERROR' },
       });
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: { deploymentId: deployment.id },
       message: 'Application deployment started',
     } as ApiResponse);
   } catch (error) {
     console.error('Error starting application:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -545,19 +541,19 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
         data: { status: 'STOPPED' },
       });
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Application stopped successfully',
       } as ApiResponse);
     } else {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to stop application',
       } as ApiResponse);
     }
   } catch (error) {
     console.error('Error stopping application:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -613,19 +609,164 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
         data: { status: 'RUNNING' },
       });
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Application restarted successfully',
       } as ApiResponse);
     } else {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to restart application',
       } as ApiResponse);
     }
   } catch (error) {
     console.error('Error restarting application:', error);
-    res.status(500).json({
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// List releases for an application
+router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
+    const application = await prisma.application.findFirst({
+      where: {
+        id,
+        userId: req.user!.userId,
+      },
+      include: {
+        activeRelease: true,
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      } as ApiResponse);
+    }
+
+    const releases = await prisma.release.findMany({
+      where: {
+        applicationId: application.id,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        applicationId: application.id,
+        activeReleaseId: application.activeReleaseId,
+        releases,
+      },
+      message: 'Releases retrieved successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching releases:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Activate a specific release (rollback)
+router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id, releaseId } = req.params;
+
+    if (!id || !releaseId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID and Release ID are required',
+      } as ApiResponse);
+    }
+
+    const application = await prisma.application.findFirst({
+      where: {
+        id,
+        userId: req.user!.userId,
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found',
+      } as ApiResponse);
+    }
+
+    const release = await prisma.release.findFirst({
+      where: {
+        id: releaseId,
+        applicationId: application.id,
+      },
+    });
+
+    if (!release) {
+      return res.status(404).json({
+        success: false,
+        error: 'Release not found',
+      } as ApiResponse);
+    }
+
+    if (release.status !== 'READY') {
+      return res.status(400).json({
+        success: false,
+        error: 'Release is not in READY state',
+      } as ApiResponse);
+    }
+
+    await prisma.application.update({
+      where: { id: application.id },
+      data: { activeReleaseId: release.id },
+    });
+
+    const containerName = getDockerContainerName(application);
+    await deploymentService.stopApplication(containerName);
+
+    const started = await deploymentService.startRelease(application, release);
+
+    await prisma.application.update({
+      where: { id: application.id },
+      data: {
+        status: started ? 'RUNNING' : 'ERROR',
+        lastDeployment: new Date(),
+      },
+    });
+
+    if (!started) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to start container for selected release',
+      } as ApiResponse);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        applicationId: application.id,
+        activeReleaseId: release.id,
+      },
+      message: 'Release activated successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error activating release:', error);
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

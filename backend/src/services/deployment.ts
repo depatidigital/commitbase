@@ -2,10 +2,11 @@ import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { Application, Deployment } from '@prisma/client';
+import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import * as crypto from 'crypto';
 import { TemplateEngine, TemplateData } from '../utils/templateEngine';
+import { uploadBuildLog } from './s3Service';
 
 const execAsync = promisify(exec);
 
@@ -28,7 +29,7 @@ export interface StartResult {
 }
 
 export function getDockerContainerName(application: Application) {
-  return application.domain.replace(/[^a-zA-Z0-9]/g, '_');
+  return application.domain;
 }
 
 export class DeploymentService {
@@ -183,98 +184,6 @@ export class DeploymentService {
     await fs.writeFile(dockerfilePath, dockerfileContent);
     return dockerfilePath;
   }
-  /**
-   * Create Docker Compose file for the application with persistent volumes
-   */
-  async createDockerCompose(appDir: string, application: Application): Promise<string> {
-    const sourcesDir = path.join(appDir, 'sources');
-    const composePath = path.join(sourcesDir, 'docker-compose.yml');
-
-    // Generate unique names for volumes and networks
-    const containerName = getDockerContainerName(application);
-    const networkName = `${containerName}_network`;
-
-    // Find available port
-    const requestedPort = application.port || this.getDefaultPort(application.type);
-    console.log(`Requested port for ${application.name}: ${requestedPort}`);
-    
-    // Debug: Show currently used ports
-    const usedPorts = await this.getUsedPorts();
-    console.log(`Currently used ports: ${usedPorts.join(', ')}`);
-    
-    const availablePort = await this.findAvailablePort(requestedPort);
-    console.log(`Allocated port for ${application.name}: ${availablePort}`);
-
-    // Update application with allocated port if different from requested
-    if (availablePort !== requestedPort) {
-      await prisma.application.update({
-        where: { id: application.id },
-        data: { port: availablePort }
-      });
-      console.log(`Updated application ${application.name} port from ${requestedPort} to ${availablePort}`);
-    }
-
-    // Prepare template data for Docker Compose
-    const templateData: TemplateData = {
-      containerName: containerName,
-      startCommand: application.startCommand,
-      domain: application.domain,
-      hostPort: availablePort,
-      containerPort: requestedPort, // Keep container port as requested
-      appVolume: `${containerName}_app`,
-      networkName: networkName,
-      nodeEnv: 'production',
-      environmentVariables: this.formatEnvironmentVariables(application.envVars as Record<string, string> || {}),
-      resourceLimits: this.getResourceLimits(application)
-    };
-
-    // Render Docker Compose template using template engine
-    const composeContent = await this.templateEngine.renderTemplate('docker-compose', templateData, 'compose');
-    console.log('composeContent', composeContent);
-    console.log('composePath', composePath);
-    // Debug: Log the generated content
-    console.log('Generated Docker Compose content:', composeContent);
-    console.log('Template data used:', templateData);
-
-    // Write Docker Compose file
-    await fs.writeFile(composePath, composeContent);
-    console.log(`Docker Compose file written to: ${composePath}`);
-
-    // Clean up any containers that might be using the allocated port
-    try {
-      const { stdout } = await execAsync(`docker ps --format "table {{.Names}}\t{{.Ports}}" | grep ":${templateData.hostPort}->"`);
-      if (stdout.trim()) {
-        console.log(`Found containers using port ${templateData.hostPort}, stopping them...`);
-        const containerNames = stdout.split('\n').map(line => line.split('\t')[0]).filter(name => name && name.trim());
-        for (const containerName of containerNames) {
-          try {
-            await execAsync(`docker stop ${containerName}`);
-            await execAsync(`docker rm ${containerName}`);
-            console.log(`Stopped and removed container: ${containerName}`);
-          } catch (error) {
-            console.log(`Failed to stop container ${containerName}:`, error);
-          }
-        }
-      }
-    } catch (error) {
-      // No containers found using the port
-      console.log(`No containers found using port ${templateData.hostPort}`);
-    }
-
-    return composePath;
-  }
-
-  /**
-   * Get currently used ports for debugging
-   */
-  private async getUsedPorts(): Promise<number[]> {
-    try {
-      const { stdout } = await execAsync(`docker ps --format "table {{.Ports}}" | grep -o ":[0-9]*->" | grep -o "[0-9]*"`);
-      return stdout.split('\n').filter(port => port.trim()).map(port => parseInt(port));
-    } catch (error) {
-      return [];
-    }
-  }
 
   /**
    * Find an available port starting from the requested port
@@ -360,6 +269,12 @@ export class DeploymentService {
     return defaultCommands[type] || 'npm start';
   }
 
+  private getImageName(application: Application, deployment: Deployment): string {
+    const repository = `app-${application.id.toLowerCase()}`;
+    const tag = deployment.id.toLowerCase();
+    return `${repository}:${tag}`;
+  }
+
   /**
    * Format environment variables for Docker Compose
    */
@@ -403,10 +318,6 @@ export class DeploymentService {
    * Get resource limits configuration
    */
   private getResourceLimits(application: Application): string {
-    // if (!application.memory && !application.cpu) {
-    //   return '';
-    // }
-
     const memoryLimit = application.memory || '512M';
     const cpuLimit = application.cpu || '0.5';
     const memoryReservation = this.calculateMemoryReservation(memoryLimit);
@@ -420,6 +331,30 @@ export class DeploymentService {
         reservations:
           memory: ${memoryReservation}
           cpus: '${cpuReservation}'`;
+  }
+
+  private getDockerResourceFlags(application: Application): string[] {
+    const flags: string[] = [];
+    const memoryLimit = application.memory || '512M';
+    const cpuLimit = application.cpu || '0.5';
+    const normalizedMemory = this.normalizeMemoryLimit(memoryLimit);
+
+    flags.push(`--memory=${normalizedMemory}`);
+    flags.push(`--cpus=${cpuLimit}`);
+
+    return flags;
+  }
+
+  private normalizeMemoryLimit(memoryLimit: string): string {
+    const trimmed = memoryLimit.trim();
+    if (!trimmed) {
+      return '512m';
+    }
+    const lower = trimmed.toLowerCase();
+    if (/[mg]$/.test(lower)) {
+      return lower;
+    }
+    return `${lower}m`;
   }
 
   /**
@@ -470,76 +405,69 @@ build
   /**
    * Build Docker image for the application
    */
-  async runDockerCompose(appDir: string, application: Application): Promise<BuildResult> {
+  async runDockerCompose(appDir: string, application: Application, deployment: Deployment): Promise<BuildResult> {
     try {
-      console.log(`Running Docker Compose for application: ${application.name}`);
-      console.log('appDir', appDir);
       const sourcesDir = path.join(appDir, 'sources');
       const logsDir = path.join(appDir, 'logs');
-      console.log('sourcesDir', sourcesDir);
-      console.log('logsDir', logsDir);
-      // Ensure logs directory exists
       await fs.mkdir(logsDir, { recursive: true });
-      await this.createDockerCompose(appDir, application);
+
+      const requestedPort = application.port || this.getDefaultPort(application.type);
+      const availablePort = await this.findAvailablePort(requestedPort);
+
+      if (availablePort !== requestedPort) {
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { port: availablePort }
+        });
+        application.port = availablePort as any;
+      }
+
       const buildLogPath = path.join(logsDir, 'build.log');
       const timestamp = new Date().toISOString();
 
-      // Clear and write build start to log
-      await fs.writeFile(buildLogPath, `[${timestamp}] DOCKER COMPOSE STARTED\n`);
+      await fs.writeFile(buildLogPath, `[${timestamp}] DOCKER BUILD STARTED\n`);
 
-      // Create Dockerfile
-      console.log('Creating Dockerfile');
       await this.createDockerfile(appDir, application);
 
-      // Create .dockerignore
-      console.log('Creating .dockerignore');
       await this.createDockerignore(appDir);
 
-      // Stop and remove existing containers first
-      console.log('Stopping and removing existing containers');
-      try {
-        await execAsync(`docker compose down --remove-orphans`, {
-          cwd: sourcesDir,
-          timeout: 60000, // 1 minute timeout
-        });
-      } catch (error) {
-        console.log('No existing containers to remove or error during cleanup:', error);
-      }
+      const imageName = this.getImageName(application, deployment);
+      const memoryLimit = application.memory || '512M';
+      const normalizedMemory = this.normalizeMemoryLimit(memoryLimit);
+      const buildCommand = `docker build --memory=${normalizedMemory} -t ${imageName} .`;
 
-      // Run Docker Compose
-      console.log('Running Docker Compose');
-      const { stdout, stderr } = await execAsync(`docker compose up -d --build`, {
+      const { stdout, stderr } = await execAsync(buildCommand, {
         cwd: sourcesDir,
-        timeout: 600000, // 10 minutes timeout
+        timeout: 600000,
+        env: {
+          ...process.env,
+          DOCKER_BUILDKIT: '1',
+        },
       });
 
-      // Clean up unused images
-      console.log('Cleaning up unused images');
-      try {
-        await execAsync(`docker image prune -a -f`);
-      } catch (error) {
-        console.log('Error during image cleanup:', error);
-      }
-      // Log build completion
       const completionTimestamp = new Date().toISOString();
-      const buildLogEntry = `[${completionTimestamp}] DOCKER COMPOSE COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
+      const buildLogEntry = `[${completionTimestamp}] DOCKER BUILD COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
       await fs.appendFile(buildLogPath, buildLogEntry);
+
+      await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+      await this.enforceImageRetentionPolicy(application).catch(() => {});
 
       return {
         success: true,
       };
     } catch (error: any) {
-      // Log build error
       const logsDir = path.join(appDir, 'logs');
       const buildLogPath = path.join(logsDir, 'build.log');
       const errorTimestamp = new Date().toISOString();
-      const errorLogEntry = `[${errorTimestamp}] DOCKER COMPOSE FAILED:\n${error.stderr || error.message}\n\n`;
-      console.log('errorLogEntry', errorLogEntry); console.log('errorLogEntry', errorLogEntry);
+      const message = error.stderr || error.message || String(error);
+      const errorLogEntry = `[${errorTimestamp}] DOCKER BUILD FAILED:\n${message}\n\n`;
       await fs.appendFile(buildLogPath, errorLogEntry);
+
+      await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
 
       return {
         success: false,
-        error: error.stderr || error.message,
+        error: message,
       };
     }
   }
@@ -549,45 +477,24 @@ build
    */
   async startApplication(appDir: string): Promise<StartResult> {
     try {
-      console.log(`Starting application with Docker Compose`);
+      const domain = path.basename(appDir);
+      const started = await this.startDockerCompose(domain);
 
-      const sourcesDir = path.join(appDir, 'sources');
-      const containerName = this.generateContainerName(appDir);
-
-      // Stop and remove existing container if it exists
-      try {
-        await execAsync(`docker stop ${containerName} || true`);
-        await execAsync(`docker rm ${containerName} || true`);
-      } catch (error) {
-        // Container doesn't exist, which is fine
-      }
-
-      // Start Docker container
-      const { stdout, stderr } = await execAsync(`docker-compose up -d`, {
-        cwd: sourcesDir,
-        timeout: 600000, // 10 minutes timeout
-      });
-
-      // Wait a bit to see if the container starts successfully
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Check if container is running
-      const isRunning = await this.checkDockerContainerRunning(containerName);
-
-      if (isRunning) {
+      if (started) {
+        const containerName = domain;
         const containerId = await this.getDockerContainerId(containerName);
         return {
           success: true,
           logs: `Application started successfully with Docker (${containerName})`,
-          pid: undefined, // Docker doesn't use PIDs in the same way
-        };
-      } else {
-        return {
-          success: false,
-          logs: '',
-          error: 'Application failed to start with Docker',
+          pid: undefined,
         };
       }
+
+      return {
+        success: false,
+        logs: '',
+        error: 'Application failed to start with Docker',
+      };
     } catch (error: any) {
       return {
         success: false,
@@ -644,60 +551,188 @@ build
   async startDockerCompose(domain: string): Promise<boolean> {
     try {
       const appDir = path.join(this.baseDir, domain);
-      const sourcesDir = path.join(appDir, 'sources');
-      const composePath = path.join(sourcesDir, 'docker-compose.yml');
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
 
-      // Check if docker-compose.yml exists
-      const exists = await fs.access(composePath).then(() => true).catch(() => false);
-      if (!exists) {
-        throw new Error('Docker Compose file not found');
-      }
-
-      // Ensure logs directory exists
       await fs.mkdir(logsDir, { recursive: true });
 
-      // Log deployment start
+      const application = await prisma.application.findFirst({
+        where: { domain },
+      });
+
+      if (!application) {
+        throw new Error('Application not found for domain');
+      }
+
+      let imageName: string | undefined;
+
+      if (application.activeReleaseId) {
+        const activeRelease = await prisma.release.findUnique({
+          where: { id: application.activeReleaseId },
+        });
+
+        if (activeRelease && activeRelease.status === 'READY') {
+          imageName = activeRelease.imageTag;
+        }
+      }
+
+      if (!imageName) {
+        const deployment = await prisma.deployment.findFirst({
+          where: {
+            applicationId: application.id,
+            status: 'SUCCESS',
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        });
+
+        if (!deployment) {
+          throw new Error('No successful deployment found for application');
+        }
+
+        imageName = this.getImageName(application, deployment);
+      }
+
       const startTimestamp = new Date().toISOString();
       await fs.appendFile(deployLogPath, `[${startTimestamp}] DEPLOYMENT STARTED\n`);
 
-      // Stop and remove existing containers first
-      console.log(`Stopping existing containers for ${domain}`);
+      const containerName = domain;
+
       try {
-        await execAsync('docker-compose down --remove-orphans', {
-          cwd: sourcesDir,
-          timeout: 60000, // 1 minute timeout
-        });
-        await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] Stopped existing containers\n`);
+        await execAsync(`docker stop ${containerName} || true`);
+        await execAsync(`docker rm ${containerName} || true`);
       } catch (error) {
-        console.log(`No existing containers to remove for ${domain} or error during cleanup:`, error);
-        await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] No existing containers to remove\n`);
       }
 
-      // Start containers with Docker Compose
-      const { stdout, stderr } = await execAsync('docker-compose up -d', {
-        cwd: sourcesDir,
-        timeout: 120000, // 2 minutes timeout
+      const requestedPort = application.port || this.getDefaultPort(application.type);
+      const hostPort = await this.findAvailablePort(requestedPort);
+
+      if (hostPort !== requestedPort) {
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { port: hostPort },
+        });
+        (application as any).port = hostPort;
+      }
+
+      const containerPort = requestedPort;
+
+      const envParts: string[] = [];
+      const envVars = (application.envVars || {}) as Record<string, string>;
+      for (const [key, value] of Object.entries(envVars)) {
+        envParts.push(`-e ${key}=${value}`);
+      }
+      envParts.push(`-e NODE_ENV=production`);
+      envParts.push(`-e PORT=${containerPort}`);
+
+      const labelParts: string[] = [];
+      labelParts.push(`--label commitbase_app_id=${application.id}`);
+      labelParts.push(`--label commitbase_app_domain=${application.domain}`);
+      if (application.activeReleaseId) {
+        labelParts.push(`--label commitbase_release_id=${application.activeReleaseId}`);
+      }
+
+      const resourceFlags = this.getDockerResourceFlags(application).join(' ');
+      const runCommand = `docker run -d --name ${containerName} -p ${hostPort}:${containerPort} ${resourceFlags} ${labelParts.join(' ')} ${envParts.join(' ')} ${imageName}`;
+
+      const { stdout, stderr } = await execAsync(runCommand, {
+        timeout: 600000,
       });
 
-      // Log deployment completion
       const completionTimestamp = new Date().toISOString();
       const deployLogEntry = `[${completionTimestamp}] DEPLOYMENT COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
       await fs.appendFile(deployLogPath, deployLogEntry);
 
-      console.log(`Docker Compose started for ${domain}:`, stdout);
-      return true;
+      const status = await this.getDockerApplicationStatus(containerName);
+      return status === 'RUNNING';
     } catch (error) {
-      // Log deployment error
       const appDir = path.join(this.baseDir, domain);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
       const errorTimestamp = new Date().toISOString();
-      const errorLogEntry = `[${errorTimestamp}] DEPLOYMENT FAILED:\n${error}\n\n`;
+      const message = (error as any).stderr || (error as any).message || String(error);
+      const errorLogEntry = `[${errorTimestamp}] DEPLOYMENT FAILED:\n${message}\n\n`;
       await fs.appendFile(deployLogPath, errorLogEntry);
 
-      console.error(`Failed to start Docker Compose for ${domain}:`, error);
+      return false;
+    }
+  }
+
+  async startRelease(application: Application, release: Release): Promise<boolean> {
+    try {
+      if (!application.domain) {
+        throw new Error('Application domain is required for release start');
+      }
+
+      const domain = application.domain;
+      const appDir = path.join(this.baseDir, domain);
+      const logsDir = path.join(appDir, 'logs');
+      const deployLogPath = path.join(logsDir, 'deploy.log');
+
+      await fs.mkdir(logsDir, { recursive: true });
+
+      const startTimestamp = new Date().toISOString();
+      await fs.appendFile(deployLogPath, `[${startTimestamp}] RELEASE STARTED: ${release.id}\n`);
+
+      const containerName = domain;
+
+      try {
+        await execAsync(`docker stop ${containerName} || true`);
+        await execAsync(`docker rm ${containerName} || true`);
+      } catch (error) {
+      }
+
+      const requestedPort = application.port || this.getDefaultPort(application.type);
+      const hostPort = await this.findAvailablePort(requestedPort);
+
+      if (hostPort !== requestedPort) {
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { port: hostPort },
+        });
+        (application as any).port = hostPort;
+      }
+
+      const containerPort = requestedPort;
+
+      const envParts: string[] = [];
+      const envVars = (application.envVars || {}) as Record<string, string>;
+      for (const [key, value] of Object.entries(envVars)) {
+        envParts.push(`-e ${key}=${value}`);
+      }
+      envParts.push(`-e NODE_ENV=production`);
+      envParts.push(`-e PORT=${containerPort}`);
+
+      const labelParts: string[] = [];
+      labelParts.push(`--label commitbase_app_id=${application.id}`);
+      labelParts.push(`--label commitbase_app_domain=${application.domain}`);
+      labelParts.push(`--label commitbase_release_id=${release.id}`);
+
+      const resourceFlags = this.getDockerResourceFlags(application).join(' ');
+      const imageName = release.imageTag;
+      const runCommand = `docker run -d --name ${containerName} -p ${hostPort}:${containerPort} ${resourceFlags} ${labelParts.join(' ')} ${envParts.join(' ')} ${imageName}`;
+
+      const { stdout, stderr } = await execAsync(runCommand, {
+        timeout: 600000,
+      });
+
+      const completionTimestamp = new Date().toISOString();
+      const deployLogEntry = `[${completionTimestamp}] RELEASE COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
+      await fs.appendFile(deployLogPath, deployLogEntry);
+
+      const status = await this.getDockerApplicationStatus(containerName);
+      return status === 'RUNNING';
+    } catch (error) {
+      const domain = application.domain;
+      const appDir = path.join(this.baseDir, domain);
+      const logsDir = path.join(appDir, 'logs');
+      const deployLogPath = path.join(logsDir, 'deploy.log');
+      const errorTimestamp = new Date().toISOString();
+      const message = (error as any).stderr || (error as any).message || String(error);
+      const errorLogEntry = `[${errorTimestamp}] RELEASE FAILED:\n${message}\n\n`;
+      await fs.appendFile(deployLogPath, errorLogEntry);
+
       return false;
     }
   }
@@ -707,32 +742,15 @@ build
    */
   async stopDockerCompose(domain: string): Promise<boolean> {
     try {
-      const appDir = path.join(this.baseDir, domain);
-      const sourcesDir = path.join(appDir, 'sources');
-      const composePath = path.join(sourcesDir, 'docker-compose.yml');
-
-      // Check if docker-compose.yml exists
-      const exists = await fs.access(composePath).then(() => true).catch(() => false);
-      if (!exists) {
-        return true; // No compose file, nothing to stop
-      }
-
-      // Stop containers with Docker Compose
-      const { stdout, stderr } = await execAsync('docker-compose down', {
-        cwd: sourcesDir,
-        timeout: 60000, // 1 minute timeout
-      });
-
-      console.log(`Docker Compose stopped for ${domain}:`, stdout);
+      const containerName = domain;
+      await execAsync(`docker stop ${containerName}`);
+      await execAsync(`docker rm ${containerName}`);
       return true;
     } catch (error: any) {
-      // If container doesn't exist, consider it a success
       if (error.stderr && error.stderr.includes('No such container')) {
-        console.log(`Container for ${domain} doesn't exist, considering stop successful`);
         return true;
       }
 
-      console.error(`Failed to stop Docker Compose for ${domain}:`, error);
       return false;
     }
   }
@@ -755,62 +773,14 @@ build
    * Get Docker Compose status for an application
    */
   async getDockerComposeStatus(domain: string): Promise<'RUNNING' | 'STOPPED' | 'ERROR'> {
-    try {
-      const appDir = path.join(this.baseDir, domain);
-      const sourcesDir = path.join(appDir, 'sources');
-      const composePath = path.join(sourcesDir, 'docker-compose.yml');
-
-      // Check if docker-compose.yml exists
-      const exists = await fs.access(composePath).then(() => true).catch(() => false);
-      if (!exists) {
-        return 'STOPPED';
-      }
-
-      // Check Docker Compose status
-      const { stdout } = await execAsync('docker-compose ps', {
-        cwd: sourcesDir,
-        timeout: 30000, // 30 seconds timeout
-      });
-
-      if (stdout.includes('Up')) {
-        return 'RUNNING';
-      } else if (stdout.includes('Exit')) {
-        return 'ERROR';
-      } else {
-        return 'STOPPED';
-      }
-    } catch (error) {
-      console.error(`Failed to get Docker Compose status for ${domain}:`, error);
-      return 'ERROR';
-    }
+    return this.getDockerApplicationStatus(domain);
   }
 
   /**
    * Get Docker Compose logs for an application
    */
   async getDockerComposeLogs(domain: string, service?: string, lines: number = 100): Promise<string> {
-    try {
-      const appDir = path.join(this.baseDir, domain);
-      const sourcesDir = path.join(appDir, 'sources');
-      const composePath = path.join(sourcesDir, 'docker-compose.yml');
-
-      // Check if docker-compose.yml exists
-      const exists = await fs.access(composePath).then(() => true).catch(() => false);
-      if (!exists) {
-        return 'Docker Compose file not found';
-      }
-
-      // Get logs from Docker Compose
-      const serviceArg = service ? ` ${service}` : '';
-      const { stdout, stderr } = await execAsync(`docker-compose logs --tail=${lines}${serviceArg}`, {
-        cwd: sourcesDir,
-        timeout: 30000, // 30 seconds timeout
-      });
-
-      return stdout || stderr || 'No logs available';
-    } catch (error) {
-      return `Failed to get Docker Compose logs: ${error}`;
-    }
+    return this.getApplicationLogs(domain, lines);
   }
 
   /**
@@ -869,6 +839,7 @@ build
     deployLogs?: string;
   }> {
     const { application, deployment, envVars = {} } = config;
+    let commitSha: string | undefined;
 
     try {
       console.log(`Starting deployment for application: ${application.name}`);
@@ -899,15 +870,18 @@ build
       
       console.log(`Cleared build logs for deployment: ${deployment.id}`);
 
-      // 2. Sync repository
       if (application.repository) {
         const branch = application.branch || 'main';
         await this.syncRepository(appDir, application.repository, branch);
+        try {
+          const sourcesDir = path.join(appDir, 'sources');
+          const { stdout: commitStdout } = await execAsync(`cd "${sourcesDir}" && git rev-parse HEAD`);
+          commitSha = commitStdout.trim();
+        } catch (error) {
+        }
       }
 
-      // 3. Create Docker Compose file with persistent volumes
-      // 4. Build Docker image
-      const buildResult = await this.runDockerCompose(appDir, application);
+      const buildResult = await this.runDockerCompose(appDir, application, deployment);
 
       // Get build logs
       let buildLogs = '';
@@ -939,7 +913,6 @@ build
         };
       }
 
-      // Update deployment status to DEPLOYING
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: { 
@@ -948,10 +921,8 @@ build
         },
       });
 
-      // 5. Start application with Docker Compose
       const startResult = await this.startDockerCompose(application.domain);
 
-      // Get deploy logs
       let deployLogs = '';
       try {
         const logsDir = path.join(appDir, 'logs');
@@ -965,7 +936,6 @@ build
       }
 
       if (!startResult) {
-        // Update deployment with failure
         await prisma.deployment.update({
           where: { id: deployment.id },
           data: { 
@@ -983,7 +953,6 @@ build
         };
       }
 
-      // Update deployment with success
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: { 
@@ -991,6 +960,34 @@ build
           buildLogs,
           deployLogs,
         },
+      });
+
+      const imageTag = this.getImageName(application, deployment);
+      const containerName = application.domain;
+      const containerId = await this.getDockerContainerId(containerName);
+      const hostPort = application.port || this.getDefaultPort(application.type);
+      const containerPort = this.getDefaultPort(application.type);
+      const logsRef = logsDir;
+
+      const release = await prisma.release.create({
+        data: {
+          applicationId: application.id,
+          imageTag,
+          commitSha: commitSha ?? null,
+          status: 'READY',
+          containerId: containerId ?? null,
+          ports: {
+            hostPort,
+            containerPort,
+          },
+          health: 'UNKNOWN',
+          logsRef,
+        },
+      });
+
+      await prisma.application.update({
+        where: { id: application.id },
+        data: { activeReleaseId: release.id },
       });
 
       return {
@@ -1016,6 +1013,45 @@ build
     }
   }
 
+  private async enforceImageRetentionPolicy(application: Application, retentionCount: number = 10): Promise<void> {
+    try {
+      const repository = `app-${application.id.toLowerCase()}`;
+      const { stdout } = await execAsync(`docker images ${repository} --format "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}"`);
+      const lines = stdout
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+      if (lines.length <= retentionCount) {
+        return;
+      }
+
+      const images = lines.map(line => {
+        const [ref, createdAt] = line.split('|');
+        return {
+          ref,
+          createdAt: createdAt ? new Date(createdAt) : new Date(0),
+        };
+      });
+
+      images.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      const toDelete = images.slice(retentionCount);
+
+      for (const image of toDelete) {
+        if (!image.ref) {
+          continue;
+        }
+        try {
+          await execAsync(`docker rmi ${image.ref}`);
+        } catch {
+        }
+      }
+    } catch (error) {
+      console.error('Failed to enforce image retention policy:', error);
+    }
+  }
+
   /**
    * Get application status using Docker Compose
    */
@@ -1025,16 +1061,7 @@ build
         return 'ERROR';
       }
 
-      // Check if app directory exists
-      const appDir = path.join(this.baseDir, domain);
-      const exists = await fs.access(appDir).then(() => true).catch(() => false);
-
-      if (!exists) {
-        return 'STOPPED';
-      }
-
-      // Check Docker Compose status
-      return await this.getDockerComposeStatus(domain);
+      return await this.getDockerApplicationStatus(domain);
     } catch (error) {
       return 'ERROR';
     }

@@ -50,7 +50,13 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const { startDate, endDate } = req.query;
     const limit = parseInt(req.query.limit as string) || 100;
 
-    // Verify application belongs to user
+    if (!appId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
@@ -65,7 +71,13 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
-    const whereClause: any = {
+    const whereClause: {
+      applicationId: string;
+      timestamp?: {
+        gte: Date;
+        lte: Date;
+      };
+    } = {
       applicationId: appId,
     };
 
@@ -82,13 +94,13 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       take: limit,
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: metrics,
     } as ApiResponse);
   } catch (error) {
     console.error('Get application metrics error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -98,26 +110,39 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 // Create metric entry
 router.post('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { type, value, unit, metadata, applicationId } = req.body;
+    const { type, value, unit, metadata, applicationId } = req.body as {
+      type: string;
+      value: number;
+      unit?: string;
+      metadata?: Record<string, unknown>;
+      applicationId: string;
+    };
+
+    if (!applicationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
 
     const metric = await prisma.systemMetric.create({
       data: {
-        type,
+        type: type as any,
         value,
         unit,
-        metadata: metadata || {},
+        metadata: (metadata || {}) as any,
         applicationId,
-      },
+      } as any,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: metric,
       message: 'Metric created successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Create metric error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

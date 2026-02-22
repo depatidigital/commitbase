@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { DeploymentService } from '../services/deployment';
+import { getBuildLogUrl } from '../services/s3Service';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -36,7 +37,6 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
-    // Get deployment history with pagination
     const skip = (page - 1) * limit;
     const deployments = await prisma.deployment.findMany({
       where: {
@@ -58,14 +58,13 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       },
     });
 
-    // Get total count for pagination
     const total = await prisma.deployment.count({
       where: {
         applicationId: appId,
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         deployments,
@@ -80,7 +79,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching deployment history:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -99,7 +98,6 @@ router.get('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
       } as ApiResponse);
     }
 
-    // Get deployment with application info
     const deployment = await prisma.deployment.findFirst({
       where: {
         id: deploymentId,
@@ -125,14 +123,71 @@ router.get('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
       } as ApiResponse);
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: deployment,
       message: 'Deployment retrieved successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching deployment:', error);
-    res.status(500).json({
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Get build log URL for a deployment
+router.get('/:deploymentId/build-log-url', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { deploymentId } = req.params;
+
+    if (!deploymentId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Deployment ID is required',
+      } as ApiResponse);
+    }
+
+    const deployment = await prisma.deployment.findFirst({
+      where: {
+        id: deploymentId,
+        application: {
+          userId: req.user!.userId,
+        },
+      },
+      select: {
+        id: true,
+        applicationId: true,
+      },
+    });
+
+    if (!deployment) {
+      return res.status(404).json({
+        success: false,
+        error: 'Deployment not found',
+      } as ApiResponse);
+    }
+
+    const url = getBuildLogUrl(deployment.applicationId, deployment.id);
+
+    if (!url) {
+      return res.status(500).json({
+        success: false,
+        error: 'Build log URL is not available (S3 not configured)',
+      } as ApiResponse);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        url,
+      },
+      message: 'Build log URL retrieved successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching build log URL:', error);
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -153,7 +208,6 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
-    // Verify deployment belongs to user's application
     const deployment = await prisma.deployment.findFirst({
       where: {
         id: deploymentId,
@@ -177,21 +231,18 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
-    // Get logs based on type
     let logs = '';
     try {
       if (logType === 'build') {
-        // For build logs, use file-based logs with deployment ID
         logs = await deploymentService.getDeploymentLogs(deploymentId, logType, lines);
       } else {
-        // For runtime logs, use Docker logs
-        logs = await deploymentService.getDockerComposeLogs(deployment.application.domain, undefined, lines);
+        logs = await deploymentService.getApplicationLogs(deployment.application.domain, lines);
       }
     } catch (error) {
       logs = `No logs available for ${logType}`;
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         logs,
@@ -203,7 +254,7 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching deployment logs:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -238,7 +289,6 @@ router.post('/application/:appId', authenticateToken, async (req: AuthenticatedR
       } as ApiResponse);
     }
 
-    // Create deployment record
     const deployment = await prisma.deployment.create({
       data: {
         applicationId: appId,
@@ -258,14 +308,14 @@ router.post('/application/:appId', authenticateToken, async (req: AuthenticatedR
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: deployment,
       message: 'Deployment created successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error creating deployment:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -302,7 +352,6 @@ router.put('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
       } as ApiResponse);
     }
 
-    // Update deployment
     const deployment = await prisma.deployment.update({
       where: {
         id: deploymentId,
@@ -323,14 +372,14 @@ router.put('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: deployment,
       message: 'Deployment updated successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error updating deployment:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -366,23 +415,22 @@ router.delete('/:deploymentId/logs', authenticateToken, async (req: Authenticate
       } as ApiResponse);
     }
 
-    // Clear deployment logs
     const success = await deploymentService.clearDeploymentLogs(deploymentId);
 
     if (success) {
-      res.json({
+      return res.json({
         success: true,
         message: 'Deployment logs cleared successfully',
       } as ApiResponse);
-    } else {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to clear deployment logs',
-      } as ApiResponse);
     }
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to clear deployment logs',
+    } as ApiResponse);
   } catch (error) {
     console.error('Error clearing deployment logs:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -418,20 +466,19 @@ router.delete('/:deploymentId', authenticateToken, async (req: AuthenticatedRequ
       } as ApiResponse);
     }
 
-    // Delete deployment
     await prisma.deployment.delete({
       where: {
         id: deploymentId,
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Deployment deleted successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error deleting deployment:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

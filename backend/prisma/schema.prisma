@@ -63,6 +63,9 @@ model Application {
   deployments Deployment[]
   logs        Log[]
   databases   Database[]
+  releases    Release[] @relation("ApplicationReleases")
+  activeReleaseId String?
+  activeRelease   Release? @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
 
   @@map("applications")
 }
@@ -93,6 +96,24 @@ model Deployment {
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("deployments")
+}
+
+model Release {
+  id            String        @id @default(cuid())
+  applicationId String
+  application   Application   @relation("ApplicationReleases", fields: [applicationId], references: [id], onDelete: Cascade)
+  imageTag      String
+  commitSha     String?
+  createdAt     DateTime      @default(now())
+  status        ReleaseStatus @default(PENDING)
+  containerId   String?
+  ports         Json?
+  health        String?
+  logsRef       String?
+
+  @@map("releases")
+
+  activeForApplications Application[] @relation("ActiveRelease")
 }
 
 model Database {
@@ -200,6 +221,12 @@ enum DeploymentStatus {
   SUCCESS
   FAILED
   CANCELLED
+}
+
+enum ReleaseStatus {
+  PENDING
+  READY
+  FAILED
 }
 
 enum DatabaseType {

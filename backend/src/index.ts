@@ -88,32 +88,31 @@ app.use('/api/templates', templatesRoutes);
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Global error handler:', err);
   
-  // Handle CORS errors
   if (err.message && err.message.includes('CORS')) {
-    return res.status(403).json({
+    res.status(403).json({
       success: false,
       error: 'Not allowed by CORS',
     });
+    return;
   }
 
-  // Handle validation errors
   if (err.name === 'ValidationError') {
-    return res.status(400).json({
+    res.status(400).json({
       success: false,
       error: 'Validation failed',
       details: err.details,
     });
+    return;
   }
 
-  // Handle Prisma errors
   if (err.code === 'P2002') {
-    return res.status(400).json({
+    res.status(400).json({
       success: false,
       error: 'Resource already exists',
     });
+    return;
   }
 
-  // Default error response
   res.status(500).json({
     success: false,
     error: process.env.NODE_ENV === 'production' 

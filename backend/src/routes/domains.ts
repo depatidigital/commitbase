@@ -37,9 +37,16 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
   try {
     const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Domain ID is required',
+      } as ApiResponse);
+    }
+
     const domain = await prisma.domain.findFirst({
       where: {
-        id,
+        id: id as string,
         userId: req.user!.userId,
       },
     });
@@ -51,14 +58,14 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       } as ApiResponse);
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: domain,
       message: 'Domain retrieved successfully',
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error fetching domain:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -82,7 +89,6 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
       } as ApiResponse);
     }
 
-    // Create domain
     const domain = await prisma.domain.create({
       data: {
         name,
@@ -92,14 +98,14 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
       },
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: domain,
       message: 'Domain created successfully',
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error creating domain:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -112,10 +118,16 @@ router.put('/:id', authenticateToken, validateRequest(UpdateDomainSchema), async
     const { id } = req.params;
     const { name, status, redirectTo, customConfig } = req.body;
 
-    // Check if domain exists and belongs to user
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Domain ID is required',
+      } as ApiResponse);
+    }
+
     const existingDomain = await prisma.domain.findFirst({
       where: {
-        id,
+        id: id as string,
         userId: req.user!.userId,
       },
     });
@@ -141,9 +153,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateDomainSchema), async
       }
     }
 
-    // Update domain
     const updatedDomain = await prisma.domain.update({
-      where: { id },
+      where: { id: existingDomain.id },
       data: {
         name,
         status,
@@ -152,14 +163,14 @@ router.put('/:id', authenticateToken, validateRequest(UpdateDomainSchema), async
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: updatedDomain,
       message: 'Domain updated successfully',
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error updating domain:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -171,10 +182,16 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
   try {
     const { id } = req.params;
 
-    // Check if domain exists and belongs to user
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Domain ID is required',
+      } as ApiResponse);
+    }
+
     const domain = await prisma.domain.findFirst({
       where: {
-        id,
+        id: id as string,
         userId: req.user!.userId,
       },
     });
@@ -188,16 +205,16 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
 
     // Delete domain
     await prisma.domain.delete({
-      where: { id },
+      where: { id: domain.id },
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Domain deleted successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error deleting domain:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -209,10 +226,16 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
   try {
     const { id } = req.params;
 
-    // Check if domain exists and belongs to user
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Domain ID is required',
+      } as ApiResponse);
+    }
+
     const domain = await prisma.domain.findFirst({
       where: {
-        id,
+        id: id as string,
         userId: req.user!.userId,
       },
     });
@@ -233,14 +256,14 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
     };
 
     const updatedDomain = await prisma.domain.update({
-      where: { id },
+      where: { id: domain.id },
       data: {
         dnsRecords,
         status: 'ACTIVE',
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         domain: updatedDomain,
@@ -251,7 +274,7 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
     } as ApiResponse);
   } catch (error) {
     console.error('Error verifying domain:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -263,10 +286,16 @@ router.post('/:id/ssl/renew', authenticateToken, async (req: AuthenticatedReques
   try {
     const { id } = req.params;
 
-    // Check if domain exists and belongs to user
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Domain ID is required',
+      } as ApiResponse);
+    }
+
     const domain = await prisma.domain.findFirst({
       where: {
-        id,
+        id: id as string,
         userId: req.user!.userId,
       },
     });
@@ -284,21 +313,21 @@ router.post('/:id/ssl/renew', authenticateToken, async (req: AuthenticatedReques
     sslExpiry.setFullYear(sslExpiry.getFullYear() + 1);
 
     const updatedDomain = await prisma.domain.update({
-      where: { id },
+      where: { id: domain.id },
       data: {
         sslStatus: 'ACTIVE',
         sslExpiry,
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: updatedDomain,
       message: 'SSL certificate renewed successfully',
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error renewing SSL:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

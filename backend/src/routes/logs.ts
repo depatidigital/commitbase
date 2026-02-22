@@ -42,17 +42,15 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     let logs = '';
     try {
       if (logType === 'build') {
-        // For build logs, use file-based logs
         logs = await deploymentService.getApplicationLogsFromFiles(application.domain, logType, lines);
       } else {
-        // For runtime logs, use Docker logs
-        logs = await deploymentService.getDockerComposeLogs(application.domain, undefined, lines);
+        logs = await deploymentService.getApplicationLogs(application.domain, lines);
       }
     } catch (error) {
       logs = `No logs available for ${logType}`;
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         logs,
@@ -65,7 +63,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching logs:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -155,11 +153,8 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
         clearInterval(interval);
       });
     } else {
-      // For runtime logs, use Docker logs with follow
       const { exec } = require('child_process');
-      const dockerLogsProcess = exec(`docker compose logs -f --tail=100 ${application.domain}`, {
-        cwd: path.join(process.env.APPS_DIR || './apps_dir', application.domain, 'sources')
-      });
+      const dockerLogsProcess = exec(`docker logs -f --tail=100 ${application.domain}`);
 
       dockerLogsProcess.stdout?.on('data', (data: Buffer) => {
         const lines = data.toString().split('\n').filter(line => line.trim());
@@ -178,9 +173,12 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
       });
     }
 
+    return;
+
   } catch (error) {
     console.error('Error setting up log stream:', error);
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to setup log stream' })}\n\n`);
+    return;
   }
 });
 
@@ -226,7 +224,7 @@ router.post('/test-build-log/:appId', authenticateToken, async (req: Authenticat
       // Check if build log exists
       const logStatus = await deploymentService.checkBuildLogExists(application.domain);
       
-      res.json({
+      return res.json({
         success: true,
         data: {
           message: 'Test build log created successfully',
@@ -236,14 +234,14 @@ router.post('/test-build-log/:appId', authenticateToken, async (req: Authenticat
         message: 'Test build log created successfully',
       } as ApiResponse);
     } else {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to create test build log',
       } as ApiResponse);
     }
   } catch (error) {
     console.error('Error creating test build log:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -287,7 +285,7 @@ router.get('/build-log-status/:appId', authenticateToken, async (req: Authentica
     // Check build log status
     const logStatus = await deploymentService.checkBuildLogExists(application.domain);
     
-    res.json({
+    return res.json({
       success: true,
       data: {
         logStatus,
@@ -298,7 +296,7 @@ router.get('/build-log-status/:appId', authenticateToken, async (req: Authentica
     } as ApiResponse);
   } catch (error) {
     console.error('Error checking build log status:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -336,14 +334,14 @@ router.get('/system', authenticateToken, async (req: AuthenticatedRequest, res: 
       },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: logs,
       message: 'System logs retrieved successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching system logs:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

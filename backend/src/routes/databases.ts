@@ -11,6 +11,13 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
   try {
     const { appId } = req.params;
 
+    if (!appId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
+
     // Verify application belongs to user
     const application = await prisma.application.findFirst({
       where: {
@@ -33,13 +40,13 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: databases,
     } as ApiResponse);
   } catch (error) {
     console.error('Get databases error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -51,9 +58,16 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
   try {
     const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Database ID is required',
+      } as ApiResponse);
+    }
+
     const database = await prisma.database.findFirst({
       where: {
-        id,
+        id: id as string,
         application: {
           userId: req.user!.userId,
         },
@@ -70,13 +84,13 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       } as ApiResponse);
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: database,
     } as ApiResponse);
   } catch (error) {
     console.error('Get database error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -86,7 +100,20 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create new database
 router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, type, version, config, applicationId } = req.body;
+    const { name, type, version, config, applicationId } = req.body as {
+      name: string;
+      type: string;
+      version?: string;
+      config?: Record<string, unknown>;
+      applicationId: string;
+    };
+
+    if (!applicationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Application ID is required',
+      } as ApiResponse);
+    }
 
     // Verify application belongs to user
     const application = await prisma.application.findFirst({
@@ -138,20 +165,20 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
         port,
         applicationId,
         status: 'CREATING',
-      },
+      } as any,
       include: {
         application: true,
       },
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: database,
       message: 'Database created successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Create database error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
@@ -163,9 +190,16 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
   try {
     const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Database ID is required',
+      } as ApiResponse);
+    }
+
     const database = await prisma.database.findFirst({
       where: {
-        id,
+        id: id as string,
         application: {
           userId: req.user!.userId,
         },
@@ -180,16 +214,16 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     }
 
     await prisma.database.delete({
-      where: { id },
+      where: { id: id as string },
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Database deleted successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Delete database error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

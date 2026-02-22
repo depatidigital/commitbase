@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -11,6 +11,7 @@ export class ContainerWatcher {
   private baseDir: string;
   private isWatching: boolean = false;
   private watchInterval: NodeJS.Timeout | null = null;
+  private eventsProcess: ChildProcessWithoutNullStreams | null = null;
 
   constructor() {
     this.prisma = new PrismaClient();
@@ -26,19 +27,18 @@ export class ContainerWatcher {
     }
 
     this.isWatching = true;
-    console.log('Starting container watcher...');
+    console.log('Starting container watcher (event-driven)...');
 
-    // Check containers every 30 seconds
     this.watchInterval = setInterval(async () => {
       try {
         await this.checkAllContainers();
       } catch (error) {
         console.error('Container watcher error:', error);
       }
-    }, 30000);
+    }, 300000);
 
-    // Initial check
     await this.checkAllContainers();
+    await this.startDockerEventsListener();
   }
 
   /**
@@ -49,8 +49,131 @@ export class ContainerWatcher {
       clearInterval(this.watchInterval);
       this.watchInterval = null;
     }
+    if (this.eventsProcess) {
+      this.eventsProcess.kill();
+      this.eventsProcess = null;
+    }
     this.isWatching = false;
     console.log('Container watcher stopped');
+  }
+
+  async startDockerEventsListener(): Promise<void> {
+    try {
+      if (this.eventsProcess) {
+        return;
+      }
+
+      const args = [
+        'events',
+        '--format',
+        '{{json .}}',
+      ];
+
+      const proc = spawn('docker', args);
+      this.eventsProcess = proc;
+
+      proc.stdout.on('data', async (data: Buffer) => {
+        const text = data.toString().trim();
+        if (!text) {
+          return;
+        }
+
+        const lines = text.split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line);
+            await this.handleDockerEvent(event);
+          } catch {
+          }
+        }
+      });
+
+      proc.stderr.on('data', (data: Buffer) => {
+        console.error('Docker events error:', data.toString());
+      });
+
+      proc.on('exit', (code, signal) => {
+        console.log(`Docker events process exited with code ${code}, signal ${signal}`);
+        this.eventsProcess = null;
+        if (this.isWatching) {
+          setTimeout(() => {
+            this.startDockerEventsListener().catch(() => {});
+          }, 5000);
+        }
+      });
+    } catch (error) {
+      console.error('Failed to start Docker events listener:', error);
+    }
+  }
+
+  private async handleDockerEvent(event: any): Promise<void> {
+    try {
+      const status = event.status as string | undefined;
+      const id = event.id as string | undefined;
+      const attrs = event.Actor?.Attributes || {};
+      const name = attrs.name as string | undefined;
+      const appId = attrs.commitbase_app_id as string | undefined;
+      const appDomain = attrs.commitbase_app_domain as string | undefined;
+      const releaseId = attrs.commitbase_release_id as string | undefined;
+
+      if (!status) {
+        return;
+      }
+
+      let application: Application | null = null;
+
+      if (appId) {
+        application = await this.prisma.application.findUnique({
+          where: { id: appId },
+        });
+      } else if (appDomain) {
+        application = await this.prisma.application.findFirst({
+          where: { domain: appDomain },
+        });
+      } else if (name) {
+        application = await this.prisma.application.findFirst({
+          where: { domain: name },
+        });
+      }
+
+      if (!application) {
+        return;
+      }
+
+      if (status === 'start') {
+        await this.updateApplicationStatus(application.id, 'RUNNING');
+        if (id) {
+          await this.updateActiveReleaseContainer(application.id, id);
+          if (releaseId) {
+            await this.updateReleaseById(id, releaseId);
+          }
+        }
+        return;
+      }
+
+      if (status === 'die' || status === 'stop') {
+        await this.updateApplicationStatus(application.id, 'STOPPED');
+        return;
+      }
+
+      if (status.startsWith('health_status:')) {
+        const health = status.split(':')[1]?.trim() || '';
+        if (releaseId) {
+          await this.updateReleaseHealthById(releaseId, health);
+        } else {
+          await this.updateReleaseHealth(application.id, health);
+        }
+        if (health === 'healthy') {
+          await this.updateApplicationStatus(application.id, 'RUNNING');
+        }
+        if (health === 'unhealthy') {
+          await this.updateApplicationStatus(application.id, 'ERROR');
+        }
+        return;
+      }
+    } catch (error) {
+      console.error('Error handling Docker event:', error);
+    }
   }
 
   /**
@@ -81,26 +204,25 @@ export class ContainerWatcher {
   async checkContainerStatus(application: Application): Promise<void> {
     try {
       const containerName = application.domain;
-      
-      // Check if container exists and is running
-      const { stdout } = await execAsync(`docker ps --filter "name=${containerName}" --format "{{.Names}}\t{{.Status}}"`);
+      const { stdout } = await execAsync(`docker ps --filter "name=${containerName}" --format "{{.ID}}\t{{.Names}}\t{{.Status}}"`);
       
       if (!stdout.trim()) {
-        // Container doesn't exist or is not running
         console.log(`Container ${containerName} is not running, updating status to STOPPED`);
         await this.updateApplicationStatus(application.id, 'STOPPED');
         return;
       }
 
-      // Check if container is actually running (not just exists)
-      if (stdout.includes('Up')) {
-        // Container is running, status is already RUNNING
+      const parts = stdout.trim().split('\t');
+      const containerId = parts[0] || '';
+      const statusText = parts[2] || '';
+
+      if (statusText.includes('Up') && containerId) {
+        await this.updateActiveReleaseContainer(application.id, containerId);
         return;
-      } else {
-        // Container exists but is not running (exited, etc.)
-        console.log(`Container ${containerName} is not running (exited), updating status to STOPPED`);
-        await this.updateApplicationStatus(application.id, 'STOPPED');
       }
+
+      console.log(`Container ${containerName} is not running (exited), updating status to STOPPED`);
+      await this.updateApplicationStatus(application.id, 'STOPPED');
     } catch (error) {
       // If docker command fails, assume container doesn't exist
       console.log(`Container ${application.domain} not found, updating status to STOPPED`);
@@ -126,9 +248,68 @@ export class ContainerWatcher {
     }
   }
 
-  /**
-   * Check if a specific container is running
-   */
+  private async updateActiveReleaseContainer(applicationId: string, containerId: string): Promise<void> {
+    try {
+      const application = await this.prisma.application.findUnique({
+        where: { id: applicationId },
+        select: { activeReleaseId: true },
+      });
+
+      if (!application || !application.activeReleaseId) {
+        return;
+      }
+
+      await this.prisma.release.update({
+        where: { id: application.activeReleaseId },
+        data: { containerId },
+      });
+    } catch (error) {
+      console.error(`Failed to update active release container for application ${applicationId}:`, error);
+    }
+  }
+
+  private async updateReleaseHealth(applicationId: string, health: string): Promise<void> {
+    try {
+      const application = await this.prisma.application.findUnique({
+        where: { id: applicationId },
+        select: { activeReleaseId: true },
+      });
+
+      if (!application || !application.activeReleaseId) {
+        return;
+      }
+
+      await this.prisma.release.update({
+        where: { id: application.activeReleaseId },
+        data: { health },
+      });
+    } catch (error) {
+      console.error(`Failed to update release health for application ${applicationId}:`, error);
+    }
+  }
+
+  private async updateReleaseById(containerId: string, releaseId: string): Promise<void> {
+    try {
+      await this.prisma.release.update({
+        where: { id: releaseId },
+        data: { containerId },
+      });
+    } catch (error) {
+      console.error(`Failed to update release container for release ${releaseId}:`, error);
+    }
+  }
+
+  private async updateReleaseHealthById(releaseId: string, health: string): Promise<void> {
+    try {
+      await this.prisma.release.update({
+        where: { id: releaseId },
+        data: { health },
+      });
+    } catch (error) {
+      console.error(`Failed to update release health for release ${releaseId}:`, error);
+    }
+  }
+
   async isContainerRunning(containerName: string): Promise<boolean> {
     try {
       const { stdout } = await execAsync(`docker ps --filter "name=${containerName}" --format "{{.Names}}"`);
@@ -164,28 +345,13 @@ export class ContainerWatcher {
    */
   async restartContainer(application: Application): Promise<boolean> {
     try {
-      const appDir = path.join(this.baseDir, application.domain);
-      const sourcesDir = path.join(appDir, 'sources');
-      const composePath = path.join(sourcesDir, 'docker-compose.yml');
-      
-      // Check if docker-compose.yml exists
-      const exists = await fs.access(composePath).then(() => true).catch(() => false);
-      if (!exists) {
-        console.log(`No docker-compose.yml found for ${application.domain}`);
-        return false;
-      }
-      
-      // Restart using docker-compose
-      const { stdout, stderr } = await execAsync('docker-compose up -d', {
-        cwd: sourcesDir,
-        timeout: 60000, // 1 minute timeout
+      const containerName = application.domain;
+      const { stdout } = await execAsync(`docker restart ${containerName}`, {
+        timeout: 60000,
       });
-      
+ 
       console.log(`Restarted container for ${application.domain}:`, stdout);
-      
-      // Update status to RUNNING
       await this.updateApplicationStatus(application.id, 'RUNNING');
-      
       return true;
     } catch (error) {
       console.error(`Failed to restart container for ${application.domain}:`, error);
