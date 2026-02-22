@@ -48,6 +48,8 @@ import logsRoutes from './routes/logs';
 import metricsRoutes from './routes/metrics';
 import domainsRoutes from './routes/domains';
 import templatesRoutes from './routes/templates';
+import rdashRoutes from './routes/rdash';
+import cloudflareRoutes from './routes/cloudflare';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -113,6 +115,8 @@ app.use('/api/logs', logsRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/domains', domainsRoutes);
 app.use('/api/templates', templatesRoutes);
+app.use('/api/rdash', rdashRoutes);
+app.use('/api/cloudflare', cloudflareRoutes);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

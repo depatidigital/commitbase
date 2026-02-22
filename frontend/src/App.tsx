@@ -12,6 +12,7 @@ import Database from "./pages/Database";
 import Domains from "./pages/Domains";
 import Logs from "./pages/Logs";
 import Settings from "./pages/Settings";
+import RdashOverview from "./pages/RdashOverview";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import { isAuthenticated } from "@/lib/auth";
@@ -34,18 +35,22 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={
-            <ProtectedRoute>
-              <AuthGuard>
-                <Layout />
-              </AuthGuard>
-            </ProtectedRoute>
-          }>
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <AuthGuard>
+                  <Layout />
+                </AuthGuard>
+              </ProtectedRoute>
+            }
+          >
             <Route index element={<Application />} />
             <Route path="application/:id" element={<ApplicationDetail />} />
             <Route path="add-app" element={<AddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
+            <Route path="integrations/domains" element={<RdashOverview />} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

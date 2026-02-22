@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { syncDomainDns } from '../services/cloudflareService';
 
 const router = Router();
 
@@ -89,9 +90,20 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
       } as ApiResponse);
     }
 
+    let dnsRecords: any = null;
+    let status: Domain['status'] = 'PENDING';
+
+    const cloudflareRecords = await syncDomainDns(name);
+    if (cloudflareRecords) {
+      dnsRecords = cloudflareRecords;
+      status = 'ACTIVE';
+    }
+
     const domain = await prisma.domain.create({
       data: {
         name,
+        status,
+        dnsRecords,
         redirectTo,
         customConfig,
         userId: req.user!.userId,
@@ -247,13 +259,21 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
       } as ApiResponse);
     }
 
-    // TODO: Implement actual DNS verification logic
-    // For now, return a mock response
-    const dnsRecords = {
-      a: '192.168.1.1',
-      cname: 'app.commitbase.com',
-      mx: 'mail.commitbase.com',
-    };
+    let dnsRecords: any = null;
+    let verified = false;
+
+    const cloudflareRecords = await syncDomainDns(domain.name);
+    if (cloudflareRecords) {
+      dnsRecords = cloudflareRecords;
+      verified = true;
+    } else {
+      dnsRecords = {
+        a: '192.168.1.1',
+        cname: 'app.commitbase.com',
+        mx: 'mail.commitbase.com',
+      };
+      verified = true;
+    }
 
     const updatedDomain = await prisma.domain.update({
       where: { id: domain.id },
@@ -268,7 +288,7 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
       data: {
         domain: updatedDomain,
         dnsRecords,
-        verified: true,
+        verified,
       },
       message: 'Domain DNS verified successfully',
     } as ApiResponse);

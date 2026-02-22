@@ -190,6 +190,18 @@ model SystemMetric {
   @@map("system_metrics")
 }
 
+model IntegrationConfig {
+  id        String   @id @default(cuid())
+  provider  String
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, key])
+  @@map("integration_configs")
+}
+
 // Enums
 enum UserRole {
   ADMIN

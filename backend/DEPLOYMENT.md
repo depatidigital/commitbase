@@ -388,6 +388,16 @@ The configuration is applied to the `commitbase` HTTP server inside the Caddy co
 
 On backend startup, if `CADDY_API_URL` is set and Caddy is not reachable at the configured admin endpoint, the process will log an error and exit instead of running in a partially configured state.
 
+### Cloudflare DNS Integration
+
+When the Cloudflare environment variables are configured, the domain verification endpoint will synchronize DNS records to Cloudflare using the provided zone and target:
+
+- `CLOUDFLARE_API_TOKEN`: API token with DNS edit access for the zone.
+- `CLOUDFLARE_ZONE_ID`: Zone ID where application domains reside.
+- `CLOUDFLARE_DNS_TARGET`: Target hostname or IP that domains should point to.
+
+For each domain, a proxied `A` or `CNAME` record is created or updated in Cloudflare so that the domain resolves to the configured target while benefiting from Cloudflare's free plan features.
+
 ### Monitoring
 - **Resource Usage**: CPU, memory, disk usage
 - **Performance Metrics**: Response times, throughput

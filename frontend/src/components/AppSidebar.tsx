@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -16,6 +16,7 @@ const items = [
   { title: "Application", url: "/", icon: Server },
   { title: "Database", url: "/database", icon: Database },
   { title: "Domains", url: "/domains", icon: Globe },
+  { title: "Domain Integrations", url: "/integrations/domains", icon: Link2 },
   { title: "Logs", url: "/logs", icon: Terminal },
 ];
 
