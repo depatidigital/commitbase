@@ -1,8 +1,9 @@
-import { useRdashSummary, useCloudflareZones, useRdashConfigStatus, useCloudflareConfigStatus } from '@/hooks/useRdash';
+import { useRdashSummary, useCloudflareZones, useRdashConfigStatus, useCloudflareConfigStatus, useUpdateRdashConfig, useUpdateCloudflareConfig } from '@/hooks/useRdash';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Loader2, Globe, Cloud, CreditCard } from 'lucide-react';
 import { useState } from 'react';
 
@@ -12,6 +13,24 @@ const RdashOverview = () => {
   const { data: cloudflareConfig, isLoading: cloudflareConfigLoading } = useCloudflareConfigStatus();
   const [cloudflarePage, setCloudflarePage] = useState(1);
   const { data: cloudflareZones, isLoading: zonesLoading, refetch: refetchZones } = useCloudflareZones(cloudflarePage, 50);
+  const updateRdashConfig = useUpdateRdashConfig();
+  const updateCloudflareConfig = useUpdateCloudflareConfig();
+
+  const [rdashForm, setRdashForm] = useState({
+    baseUrl: '',
+    resellerId: '',
+    apiKey: '',
+  });
+
+  const [cloudflareForm, setCloudflareForm] = useState({
+    apiBase: '',
+    apiToken: '',
+    zoneId: '',
+    dnsTarget: '',
+  });
+
+  const [rdashEditing, setRdashEditing] = useState(false);
+  const [cloudflareEditing, setCloudflareEditing] = useState(false);
 
   const balance = summary?.balance;
   const rdashDomains = summary?.domains;
@@ -50,9 +69,89 @@ const RdashOverview = () => {
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground space-y-1">
-                    <div>Base URL: {rdashConfig?.baseUrl}</div>
-                    <div>Reseller ID: {rdashConfig?.resellerIdSet ? "set" : "not set"}</div>
-                    <div>API key: {rdashConfig?.apiKeySet ? "set" : "not set"}</div>
+                    {!rdashEditing ? (
+                      <>
+                        <div>Base URL: {rdashConfig?.baseUrl}</div>
+                        <div>Reseller ID: {rdashConfig?.resellerIdSet ? "set" : "not set"}</div>
+                        <div>API key: {rdashConfig?.apiKeySet ? "set" : "not set"}</div>
+                      </>
+                    ) : (
+                      <div className="space-y-2">
+                        <Input
+                          placeholder={rdashConfig?.baseUrl || 'https://api.rdash.id/v1'}
+                          value={rdashForm.baseUrl}
+                          onChange={(e) => setRdashForm(prev => ({ ...prev, baseUrl: e.target.value }))}
+                        />
+                        <Input
+                          placeholder={rdashConfig?.resellerIdSet ? '••••••' : 'Reseller ID'}
+                          value={rdashForm.resellerId}
+                          onChange={(e) => setRdashForm(prev => ({ ...prev, resellerId: e.target.value }))}
+                        />
+                        <Input
+                          placeholder={rdashConfig?.apiKeySet ? '••••••' : 'API key'}
+                          value={rdashForm.apiKey}
+                          onChange={(e) => setRdashForm(prev => ({ ...prev, apiKey: e.target.value }))}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="pt-2 flex gap-2">
+                    {!rdashEditing ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => {
+                          setRdashForm({
+                            baseUrl: '',
+                            resellerId: '',
+                            apiKey: '',
+                          });
+                          setRdashEditing(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => {
+                            setRdashEditing(false);
+                            setRdashForm({
+                              baseUrl: '',
+                              resellerId: '',
+                              apiKey: '',
+                            });
+                          }}
+                          disabled={updateRdashConfig.isPending}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="xs"
+                          onClick={async () => {
+                            await updateRdashConfig.mutateAsync({
+                              baseUrl: rdashForm.baseUrl || undefined,
+                              resellerId: rdashForm.resellerId || undefined,
+                              apiKey: rdashForm.apiKey || undefined,
+                            });
+                            setRdashEditing(false);
+                            setRdashForm({
+                              baseUrl: '',
+                              resellerId: '',
+                              apiKey: '',
+                            });
+                          }}
+                          disabled={updateRdashConfig.isPending}
+                        >
+                          {updateRdashConfig.isPending && (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          )}
+                          Save
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -63,14 +162,103 @@ const RdashOverview = () => {
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground space-y-1">
-                    <div>API base: {cloudflareConfig?.apiBase}</div>
-                    <div>Zone ID: {cloudflareConfig?.zoneIdSet ? "set" : "not set"}</div>
-                    <div>DNS target: {cloudflareConfig?.dnsTargetSet ? "set" : "not set"}</div>
+                    {!cloudflareEditing ? (
+                      <>
+                        <div>API base: {cloudflareConfig?.apiBase}</div>
+                        <div>Zone ID: {cloudflareConfig?.zoneIdSet ? "set" : "not set"}</div>
+                        <div>DNS target: {cloudflareConfig?.dnsTargetSet ? "set" : "not set"}</div>
+                      </>
+                    ) : (
+                      <div className="space-y-2">
+                        <Input
+                          placeholder={cloudflareConfig?.apiBase || 'https://api.cloudflare.com/client/v4'}
+                          value={cloudflareForm.apiBase}
+                          onChange={(e) => setCloudflareForm(prev => ({ ...prev, apiBase: e.target.value }))}
+                        />
+                        <Input
+                          placeholder={cloudflareConfig?.apiTokenSet ? '••••••' : 'API token'}
+                          value={cloudflareForm.apiToken}
+                          onChange={(e) => setCloudflareForm(prev => ({ ...prev, apiToken: e.target.value }))}
+                        />
+                        <Input
+                          placeholder={cloudflareConfig?.zoneIdSet ? '••••••' : 'Zone ID'}
+                          value={cloudflareForm.zoneId}
+                          onChange={(e) => setCloudflareForm(prev => ({ ...prev, zoneId: e.target.value }))}
+                        />
+                        <Input
+                          placeholder={cloudflareConfig?.dnsTargetSet ? '••••••' : 'DNS target'}
+                          value={cloudflareForm.dnsTarget}
+                          onChange={(e) => setCloudflareForm(prev => ({ ...prev, dnsTarget: e.target.value }))}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="pt-2 flex gap-2">
+                    {!cloudflareEditing ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => {
+                          setCloudflareForm({
+                            apiBase: '',
+                            apiToken: '',
+                            zoneId: '',
+                            dnsTarget: '',
+                          });
+                          setCloudflareEditing(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => {
+                            setCloudflareEditing(false);
+                            setCloudflareForm({
+                              apiBase: '',
+                              apiToken: '',
+                              zoneId: '',
+                              dnsTarget: '',
+                            });
+                          }}
+                          disabled={updateCloudflareConfig.isPending}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="xs"
+                          onClick={async () => {
+                            await updateCloudflareConfig.mutateAsync({
+                              apiBase: cloudflareForm.apiBase || undefined,
+                              apiToken: cloudflareForm.apiToken || undefined,
+                              zoneId: cloudflareForm.zoneId || undefined,
+                              dnsTarget: cloudflareForm.dnsTarget || undefined,
+                            });
+                            setCloudflareEditing(false);
+                            setCloudflareForm({
+                              apiBase: '',
+                              apiToken: '',
+                              zoneId: '',
+                              dnsTarget: '',
+                            });
+                          }}
+                          disabled={updateCloudflareConfig.isPending}
+                        >
+                          {updateCloudflareConfig.isPending && (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          )}
+                          Save
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="text-xs text-muted-foreground">
-                These values are stored in the CommitBase database and controlled from this integration menu.
+                Changes here are saved directly to the CommitBase database and used by the backend services.
               </div>
             </>
           )}

@@ -23,6 +23,19 @@ export interface CloudflareConfigStatus {
   dnsTargetSet: boolean;
 }
 
+export interface RdashConfigUpdatePayload {
+  baseUrl?: string;
+  resellerId?: string;
+  apiKey?: string;
+}
+
+export interface CloudflareConfigUpdatePayload {
+  apiBase?: string;
+  apiToken?: string;
+  zoneId?: string;
+  dnsTarget?: string;
+}
+
 export const getRdashSummary = async (): Promise<RdashSummary> => {
   const response = await apiRequest<RdashSummary>('/rdash/summary', {
     method: 'GET',
@@ -57,6 +70,32 @@ export const getCloudflareConfigStatus = async (): Promise<CloudflareConfigStatu
   }
 
   throw new Error(response.error || 'Failed to fetch Cloudflare config');
+};
+
+export const updateRdashConfig = async (payload: RdashConfigUpdatePayload): Promise<RdashConfigStatus> => {
+  const response = await apiRequest<RdashConfigStatus>('/rdash/config', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to update RDASH config');
+};
+
+export const updateCloudflareConfig = async (payload: CloudflareConfigUpdatePayload): Promise<CloudflareConfigStatus> => {
+  const response = await apiRequest<CloudflareConfigStatus>('/cloudflare/config', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to update Cloudflare config');
 };
 
 export const getCloudflareZones = async (page?: number, perPage?: number): Promise<any[]> => {

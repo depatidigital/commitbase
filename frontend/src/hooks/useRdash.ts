@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { getRdashSummary, getCloudflareZones, getRdashConfigStatus, getCloudflareConfigStatus, RdashSummary, RdashConfigStatus, CloudflareConfigStatus } from '@/lib/rdash';
+import { getRdashSummary, getCloudflareZones, getRdashConfigStatus, getCloudflareConfigStatus, updateRdashConfig, updateCloudflareConfig, RdashSummary, RdashConfigStatus, CloudflareConfigStatus, RdashConfigUpdatePayload, CloudflareConfigUpdatePayload } from '@/lib/rdash';
 
 export const useRdashSummary = () => {
   const { toast } = useToast();
@@ -78,6 +78,52 @@ export const useCloudflareConfigStatus = () => {
         });
         throw error;
       }
+    },
+  });
+};
+
+export const useUpdateRdashConfig = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (payload: RdashConfigUpdatePayload) => updateRdashConfig(payload),
+    onSuccess: () => {
+      toast({
+        title: 'RDASH config updated',
+        description: 'RDASH configuration has been saved.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'rdash-config'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Failed to update RDASH config',
+        description: error.message || 'Unable to save RDASH configuration',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+export const useUpdateCloudflareConfig = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (payload: CloudflareConfigUpdatePayload) => updateCloudflareConfig(payload),
+    onSuccess: () => {
+      toast({
+        title: 'Cloudflare config updated',
+        description: 'Cloudflare configuration has been saved.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'cloudflare-config'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Failed to update Cloudflare config',
+        description: error.message || 'Unable to save Cloudflare configuration',
+        variant: 'destructive',
+      });
     },
   });
 };
