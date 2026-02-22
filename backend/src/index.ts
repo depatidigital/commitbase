@@ -6,8 +6,38 @@ import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
 import { ContainerWatcher } from './services/containerWatcher';
 
-// Load environment variables
 config();
+
+async function ensureCaddyReady(): Promise<void> {
+  const caddyUrl = process.env.CADDY_API_URL;
+  if (!caddyUrl) {
+    return;
+  }
+
+  const fetchFn: any = (globalThis as any).fetch;
+  if (!fetchFn) {
+    console.warn('CADDY_API_URL is set but fetch is not available; skipping Caddy readiness check');
+    return;
+  }
+
+  const baseUrl = caddyUrl.replace(/\/$/, '');
+
+  try {
+    const response = await fetchFn(`${baseUrl}/config`, {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      console.error(`Caddy readiness check failed with status ${response.status} ${response.statusText}`);
+      process.exit(1);
+    }
+
+    console.log('✅ Caddy is reachable and ready for configuration');
+  } catch (error) {
+    console.error('Caddy readiness check error:', error);
+    process.exit(1);
+  }
+}
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -129,8 +159,8 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
 app.listen(PORT, async () => {
+  await ensureCaddyReady();
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);

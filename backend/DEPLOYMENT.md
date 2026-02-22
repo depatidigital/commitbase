@@ -386,6 +386,8 @@ When `CADDY_API_URL` is configured, the deployment service can update a Caddy se
 
 The configuration is applied to the `commitbase` HTTP server inside the Caddy configuration.
 
+On backend startup, if `CADDY_API_URL` is set and Caddy is not reachable at the configured admin endpoint, the process will log an error and exit instead of running in a partially configured state.
+
 ### Monitoring
 - **Resource Usage**: CPU, memory, disk usage
 - **Performance Metrics**: Response times, throughput
