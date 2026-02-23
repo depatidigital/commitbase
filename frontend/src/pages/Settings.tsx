@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings as SettingsIcon, Server, Shield, Bell, GitBranch, Github, Gitlab, Trash2 } from "lucide-react";
+import { Server, Shield, Bell, GitBranch, Github, Gitlab, Trash2 } from "lucide-react";
 import { useGitAccounts } from "@/hooks/useGitAccounts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { deleteGitAccount, updateGitAccountDisplayName } from "@/lib/git";
