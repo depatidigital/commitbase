@@ -159,6 +159,116 @@ router.get(
   },
 );
 
+router.patch(
+  '/accounts/:id',
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { displayName } = req.body as { displayName?: string };
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Account ID is required',
+        } as ApiResponse);
+      }
+
+      if (!displayName || !displayName.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Display name is required',
+        } as ApiResponse);
+      }
+
+      const account = await gitAccountClient.findFirst({
+        where: {
+          id,
+          userId: req.user!.userId,
+        },
+      });
+
+      if (!account) {
+        return res.status(404).json({
+          success: false,
+          error: 'Account not found',
+        } as ApiResponse);
+      }
+
+      const updated = await gitAccountClient.update({
+        where: { id },
+        data: {
+          displayName: displayName.trim(),
+        },
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          id: updated.id as string,
+          externalId: updated.externalId as string,
+          username: updated.username as string,
+          displayName: updated.displayName as string,
+          provider: updated.provider as 'github' | 'gitlab',
+        },
+        message: 'Git account updated successfully',
+      } as ApiResponse);
+    } catch (error: any) {
+      console.error('Error updating git account:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to update git account',
+      } as ApiResponse);
+    }
+  },
+);
+
+router.delete(
+  '/accounts/:id',
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Account ID is required',
+        } as ApiResponse);
+      }
+
+      const account = await gitAccountClient.findFirst({
+        where: {
+          id,
+          userId: req.user!.userId,
+        },
+      });
+
+      if (!account) {
+        return res.status(404).json({
+          success: false,
+          error: 'Account not found',
+        } as ApiResponse);
+      }
+
+      await gitAccountClient.delete({
+        where: { id },
+      });
+
+      return res.json({
+        success: true,
+        message: 'Git account disconnected successfully',
+      } as ApiResponse);
+    } catch (error: any) {
+      console.error('Error deleting git account:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to delete git account',
+      } as ApiResponse);
+    }
+  },
+);
+
 router.get(
   '/github/auth/url',
   authenticateToken,

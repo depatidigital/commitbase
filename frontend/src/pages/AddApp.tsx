@@ -209,11 +209,15 @@ export default function AddApp() {
     try {
       const url = await getGithubAuthUrl();
       window.location.href = url;
-    } catch {
+    } catch (error: any) {
+      const message =
+        error?.message === 'GitHub OAuth is not configured'
+          ? 'GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.'
+          : 'Could not start GitHub OAuth flow.';
       toast({
         variant: "destructive",
         title: "GitHub connection failed",
-        description: "Could not start GitHub OAuth flow.",
+        description: message,
       });
     }
   };
@@ -222,11 +226,15 @@ export default function AddApp() {
     try {
       const url = await getGitlabAuthUrl();
       window.location.href = url;
-    } catch {
+    } catch (error: any) {
+      const message =
+        error?.message === 'GitLab OAuth is not configured'
+          ? 'GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET.'
+          : 'Could not start GitLab OAuth flow.';
       toast({
         variant: "destructive",
         title: "GitLab connection failed",
-        description: "Could not start GitLab OAuth flow.",
+        description: message,
       });
     }
   };
@@ -515,7 +523,7 @@ export default function AddApp() {
                         ))}
                       </SelectContent>
                     </Select>
-                  ) : (
+                  ) : githubConnected ? (
                     <div className="space-y-2">
                       <p className="text-sm text-muted-foreground">
                         No GitHub accounts connected.
@@ -530,6 +538,10 @@ export default function AddApp() {
                         Connect GitHub
                       </Button>
                     </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      GitHub is not connected. Click the GitHub button above to connect and manage repositories.
+                    </p>
                   )}
                 </div>
 
@@ -682,7 +694,7 @@ export default function AddApp() {
                         ))}
                       </SelectContent>
                     </Select>
-                  ) : (
+                  ) : gitlabConnected ? (
                     <div className="space-y-2">
                       <p className="text-sm text-muted-foreground">
                         No GitLab accounts connected.
@@ -697,6 +709,10 @@ export default function AddApp() {
                         Connect GitLab
                       </Button>
                     </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      GitLab is not connected. Click the GitLab button above to connect and manage repositories.
+                    </p>
                   )}
                 </div>
 

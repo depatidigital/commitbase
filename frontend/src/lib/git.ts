@@ -28,6 +28,32 @@ export interface GitAccount {
   provider: 'github' | 'gitlab';
 }
 
+export const updateGitAccountDisplayName = async (
+  id: string,
+  displayName: string,
+): Promise<GitAccount> => {
+  const response = await apiRequest<GitAccount>(`/git/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ displayName }),
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to update git account');
+};
+
+export const deleteGitAccount = async (id: string): Promise<void> => {
+  const response = await apiRequest(`/git/accounts/${id}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to delete git account');
+  }
+};
+
 export const getGithubAccounts = async (): Promise<GitAccount[]> => {
   const response = await apiRequest<GitAccount[]>('/git/github/accounts');
 

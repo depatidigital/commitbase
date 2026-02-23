@@ -1,7 +1,71 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings as SettingsIcon, Server, Shield, Bell } from "lucide-react";
+import { Settings as SettingsIcon, Server, Shield, Bell, GitBranch, Github, Gitlab, Trash2 } from "lucide-react";
+import { useGitAccounts } from "@/hooks/useGitAccounts";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { deleteGitAccount, updateGitAccountDisplayName } from "@/lib/git";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export default function Settings() {
+  const queryClient = useQueryClient();
+
+  const { data: githubAccounts = [] } = useGitAccounts("github", true);
+  const { data: gitlabAccounts = [] } = useGitAccounts("gitlab", true);
+
+  const [editingNames, setEditingNames] = useState<Record<string, string>>({});
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, displayName }: { id: string; displayName: string }) => {
+      return updateGitAccountDisplayName(id, displayName);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["git", "github", "accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["git", "gitlab", "accounts"] });
+      toast.success("Git account updated");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to update git account");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return deleteGitAccount(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["git", "github", "accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["git", "gitlab", "accounts"] });
+      toast.success("Git account disconnected");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to disconnect git account");
+    },
+  });
+
+  const allAccounts = [
+    ...githubAccounts.map((acc) => ({ ...acc, providerLabel: "GitHub" as const })),
+    ...gitlabAccounts.map((acc) => ({ ...acc, providerLabel: "GitLab" as const })),
+  ];
+
+  const handleNameChange = (id: string, value: string) => {
+    setEditingNames((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handleSaveName = (id: string) => {
+    const value = (editingNames[id] ?? "").trim();
+    if (!value) {
+      toast.error("Display name cannot be empty");
+      return;
+    }
+    updateMutation.mutate({ id, displayName: value });
+  };
+
+  const handleDisconnect = (id: string) => {
+    deleteMutation.mutate(id);
+  };
+
   return (
     <div className="space-y-8 animate-fade-in">
       <div>
@@ -49,6 +113,86 @@ export default function Settings() {
             <p className="text-muted-foreground">Configure alerts and monitoring</p>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold flex items-center space-x-2">
+              <GitBranch className="h-5 w-5 text-primary" />
+              <span>Git Integrations</span>
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Manage connected GitHub and GitLab accounts.
+            </p>
+          </div>
+        </div>
+
+        {allAccounts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No Git accounts connected yet. Connect from the Add App page when selecting a repository.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {allAccounts.map((account) => {
+              const Icon = account.provider === "github" ? Github : Gitlab;
+              const currentName =
+                editingNames[account.id] ??
+                account.displayName ??
+                account.username ??
+                account.id;
+
+              return (
+                <div
+                  key={account.id}
+                  className="flex items-center justify-between rounded-lg border border-border/60 bg-card/80 p-3 gap-3"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="p-2 rounded-full bg-muted flex items-center justify-center">
+                      <Icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                          {account.providerLabel}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {account.username}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={currentName}
+                          onChange={(e) =>
+                            handleNameChange(account.id, e.target.value)
+                          }
+                          className="h-8 max-w-xs"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSaveName(account.id)}
+                          disabled={updateMutation.isPending}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => handleDisconnect(account.id)}
+                    disabled={deleteMutation.isPending}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
