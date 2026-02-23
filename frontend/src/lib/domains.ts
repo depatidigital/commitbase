@@ -27,6 +27,28 @@ export const getDomain = async (id: string): Promise<Domain> => {
   throw new Error(response.error || 'Failed to fetch domain');
 };
 
+export type DomainDnsZone = {
+  zone: {
+    id: string;
+    name: string;
+    nameservers: string[];
+  } | null;
+  records: any[];
+  synced: boolean;
+};
+
+export const getDomainDnsZone = async (id: string): Promise<DomainDnsZone> => {
+  const response = await apiRequest<DomainDnsZone>(`/domains/${id}/dns-zone`, {
+    method: 'GET',
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to fetch domain DNS zone');
+};
+
 // Create a new domain
 export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
   const response = await apiRequest<Domain>('/domains', {

@@ -50,6 +50,7 @@ const App = () => (
             <Route path="add-app" element={<AddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
+            <Route path="domains/:id" element={<Domains />} />
             <Route path="integrations/domains" element={<RdashOverview />} />
             <Route path="integrations/rdash" element={<RdashOverview />} />
             <Route path="integrations/cloudflare" element={<RdashOverview />} />

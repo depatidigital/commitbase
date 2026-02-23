@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,10 +21,11 @@ import {
   Eye,
   Loader2,
   ExternalLink,
-  Settings
+  Settings,
+  ArrowLeft
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useDomains, useDeleteDomain, useVerifyDomain, useRenewSSL, useCreateDomain } from "@/hooks/useDomains";
+import { useDomains, useDomain, useDeleteDomain, useVerifyDomain, useRenewSSL, useCreateDomain, useDomainDnsZone } from "@/hooks/useDomains";
 import { Domain } from "@/types/domain";
 import {
   AlertDialog,
@@ -53,30 +55,56 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
 export default function Domains() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const domainId = params.id ?? null;
+
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     type: 'delete' | 'verify' | 'renew';
     domainId: string;
     domainName: string;
   } | null>(null);
-  const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addMode, setAddMode] = useState<'existing' | 'register'>('existing');
   const [newDomainName, setNewDomainName] = useState('');
-  const [newRedirectTo, setNewRedirectTo] = useState('');
   const { toast } = useToast();
   
   // API hooks
   const { data: domainsData, isLoading, error } = useDomains();
+  const { data: domainDetail, isLoading: domainLoading, error: domainError } = useDomain(domainId || "");
   const deleteDomain = useDeleteDomain();
   const verifyDomain = useVerifyDomain();
   const renewSSL = useRenewSSL();
   const createDomain = useCreateDomain();
+  const { data: domainDnsZone, isLoading: dnsZoneLoading, error: dnsZoneError } = useDomainDnsZone(domainId);
 
   const domains = domainsData || [];
   const filteredDomains = domains.filter(domain =>
     domain.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (domainId) {
+    if (domainLoading || !domainDetail) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      );
+    }
+
+    if (domainError) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Error Loading Domain</h3>
+            <p className="text-muted-foreground">Failed to load domain. Please try again.</p>
+          </div>
+        </div>
+      );
+    }
+  }
 
   const handleDelete = async (id: string, name: string) => {
     setConfirmAction({ type: 'delete', domainId: id, domainName: name });
@@ -100,7 +128,6 @@ export default function Domains() {
     try {
       await createDomain.mutateAsync({
         name: value,
-        redirectTo: newRedirectTo || undefined,
         customConfig: {
           mode: addMode,
         },
@@ -108,7 +135,6 @@ export default function Domains() {
 
       setAddDialogOpen(false);
       setNewDomainName('');
-      setNewRedirectTo('');
       setAddMode('existing');
     } catch {
     }
@@ -226,24 +252,26 @@ export default function Domains() {
     );
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Error Loading Domains</h3>
-          <p className="text-muted-foreground">Failed to load domains. Please try again.</p>
+  if (!domainId) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin" />
         </div>
-      </div>
-    );
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Error Loading Domains</h3>
+            <p className="text-muted-foreground">Failed to load domains. Please try again.</p>
+          </div>
+        </div>
+      );
+    }
   }
 
   const dialogContent = getDialogContent();
@@ -251,377 +279,551 @@ export default function Domains() {
   return (
     <TooltipProvider>
       <div className="space-y-8 animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              Domains
-            </h1>
-            <p className="text-muted-foreground">
-              Manage your custom domains and SSL certificates.
-            </p>
-          </div>
-          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-            <Button
-              className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
-              onClick={() => setAddDialogOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Domain
-            </Button>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Add Domain</DialogTitle>
-                <DialogDescription>
-                  Connect an existing domain or register a new one through your registrar.
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleAddDomain} className="space-y-6">
-                <div className="space-y-3">
-                  <Label className="text-sm">Domain type</Label>
-                  <RadioGroup
-                    className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                    value={addMode}
-                    onValueChange={(value) => setAddMode(value as 'existing' | 'register')}
-                  >
-                    <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
-                      <RadioGroupItem value="existing" id="domain-mode-existing" />
-                      <div className="space-y-1">
-                        <Label htmlFor="domain-mode-existing">Use existing domain</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Use a domain you already own and connect it to Cloudflare automatically.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                      <RadioGroupItem value="register" id="domain-mode-register" />
-                      <div className="space-y-1">
-                        <Label htmlFor="domain-mode-register">Register new domain</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Mark this domain as new. Registration is handled externally or via RDASH.
-                        </p>
-                      </div>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="new-domain-name">
-                    Domain name
-                  </Label>
-                  <Input
-                    id="new-domain-name"
-                    placeholder="example.com"
-                    value={newDomainName}
-                    onChange={(e) => setNewDomainName(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="new-domain-redirect">
-                    Redirect to (optional)
-                  </Label>
-                  <Input
-                    id="new-domain-redirect"
-                    placeholder="https://your-app.example.com"
-                    value={newRedirectTo}
-                    onChange={(e) => setNewRedirectTo(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    If set, HTTP traffic to this domain will be redirected to the target URL.
+        {domainId && domainDetail ? (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => navigate('/domains')}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-semibold">
+                      {domainDetail.name}
+                    </h1>
+                    {getStatusBadge(domainDetail.status)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Domain DNS zone and SSL configuration.
                   </p>
                 </div>
-
-                <div className="flex items-center justify-end space-x-3 pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setAddDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="bg-gradient-primary"
-                    disabled={createDomain.isPending || !newDomainName.trim()}
-                  >
-                    {createDomain.isPending && (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    Save domain
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        {/* Search */}
-        <div className="flex items-center space-x-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search domains..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-            <Globe className="h-4 w-4 text-primary" />
-            <span>{filteredDomains.length} domains</span>
-          </div>
-        </div>
-
-        {/* Domains Section */}
-        <div className="space-y-6">
-          {filteredDomains.length === 0 ? (
-            <Card className="bg-gradient-card border-border/50">
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Globe className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Domains Yet</h3>
-                <p className="text-muted-foreground text-center max-w-md mb-4">
-                  Get started by adding your first custom domain to the platform.
-                </p>
+              </div>
+              <div className="flex items-center gap-2">
                 <Button
-                  className="bg-gradient-primary"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleVerify(domainDetail.id, domainDetail.name)}
+                  disabled={verifyDomain.isPending}
+                >
+                  {verifyDomain.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Verifying
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Verify DNS
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleRenewSSL(domainDetail.id, domainDetail.name)}
+                  disabled={renewSSL.isPending}
+                >
+                  {renewSSL.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Renewing
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="h-4 w-4 mr-2" />
+                      Renew SSL
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleDelete(domainDetail.id, domainDetail.name)}
+                  disabled={deleteDomain.isPending}
+                >
+                  {deleteDomain.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deleting
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Overview</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Status</span>
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(domainDetail.status)}
+                      {getStatusBadge(domainDetail.status)}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">SSL</span>
+                    <div className="flex items-center gap-2">
+                      {getSSLIcon(domainDetail.sslStatus)}
+                      {getSSLBadge(domainDetail.sslStatus)}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">SSL expiry</span>
+                    <span>
+                      {domainDetail.sslExpiry
+                        ? new Date(domainDetail.sslExpiry).toLocaleDateString()
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Redirect to</span>
+                    <span className="flex items-center gap-2">
+                      {domainDetail.redirectTo ? (
+                        <>
+                          <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">
+                            {domainDetail.redirectTo}
+                          </span>
+                        </>
+                      ) : (
+                        '-'
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Created</span>
+                    <span>
+                      {new Date(domainDetail.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Cloudflare Zone</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {dnsZoneLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Loading DNS zone from Cloudflare...</span>
+                    </div>
+                  ) : dnsZoneError ? (
+                    <p className="text-sm text-destructive">
+                      Failed to load DNS zone configuration.
+                    </p>
+                  ) : domainDnsZone && domainDnsZone.zone ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">
+                          {domainDnsZone.zone.name}
+                        </span>
+                      </div>
+                      {domainDnsZone.zone.nameservers.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">
+                            Nameservers
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {domainDnsZone.zone.nameservers.map((ns: string) => (
+                              <Badge key={ns} variant="outline">
+                                {ns}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Cloudflare zone is not configured for this domain.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>DNS Records</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {dnsZoneLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Loading DNS records...</span>
+                  </div>
+                ) : domainDnsZone && domainDnsZone.records.length > 0 ? (
+                  <div className="rounded-md border border-border/60 bg-muted/20 max-h-96 overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[80px]">Type</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Content</TableHead>
+                          <TableHead className="w-[80px] text-right">
+                            TTL
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {domainDnsZone.records.map((record: any) => (
+                          <TableRow key={record.id}>
+                            <TableCell className="font-mono text-xs">
+                              {record.type}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {record.name}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {record.content}
+                            </TableCell>
+                            <TableCell className="text-right text-xs">
+                              {record.ttl}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No DNS records found in Cloudflare for this domain.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  Domains
+                </h1>
+                <p className="text-muted-foreground">
+                  Manage your custom domains and SSL certificates.
+                </p>
+              </div>
+              <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+                <Button
+                  className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
                   onClick={() => setAddDialogOpen(true)}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Your First Domain
+                  Add Domain
                 </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Domain</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>SSL Status</TableHead>
-                    <TableHead>SSL Expiry</TableHead>
-                    <TableHead>Redirect To</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredDomains.map((domain) => (
-                    <TableRow key={domain.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center space-x-2">
-                          <Globe className="h-4 w-4 text-muted-foreground" />
-                          <span>{domain.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {getStatusIcon(domain.status)}
-                          {getStatusBadge(domain.status)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {getSSLIcon(domain.sslStatus)}
-                          {getSSLBadge(domain.sslStatus)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {domain.sslExpiry 
-                          ? new Date(domain.sslExpiry).toLocaleDateString()
-                          : '-'
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Add Domain</DialogTitle>
+                    <DialogDescription>
+                      Connect an existing domain or register a new one through your registrar.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleAddDomain} className="space-y-6">
+                    <div className="space-y-3">
+                      <Label className="text-sm">Domain type</Label>
+                      <RadioGroup
+                        className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                        value={addMode}
+                        onValueChange={(value) =>
+                          setAddMode(value as 'existing' | 'register')
                         }
-                      </TableCell>
-                      <TableCell>
-                        {domain.redirectTo ? (
-                          <div className="flex items-center space-x-2">
-                            <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">{domain.redirectTo}</span>
+                      >
+                        <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
+                          <RadioGroupItem
+                            value="existing"
+                            id="domain-mode-existing"
+                          />
+                          <div className="space-y-1">
+                            <Label htmlFor="domain-mode-existing">
+                              Use existing domain
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              Use a domain you already own and connect it to Cloudflare automatically.
+                            </p>
                           </div>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {new Date(domain.createdAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setSelectedDomain(domain)}
-                                className="h-8 w-8 p-0"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>View domain details</p>
-                            </TooltipContent>
-                          </Tooltip>
-                          
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleVerify(domain.id, domain.name)}
-                                disabled={verifyDomain.isPending}
-                                className="h-8 w-8 p-0"
-                              >
-                                {verifyDomain.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <RefreshCw className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Verify DNS records</p>
-                            </TooltipContent>
-                          </Tooltip>
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRenewSSL(domain.id, domain.name)}
-                                disabled={renewSSL.isPending}
-                                className="h-8 w-8 p-0"
-                              >
-                                {renewSSL.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Shield className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Renew SSL certificate</p>
-                            </TooltipContent>
-                          </Tooltip>
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 w-8 p-0"
-                              >
-                                <Settings className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Domain settings</p>
-                            </TooltipContent>
-                          </Tooltip>
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete(domain.id, domain.name)}
-                                disabled={deleteDomain.isPending}
-                                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                              >
-                                {deleteDomain.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Delete domain</p>
-                            </TooltipContent>
-                          </Tooltip>
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                          <RadioGroupItem
+                            value="register"
+                            id="domain-mode-register"
+                          />
+                          <div className="space-y-1">
+                            <Label htmlFor="domain-mode-register">
+                              Register new domain
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              Mark this domain as new. Registration is handled externally or via RDASH.
+                            </p>
+                          </div>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="new-domain-name">Domain name</Label>
+                      <Input
+                        id="new-domain-name"
+                        placeholder="example.com"
+                        value={newDomainName}
+                        onChange={(e) => setNewDomainName(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end space-x-3 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setAddDialogOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="bg-gradient-primary"
+                        disabled={
+                          createDomain.isPending || !newDomainName.trim()
+                        }
+                      >
+                        {createDomain.isPending && (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        )}
+                        Save domain
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </div>
-          )}
-        </div>
 
-        {/* Domain Details Dialog */}
-        <Dialog open={!!selectedDomain} onOpenChange={() => setSelectedDomain(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Domain Details</DialogTitle>
-              <DialogDescription>
-                Detailed information about the domain configuration.
-              </DialogDescription>
-            </DialogHeader>
-            {selectedDomain && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Domain Name</label>
-                    <p className="text-sm">{selectedDomain.name}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Status</label>
-                    <div className="flex items-center space-x-2 mt-1">
-                      {getStatusIcon(selectedDomain.status)}
-                      {getStatusBadge(selectedDomain.status)}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">SSL Status</label>
-                    <div className="flex items-center space-x-2 mt-1">
-                      {getSSLIcon(selectedDomain.sslStatus)}
-                      {getSSLBadge(selectedDomain.sslStatus)}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">SSL Expiry</label>
-                    <p className="text-sm">
-                      {selectedDomain.sslExpiry 
-                        ? new Date(selectedDomain.sslExpiry).toLocaleDateString()
-                        : 'Not set'
-                      }
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Redirect To</label>
-                    <p className="text-sm">
-                      {selectedDomain.redirectTo || 'Not configured'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Created</label>
-                    <p className="text-sm">
-                      {new Date(selectedDomain.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-                
-                {selectedDomain.dnsRecords && (
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">DNS Records</label>
-                    <div className="mt-2 p-3 bg-muted rounded-md">
-                      <pre className="text-xs overflow-auto">
-                        {JSON.stringify(selectedDomain.dnsRecords, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                )}
+            <div className="flex items-center space-x-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search domains..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9"
+                />
               </div>
-            )}
-          </DialogContent>
-        </Dialog>
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Globe className="h-4 w-4 text-primary" />
+                <span>{filteredDomains.length} domains</span>
+              </div>
+            </div>
 
-        {/* Confirmation Dialog */}
+            <div className="space-y-6">
+              {filteredDomains.length === 0 ? (
+                <Card className="bg-gradient-card border-border/50">
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Globe className="h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">
+                      No Domains Yet
+                    </h3>
+                    <p className="text-muted-foreground text-center max-w-md mb-4">
+                      Get started by adding your first custom domain to the platform.
+                    </p>
+                    <Button
+                      className="bg-gradient-primary"
+                      onClick={() => setAddDialogOpen(true)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Your First Domain
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Domain</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>SSL Status</TableHead>
+                        <TableHead>SSL Expiry</TableHead>
+                        <TableHead>Redirect To</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredDomains.map((domain) => (
+                        <TableRow key={domain.id}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center space-x-2">
+                              <Globe className="h-4 w-4 text-muted-foreground" />
+                              <span>{domain.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              {getStatusIcon(domain.status)}
+                              {getStatusBadge(domain.status)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              {getSSLIcon(domain.sslStatus)}
+                              {getSSLBadge(domain.sslStatus)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {domain.sslExpiry
+                              ? new Date(domain.sslExpiry).toLocaleDateString()
+                              : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {domain.redirectTo ? (
+                              <div className="flex items-center space-x-2">
+                                <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground">
+                                  {domain.redirectTo}
+                                </span>
+                              </div>
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(domain.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      navigate(`/domains/${domain.id}`)
+                                    }
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>View domain details</p>
+                                </TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleVerify(domain.id, domain.name)
+                                    }
+                                    disabled={verifyDomain.isPending}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    {verifyDomain.isPending ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Verify DNS records</p>
+                                </TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleRenewSSL(domain.id, domain.name)
+                                    }
+                                    disabled={renewSSL.isPending}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    {renewSSL.isPending ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Shield className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Renew SSL certificate</p>
+                                </TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <Settings className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Domain settings</p>
+                                </TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleDelete(domain.id, domain.name)
+                                    }
+                                    disabled={deleteDomain.isPending}
+                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  >
+                                    {deleteDomain.isPending ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Delete domain</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {confirmAction && dialogContent && (
-          <AlertDialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
+          <AlertDialog
+            open={!!confirmAction}
+            onOpenChange={() => setConfirmAction(null)}
+          >
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{dialogContent.title}</AlertDialogTitle>
@@ -633,10 +835,20 @@ export default function Domains() {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={executeAction}
-                  disabled={deleteDomain.isPending || verifyDomain.isPending || renewSSL.isPending}
-                  className={dialogContent.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
+                  disabled={
+                    deleteDomain.isPending ||
+                    verifyDomain.isPending ||
+                    renewSSL.isPending
+                  }
+                  className={
+                    dialogContent.variant === 'destructive'
+                      ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                      : ''
+                  }
                 >
-                  {deleteDomain.isPending || verifyDomain.isPending || renewSSL.isPending ? (
+                  {deleteDomain.isPending ||
+                  verifyDomain.isPending ||
+                  renewSSL.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       Processing...

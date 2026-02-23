@@ -3,6 +3,7 @@ import { useToast } from '@/hooks/use-toast';
 import { 
   getDomains, 
   getDomain, 
+  getDomainDnsZone,
   createDomain, 
   updateDomain, 
   deleteDomain, 
@@ -24,6 +25,14 @@ export const useDomain = (id: string) => {
   return useQuery({
     queryKey: ['domains', id],
     queryFn: () => getDomain(id),
+    enabled: !!id,
+  });
+};
+
+export const useDomainDnsZone = (id: string | null) => {
+  return useQuery({
+    queryKey: ['domains', id, 'dns-zone'],
+    queryFn: () => getDomainDnsZone(id as string),
     enabled: !!id,
   });
 };

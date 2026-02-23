@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,12 +15,18 @@ import {
   Terminal,
   Zap,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Github,
+  Gitlab
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { useDomains } from "@/hooks/useDomains";
 import { CreateApplicationData } from "@/lib/applications";
+import { useGitProjects } from "@/hooks/useGitProjects";
+import { useGitBranches } from "@/hooks/useGitBranches";
+import { useGitAccounts } from "@/hooks/useGitAccounts";
+import { getGithubAuthUrl, getGitlabAuthUrl, getGitConnectionStatus } from "@/lib/git";
 
 // Function to slugify text (convert to URL-friendly format)
 const slugify = (text: string): string => {
@@ -49,8 +56,14 @@ export default function AddApp() {
     port: "",
     envVars: ""
   });
+  const [repoSource, setRepoSource] = useState<'manual' | 'github' | 'gitlab'>('manual');
+  const [selectedGithubAccountId, setSelectedGithubAccountId] = useState("");
+  const [selectedGitlabAccountId, setSelectedGitlabAccountId] = useState("");
+  const [selectedGithubRepoId, setSelectedGithubRepoId] = useState("");
+  const [selectedGitlabRepoId, setSelectedGitlabRepoId] = useState("");
+  const [selectedGithubWorkspace, setSelectedGithubWorkspace] = useState("");
+  const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] = useState("");
 
-  // Auto-generate subdomain from application name
   useEffect(() => {
     if (formData.name && !formData.subdomain) {
       const sluggedName = slugify(formData.name);
@@ -58,7 +71,7 @@ export default function AddApp() {
         setFormData(prev => ({ ...prev, subdomain: sluggedName }));
       }
     }
-  }, [formData.name]);
+  }, [formData.name, formData.subdomain]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,7 +95,7 @@ export default function AddApp() {
     const applicationData: CreateApplicationData = {
       name: formData.name,
       domain: fullDomain,
-      type: formData.type as any,
+      type: formData.type as CreateApplicationData["type"],
       repository: formData.repository || undefined,
       branch: formData.branch,
       buildCommand: formData.buildCommand || undefined,
@@ -109,6 +122,114 @@ export default function AddApp() {
   ];
 
   const availableDomains = domains?.filter(domain => domain.status === 'ACTIVE') || [];
+  const { data: githubAccounts } = useGitAccounts('github', repoSource === 'github');
+  const { data: gitlabAccounts } = useGitAccounts('gitlab', repoSource === 'gitlab');
+  const {
+    data: githubProjects,
+    isLoading: githubLoading,
+    error: githubError,
+  } = useGitProjects('github', repoSource === 'github' && !!selectedGithubAccountId, selectedGithubAccountId);
+  const {
+    data: gitlabProjects,
+    isLoading: gitlabLoading,
+    error: gitlabError,
+  } = useGitProjects('gitlab', repoSource === 'gitlab' && !!selectedGitlabAccountId, selectedGitlabAccountId);
+
+  const { data: gitStatus } = useQuery({
+    queryKey: ["git", "connection-status"],
+    queryFn: getGitConnectionStatus,
+  });
+
+  const githubConnected = gitStatus?.githubConnected ?? false;
+  const gitlabConnected = gitStatus?.gitlabConnected ?? false;
+
+  const githubWorkspaces =
+    githubProjects && githubProjects.length > 0
+      ? Array.from(
+          new Set(
+            githubProjects
+              .map((repo) => repo.workspace)
+              .filter((ws): ws is string => !!ws),
+          ),
+        )
+      : [];
+
+  const gitlabWorkspaces =
+    gitlabProjects && gitlabProjects.length > 0
+      ? Array.from(
+          new Set(
+            gitlabProjects
+              .map((repo) => repo.workspace)
+              .filter((ws): ws is string => !!ws),
+          ),
+        )
+      : [];
+
+  const filteredGithubProjects =
+    githubProjects && githubProjects.length > 0
+      ? githubProjects.filter((repo) =>
+          selectedGithubWorkspace
+            ? repo.workspace === selectedGithubWorkspace
+            : true,
+        )
+      : githubProjects;
+
+  const filteredGitlabProjects =
+    gitlabProjects && gitlabProjects.length > 0
+      ? gitlabProjects.filter((repo) =>
+          selectedGitlabWorkspace
+            ? repo.workspace === selectedGitlabWorkspace
+            : true,
+        )
+      : gitlabProjects;
+
+  const {
+    data: githubBranches,
+    isLoading: githubBranchesLoading,
+    error: githubBranchesError,
+  } = useGitBranches(
+    'github',
+    selectedGithubRepoId,
+    repoSource === 'github' && !!selectedGithubRepoId && !!selectedGithubAccountId,
+    selectedGithubAccountId,
+  );
+
+  const {
+    data: gitlabBranches,
+    isLoading: gitlabBranchesLoading,
+    error: gitlabBranchesError,
+  } = useGitBranches(
+    'gitlab',
+    selectedGitlabRepoId,
+    repoSource === 'gitlab' && !!selectedGitlabRepoId && !!selectedGitlabAccountId,
+    selectedGitlabAccountId,
+  );
+
+  const handleConnectGithub = async () => {
+    try {
+      const url = await getGithubAuthUrl();
+      window.location.href = url;
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "GitHub connection failed",
+        description: "Could not start GitHub OAuth flow.",
+      });
+    }
+  };
+
+  const handleConnectGitlab = async () => {
+    try {
+      const url = await getGitlabAuthUrl();
+      window.location.href = url;
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "GitLab connection failed",
+        description: "Could not start GitLab OAuth flow.",
+      });
+    }
+  };
 
   if (domainsLoading) {
     return (
@@ -167,12 +288,6 @@ export default function AddApp() {
       </div>
     );
   }
-  // use Effect swhen form.name change
-  useEffect(() => {
-    if (formData.name) {
-      setFormData(prev => ({ ...prev, subdomain: slugify(formData.name) }));
-    }
-  }, [formData.name]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
@@ -298,25 +413,415 @@ export default function AddApp() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="repository">Git Repository URL</Label>
-              <Input
-                id="repository"
-                placeholder="https://github.com/username/repo.git"
-                value={formData.repository}
-                onChange={(e) => handleInputChange("repository", e.target.value)}
-              />
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={repoSource === 'manual' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setRepoSource('manual')}
+                >
+                  <GitBranch className="h-4 w-4 mr-2" />
+                  Manual URL
+                </Button>
+                <Button
+                  type="button"
+                  variant={repoSource === 'github' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setRepoSource('github')}
+                >
+                  <Github className="h-4 w-4 mr-2" />
+                  GitHub
+                </Button>
+                <Button
+                  type="button"
+                  variant={repoSource === 'gitlab' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setRepoSource('gitlab')}
+                >
+                  <Gitlab className="h-4 w-4 mr-2" />
+                  GitLab
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge
+                  variant={githubConnected ? "outline" : "secondary"}
+                  className="text-xs"
+                >
+                  <Github className="h-3 w-3 mr-1" />
+                  {githubConnected ? "GitHub connected" : "GitHub not connected"}
+                </Badge>
+                <Badge
+                  variant={gitlabConnected ? "outline" : "secondary"}
+                  className="text-xs"
+                >
+                  <Gitlab className="h-3 w-3 mr-1" />
+                  {gitlabConnected ? "GitLab connected" : "GitLab not connected"}
+                </Badge>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="branch">Branch</Label>
-              <Input
-                id="branch"
-                placeholder="main"
-                value={formData.branch}
-                onChange={(e) => handleInputChange("branch", e.target.value)}
-              />
-            </div>
+            {repoSource === 'manual' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="repository">Git Repository URL</Label>
+                  <Input
+                    id="repository"
+                    placeholder="https://github.com/username/repo.git"
+                    value={formData.repository}
+                    onChange={(e) =>
+                      handleInputChange("repository", e.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="branch">Branch</Label>
+                  <Input
+                    id="branch"
+                    placeholder="main"
+                    value={formData.branch}
+                    onChange={(e) =>
+                      handleInputChange("branch", e.target.value)
+                    }
+                  />
+                </div>
+              </>
+            )}
+
+            {repoSource === 'github' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>GitHub account</Label>
+                  {githubAccounts && githubAccounts.length > 0 ? (
+                    <Select
+                      value={selectedGithubAccountId}
+                      onValueChange={(value) => {
+                        setSelectedGithubAccountId(value);
+                        setSelectedGithubRepoId("");
+                        setSelectedGithubWorkspace("");
+                        handleInputChange("repository", "");
+                        handleInputChange("branch", "main");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a GitHub account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {githubAccounts.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.displayName || account.username || account.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        No GitHub accounts connected.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleConnectGithub}
+                      >
+                        <Github className="h-4 w-4 mr-2" />
+                        Connect GitHub
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {githubProjects && githubProjects.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>GitHub workspace</Label>
+                    <Select
+                      value={selectedGithubWorkspace}
+                      onValueChange={(value) => {
+                        setSelectedGithubWorkspace(value);
+                        setSelectedGithubRepoId("");
+                        handleInputChange("repository", "");
+                        handleInputChange("branch", "main");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All workspaces" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All workspaces</SelectItem>
+                        {githubWorkspaces.map((workspace) => (
+                          <SelectItem key={workspace} value={workspace}>
+                            {workspace}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Select GitHub repository</Label>
+                  {githubLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      Loading GitHub repositories...
+                    </p>
+                  ) : githubError || !selectedGithubAccountId ? (
+                    <p className="text-sm text-destructive">
+                      Failed to load GitHub repositories.
+                    </p>
+                  ) : filteredGithubProjects && filteredGithubProjects.length > 0 ? (
+                    <Select
+                      value={selectedGithubRepoId}
+                      onValueChange={(value) => {
+                        setSelectedGithubRepoId(value);
+                        const repo = filteredGithubProjects.find(
+                          (item) => item.id === value,
+                        );
+                        if (repo) {
+                          handleInputChange("repository", repo.cloneUrl);
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a GitHub repository" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredGithubProjects.map((repo) => (
+                          <SelectItem key={repo.id} value={repo.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{repo.name}</span>
+                              {repo.workspace && (
+                                <span className="text-xs text-muted-foreground">
+                                  {repo.workspace}
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        No GitHub repositories found or your GitHub account is not connected.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleConnectGithub}
+                      >
+                        <Github className="h-4 w-4 mr-2" />
+                        Connect GitHub
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="branch">Branch</Label>
+                  {githubBranchesLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      Loading branches...
+                    </p>
+                  ) : githubBranchesError ? (
+                    <p className="text-sm text-destructive">
+                      Failed to load GitHub branches.
+                    </p>
+                  ) : githubBranches && githubBranches.length > 0 ? (
+                    <Select
+                      value={formData.branch}
+                      onValueChange={(value) =>
+                        handleInputChange("branch", value)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {githubBranches.map((branch) => (
+                          <SelectItem key={branch.name} value={branch.name}>
+                            {branch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No branches found for this repository.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {repoSource === 'gitlab' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>GitLab account</Label>
+                  {gitlabAccounts && gitlabAccounts.length > 0 ? (
+                    <Select
+                      value={selectedGitlabAccountId}
+                      onValueChange={(value) => {
+                        setSelectedGitlabAccountId(value);
+                        setSelectedGitlabRepoId("");
+                        setSelectedGitlabWorkspace("");
+                        handleInputChange("repository", "");
+                        handleInputChange("branch", "main");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a GitLab account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {gitlabAccounts.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.displayName || account.username || account.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        No GitLab accounts connected.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleConnectGitlab}
+                      >
+                        <Gitlab className="h-4 w-4 mr-2" />
+                        Connect GitLab
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {gitlabProjects && gitlabProjects.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>GitLab workspace</Label>
+                    <Select
+                      value={selectedGitlabWorkspace}
+                      onValueChange={(value) => {
+                        setSelectedGitlabWorkspace(value);
+                        setSelectedGitlabRepoId("");
+                        handleInputChange("repository", "");
+                        handleInputChange("branch", "main");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All workspaces" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All workspaces</SelectItem>
+                        {gitlabWorkspaces.map((workspace) => (
+                          <SelectItem key={workspace} value={workspace}>
+                            {workspace}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Select GitLab project</Label>
+                  {gitlabLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      Loading GitLab projects...
+                    </p>
+                  ) : gitlabError || !selectedGitlabAccountId ? (
+                    <p className="text-sm text-destructive">
+                      Failed to load GitLab projects.
+                    </p>
+                  ) : filteredGitlabProjects && filteredGitlabProjects.length > 0 ? (
+                    <Select
+                      value={selectedGitlabRepoId}
+                      onValueChange={(value) => {
+                        setSelectedGitlabRepoId(value);
+                        const repo = filteredGitlabProjects.find(
+                          (item) => item.id === value,
+                        );
+                        if (repo) {
+                          handleInputChange("repository", repo.cloneUrl);
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a GitLab project" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredGitlabProjects.map((repo) => (
+                          <SelectItem key={repo.id} value={repo.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{repo.name}</span>
+                              {repo.workspace && (
+                                <span className="text-xs text-muted-foreground">
+                                  {repo.workspace}
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        No GitLab projects found or your GitLab account is not connected.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleConnectGitlab}
+                      >
+                        <Gitlab className="h-4 w-4 mr-2" />
+                        Connect GitLab
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="branch">Branch</Label>
+                  {gitlabBranchesLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      Loading branches...
+                    </p>
+                  ) : gitlabBranchesError ? (
+                    <p className="text-sm text-destructive">
+                      Failed to load GitLab branches.
+                    </p>
+                  ) : gitlabBranches && gitlabBranches.length > 0 ? (
+                    <Select
+                      value={formData.branch}
+                      onValueChange={(value) =>
+                        handleInputChange("branch", value)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {gitlabBranches.map((branch) => (
+                          <SelectItem key={branch.name} value={branch.name}>
+                            {branch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No branches found for this project.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

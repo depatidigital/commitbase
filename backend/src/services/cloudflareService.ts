@@ -208,7 +208,48 @@ export async function getCloudflareNameservers(): Promise<string[] | null> {
   }
 }
 
-export async function syncDomainDns(domain: string): Promise<DnsSummary | null> {
+export async function listCloudflareDnsRecords(zoneId: string): Promise<any[] | null> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    return null;
+  }
+
+  const { fetchFn, config } = shared;
+  const apiBase = config.apiBase;
+  const trimmedZoneId = zoneId.trim();
+
+  if (!trimmedZoneId) {
+    return null;
+  }
+
+  const url = `${apiBase}/zones/${encodeURIComponent(trimmedZoneId)}/dns_records?per_page=100`;
+
+  try {
+    const response = await fetchFn(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const records = data && Array.isArray(data.result) ? data.result : null;
+    if (!records) {
+      return null;
+    }
+
+    return records;
+  } catch {
+    return null;
+  }
+}
+
+export async function syncDomainDns(domain: string, zoneIdOverride?: string): Promise<DnsSummary | null> {
   const shared = await getCloudflareFetchConfig();
   if (!shared) {
     return null;
@@ -216,7 +257,9 @@ export async function syncDomainDns(domain: string): Promise<DnsSummary | null> 
 
   const { fetchFn, config } = shared;
 
-  if (!config.dnsTarget || !config.zoneId) {
+  const zoneIdToUse = zoneIdOverride || config.zoneId;
+
+  if (!config.dnsTarget || !zoneIdToUse) {
     return null;
   }
 
@@ -225,7 +268,7 @@ export async function syncDomainDns(domain: string): Promise<DnsSummary | null> 
   const resultSummary: DnsSummary =
     type === 'A' ? { a: content } : { cname: content };
 
-  const searchUrl = `${config.apiBase}/zones/${config.zoneId}/dns_records?type=${encodeURIComponent(
+  const searchUrl = `${config.apiBase}/zones/${zoneIdToUse}/dns_records?type=${encodeURIComponent(
     type,
   )}&name=${encodeURIComponent(domain)}`;
 
@@ -251,7 +294,7 @@ export async function syncDomainDns(domain: string): Promise<DnsSummary | null> 
         return resultSummary;
       }
 
-      const updateUrl = `${config.apiBase}/zones/${config.zoneId}/dns_records/${existing.id}`;
+      const updateUrl = `${config.apiBase}/zones/${zoneIdToUse}/dns_records/${existing.id}`;
       const updateBody = {
         type,
         name: domain,
@@ -276,7 +319,7 @@ export async function syncDomainDns(domain: string): Promise<DnsSummary | null> 
       return resultSummary;
     }
 
-    const createUrl = `${config.apiBase}/zones/${config.zoneId}/dns_records`;
+    const createUrl = `${config.apiBase}/zones/${zoneIdToUse}/dns_records`;
     const createBody = {
       type,
       name: domain,

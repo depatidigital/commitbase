@@ -50,6 +50,7 @@ import domainsRoutes from './routes/domains';
 import templatesRoutes from './routes/templates';
 import rdashRoutes from './routes/rdash';
 import cloudflareRoutes from './routes/cloudflare';
+import gitRoutes from './routes/git';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -117,6 +118,7 @@ app.use('/api/domains', domainsRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/rdash', rdashRoutes);
 app.use('/api/cloudflare', cloudflareRoutes);
+app.use('/api/git', gitRoutes);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

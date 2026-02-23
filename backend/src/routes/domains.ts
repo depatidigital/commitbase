@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { syncDomainDns, getOrCreateCloudflareZone } from '../services/cloudflareService';
+import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords } from '../services/cloudflareService';
 
 const router = Router();
 
@@ -110,7 +110,7 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
       status = 'ACTIVE';
     }
 
-    const cloudflareRecords = await syncDomainDns(trimmedName);
+    const cloudflareRecords = await syncDomainDns(trimmedName, cloudflareZone?.id);
     if (cloudflareRecords) {
       dnsRecords = cloudflareRecords;
       status = 'ACTIVE';
@@ -134,6 +134,97 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error creating domain:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+router.get('/:id/dns-zone', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Domain ID is required',
+      } as ApiResponse);
+    }
+
+    const domain = await prisma.domain.findFirst({
+      where: {
+        id: id as string,
+        userId: req.user!.userId,
+      },
+    });
+
+    if (!domain) {
+      return res.status(404).json({
+        success: false,
+        error: 'Domain not found',
+      } as ApiResponse);
+    }
+
+    const existingCloudflareConfig = (domain.customConfig as any)?.cloudflare;
+
+    let zoneId: string | null =
+      existingCloudflareConfig && typeof existingCloudflareConfig.zoneId === 'string'
+        ? existingCloudflareConfig.zoneId
+        : null;
+
+    let zoneName: string | null =
+      existingCloudflareConfig && typeof existingCloudflareConfig.zoneName === 'string'
+        ? existingCloudflareConfig.zoneName
+        : null;
+
+    let nameservers: string[] =
+      existingCloudflareConfig && Array.isArray(existingCloudflareConfig.nameservers)
+        ? existingCloudflareConfig.nameservers
+        : [];
+
+    if (!zoneId) {
+      const zone = await getOrCreateCloudflareZone(domain.name);
+      if (zone) {
+        zoneId = zone.id;
+        zoneName = zone.name;
+        nameservers = zone.nameServers;
+      }
+    }
+
+    if (!zoneId) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          zone: null,
+          records: [],
+          synced: false,
+        },
+        message: 'Cloudflare zone not configured for this domain',
+      } as ApiResponse);
+    }
+
+    await syncDomainDns(domain.name, zoneId);
+
+    const records = await listCloudflareDnsRecords(zoneId);
+
+    const responsePayload = {
+      zone: {
+        id: zoneId,
+        name: zoneName || domain.name,
+        nameservers,
+      },
+      records: records || [],
+      synced: true,
+    };
+
+    return res.json({
+      success: true,
+      data: responsePayload,
+      message: 'DNS zone configuration fetched successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching domain DNS zone:', error);
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -279,7 +370,13 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
     let dnsRecords: any = null;
     let verified = false;
 
-    const cloudflareRecords = await syncDomainDns(domain.name);
+    const existingCloudflareConfig = (domain.customConfig as any)?.cloudflare;
+    const zoneIdOverride =
+      existingCloudflareConfig && typeof existingCloudflareConfig.zoneId === 'string'
+        ? existingCloudflareConfig.zoneId
+        : undefined;
+
+    const cloudflareRecords = await syncDomainDns(domain.name, zoneIdOverride);
     if (cloudflareRecords) {
       dnsRecords = cloudflareRecords;
       verified = true;
