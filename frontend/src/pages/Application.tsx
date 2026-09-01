@@ -206,7 +206,7 @@ export default function Application() {
           <Link to="/add-app">
             <Button className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300">
               <Plus className="h-4 w-4 mr-2" />
-              Deploy New App
+              Deploy New Application
             </Button>
           </Link>
         </div>
@@ -216,7 +216,8 @@ export default function Application() {
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search applications..."
+              aria-label="Search applications"
+            placeholder="Search applications..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9"
@@ -253,13 +254,13 @@ export default function Application() {
                 <Link to="/add-app">
                   <Button className="bg-gradient-primary">
                     <Plus className="h-4 w-4 mr-2" />
-                    Deploy Your First App
+                    Deploy Your First Application
                   </Button>
                 </Link>
               </CardContent>
             </Card>
           ) : (
-            <div className="rounded-md border">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -331,6 +332,7 @@ export default function Application() {
                                   variant="destructive"
                                   size="sm"
                                   onClick={() => handleStop(app.id, app.name)}
+                                  aria-label="Stop application"
                                   disabled={stopApp.isPending}
                                   className="h-8 w-8 p-0"
                                 >
@@ -353,6 +355,7 @@ export default function Application() {
                                   <Button
                                     size="sm"
                                     onClick={() => handleStartExisting(app.id, app.name)}
+                                  aria-label="Start existing container"
                                     disabled={startExistingApp.isPending}
                                     className="h-8 px-2 text-xs"
                                   >
@@ -374,6 +377,7 @@ export default function Application() {
                                     variant="outline"
                                     size="sm"
                                     onClick={() => handleStart(app.id, app.name)}
+                                  aria-label="Start application"
                                     disabled={startApp.isPending}
                                     className="h-8 px-2 text-xs"
                                   >
@@ -397,6 +401,7 @@ export default function Application() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handleStart(app.id, app.name)}
+                                  aria-label="Start application"
                                   disabled={startApp.isPending}
                                   className="h-8 w-8 p-0"
                                 >
@@ -420,6 +425,7 @@ export default function Application() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handleRestart(app.id, app.name)}
+                                  aria-label="Restart application"
                                   disabled={restartApp.isPending}
                                   className="h-8 w-8 p-0"
                                 >
@@ -441,6 +447,7 @@ export default function Application() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleDelete(app.id, app.name)}
+                                  aria-label="Delete application"
                                 disabled={deleteApp.isPending || app.status === 'RUNNING'}
                                 className="h-8 w-8 p-0 text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                               >
@@ -481,7 +488,11 @@ export default function Application() {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={executeAction}
-                  className={`${dialogContent.variant}`}
+                  className={
+                    dialogContent.variant === 'destructive'
+                      ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                      : undefined
+                  }
                   disabled={startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending}
                 >
                   {startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending ? (

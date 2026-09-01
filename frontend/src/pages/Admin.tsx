@@ -122,7 +122,7 @@ export default function Admin() {
   });
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold flex items-center gap-2">
           <ShieldCheck className="h-5 w-5" /> Platform administration

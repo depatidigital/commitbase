@@ -305,6 +305,7 @@ export default function Domains() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
+                  aria-label="Back to domains"
                   onClick={() => navigate('/domains')}
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -657,6 +658,7 @@ export default function Domains() {
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
+                  aria-label="Search domains"
                   placeholder="Search domains..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -774,6 +776,7 @@ export default function Domains() {
                                     onClick={() =>
                                       navigate(`/domains/${domain.id}`)
                                     }
+                                    aria-label={`View details for ${domain.name}`}
                                     className="h-8 w-8 p-0"
                                   >
                                     <Eye className="h-4 w-4" />
@@ -792,6 +795,7 @@ export default function Domains() {
                                     onClick={() =>
                                       handleVerify(domain.id, domain.name)
                                     }
+                                    aria-label={`Verify ${domain.name}`}
                                     disabled={verifyDomain.isPending}
                                     className="h-8 w-8 p-0"
                                   >
@@ -815,6 +819,7 @@ export default function Domains() {
                                     onClick={() =>
                                       handleRenewSSL(domain.id, domain.name)
                                     }
+                                    aria-label={`Renew SSL for ${domain.name}`}
                                     disabled={renewSSL.isPending}
                                     className="h-8 w-8 p-0"
                                   >
@@ -838,6 +843,7 @@ export default function Domains() {
                                     onClick={() =>
                                       handleDelete(domain.id, domain.name)
                                     }
+                                    aria-label={`Delete ${domain.name}`}
                                     disabled={deleteDomain.isPending}
                                     className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                                   >

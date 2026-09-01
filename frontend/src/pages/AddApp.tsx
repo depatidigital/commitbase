@@ -347,13 +347,14 @@ export default function AddApp() {
               </div>
 
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="subdomain">
                   Domain Configuration <span className="text-red-500">*</span>
                 </Label>
                 <div className="space-y-3">
                   <div className="flex items-center space-x-2">
                     <Globe className="min-w-4 min-h-4 text-muted-foreground" />
                     <Input
+                      id="subdomain"
                       placeholder="app"
                       value={formData.subdomain}
                       onChange={(e) => handleInputChange("subdomain", e.target.value)}
@@ -363,7 +364,7 @@ export default function AddApp() {
                       value={formData.selectedDomain}
                       onValueChange={(value) => handleInputChange("selectedDomain", value)}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="domain-select">
                         <SelectValue placeholder="Select a domain" />
                       </SelectTrigger>
                       <SelectContent>
@@ -390,14 +391,14 @@ export default function AddApp() {
             </div>
 
             <div className="space-y-2">
-              <Label>
+              <Label htmlFor="app-type">
                 Application Type <span className="text-red-500">*</span>
               </Label>
               <Select
                 value={formData.type}
                 onValueChange={(value) => handleInputChange("type", value)}
               >
-                <SelectTrigger>
+                <SelectTrigger id="app-type">
                   <SelectValue placeholder="Select application type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -503,7 +504,7 @@ export default function AddApp() {
             {repoSource === 'github' && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>GitHub account</Label>
+                  <Label htmlFor="github-account">GitHub account</Label>
                   {githubAccounts && githubAccounts.length > 0 ? (
                     <Select
                       value={selectedGithubAccountId}
@@ -515,7 +516,7 @@ export default function AddApp() {
                         handleInputChange("branch", "main");
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="github-account">
                         <SelectValue placeholder="Select a GitHub account" />
                       </SelectTrigger>
                       <SelectContent>
@@ -550,7 +551,7 @@ export default function AddApp() {
 
                 {githubProjects && githubProjects.length > 0 && (
                   <div className="space-y-2">
-                    <Label>GitHub workspace</Label>
+                    <Label htmlFor="github-workspace">GitHub workspace</Label>
                     <Select
                       value={selectedGithubWorkspace}
                       onValueChange={(value) => {
@@ -560,7 +561,7 @@ export default function AddApp() {
                         handleInputChange("branch", "main");
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="github-workspace">
                         <SelectValue placeholder="All workspaces" />
                       </SelectTrigger>
                       <SelectContent>
@@ -576,7 +577,7 @@ export default function AddApp() {
                 )}
 
                 <div className="space-y-2">
-                  <Label>Select GitHub repository</Label>
+                  <Label htmlFor="github-repo">Select GitHub repository</Label>
                   {githubLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading GitHub repositories...
@@ -602,7 +603,7 @@ export default function AddApp() {
                         }
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="github-repo">
                         <SelectValue placeholder="Select a GitHub repository" />
                       </SelectTrigger>
                       <SelectContent>
@@ -639,7 +640,7 @@ export default function AddApp() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="branch">Branch</Label>
+                  <Label htmlFor="github-branch">Branch</Label>
                   {githubBranchesLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading branches...
@@ -655,7 +656,7 @@ export default function AddApp() {
                         handleInputChange("branch", value)
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="github-branch">
                         <SelectValue placeholder="Select a branch" />
                       </SelectTrigger>
                       <SelectContent>
@@ -678,7 +679,7 @@ export default function AddApp() {
             {repoSource === 'gitlab' && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>GitLab account</Label>
+                  <Label htmlFor="gitlab-account">GitLab account</Label>
                   {gitlabAccounts && gitlabAccounts.length > 0 ? (
                     <Select
                       value={selectedGitlabAccountId}
@@ -690,7 +691,7 @@ export default function AddApp() {
                         handleInputChange("branch", "main");
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="gitlab-account">
                         <SelectValue placeholder="Select a GitLab account" />
                       </SelectTrigger>
                       <SelectContent>
@@ -725,7 +726,7 @@ export default function AddApp() {
 
                 {gitlabProjects && gitlabProjects.length > 0 && (
                   <div className="space-y-2">
-                    <Label>GitLab workspace</Label>
+                    <Label htmlFor="gitlab-workspace">GitLab workspace</Label>
                     <Select
                       value={selectedGitlabWorkspace}
                       onValueChange={(value) => {
@@ -735,7 +736,7 @@ export default function AddApp() {
                         handleInputChange("branch", "main");
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="gitlab-workspace">
                         <SelectValue placeholder="All workspaces" />
                       </SelectTrigger>
                       <SelectContent>
@@ -751,7 +752,7 @@ export default function AddApp() {
                 )}
 
                 <div className="space-y-2">
-                  <Label>Select GitLab project</Label>
+                  <Label htmlFor="gitlab-project">Select GitLab project</Label>
                   {gitlabLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading GitLab projects...
@@ -777,7 +778,7 @@ export default function AddApp() {
                         }
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="gitlab-project">
                         <SelectValue placeholder="Select a GitLab project" />
                       </SelectTrigger>
                       <SelectContent>
@@ -814,7 +815,7 @@ export default function AddApp() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="branch">Branch</Label>
+                  <Label htmlFor="gitlab-branch">Branch</Label>
                   {gitlabBranchesLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading branches...
@@ -830,7 +831,7 @@ export default function AddApp() {
                         handleInputChange("branch", value)
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="gitlab-branch">
                         <SelectValue placeholder="Select a branch" />
                       </SelectTrigger>
                       <SelectContent>

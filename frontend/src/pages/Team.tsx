@@ -152,7 +152,7 @@ export default function Team() {
 
   if (!organizations.length) {
     return (
-      <div className="p-6">
+      <div>
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
             You are not a member of any organization yet.
@@ -163,7 +163,7 @@ export default function Team() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">

@@ -75,7 +75,7 @@ export function AppSidebar() {
                       className={({ isActive: navIsActive }) =>
                         `flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg ${
                           navIsActive || isActive(item.url)
-                            ? "bg-gradient-primary text-black shadow-elegant"
+                            ? "bg-gradient-primary text-primary-foreground shadow-elegant"
                             : "hover:bg-muted text-muted-foreground hover:text-foreground"
                         }`
                       }

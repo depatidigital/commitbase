@@ -16,7 +16,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
       try {
         // First check local authentication
         if (!isAuthenticated()) {
-          console.log('User not authenticated locally, redirecting to login');
           removeAuthToken();
           navigate('/login');
           return;
@@ -25,7 +24,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
         // Get current user from token
         const currentUser = getCurrentUser();
         if (!currentUser) {
-          console.log('Invalid user data locally, redirecting to login');
           removeAuthToken();
           navigate('/login');
           return;
@@ -35,7 +33,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
         try {
           const isValid = await validateUserToken();
           if (!isValid) {
-            console.log('Token invalid on backend, redirecting to login');
             removeAuthToken();
             navigate('/login');
             return;
@@ -44,13 +41,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
           console.warn('Backend validation failed, continuing with local validation:', error);
           // Continue with local validation if backend is unavailable
         }
-
-        console.log('User validation successful');
-        setIsValidating(false);
       } catch (error) {
         console.error('Error during user validation:', error);
         removeAuthToken();
         navigate('/login');
+      } finally {
+        // must clear on every path, redirects included, or the spinner sticks
+        setIsValidating(false);
       }
     };
 
@@ -62,7 +59,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (isValidating) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center space-y-4">
+        <div role="status" className="flex flex-col items-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Validating user session...</p>
         </div>

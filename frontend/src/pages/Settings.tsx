@@ -85,7 +85,7 @@ export default function Settings() {
     <div className="space-y-8 animate-fade-in">
       <div>
         <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-          Platform Settings
+          Settings
         </h1>
         <p className="text-muted-foreground mt-1">
           Configure your deployment platform
@@ -181,6 +181,8 @@ export default function Settings() {
                           onChange={(e) =>
                             handleNameChange(account.id, e.target.value)
                           }
+                          aria-label="Display name"
+                          placeholder="Display name"
                           className="h-8 max-w-xs"
                         />
                         <Button
@@ -208,6 +210,7 @@ export default function Settings() {
                     disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="h-4 w-4" />
+                            <span className="sr-only">Disconnect account</span>
                   </Button>
                 </div>
               );
