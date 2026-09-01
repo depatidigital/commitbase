@@ -116,6 +116,45 @@ const needsRenewal = (domain: Pick<Domain, "expiresAt">) => {
   return daysLeft <= 30;
 };
 
+type ExpiryTone = {
+  days: number;
+  className: string;
+  note: string;
+  urgent: boolean;
+};
+
+/** How loudly to shout about a registration expiry date. */
+const expiryTone = (value: Date): ExpiryTone => {
+  const days = Math.ceil((value.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+
+  if (days < 0) {
+    return { days, className: "text-destructive font-semibold", note: "expired", urgent: true };
+  }
+  if (days === 0) {
+    return {
+      days,
+      className: "text-destructive font-semibold",
+      note: "expires today",
+      urgent: true,
+    };
+  }
+  if (days <= 7) {
+    return {
+      days,
+      className: "text-destructive font-semibold",
+      note: `${days}d left`,
+      urgent: true,
+    };
+  }
+  if (days <= 30) {
+    return { days, className: "text-warning font-medium", note: `${days}d left`, urgent: true };
+  }
+  if (days <= 60) {
+    return { days, className: "text-warning", note: `${days}d left`, urgent: false };
+  }
+  return { days, className: "", note: "", urgent: false };
+};
+
 const formatDate = (value: Date) =>
   value.toLocaleDateString("id-ID", {
     day: "numeric",
@@ -284,24 +323,14 @@ export default function Domains() {
           return <span className="text-muted-foreground">-</span>;
         }
         const expiry = new Date(domain.expiresAt);
-        const daysLeft = Math.ceil(
-          (expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-        );
+        const tone = expiryTone(expiry);
         return (
-          <span
-            className={
-              daysLeft < 0
-                ? "text-destructive font-medium"
-                : daysLeft <= 30
-                ? "text-warning font-medium"
-                : ""
-            }
-          >
-            {formatDate(expiry)}
-            {daysLeft >= 0 && daysLeft <= 30 && (
-              <span className="ml-1 text-xs">({daysLeft}d)</span>
+          <span className={tone.className}>
+            {tone.urgent && (
+              <AlertCircle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
             )}
-            {daysLeft < 0 && <span className="ml-1 text-xs">(expired)</span>}
+            {formatDate(expiry)}
+            {tone.note && <span className="ml-1 text-xs">({tone.note})</span>}
             {admin && needsRenewal(domain) && (
               <Button
                 variant="outline"
@@ -620,6 +649,26 @@ export default function Domains() {
                     <h1 className="text-xl font-semibold">
                       {domainDetail.name}
                     </h1>
+                    {domainDetail.expiresAt &&
+                      (() => {
+                        const tone = expiryTone(new Date(domainDetail.expiresAt));
+                        if (!tone.urgent) return null;
+                        return (
+                          <Badge
+                            variant={tone.days <= 7 ? "destructive" : "outline"}
+                            className={
+                              tone.days <= 7
+                                ? "gap-1"
+                                : "gap-1 border-warning text-warning"
+                            }
+                          >
+                            <AlertCircle className="h-3.5 w-3.5" />
+                            {tone.days < 0
+                              ? "Registration expired"
+                              : `Expires ${tone.note}`}
+                          </Badge>
+                        );
+                      })()}
                     {getStatusBadge(domainDetail.status)}
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -686,6 +735,8 @@ export default function Domains() {
             <Tabs defaultValue="overview" className="space-y-4">
               <TabsList>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="dns">DNS</TabsTrigger>
+                <TabsTrigger value="registration">Registration</TabsTrigger>
                 {admin && (
                   <TabsTrigger value="settings">Settings</TabsTrigger>
                 )}
@@ -718,11 +769,25 @@ export default function Domains() {
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Registration expiry</span>
-                      <span>
-                        {domainDetail.expiresAt
-                          ? formatDate(new Date(domainDetail.expiresAt))
-                          : "-"}
-                      </span>
+                      {domainDetail.expiresAt ? (
+                        (() => {
+                          const expiry = new Date(domainDetail.expiresAt);
+                          const tone = expiryTone(expiry);
+                          return (
+                            <span className={tone.className}>
+                              {tone.urgent && (
+                                <AlertCircle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
+                              )}
+                              {formatDate(expiry)}
+                              {tone.note && (
+                                <span className="ml-1 text-xs">({tone.note})</span>
+                              )}
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <span>-</span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">SSL expiry</span>
@@ -826,108 +891,25 @@ export default function Domains() {
                       </div>
                     ) : (
                       <p className="text-sm text-warning">
-                        No Cloudflare zone yet — DNS and SSL are not managed for
-                        this domain. Toggle on to create the zone and move DNS
-                        across.
+                        No Cloudflare zone yet — DNS and SSL are not managed
+                        for this domain. Use Move to Cloudflare to create the
+                        zone and migrate DNS.
                       </p>
                     )}
                   </CardContent>
                 </Card>
-              </div>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Registration</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {registrationLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Looking up the registry record…</span>
-                      </div>
-                    ) : !registration ? (
-                      <p className="text-sm text-muted-foreground">
-                        This TLD publishes no public registry record, or the
-                        domain is not registered.
-                      </p>
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-between gap-4 text-sm">
-                          <span className="text-muted-foreground">
-                            Registered with
-                          </span>
-                          <span className="text-right">
-                            {registration.registrar ?? "Unknown"}
-                            {registration.registrarId && (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                (IANA {registration.registrarId})
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Registered on
-                          </span>
-                          <span>
-                            {registration.registeredAt
-                              ? formatDate(new Date(registration.registeredAt))
-                              : "-"}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Last changed
-                          </span>
-                          <span>
-                            {registration.updatedAt
-                              ? formatDate(new Date(registration.updatedAt))
-                              : "-"}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Expires</span>
-                          <span>
-                            {registration.expiresAt
-                              ? formatDate(new Date(registration.expiresAt))
-                              : "-"}
-                          </span>
-                        </div>
-                        {registration.status.length > 0 && (
-                          <div className="space-y-1 text-sm">
-                            <span className="text-muted-foreground">
-                              Registry status
-                            </span>
-                            <div className="flex flex-wrap gap-2">
-                              {registration.status.map((state) => (
-                                <Badge key={state} variant="secondary">
-                                  {state}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {registration.nameservers.length > 0 && (
-                          <div className="space-y-1 text-sm">
-                            <span className="text-muted-foreground">
-                              Nameservers at the registry
-                            </span>
-                            <div className="flex flex-wrap gap-2">
-                              {registration.nameservers.map((ns) => (
-                                <Badge key={ns} variant="outline">
-                                  {ns}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
               </div>
+              </TabsContent>
 
-                <div className="grid gap-4 lg:grid-cols-2">
+              <TabsContent value="dns" className="space-y-4">
+                <div
+                  className={
+                    domainDetail.registrar === "RDASH"
+                      ? "grid gap-4 lg:grid-cols-2"
+                      : "grid gap-4"
+                  }
+                >
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">DNS Records</CardTitle>
@@ -1050,6 +1032,99 @@ export default function Domains() {
                 </div>
               </TabsContent>
 
+              <TabsContent value="registration" className="space-y-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Registration</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {registrationLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Looking up the registry record…</span>
+                      </div>
+                    ) : !registration ? (
+                      <p className="text-sm text-muted-foreground">
+                        This TLD publishes no public registry record, or the
+                        domain is not registered.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-4 text-sm">
+                          <span className="text-muted-foreground">
+                            Registered with
+                          </span>
+                          <span className="text-right">
+                            {registration.registrar ?? "Unknown"}
+                            {registration.registrarId && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (IANA {registration.registrarId})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Registered on
+                          </span>
+                          <span>
+                            {registration.registeredAt
+                              ? formatDate(new Date(registration.registeredAt))
+                              : "-"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Last changed
+                          </span>
+                          <span>
+                            {registration.updatedAt
+                              ? formatDate(new Date(registration.updatedAt))
+                              : "-"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Expires</span>
+                          <span>
+                            {registration.expiresAt
+                              ? formatDate(new Date(registration.expiresAt))
+                              : "-"}
+                          </span>
+                        </div>
+                        {registration.status.length > 0 && (
+                          <div className="space-y-1 text-sm">
+                            <span className="text-muted-foreground">
+                              Registry status
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {registration.status.map((state) => (
+                                <Badge key={state} variant="secondary">
+                                  {state}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {registration.nameservers.length > 0 && (
+                          <div className="space-y-1 text-sm">
+                            <span className="text-muted-foreground">
+                              Nameservers at the registry
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {registration.nameservers.map((ns) => (
+                                <Badge key={ns} variant="outline">
+                                  {ns}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
               <TabsContent value="settings" className="space-y-4">
                 <Card>
                   <CardHeader className="pb-3">
@@ -1108,7 +1183,7 @@ export default function Domains() {
                     ) : (
                       <RefreshCw className="h-4 w-4 mr-2" />
                     )}
-                    Sync domains
+                    {syncDomains.isPending ? "Syncing…" : "Sync domains"}
                   </Button>
                   <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
                     <Button

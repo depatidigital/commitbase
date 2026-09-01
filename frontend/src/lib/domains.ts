@@ -85,14 +85,33 @@ export type DomainSyncResult = {
 };
 
 // Reconcile domains from RDASH (registrar) and Cloudflare (DNS) into our list
-export const syncDomains = async (): Promise<DomainSyncResult> => {
-  const response = await apiRequest<DomainSyncResult>('/domains/sync', { method: 'POST' });
+export type DomainSyncState = {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  result: DomainSyncResult | null;
+  error: string | null;
+};
+
+// Starts the run and returns straight away — a sync takes minutes.
+export const startDomainSync = async (): Promise<DomainSyncState> => {
+  const response = await apiRequest<DomainSyncState>('/domains/sync', { method: 'POST' });
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to sync domains');
+  throw new Error(response.error || 'Failed to start the domain sync');
+};
+
+export const getDomainSyncStatus = async (): Promise<DomainSyncState> => {
+  const response = await apiRequest<DomainSyncState>('/domains/sync/status');
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to read the sync status');
 };
 
 export const bulkAssignDomains = async (

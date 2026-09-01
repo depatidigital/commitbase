@@ -7,7 +7,7 @@ import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords } from '../services/cloudflareService';
 import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain } from '../services/rdashService';
-import { syncDomains } from '../services/domainSyncService';
+import { startDomainSync, getDomainSyncState } from '../services/domainSyncService';
 import { getDomainRegistration } from '../services/rdapService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
@@ -90,6 +90,12 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       error: 'Internal server error',
     } as ApiResponse);
   }
+});
+
+// Status of the running/last sync — must sit before GET /:id or express
+// matches "sync" as a domain id
+router.get('/sync/status', authenticateToken, requireRole(['ADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
+  return res.json({ success: true, data: getDomainSyncState() } as ApiResponse);
 });
 
 // Get a specific domain by ID
@@ -212,21 +218,14 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), validateRequest(Crea
 // Pull every domain we know about from RDASH (registrar) and Cloudflare (DNS) and
 // reconcile them into one list. Organization is never touched — assigned by hand later.
 router.post('/sync', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const result = await syncDomains(req.user!.userId);
+  const state = startDomainSync(req.user!.userId);
 
-    return res.json({
-      success: true,
-      data: result,
-      message: `Synced ${result.total} domains (${result.created} added, ${result.updated} updated)`,
-    } as ApiResponse);
-  } catch (error) {
-    console.error('Error syncing domains:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    } as ApiResponse);
-  }
+  // 202: the run takes minutes, so the client polls GET /domains/sync/status
+  return res.status(202).json({
+    success: true,
+    data: state,
+    message: 'Domain sync started',
+  } as ApiResponse);
 });
 
 // Assign many freshly-synced domains to one organization in a single call

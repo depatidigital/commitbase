@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -9,7 +10,8 @@ import {
   updateDomain, 
   deleteDomain, 
   verifyDomain, 
-  syncDomains,
+  startDomainSync,
+  getDomainSyncStatus,
   bulkAssignDomains,
   getRdashDns,
   enableCloudflare,
@@ -17,6 +19,7 @@ import {
   renewDomain,
   getDomainRegistration
 } from '@/lib/domains';
+import { isAdmin } from '@/lib/auth';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
 import { ListParams } from '@/lib/admin';
 
@@ -77,35 +80,87 @@ export const useCreateDomain = () => {
   });
 };
 
-// Sync domains from RDASH + Cloudflare
+/**
+ * Domain sync. The request only starts the run — it takes minutes, so the
+ * status is polled until the backend reports it finished.
+ */
 export const useSyncDomains = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [polling, setPolling] = useState(false);
+  const reported = useRef<string | null>(null);
 
-  return useMutation({
-    mutationFn: syncDomains,
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
-      const failed = data.errors ? Object.values(data.errors).join(' ') : '';
+  const status = useQuery({
+    queryKey: ['domains', 'sync-status'],
+    queryFn: getDomainSyncStatus,
+    // the endpoint is admin-only, so do not even ask as a member
+    enabled: isAdmin(),
+    refetchInterval: polling ? 3000 : false,
+  });
+
+  // a run started by the cron job or another admin should show up here too
+  useEffect(() => {
+    if (status.data?.running) setPolling(true);
+  }, [status.data?.running]);
+
+  useEffect(() => {
+    const state = status.data;
+    if (!state || state.running || !state.finishedAt) return;
+    // only announce a run we watched, and only once
+    if (!polling || reported.current === state.finishedAt) return;
+
+    reported.current = state.finishedAt;
+    setPolling(false);
+    queryClient.invalidateQueries({ queryKey: ['domains'] });
+
+    if (state.error) {
       toast({
-        title: failed ? 'Sync finished with errors' : 'Sync complete',
-        description:
-          `${data.total} domains — ${data.created} added, ${data.updated} updated ` +
-          `(${data.rdashOnly} RDASH-only, ${data.cfOnly} Cloudflare-only). ${failed}`.trim(),
-        variant: failed ? 'destructive' : undefined,
+        title: 'Sync failed',
+        description: state.error,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const result = state.result;
+    if (!result) return;
+
+    const failed = result.errors ? Object.values(result.errors).join(' ') : '';
+    toast({
+      title: failed ? 'Sync finished with errors' : 'Sync complete',
+      description:
+        `${result.total} domains — ${result.created} added, ${result.updated} updated ` +
+        `(${result.rdashOnly} registrar-only, ${result.cfOnly} Cloudflare-only). ${failed}`.trim(),
+      variant: failed ? 'destructive' : undefined,
+    });
+  }, [status.data, polling, queryClient, toast]);
+
+  const start = useMutation({
+    mutationFn: startDomainSync,
+    onSuccess: () => {
+      setPolling(true);
+      toast({
+        title: 'Sync started',
+        description: 'Running in the background — the list updates when it finishes.',
       });
     },
     onError: (error: Error) => {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to sync domains.',
+        description: error.message || 'Failed to start the domain sync.',
         variant: 'destructive',
       });
     },
   });
+
+  return {
+    mutate: start.mutate,
+    // "pending" covers the whole run, not just the request that kicks it off
+    isPending: start.isPending || polling || !!status.data?.running,
+    state: status.data,
+  };
 };
 
-// Assign several domains to one organization
 export const useBulkAssignDomains = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();

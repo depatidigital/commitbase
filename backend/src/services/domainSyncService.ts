@@ -41,6 +41,68 @@ function domainStatus(rdash: any, zone: any): 'ACTIVE' | 'INACTIVE' | 'PENDING' 
   return zone?.status === 'active' ? 'ACTIVE' : 'PENDING';
 }
 
+export type SyncState = {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  result: DomainSyncResult | null;
+  error: string | null;
+};
+
+/**
+ * ponytail: one in-memory job, since the scheduler already assumes a single
+ * backend instance. Move to a table or a queue if that ever stops being true.
+ */
+let syncState: SyncState = {
+  running: false,
+  startedAt: null,
+  finishedAt: null,
+  result: null,
+  error: null,
+};
+
+export function getDomainSyncState(): SyncState {
+  return syncState;
+}
+
+/**
+ * Kick off a sync and return immediately — a full run takes minutes, which is
+ * longer than any sane HTTP timeout. Callers poll getDomainSyncState().
+ * A second call while one is running is a no-op.
+ */
+export function startDomainSync(ownerUserId: string): SyncState {
+  if (syncState.running) return syncState;
+
+  syncState = {
+    running: true,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    result: null,
+    error: null,
+  };
+
+  void syncDomains(ownerUserId)
+    .then((result) => {
+      syncState = {
+        ...syncState,
+        running: false,
+        finishedAt: new Date().toISOString(),
+        result,
+      };
+    })
+    .catch((error: unknown) => {
+      console.error('Domain sync failed:', error);
+      syncState = {
+        ...syncState,
+        running: false,
+        finishedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Sync failed',
+      };
+    });
+
+  return syncState;
+}
+
 export async function syncDomains(ownerUserId: string): Promise<DomainSyncResult> {
   const [cfResult, rdashResult] = await Promise.allSettled([
     (async () => {
