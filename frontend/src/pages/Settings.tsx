@@ -7,6 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -15,6 +25,11 @@ export default function Settings() {
   const { data: gitlabAccounts = [] } = useGitAccounts("gitlab", true);
 
   const [editingNames, setEditingNames] = useState<Record<string, string>>({});
+  const [accountPendingDelete, setAccountPendingDelete] = useState<{
+    id: string;
+    providerLabel: "GitHub" | "GitLab";
+    username: string;
+  } | null>(null);
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, displayName }: { id: string; displayName: string }) => {
@@ -62,8 +77,8 @@ export default function Settings() {
     updateMutation.mutate({ id, displayName: value });
   };
 
-  const handleDisconnect = (id: string) => {
-    deleteMutation.mutate(id);
+  const handleDisconnect = (id: string, providerLabel: "GitHub" | "GitLab", username: string) => {
+    setAccountPendingDelete({ id, providerLabel, username });
   };
 
   return (
@@ -183,7 +198,13 @@ export default function Settings() {
                     variant="outline"
                     size="icon"
                     className="text-destructive hover:text-destructive"
-                    onClick={() => handleDisconnect(account.id)}
+                    onClick={() =>
+                      handleDisconnect(
+                        account.id,
+                        account.providerLabel,
+                        account.username,
+                      )
+                    }
                     disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -192,6 +213,57 @@ export default function Settings() {
               );
             })}
           </div>
+        )}
+      </div>
+
+      <div>
+        {accountPendingDelete && (
+          <AlertDialog
+            open={!!accountPendingDelete}
+            onOpenChange={(open) => {
+              if (!open) {
+                setAccountPendingDelete(null);
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Disconnect Git account</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to disconnect your{" "}
+                  {accountPendingDelete.providerLabel} account{" "}
+                  <span className="font-mono">
+                    {accountPendingDelete.username}
+                  </span>
+                  ? You can reconnect later from the Add App page, but existing
+                  deployments will keep using their configured repositories.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteMutation.isPending}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (accountPendingDelete) {
+                      deleteMutation.mutate(accountPendingDelete.id, {
+                        onSuccess: () => {
+                          setAccountPendingDelete(null);
+                        },
+                        onError: () => {
+                          setAccountPendingDelete(null);
+                        },
+                      });
+                    }
+                  }}
+                  disabled={deleteMutation.isPending}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {deleteMutation.isPending ? "Disconnecting..." : "Disconnect"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
       </div>
     </div>

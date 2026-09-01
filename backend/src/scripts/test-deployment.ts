@@ -7,8 +7,8 @@ async function createTestDeployment() {
     // Get the first application
     const application = await prisma.application.findFirst();
     
-    if (!application) {
-      console.log('No applications found. Please create an application first.');
+    if (!application || !application.userId) {
+      console.log('No applications with a creator found. Please create an application first.');
       return;
     }
 

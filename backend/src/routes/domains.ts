@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../types';
 import { validateRequest } from '../middleware/validation';
-import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
+import { orgScope } from '../lib/scope';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords } from '../services/cloudflareService';
 
 const router = Router();
@@ -12,7 +13,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
   try {
     const domains = await prisma.domain.findMany({
       where: {
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
       orderBy: {
         createdAt: 'desc',
@@ -48,7 +49,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     const domain = await prisma.domain.findFirst({
       where: {
         id: id as string,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -74,9 +75,17 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 });
 
 // Create a new domain
-router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', authenticateToken, requireRole(['ADMIN']), validateRequest(CreateDomainSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, redirectTo, customConfig } = req.body;
+    const { name, redirectTo, customConfig, organizationId } = req.body;
+
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) {
+      return res.status(404).json({
+        success: false,
+        error: 'Owning organization not found',
+      } as ApiResponse);
+    }
 
     const trimmedName = String(name).trim().toLowerCase();
 
@@ -123,6 +132,7 @@ router.post('/', authenticateToken, validateRequest(CreateDomainSchema), async (
         dnsRecords,
         redirectTo,
         customConfig: mergedCustomConfig,
+        organizationId,
         userId: req.user!.userId,
       },
     });
@@ -155,7 +165,7 @@ router.get('/:id/dns-zone', authenticateToken, async (req: AuthenticatedRequest,
     const domain = await prisma.domain.findFirst({
       where: {
         id: id as string,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -248,7 +258,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateDomainSchema), async
     const existingDomain = await prisma.domain.findFirst({
       where: {
         id: id as string,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -298,7 +308,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateDomainSchema), async
 });
 
 // Delete a domain
-router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/:id', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -312,7 +322,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     const domain = await prisma.domain.findFirst({
       where: {
         id: id as string,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -356,7 +366,7 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
     const domain = await prisma.domain.findFirst({
       where: {
         id: id as string,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -430,7 +440,7 @@ router.post('/:id/ssl/renew', authenticateToken, async (req: AuthenticatedReques
     const domain = await prisma.domain.findFirst({
       where: {
         id: id as string,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 

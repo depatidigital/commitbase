@@ -16,6 +16,7 @@ model User {
   name      String?
   password  String
   role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -25,8 +26,59 @@ model User {
   deployments Deployment[]
   domains     Domain[]
   gitAccounts GitAccount[]
+  memberships Membership[]
+  invitesSent Invite[]     @relation("InvitedBy")
 
   @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members      Membership[]
+  domains      Domain[]
+  applications Application[]
+  invites      Invite[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  role           OrgRole  @default(MEMBER)
+  createdAt      DateTime @default(now())
+
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+model Invite {
+  id             String    @id @default(cuid())
+  email          String
+  role           OrgRole   @default(MEMBER)
+  tokenHash      String    @unique // sha256 of the token; the raw token is shown once
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedById    String?
+  invitedBy      User?        @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invites")
 }
 
 model Application {
@@ -57,9 +109,12 @@ model Application {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
-  // Relations
-  userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Relations — organization owns the app; user is the creator (audit only)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
   
   deployments Deployment[]
   logs        Log[]
@@ -68,6 +123,13 @@ model Application {
   activeReleaseId String?
   activeRelease   Release? @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
 
+  // Parent domain this app's hostname lives under (ownership boundary)
+  domainId     String?
+  parentDomain Domain? @relation("DomainApplications", fields: [domainId], references: [id])
+
+  @@index([userId])
+  @@index([domainId])
+  @@index([organizationId])
   @@map("applications")
 }
 
@@ -174,9 +236,16 @@ model Domain {
   updatedAt DateTime @updatedAt
   
   // Relations
-  userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  applications Application[] @relation("DomainApplications")
+
+  @@index([userId])
+  @@index([organizationId])
   @@map("domains")
 }
 
@@ -221,9 +290,18 @@ model GitAccount {
 }
 
 // Enums
+// Platform-level role. ADMIN = operator of CommitBase itself.
 enum UserRole {
   ADMIN
   USER
+  CLIENT
+}
+
+// Role inside a single organization.
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
 }
 
 enum AppType {

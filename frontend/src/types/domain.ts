@@ -14,6 +14,7 @@ export interface Domain {
 
 export interface CreateDomainData {
   name: string;
+  organizationId: string;
   redirectTo?: string;
   customConfig?: any;
 }

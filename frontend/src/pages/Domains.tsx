@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useDomains, useDomain, useDeleteDomain, useVerifyDomain, useRenewSSL, useCreateDomain, useDomainDnsZone } from "@/hooks/useDomains";
+import { useQuery } from "@tanstack/react-query";
+import { getOrganizations } from "@/lib/organizations";
+import { isAdmin } from "@/lib/auth";
 import { Domain } from "@/types/domain";
 import {
   AlertDialog,
@@ -52,6 +55,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
 export default function Domains() {
@@ -68,6 +72,7 @@ export default function Domains() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addMode, setAddMode] = useState<'existing' | 'register'>('existing');
   const [newDomainName, setNewDomainName] = useState('');
+  const [newDomainOrgId, setNewDomainOrgId] = useState('');
   const { toast } = useToast();
   
   // API hooks
@@ -77,6 +82,13 @@ export default function Domains() {
   const verifyDomain = useVerifyDomain();
   const renewSSL = useRenewSSL();
   const createDomain = useCreateDomain();
+  // adding a domain provisions a real Cloudflare zone — admins only
+  const admin = isAdmin();
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['organizations'],
+    queryFn: getOrganizations,
+    enabled: admin,
+  });
   const { data: domainDnsZone, isLoading: dnsZoneLoading, error: dnsZoneError } = useDomainDnsZone(domainId);
 
   const domains = domainsData || [];
@@ -121,13 +133,14 @@ export default function Domains() {
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = newDomainName.trim();
-    if (!value) {
+    if (!value || !newDomainOrgId) {
       return;
     }
 
     try {
       await createDomain.mutateAsync({
         name: value,
+        organizationId: newDomainOrgId,
         customConfig: {
           mode: addMode,
         },
@@ -135,6 +148,7 @@ export default function Domains() {
 
       setAddDialogOpen(false);
       setNewDomainName('');
+      setNewDomainOrgId('');
       setAddMode('existing');
     } catch {
     }
@@ -521,6 +535,7 @@ export default function Domains() {
                   Manage your custom domains and SSL certificates.
                 </p>
               </div>
+              {admin && (
               <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
                 <Button
                   className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
@@ -537,6 +552,24 @@ export default function Domains() {
                     </DialogDescription>
                   </DialogHeader>
                   <form onSubmit={handleAddDomain} className="space-y-6">
+                    <div className="space-y-2">
+                      <Label className="text-sm">Owning organization</Label>
+                      <Select value={newDomainOrgId} onValueChange={setNewDomainOrgId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an organization" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {organizations.map((org) => (
+                            <SelectItem key={org.id} value={org.id}>
+                              {org.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Only this organization's members can create applications on it.
+                      </p>
+                    </div>
                     <div className="space-y-3">
                       <Label className="text-sm">Domain type</Label>
                       <RadioGroup
@@ -611,6 +644,7 @@ export default function Domains() {
                   </form>
                 </DialogContent>
               </Dialog>
+              )}
             </div>
 
             <div className="flex items-center space-x-4">

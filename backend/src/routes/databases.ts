@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateDatabaseSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { orgScope } from '../lib/scope';
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -69,7 +70,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       where: {
         id: id as string,
         application: {
-          userId: req.user!.userId,
+          ...(await orgScope(req)),
         },
       },
       include: {
@@ -119,7 +120,7 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
     const application = await prisma.application.findFirst({
       where: {
         id: applicationId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -201,7 +202,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       where: {
         id: id as string,
         application: {
-          userId: req.user!.userId,
+          ...(await orgScope(req)),
         },
       },
     });

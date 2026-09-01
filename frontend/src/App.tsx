@@ -15,7 +15,10 @@ import Settings from "./pages/Settings";
 import RdashOverview from "./pages/RdashOverview";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
-import { isAuthenticated } from "@/lib/auth";
+import Team from "./pages/Team";
+import Admin from "./pages/Admin";
+import AcceptInvite from "./pages/AcceptInvite";
+import { isAdmin, isAuthenticated } from "@/lib/auth";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +26,14 @@ const queryClient = new QueryClient();
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+};
+
+// UI gating only — every admin endpoint is also behind requireRole(['ADMIN']) server-side.
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  if (!isAdmin()) {
+    return <Navigate to="/" replace />;
   }
   return <>{children}</>;
 };
@@ -35,6 +46,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/accept-invite" element={<AcceptInvite />} />
           <Route
             path="/"
             element={
@@ -51,9 +63,11 @@ const App = () => (
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
             <Route path="domains/:id" element={<Domains />} />
-            <Route path="integrations/domains" element={<RdashOverview />} />
-            <Route path="integrations/rdash" element={<RdashOverview />} />
-            <Route path="integrations/cloudflare" element={<RdashOverview />} />
+            <Route path="team" element={<Team />} />
+            <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
+            <Route path="integrations/domains" element={<AdminRoute><RdashOverview /></AdminRoute>} />
+            <Route path="integrations/rdash" element={<AdminRoute><RdashOverview /></AdminRoute>} />
+            <Route path="integrations/cloudflare" element={<AdminRoute><RdashOverview /></AdminRoute>} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

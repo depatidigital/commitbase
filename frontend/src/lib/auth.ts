@@ -4,7 +4,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'USER';
+  role: 'ADMIN' | 'USER' | 'CLIENT';
   createdAt: string;
 }
 
@@ -102,6 +102,10 @@ export const getCurrentUser = (): User | null => {
     return null;
   }
 };
+
+// Role of the signed-in user, read from the JWT. UI gating only —
+// every admin action is also blocked server-side by requireRole().
+export const isAdmin = (): boolean => getCurrentUser()?.role === 'ADMIN';
 
 // Check if user is authenticated
 export const isAuthenticated = (): boolean => {

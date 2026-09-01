@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService, getDockerContainerName } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 
@@ -19,7 +20,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const [applications, total] = await Promise.all([
       prisma.application.findMany({
         where: {
-          userId: req.user!.userId,
+          ...(await orgScope(req)),
         },
         include: {
           deployments: {
@@ -37,7 +38,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       }),
       prisma.application.count({
         where: {
-          userId: req.user!.userId,
+          ...(await orgScope(req)),
         },
       }),
     ]);
@@ -87,7 +88,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
       include: {
         deployments: {
@@ -127,7 +128,8 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create a new application
 router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body;
+    const { name, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body;
+    const domain = String(req.body.domain || '').trim().toLowerCase();
 
     // Check if domain already exists
     const existingApp = await prisma.application.findUnique({
@@ -138,6 +140,16 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(400).json({
         success: false,
         error: 'Domain already in use',
+      } as ApiResponse);
+    }
+
+    // Ownership boundary: the hostname must sit under a domain owned by one of the
+    // caller's organizations. The app inherits that organization.
+    const parentDomain = await resolveOwnedDomain(req, domain);
+    if (!parentDomain) {
+      return res.status(403).json({
+        success: false,
+        error: 'Domain is not assigned to your organization. Ask an administrator to assign it first.',
       } as ApiResponse);
     }
 
@@ -153,6 +165,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         port,
         envVars,
         userId: req.user!.userId,
+        domainId: parentDomain.id,
+        organizationId: parentDomain.organizationId,
       },
     });
 
@@ -194,7 +208,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     const existingApp = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -206,9 +220,13 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     }
 
     // Check if new domain conflicts with existing application
-    if (domain && domain !== existingApp.domain) {
+    let domainId: string | undefined;
+    let organizationId: string | null | undefined;
+    const normalizedDomain = domain ? String(domain).trim().toLowerCase() : undefined;
+
+    if (normalizedDomain && normalizedDomain !== existingApp.domain) {
       const domainConflict = await prisma.application.findUnique({
-        where: { domain },
+        where: { domain: normalizedDomain },
       });
 
       if (domainConflict) {
@@ -217,6 +235,17 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
           error: 'Domain already in use',
         } as ApiResponse);
       }
+
+      // Same ownership boundary as create — a rename must not escape the tenant
+      const parentDomain = await resolveOwnedDomain(req, normalizedDomain);
+      if (!parentDomain) {
+        return res.status(403).json({
+          success: false,
+          error: 'Domain is not assigned to your organization. Ask an administrator to assign it first.',
+        } as ApiResponse);
+      }
+      domainId = parentDomain.id;
+      organizationId = parentDomain.organizationId;
     }
 
     // Update application
@@ -224,7 +253,9 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       where: { id },
       data: {
         name,
-        domain,
+        ...(normalizedDomain && { domain: normalizedDomain }),
+        ...(domainId && { domainId }),
+        ...(organizationId !== undefined && { organizationId }),
         type,
         repository,
         branch,
@@ -280,7 +311,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -337,7 +368,7 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -415,7 +446,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -519,7 +550,7 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -582,7 +613,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -649,7 +680,7 @@ router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest,
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
       include: {
         activeRelease: true,
@@ -705,7 +736,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
     const application = await prisma.application.findFirst({
       where: {
         id,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 

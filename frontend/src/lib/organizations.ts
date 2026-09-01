@@ -1,0 +1,95 @@
+import apiRequest from './api';
+import { OrgRole } from './admin';
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  myRole: OrgRole | null;
+  _count: { members: number; domains: number; applications: number };
+}
+
+export interface Member {
+  id: string;
+  role: OrgRole;
+  createdAt: string;
+  user: { id: string; email: string; name: string | null; isActive: boolean };
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  role: OrgRole;
+  expiresAt: string;
+  acceptedAt: string | null;
+  createdAt: string;
+}
+
+// Returned only when the invite is created — the token is stored hashed and never re-readable.
+export interface CreatedInvite extends Invite {
+  token: string;
+  acceptUrl: string | null;
+}
+
+const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback: string): T => {
+  if (res.success && res.data !== undefined) return res.data;
+  throw new Error(res.error || fallback);
+};
+
+export const getOrganizations = async (): Promise<Organization[]> =>
+  unwrap(await apiRequest<Organization[]>('/organizations'), 'Failed to fetch organizations');
+
+export const createOrganization = async (data: { name: string; slug?: string }): Promise<Organization> =>
+  unwrap(
+    await apiRequest<Organization>('/organizations', { method: 'POST', body: JSON.stringify(data) }),
+    'Failed to create organization'
+  );
+
+export const getMembers = async (orgId: string): Promise<Member[]> =>
+  unwrap(await apiRequest<Member[]>(`/organizations/${orgId}/members`), 'Failed to fetch members');
+
+export const updateMemberRole = async (orgId: string, userId: string, role: OrgRole) =>
+  unwrap(
+    await apiRequest(`/organizations/${orgId}/members/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    }),
+    'Failed to update member'
+  );
+
+export const removeMember = async (orgId: string, userId: string) =>
+  unwrap(
+    await apiRequest(`/organizations/${orgId}/members/${userId}`, { method: 'DELETE' }),
+    'Failed to remove member'
+  );
+
+export const getInvites = async (orgId: string): Promise<Invite[]> =>
+  unwrap(await apiRequest<Invite[]>(`/organizations/${orgId}/invites`), 'Failed to fetch invites');
+
+export const createInvite = async (
+  orgId: string,
+  data: { email: string; role?: OrgRole }
+): Promise<CreatedInvite> =>
+  unwrap(
+    await apiRequest<CreatedInvite>(`/organizations/${orgId}/invites`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    'Failed to create invite'
+  );
+
+export const revokeInvite = async (orgId: string, inviteId: string) =>
+  unwrap(
+    await apiRequest(`/organizations/${orgId}/invites/${inviteId}`, { method: 'DELETE' }),
+    'Failed to revoke invite'
+  );
+
+export const acceptInvite = async (data: { token: string; name?: string; password?: string }) =>
+  unwrap(
+    await apiRequest<{ user: unknown; token: string; organizationId: string }>('/auth/accept-invite', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    'Failed to accept invite'
+  );

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { orgScope, logScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 import * as fs from 'fs/promises';
@@ -28,7 +29,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -114,7 +115,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -226,7 +227,7 @@ router.post('/test-build-log/:appId', authenticateToken, async (req: Authenticat
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -291,7 +292,7 @@ router.get('/build-log-status/:appId', authenticateToken, async (req: Authentica
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -338,7 +339,7 @@ router.get('/system', authenticateToken, async (req: AuthenticatedRequest, res: 
 
     // Get logs from database
     const whereClause: any = {
-      userId: req.user!.userId,
+      ...(await logScope(req)),
     };
 
     if (logType !== 'all') {
@@ -383,7 +384,7 @@ router.get('/docker/status', authenticateToken, async (req: AuthenticatedRequest
     // Filter containers for current user's applications
     const userApplications = await prisma.application.findMany({
       where: {
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
       select: {
         id: true,

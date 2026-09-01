@@ -1,12 +1,13 @@
 import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
-import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
+import { orgScope } from '../lib/scope';
 
 const router = Router();
 
-// Get system metrics
-router.get('/system', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+// Get system metrics — host-wide, admin only
+router.get('/system', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { type, startDate, endDate } = req.query;
     const limit = parseInt(req.query.limit as string) || 100;
@@ -60,7 +61,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        userId: req.user!.userId,
+        ...(await orgScope(req)),
       },
     });
 
@@ -107,8 +108,8 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
   }
 });
 
-// Create metric entry
-router.post('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+// Create metric entry — written by platform internals, not clients
+router.post('/', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { type, value, unit, metadata, applicationId } = req.body as {
       type: string;

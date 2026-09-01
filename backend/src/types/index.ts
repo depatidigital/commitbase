@@ -77,6 +77,7 @@ export const LoginSchema = z.object({
 // Domain schemas
 export const CreateDomainSchema = z.object({
   name: z.string().min(1, 'Domain name is required'),
+  organizationId: z.string().min(1, 'Owning organization is required'),
   redirectTo: z.string().optional(),
   customConfig: z.record(z.any()).optional(),
 });

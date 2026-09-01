@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2 } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -14,18 +14,21 @@ import {
   SidebarMenuSubButton,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { isAdmin } from "@/lib/auth";
 
 const items = [
   { title: "Application", url: "/", icon: Server },
   { title: "Database", url: "/database", icon: Database },
   { title: "Domains", url: "/domains", icon: Globe },
   { title: "Logs", url: "/logs", icon: Terminal },
+  { title: "Team", url: "/team", icon: Users },
 ];
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const collapsed = state === "collapsed";
+  const admin = isAdmin();
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -82,6 +85,18 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               ))}
 
+              {admin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/admin")}>
+                  <NavLink to="/admin" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
+                    <ShieldCheck className="h-4 w-4" />
+                    {!collapsed && <span>Administration</span>}
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              )}
+
+              {admin && (
               <SidebarMenuItem>
                 <SidebarMenuButton className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
                   <Link2 className="h-4 w-4" />
@@ -110,6 +125,7 @@ export function AppSidebar() {
                   </SidebarMenuSubItem>
                 </SidebarMenuSub>
               </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
