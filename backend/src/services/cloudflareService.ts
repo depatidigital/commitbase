@@ -7,6 +7,26 @@ interface CloudflareConfig {
   dnsTarget?: string | null;
 }
 
+/**
+ * Where domains and subdomains should point. The server address belongs in the
+ * environment (it moves with the deployment), so env wins; the integration config
+ * row stays as a fallback for installs that set it through the UI.
+ */
+export function resolveDnsTarget(configTarget?: string | null): string | null {
+  const candidates = [
+    process.env.SERVER_IP,
+    process.env.CLOUDFLARE_DNS_TARGET,
+    configTarget,
+  ];
+
+  for (const candidate of candidates) {
+    const value = (candidate || '').trim();
+    if (value) return value;
+  }
+
+  return null;
+}
+
 function isIPv4(value: string): boolean {
   const ipv4Regex = /^\d{1,3}(\.\d{1,3}){3}$/;
   return ipv4Regex.test(value);
@@ -316,12 +336,14 @@ export async function syncDomainDns(domain: string, zoneIdOverride?: string): Pr
 
   const zoneIdToUse = zoneIdOverride || config.zoneId;
 
-  if (!config.dnsTarget || !zoneIdToUse) {
+  const dnsTarget = resolveDnsTarget(config.dnsTarget);
+
+  if (!dnsTarget || !zoneIdToUse) {
     return null;
   }
 
-  const type = isIPv4(config.dnsTarget) ? 'A' : 'CNAME';
-  const content = config.dnsTarget;
+  const type = isIPv4(dnsTarget) ? 'A' : 'CNAME';
+  const content = dnsTarget;
   const resultSummary: DnsSummary =
     type === 'A' ? { a: content } : { cname: content };
 
@@ -698,7 +720,7 @@ export const deleteDnsRecord = (zoneId: string, recordId: string) =>
  */
 export async function getDefaultDnsTarget(): Promise<{ type: 'A' | 'CNAME'; content: string } | null> {
   const config = await getCloudflareConfigFromDb();
-  const target = config?.dnsTarget?.trim();
+  const target = resolveDnsTarget(config?.dnsTarget);
 
   if (!target) return null;
 

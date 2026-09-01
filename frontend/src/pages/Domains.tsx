@@ -53,6 +53,7 @@ import {
   useUpdateDnsRecord,
   useDeleteDnsRecord,
   useImportRegistrarDns,
+  useHideDnsRecord,
   useRenewDomain,
   useDomainRegistration,
 } from "@/hooks/useDomains";
@@ -229,6 +230,7 @@ export default function Domains() {
   const updateDnsRecord = useUpdateDnsRecord(domainId || "");
   const deleteDnsRecord = useDeleteDnsRecord(domainId || "");
   const importRegistrarDns = useImportRegistrarDns(domainId || "");
+  const hideDnsRecord = useHideDnsRecord(domainId || "");
   const renewDomain = useRenewDomain();
   // adding a domain provisions a real Cloudflare zone — admins only
   const admin = isAdmin();
@@ -246,13 +248,42 @@ export default function Domains() {
 
   const domains = domainsData?.data ?? [];
 
-  // a subdomain is any record in the zone whose name sits below the apex
-  const subdomainRecords = (domainDnsZone?.records ?? []).filter(
+  const platformTarget = domainDnsZone?.platformTarget?.content ?? null;
+
+  /** Records pointing at our own server read better as "this platform" than as a bare IP. */
+  const isPlatformTarget = (content: unknown) =>
+    !!platformTarget && String(content) === platformTarget;
+
+  // hostname records for the zone, apex included — it is shown as "@" like every DNS UI does
+  const hiddenRecordIds = domainDnsZone?.hiddenDnsRecords ?? [];
+
+  // what the domain itself resolves to, hidden-from-list or not
+  const apexRecord = (domainDnsZone?.records ?? []).find(
     (record: any) =>
-      typeof record?.name === "string" &&
-      domainDetail?.name &&
-      record.name !== domainDetail.name
+      record?.name === domainDetail?.name &&
+      ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase())
   );
+
+  const subdomainRecords = (domainDnsZone?.records ?? [])
+    .filter(
+      (record: any) =>
+        typeof record?.name === "string" &&
+        ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase()) &&
+        !hiddenRecordIds.includes(record.id)
+    )
+    // the apex is what the domain itself resolves to — keep it first so the
+    // Overview preview never truncates it away
+    .sort((a: any, b: any) => {
+      const apex = domainDetail?.name;
+      if (a.name === apex) return -1;
+      if (b.name === apex) return 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+  const hostLabel = (name: string) =>
+    name === domainDetail?.name
+      ? "@"
+      : name.replace(`.${domainDetail?.name}`, "");
   const allSelected =
     domains.length > 0 && domains.every((d) => selectedIds.includes(d.id));
 
@@ -786,6 +817,60 @@ export default function Domains() {
                       <span className="text-muted-foreground">SSL</span>
                       {getSSLBadge(domainDetail.sslStatus)}
                     </div>
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-muted-foreground">Points to</span>
+                      {apexRecord ? (
+                        <span className="flex items-center gap-2">
+                          <span className="font-mono text-xs">
+                            {apexRecord.type} →{" "}
+                            {isPlatformTarget(apexRecord.content)
+                              ? "this platform"
+                              : apexRecord.content}
+                          </span>
+                          {admin && domainDetail.cfZoneId && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              aria-label="Edit the root domain record"
+                              onClick={() =>
+                                setRecordForm({
+                                  id: apexRecord.id,
+                                  mode: "custom",
+                                  name: "",
+                                  type: apexRecord.type,
+                                  content: apexRecord.content,
+                                  ttl: String(apexRecord.ttl ?? 1),
+                                  proxied: !!apexRecord.proxied,
+                                })
+                              }
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </span>
+                      ) : admin && domainDetail.cfZoneId ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() =>
+                            setRecordForm({
+                              name: "",
+                              mode: "auto",
+                              type: "A",
+                              content: "",
+                              ttl: "1",
+                              proxied: true,
+                            })
+                          }
+                        >
+                          Not set — point it somewhere
+                        </Button>
+                      ) : (
+                        <span className="text-muted-foreground">Not set</span>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Registrar</span>
                       <span>
@@ -968,10 +1053,13 @@ export default function Domains() {
                             className="flex items-center justify-between gap-2 text-sm"
                           >
                             <span className="font-mono text-xs">
-                              {record.name}
+                              {hostLabel(record.name)}
                             </span>
                             <span className="truncate font-mono text-xs text-muted-foreground">
-                              {record.type} → {record.content}
+                              {record.type} →{" "}
+                              {isPlatformTarget(record.content)
+                                ? "this platform"
+                                : record.content}
                             </span>
                           </div>
                         ))}
@@ -1025,8 +1113,8 @@ export default function Domains() {
                     ) : subdomainRecords.length === 0 ? (
                       <div className="space-y-3">
                         <p className="text-sm text-muted-foreground">
-                          No subdomains yet. Add one, or pull across whatever
-                          the registrar was serving.
+                          No hostname records yet. Add one, or pull across
+                          whatever the registrar was serving.
                         </p>
                         <Button
                           variant="outline"
@@ -1059,16 +1147,24 @@ export default function Domains() {
                             {subdomainRecords.map((record: any) => (
                               <TableRow key={record.id}>
                                 <TableCell className="font-mono text-xs">
-                                  {record.name.replace(
-                                    `.${domainDetail.name}`,
-                                    ""
-                                  )}
+                                  {hostLabel(record.name)}
                                 </TableCell>
                                 <TableCell className="font-mono text-xs">
                                   {record.type}
                                 </TableCell>
                                 <TableCell className="font-mono text-xs">
-                                  {record.content}
+                                  {isPlatformTarget(record.content) ? (
+                                    <span className="flex items-center gap-2">
+                                      <Badge variant="secondary">
+                                        This platform
+                                      </Badge>
+                                      <span className="text-muted-foreground">
+                                        {record.content}
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    record.content
+                                  )}
                                 </TableCell>
                                 <TableCell>
                                   {record.proxied ? (
@@ -1100,10 +1196,10 @@ export default function Domains() {
                                           setRecordForm({
                                             id: record.id,
                                             mode: "custom",
-                                            name: record.name.replace(
-                                              `.${domainDetail.name}`,
-                                              ""
-                                            ),
+                                            name:
+                                              record.name === domainDetail.name
+                                                ? ""
+                                                : hostLabel(record.name),
                                             type: record.type,
                                             content: record.content,
                                             ttl: String(record.ttl ?? 1),
@@ -1115,13 +1211,25 @@ export default function Domains() {
                                         Edit
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        className="text-destructive focus:text-destructive"
-                                        onClick={() => setRecordToDelete(record)}
-                                      >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Delete
-                                      </DropdownMenuItem>
+                                      {record.name === domainDetail.name ? (
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            hideDnsRecord.mutate(record.id)
+                                          }
+                                          disabled={hideDnsRecord.isPending}
+                                        >
+                                          <XCircle className="mr-2 h-4 w-4" />
+                                          Remove from list
+                                        </DropdownMenuItem>
+                                      ) : (
+                                        <DropdownMenuItem
+                                          className="text-destructive focus:text-destructive"
+                                          onClick={() => setRecordToDelete(record)}
+                                        >
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      )}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 </TableCell>

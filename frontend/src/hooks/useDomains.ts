@@ -22,7 +22,8 @@ import {
   updateDnsRecord,
   deleteDnsRecord,
   DnsRecordInput,
-  importRegistrarDns
+  importRegistrarDns,
+  hideDnsRecord
 } from '@/lib/domains';
 import { isAdmin } from '@/lib/auth';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
@@ -302,8 +303,10 @@ export const useImportRegistrarDns = (domainId: string) => {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['domains', domainId, 'dns-zone'] });
       toast({
-        title: 'Registrar DNS imported',
-        description: `${data.imported} record(s) copied, ${data.skipped} already present.`,
+        title: data.imported === 0 ? 'Nothing to import' : 'Registrar DNS imported',
+        description:
+          (data as any).note ||
+          `${data.imported} record(s) copied, ${data.skipped} already present.`,
       });
     },
     onError: (error: Error) => {
@@ -311,6 +314,13 @@ export const useImportRegistrarDns = (domainId: string) => {
     },
   });
 };
+
+export const useHideDnsRecord = (domainId: string) =>
+  useDnsRecordMutation<string>(
+    domainId,
+    (recordId) => hideDnsRecord(domainId, recordId),
+    'Removed from the subdomain list'
+  );
 
 // Update domain mutation
 export const useUpdateDomain = () => {

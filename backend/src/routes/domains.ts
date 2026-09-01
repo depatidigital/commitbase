@@ -350,6 +350,11 @@ router.get('/:id/dns-zone', authenticateToken, async (req: AuthenticatedRequest,
         nameservers,
       },
       records: records || [],
+      // so the UI can show "this platform" instead of a bare IP for records pointing at us
+      platformTarget: await getDefaultDnsTarget(),
+      hiddenDnsRecords: Array.isArray((domain.customConfig as any)?.hiddenDnsRecords)
+        ? ((domain.customConfig as any).hiddenDnsRecords as string[])
+        : [],
       synced: true,
     };
 
@@ -881,10 +886,21 @@ router.post('/:id/dns-records/import', authenticateToken, async (req: Authentica
       }
     }
 
+    // an empty registrar zone is the normal case for a parked or already-migrated
+    // domain — that is an answer, not a failure
     if (records.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'No registrar DNS records were found to import',
+      return res.json({
+        success: true,
+        data: {
+          imported: 0,
+          skipped: 0,
+          failed: [],
+          note:
+            domain.registrar === 'RDASH'
+              ? 'RDASH holds no DNS records for this domain, so there is nothing to copy.'
+              : 'No saved registrar records for this domain — add subdomains manually.',
+        },
+        message: 'Nothing to import',
       } as ApiResponse);
     }
 
@@ -903,6 +919,49 @@ router.post('/:id/dns-records/import', authenticateToken, async (req: Authentica
     return res.status(502).json({
       success: false,
       error: error?.message || 'Failed to import the DNS records',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * Hide a record from the Subdomains list without touching Cloudflare. The apex record is
+ * what the domain itself resolves to — deleting it would take the site down, so the list
+ * offers this instead. The record stays in the zone and in the DNS tab.
+ */
+router.post('/:id/dns-records/:recordId/hide', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const domain = await prisma.domain.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    const config = (domain.customConfig as any) || {};
+    const hidden: string[] = Array.isArray(config.hiddenDnsRecords) ? config.hiddenDnsRecords : [];
+    const recordId = req.params.recordId as string;
+    const hide = req.body?.hidden !== false;
+
+    const next = hide
+      ? Array.from(new Set([...hidden, recordId]))
+      : hidden.filter((id) => id !== recordId);
+
+    await prisma.domain.update({
+      where: { id: domain.id },
+      data: { customConfig: { ...config, hiddenDnsRecords: next } },
+    });
+
+    return res.json({
+      success: true,
+      data: { hiddenDnsRecords: next },
+      message: hide ? 'Record hidden from the subdomain list' : 'Record restored to the list',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error hiding DNS record:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
     } as ApiResponse);
   }
 });
