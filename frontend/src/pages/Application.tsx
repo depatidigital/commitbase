@@ -202,10 +202,11 @@ export default function Application() {
   const columns: Column<(typeof applications)[number]>[] = [
     {
       header: "Name",
+      className: "w-[18%]",
       cell: (app) => (
         <Link
           to={`/application/${app.id}`}
-          className="font-medium transition-colors hover:text-primary"
+          className="block truncate font-medium transition-colors hover:text-primary"
         >
           {app.name}
         </Link>
@@ -213,28 +214,34 @@ export default function Application() {
     },
     {
       header: "Organization",
+      className: "w-[16%]",
       cell: (app) =>
         app.organization ? (
-          <Badge variant="outline">{app.organization.name}</Badge>
+          <Badge variant="outline" className="max-w-full truncate">
+            {app.organization.name}
+          </Badge>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
     },
     {
       header: "Domain",
+      className: "w-[18%]",
       cell: (app) => (
-        <div className="flex items-center space-x-2">
-          <Globe className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">{app.domain}</span>
+        <div className="flex min-w-0 items-center space-x-2">
+          <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm">{app.domain}</span>
         </div>
       ),
     },
     {
       header: "Type",
+      className: "w-24",
       cell: (app) => <Badge variant="secondary">{app.type}</Badge>,
     },
     {
       header: "Status",
+      className: "w-28",
       cell: (app) => (
         <div className="flex items-center space-x-2">
           {app.status === "DEPLOYING" || app.status === "BUILDING" ? (
@@ -256,9 +263,10 @@ export default function Application() {
         </div>
       ),
     },
-    { header: "Port", cell: (app) => app.port || "-" },
+    { header: "Port", className: "w-20", cell: (app) => app.port || "-" },
     {
       header: "Last Deployment",
+      className: "w-28 text-xs",
       cell: (app) =>
         app.deployments && app.deployments.length > 0
           ? new Date(app.deployments[0].createdAt).toLocaleDateString()
@@ -266,6 +274,7 @@ export default function Application() {
     },
     {
       header: "Actions",
+      className: "w-40",
       cell: (app) => (
         <div className="flex items-center space-x-2">
           {app.status === "RUNNING" ? (

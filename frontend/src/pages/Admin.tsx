@@ -92,11 +92,13 @@ export default function Admin() {
   const columns: Column<AdminDomain>[] = [
     {
       header: "Domain",
-      cell: (d) => <span className="font-medium">{d.name}</span>,
+      className: "w-[40%]",
+      cell: (d) => <span className="block truncate font-medium">{d.name}</span>,
     },
-    { header: "Apps", cell: (d) => d._count.applications },
+    { header: "Apps", className: "w-20", cell: (d) => d._count.applications },
     {
       header: "Owning organization",
+      className: "w-[40%]",
       cell: (d) => (
         <Select
           value={d.organization?.id ?? UNASSIGNED}
@@ -112,7 +114,7 @@ export default function Admin() {
             })
           }
         >
-          <SelectTrigger className="w-64">
+          <SelectTrigger className="w-full max-w-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

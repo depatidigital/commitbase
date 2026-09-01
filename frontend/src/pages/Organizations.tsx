@@ -86,18 +86,22 @@ export default function Organizations() {
   const columns: Column<Organization>[] = [
     {
       header: "Name",
-      cell: (o) => <span className="font-medium">{o.name}</span>,
+      className: "w-[28%]",
+      cell: (o) => <span className="block truncate font-medium">{o.name}</span>,
     },
     {
       header: "Slug",
-      cell: (o) => <span className="text-muted-foreground">{o.slug}</span>,
+      className: "w-[26%]",
+      cell: (o) => (
+        <span className="block truncate text-muted-foreground">{o.slug}</span>
+      ),
     },
-    { header: "Members", cell: (o) => o._count.members },
-    { header: "Domains", cell: (o) => o._count.domains },
-    { header: "Apps", cell: (o) => o._count.applications },
+    { header: "Members", className: "w-24", cell: (o) => o._count.members },
+    { header: "Domains", className: "w-24", cell: (o) => o._count.domains },
+    { header: "Apps", className: "w-20", cell: (o) => o._count.applications },
     {
       header: "",
-      className: "w-28 text-right",
+      className: "w-32 text-right",
       cell: (o) => (
         <Button asChild size="sm" variant="outline">
           <Link to={`/organizations/${o.id}`}>

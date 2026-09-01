@@ -151,15 +151,21 @@ export default function Team() {
   const memberColumns: Column<(typeof members)[number]>[] = [
     {
       header: "User",
+      className: "w-[45%]",
       cell: (m) => (
         <>
-          <div className="font-medium">{m.user.name || m.user.email}</div>
-          <div className="text-xs text-muted-foreground">{m.user.email}</div>
+          <div className="truncate font-medium">
+            {m.user.name || m.user.email}
+          </div>
+          <div className="truncate text-xs text-muted-foreground">
+            {m.user.email}
+          </div>
         </>
       ),
     },
     {
       header: "Role",
+      className: "w-44",
       cell: (m) =>
         canManage ? (
           <Select
@@ -206,13 +212,18 @@ export default function Team() {
   ];
 
   const inviteColumns: Column<(typeof invites)[number]>[] = [
-    { header: "Email", cell: (i) => i.email },
+    {
+      header: "Email",
+      className: "w-[45%]",
+      cell: (i) => <span className="block truncate">{i.email}</span>,
+    },
     {
       header: "Role",
       cell: (i) => <Badge variant="secondary">{i.role}</Badge>,
     },
     {
       header: "Status",
+      className: "w-48",
       cell: (i) =>
         i.acceptedAt ? (
           <Badge>Accepted</Badge>

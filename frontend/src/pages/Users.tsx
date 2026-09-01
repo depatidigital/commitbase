@@ -70,15 +70,19 @@ export default function Users() {
   const columns: Column<AdminUser>[] = [
     {
       header: "User",
+      className: "w-[30%]",
       cell: (u) => (
         <>
-          <div className="font-medium">{u.name || u.email}</div>
-          <div className="text-xs text-muted-foreground">{u.email}</div>
+          <div className="truncate font-medium">{u.name || u.email}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {u.email}
+          </div>
         </>
       ),
     },
     {
       header: "Platform role",
+      className: "w-32",
       cell: (u) => (
         <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
           {u.role}
@@ -93,7 +97,11 @@ export default function Users() {
           <span className="text-xs text-muted-foreground">none</span>
         ) : (
           u.memberships.map((m) => (
-            <Badge key={m.organization.id} variant="outline">
+            <Badge
+              key={m.organization.id}
+              variant="outline"
+              className="max-w-full truncate"
+            >
               {m.organization.name} · {m.role}
             </Badge>
           ))
@@ -101,6 +109,7 @@ export default function Users() {
     },
     {
       header: "Active",
+      className: "w-20",
       cell: (u) => (
         <Switch
           checked={u.isActive}

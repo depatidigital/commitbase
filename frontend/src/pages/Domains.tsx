@@ -323,7 +323,7 @@ export default function Domains() {
     {
       header: "Domain",
       sortKey: "name",
-      className: "w-[30%]",
+      className: "w-[26%]",
       cell: (domain) => {
         const secure = domain.sslStatus === "ACTIVE";
         const Icon = secure ? Globe : LockOpen;
@@ -379,44 +379,41 @@ export default function Domains() {
       className: "w-[14%]",
       cell: (domain) => {
         // a redirect set by hand wins; otherwise the apex DNS record found by sync
-        const target = domain.customConfig?.cloudflare?.target;
-        const value = domain.redirectTo || target?.content;
-
-        if (!value) {
-          return <span className="text-muted-foreground">-</span>;
-        }
+        const cf = domain.customConfig?.cloudflare;
+        const value = domain.redirectTo || cf?.target?.content;
+        const subdomains = cf?.subdomains;
 
         return (
-          <span
-            className="flex min-w-0 items-center gap-1 text-muted-foreground"
-            title={
-              domain.redirectTo
-                ? `Redirects to ${domain.redirectTo}`
-                : `Apex ${target?.type} record${target?.proxied ? " (proxied)" : ""}`
-            }
-          >
-            <ExternalLink className="h-3 w-3 shrink-0" />
-            <span className="truncate">{value}</span>
-          </span>
-        );
-      },
-    },
-    {
-      header: "Subdomains",
-      className: "w-28",
-      cell: (domain) => {
-        // counted during sync from the Cloudflare zone
-        const count = domain.customConfig?.cloudflare?.subdomains;
-        return typeof count === "number" ? (
-          <span>{count}</span>
-        ) : (
-          <span className="text-muted-foreground">-</span>
+          <div className="min-w-0 leading-tight">
+            {value ? (
+              <span
+                className="flex min-w-0 items-center gap-1 text-muted-foreground"
+                title={
+                  domain.redirectTo
+                    ? `Redirects to ${domain.redirectTo}`
+                    : `Apex ${cf?.target?.type} record${
+                        cf?.target?.proxied ? " (proxied)" : ""
+                      }`
+                }
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate">{value}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">-</span>
+            )}
+            {typeof subdomains === "number" && subdomains > 0 && (
+              <span className="block text-xs text-muted-foreground">
+                {subdomains} subdomain{subdomains === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
         );
       },
     },
     {
       header: "Organization",
-      className: "w-[16%]",
+      className: "w-[24%]",
       cell: (domain) =>
         domain.organization ? (
           <Badge variant="outline" className="max-w-full truncate">
@@ -434,7 +431,7 @@ export default function Domains() {
     {
       header: "Expires",
       sortKey: "expiresAt",
-      className: "w-56",
+      className: "w-48 text-xs",
       cell: (domain) => {
         if (!domain.expiresAt) {
           return <span className="text-muted-foreground">-</span>;
@@ -1046,15 +1043,27 @@ export default function Domains() {
                         <span>-</span>
                       )}
                     </div>
-                    {domainDetail.redirectTo && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Redirect to</span>
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                          <ExternalLink className="h-3 w-3" />
-                          {domainDetail.redirectTo}
-                        </span>
-                      </div>
-                    )}
+                    {(() => {
+                      const target =
+                        domainDetail.customConfig?.cloudflare?.target;
+                      const value = domainDetail.redirectTo || target?.content;
+                      if (!value) return null;
+
+                      return (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            {domainDetail.redirectTo ? "Redirect to" : "Points to"}
+                          </span>
+                          <span className="flex items-center gap-2 text-muted-foreground">
+                            <ExternalLink className="h-3 w-3" />
+                            {value}
+                            {!domainDetail.redirectTo && target?.type && (
+                              <span className="text-xs">({target.type})</span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
 

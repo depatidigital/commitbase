@@ -28,14 +28,19 @@ export default function Database() {
   const columns: Column<DatabaseWithApplication>[] = [
     {
       header: "Name",
-      cell: (db) => <span className="font-medium">{db.name}</span>,
+      className: "w-[22%]",
+      cell: (db) => (
+        <span className="block truncate font-medium">{db.name}</span>
+      ),
     },
     {
       header: "Type",
+      className: "w-28",
       cell: (db) => <Badge variant="secondary">{db.type}</Badge>,
     },
     {
       header: "Status",
+      className: "w-32",
       cell: (db) => (
         <div className="flex items-center space-x-2">
           <div
@@ -49,9 +54,10 @@ export default function Database() {
       ? [
           {
             header: "Organization",
+            className: "w-[20%]",
             cell: (db: DatabaseWithApplication) =>
               db.application?.organization ? (
-                <Badge variant="outline">
+                <Badge variant="outline" className="max-w-full truncate">
                   {db.application.organization.name}
                 </Badge>
               ) : (
@@ -62,11 +68,12 @@ export default function Database() {
       : []),
     {
       header: "Application",
+      className: "w-[18%]",
       cell: (db) =>
         db.application ? (
           <Link
             to={`/application/${db.application.id}`}
-            className="text-primary hover:underline"
+            className="block truncate text-primary hover:underline"
           >
             {db.application.name}
           </Link>
@@ -74,9 +81,10 @@ export default function Database() {
           <span className="text-muted-foreground">—</span>
         ),
     },
-    { header: "Version", cell: (db) => db.version || "—" },
+    { header: "Version", className: "w-24", cell: (db) => db.version || "—" },
     {
       header: "Created",
+      className: "w-28 text-xs",
       cell: (db) => new Date(db.createdAt).toLocaleDateString(),
     },
   ];

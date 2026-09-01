@@ -40,6 +40,29 @@ const slugify = (name: string) =>
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
+/**
+ * Issue a fresh invite for an email on an org. Returns the raw token once —
+ * it is stored hashed and cannot be read back.
+ */
+async function issueInvite(orgId: string, email: string, role: 'OWNER' | 'ADMIN' | 'MEMBER', invitedById: string) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  // one live invite per email per org — reissuing replaces the old token
+  await prisma.invite.deleteMany({ where: { organizationId: orgId, email, acceptedAt: null } });
+
+  const invite = await prisma.invite.create({
+    data: { email, role, tokenHash: hashToken(token), expiresAt, organizationId: orgId, invitedById },
+    select: { id: true, email: true, role: true, expiresAt: true, createdAt: true },
+  });
+
+  const acceptUrl = process.env.APP_URL
+    ? `${process.env.APP_URL.replace(/\/$/, '')}/accept-invite?token=${token}`
+    : null;
+
+  return { ...invite, token, acceptUrl };
+}
+
 const forbidden = (res: Response) =>
   res.status(403).json({ success: false, error: 'Insufficient permissions for this organization' } as ApiResponse);
 
@@ -161,10 +184,14 @@ router.post(
       }
 
       const user = await prisma.user.findUnique({ where: { email } });
+
+      // no account yet — issue the invite here instead of bouncing the admin to another form
       if (!user) {
-        return res.status(404).json({
-          success: false,
-          error: 'No account with that email — send an invite link instead',
+        const invite = await issueInvite(id, email, role, req.user!.userId);
+        return res.status(201).json({
+          success: true,
+          data: { invited: true, invite },
+          message: 'No account yet — an invite was created. Send the link; it is shown only once.',
         } as ApiResponse);
       }
 
@@ -328,31 +355,11 @@ router.post(
         }
       }
 
-      const token = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
-
-      // one live invite per email per org — reissuing replaces the old token
-      await prisma.invite.deleteMany({ where: { organizationId: id, email, acceptedAt: null } });
-
-      const invite = await prisma.invite.create({
-        data: {
-          email,
-          role,
-          tokenHash: hashToken(token),
-          expiresAt,
-          organizationId: id,
-          invitedById: req.user!.userId,
-        },
-        select: { id: true, email: true, role: true, expiresAt: true, createdAt: true },
-      });
-
-      const acceptUrl = process.env.APP_URL
-        ? `${process.env.APP_URL.replace(/\/$/, '')}/accept-invite?token=${token}`
-        : null;
+      const invite = await issueInvite(id, email, role, req.user!.userId);
 
       return res.status(201).json({
         success: true,
-        data: { ...invite, token, acceptUrl },
+        data: invite,
         message: 'Invite created. Send this link to the invitee — the token is not retrievable later.',
       } as ApiResponse);
     } catch (error) {
