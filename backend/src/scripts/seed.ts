@@ -15,7 +15,7 @@ async function main() {
       email: 'admin@commitbase.com',
       name: 'Admin User',
       password: adminPassword,
-      role: 'ADMIN',
+      role: 'SUPERADMIN',
     },
   });
 

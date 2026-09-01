@@ -4,7 +4,7 @@ import { prisma } from './prisma';
 
 /** Platform operator (not an org role). Sees and manages everything. */
 export function isPlatformAdmin(req: AuthenticatedRequest): boolean {
-  return req.user!.role === 'ADMIN';
+  return req.user!.role === 'ADMIN' || req.user!.role === 'SUPERADMIN';
 }
 
 type Memberships = { organizationId: string; role: OrgRole }[];

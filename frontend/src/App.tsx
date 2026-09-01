@@ -17,9 +17,11 @@ import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import Team from "./pages/Team";
 import Admin from "./pages/Admin";
+import Organizations from "./pages/Organizations";
+import Users from "./pages/Users";
 import AcceptInvite from "./pages/AcceptInvite";
 import ChangePassword from "./pages/ChangePassword";
-import { isAdmin, isAuthenticated, mustChangePassword } from "@/lib/auth";
+import { isAdmin, isSuperAdmin, isAuthenticated, mustChangePassword } from "@/lib/auth";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +40,21 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 // UI gating only — every admin endpoint is also behind requireRole(['ADMIN']) server-side.
 const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   if (!isAdmin()) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+};
+
+// Team is the org-member view. Platform admins manage membership from /organizations.
+const UserRoute = ({ children }: { children: React.ReactNode }) => {
+  if (isAdmin()) {
+    return <Navigate to="/organizations" replace />;
+  }
+  return <>{children}</>;
+};
+
+const SuperAdminRoute = ({ children }: { children: React.ReactNode }) => {
+  if (!isSuperAdmin()) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;
@@ -69,10 +86,12 @@ const App = () => (
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
             <Route path="domains/:id" element={<Domains />} />
-            <Route path="team" element={<Team />} />
+            <Route path="team" element={<UserRoute><Team /></UserRoute>} />
             <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
-            <Route path="integrations/rdash" element={<AdminRoute><RdashOverview /></AdminRoute>} />
-            <Route path="integrations/cloudflare" element={<AdminRoute><RdashOverview /></AdminRoute>} />
+            <Route path="organizations" element={<AdminRoute><Organizations /></AdminRoute>} />
+            <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
+            <Route path="integrations/rdash" element={<SuperAdminRoute><RdashOverview /></SuperAdminRoute>} />
+            <Route path="integrations/cloudflare" element={<SuperAdminRoute><RdashOverview /></SuperAdminRoute>} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

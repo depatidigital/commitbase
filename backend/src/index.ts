@@ -120,9 +120,10 @@ app.use('/api/metrics', metricsRoutes);
 app.use('/api/domains', domainsRoutes);
 app.use('/api/templates', templatesRoutes);
 // Admin-only: shared infra + provider credentials, never tenant-scoped
-app.use('/api/rdash', authenticateToken, requireRole(['ADMIN']), rdashRoutes);
-app.use('/api/cloudflare', authenticateToken, requireRole(['ADMIN']), cloudflareRoutes);
-app.use('/api/admin', authenticateToken, requireRole(['ADMIN']), adminRoutes);
+// Integration credentials are platform-owner only
+app.use('/api/rdash', authenticateToken, requireRole(['SUPERADMIN']), rdashRoutes);
+app.use('/api/cloudflare', authenticateToken, requireRole(['SUPERADMIN']), cloudflareRoutes);
+app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
 app.use('/api/organizations', organizationsRoutes);
 app.use('/api/git', gitRoutes);
 

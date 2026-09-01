@@ -3,6 +3,7 @@ import { Request } from 'express';
 
 // User types
 export const UserRole = {
+  SUPERADMIN: 'SUPERADMIN',
   ADMIN: 'ADMIN',
   USER: 'USER',
 } as const;

@@ -6,6 +6,17 @@ import { ApiResponse } from '../types';
 
 const router = Router();
 
+// RDASH errors arrive as a JSON body string - pull out .message when present
+function upstreamMessage(error: any): string {
+  const raw = error?.message ? String(error.message) : String(error);
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.message || parsed?.error || raw;
+  } catch {
+    return raw;
+  }
+}
+
 router.get('/profile', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const profile = await getRdashAccountProfile();
@@ -51,18 +62,27 @@ router.get('/domains', authenticateToken, async (req: AuthenticatedRequest, res:
 
 router.get('/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const [profile, domains, balance] = await Promise.all([
+    const [profile, domains, balance] = await Promise.allSettled([
       getRdashAccountProfile(),
       listRdashDomains(req.query as Record<string, any>),
       getRdashBalance(),
     ]);
 
+    // ponytail: partial summary beats a 500 - surface upstream message per section
+    const errors: Record<string, string> = {};
+    const unwrap = <T,>(key: string, r: PromiseSettledResult<T>): T | null => {
+      if (r.status === 'fulfilled') return r.value;
+      errors[key] = upstreamMessage(r.reason);
+      return null;
+    };
+
     return res.json({
       success: true,
       data: {
-        profile,
-        domains,
-        balance,
+        profile: unwrap('profile', profile),
+        domains: unwrap('domains', domains),
+        balance: unwrap('balance', balance),
+        errors: Object.keys(errors).length ? errors : undefined,
       },
       message: 'RDASH summary retrieved successfully',
     } as ApiResponse);

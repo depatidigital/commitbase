@@ -46,7 +46,7 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
         email,
         name,
         password: hashedPassword,
-        role: 'ADMIN', // first account owns the platform
+        role: 'SUPERADMIN', // first account owns the platform
         memberships: {
           create: {
             role: 'OWNER',

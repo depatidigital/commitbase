@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Plus, Settings } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Plus, Settings, Building2, UserCog } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -14,7 +14,7 @@ import {
   SidebarMenuSubButton,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { isAdmin } from "@/lib/auth";
+import { isAdmin, isSuperAdmin } from "@/lib/auth";
 
 const items = [
   { title: "Applications", url: "/", icon: Server },
@@ -31,6 +31,7 @@ export function AppSidebar() {
   const location = useLocation();
   const collapsed = state === "collapsed";
   const admin = isAdmin();
+  const superadmin = isSuperAdmin();
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -67,17 +68,17 @@ export function AppSidebar() {
           <SidebarGroupLabel>Platform</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.map((item) => (
+              {items
+                .filter((item) => item.url !== "/team" || !admin)
+                .map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
                     <NavLink
                       to={item.url}
-                      className={({ isActive: navIsActive }) =>
-                        `flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg ${
-                          navIsActive || isActive(item.url)
-                            ? "bg-gradient-primary text-primary-foreground shadow-elegant"
-                            : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                        }`
+                      className={
+                        isActive(item.url)
+                          ? "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg bg-gradient-primary text-primary-foreground shadow-elegant"
+                          : "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg text-sidebar-foreground hover:bg-muted hover:text-foreground"
                       }
                     >
                       <item.icon className="h-4 w-4" />
@@ -88,6 +89,32 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+
+              {admin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/organizations")}>
+                  <NavLink to="/organizations" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
+                    <Building2 className="h-4 w-4" />
+                    <span className={collapsed ? "sr-only" : undefined}>
+                      Organizations
+                    </span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              )}
+
+              {admin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/users")}>
+                  <NavLink to="/users" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
+                    <UserCog className="h-4 w-4" />
+                    <span className={collapsed ? "sr-only" : undefined}>
+                      Users
+                    </span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              )}
 
               {admin && (
               <SidebarMenuItem>
@@ -102,7 +129,7 @@ export function AppSidebar() {
               </SidebarMenuItem>
               )}
 
-              {admin && (
+              {superadmin && (
               <SidebarMenuItem>
                 <div className="flex items-center space-x-2 px-3 py-2 text-muted-foreground">
                   <Link2 className="h-4 w-4" />

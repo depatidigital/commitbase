@@ -291,8 +291,10 @@ model GitAccount {
 }
 
 // Enums
-// Platform-level role. ADMIN = operator of CommitBase itself.
+// Platform-level role. SUPERADMIN = platform owner (integrations config).
+// ADMIN = operator of CommitBase itself.
 enum UserRole {
+  SUPERADMIN
   ADMIN
   USER
   CLIENT

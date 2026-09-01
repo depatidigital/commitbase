@@ -4,7 +4,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'USER' | 'CLIENT';
+  role: 'SUPERADMIN' | 'ADMIN' | 'USER' | 'CLIENT';
   mustChangePassword?: boolean;
   createdAt: string;
 }
@@ -107,7 +107,13 @@ export const getCurrentUser = (): User | null => {
 
 // Role of the signed-in user, read from the JWT. UI gating only —
 // every admin action is also blocked server-side by requireRole().
-export const isAdmin = (): boolean => getCurrentUser()?.role === 'ADMIN';
+export const isAdmin = (): boolean => {
+  const role = getCurrentUser()?.role;
+  return role === 'ADMIN' || role === 'SUPERADMIN';
+};
+
+// Platform owner. Integration credentials (RDASH, Cloudflare) are theirs alone.
+export const isSuperAdmin = (): boolean => getCurrentUser()?.role === 'SUPERADMIN';
 
 // Admin-issued accounts start with a password the admin also knows.
 export const mustChangePassword = (): boolean =>

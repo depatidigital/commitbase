@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Globe, Cloud, CreditCard } from 'lucide-react';
+import { Loader2, Globe, Cloud, CreditCard, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -170,6 +170,25 @@ const RdashOverview = () => {
 
         {isRdashConfigured && (
           <>
+            {summary?.errors && (
+              <Card className="border-destructive/50 bg-destructive/5">
+                <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                  <CardTitle className="text-sm font-medium text-destructive">
+                    RDASH API errors
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1">
+                  {Object.entries(summary.errors).map(([key, message]) => (
+                    <div key={key} className="text-sm">
+                      <span className="font-medium capitalize">{key}: </span>
+                      <span className="text-muted-foreground">{message}</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card className="bg-gradient-card border-border/50">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

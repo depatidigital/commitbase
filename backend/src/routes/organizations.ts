@@ -27,6 +27,11 @@ const MemberRoleSchema = z.object({
   role: z.enum(['OWNER', 'ADMIN', 'MEMBER']),
 });
 
+const AddMemberSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(['OWNER', 'ADMIN', 'MEMBER']).optional(),
+});
+
 const INVITE_TTL_DAYS = 7;
 
 const slugify = (name: string) =>
@@ -44,18 +49,41 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
   try {
     const where = isPlatformAdmin(req) ? {} : { id: { in: await getOrgIds(req) } };
 
-    const organizations = await prisma.organization.findMany({
-      where,
-      include: { _count: { select: { members: true, domains: true, applications: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const search = ((req.query.search as string) || '').trim();
+    const scoped = {
+      ...where,
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { slug: { contains: search, mode: 'insensitive' as const } },
+        ],
+      }),
+    };
+
+    // Paged only when the caller asks for a page — the org picker/select still wants the full list.
+    const paged = req.query.page !== undefined || req.query.limit !== undefined;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
+
+    const [organizations, total] = await Promise.all([
+      prisma.organization.findMany({
+        where: scoped,
+        include: { _count: { select: { members: true, domains: true, applications: true } } },
+        orderBy: { createdAt: 'desc' },
+        ...(paged && { skip: (page - 1) * limit, take: limit }),
+      }),
+      paged ? prisma.organization.count({ where: scoped }) : Promise.resolve(0),
+    ]);
 
     const memberships = await getMemberships(req);
     const roleByOrg = new Map(memberships.map((m) => [m.organizationId, m.role]));
+    const rows = organizations.map((o) => ({ ...o, myRole: roleByOrg.get(o.id) ?? null }));
 
     return res.json({
       success: true,
-      data: organizations.map((o) => ({ ...o, myRole: roleByOrg.get(o.id) ?? null })),
+      data: paged
+        ? { data: rows, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } }
+        : rows,
     } as ApiResponse);
   } catch (error) {
     console.error('Error listing organizations:', error);
@@ -97,6 +125,77 @@ router.post(
 );
 
 // --- Members -----------------------------------------------------------------
+
+// Single organization (detail page)
+router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+
+    if (!isPlatformAdmin(req) && !(await getOrgIds(req)).includes(id)) return forbidden(res);
+
+    const organization = await prisma.organization.findUnique({
+      where: { id },
+      include: { _count: { select: { members: true, domains: true, applications: true } } },
+    });
+    if (!organization) {
+      return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+    }
+
+    const memberships = await getMemberships(req);
+    const myRole = memberships.find((m) => m.organizationId === id)?.role ?? null;
+
+    return res.json({ success: true, data: { ...organization, myRole } } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching organization:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// Add an existing account to the org straight away — no invite round-trip
+router.post(
+  '/:id/members',
+  authenticateToken,
+  validateRequest(AddMemberSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const email = String(req.body.email).trim().toLowerCase();
+      const role = (req.body.role as 'OWNER' | 'ADMIN' | 'MEMBER') || 'MEMBER';
+
+      if (!(await canManageOrg(req, id))) return forbidden(res);
+
+      const organization = await prisma.organization.findUnique({ where: { id } });
+      if (!organization) {
+        return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+      }
+
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: 'No account with that email — send an invite link instead',
+        } as ApiResponse);
+      }
+
+      const existing = await prisma.membership.findUnique({
+        where: { userId_organizationId: { userId: user.id, organizationId: id } },
+      });
+      if (existing) {
+        return res.status(400).json({ success: false, error: 'User is already a member' } as ApiResponse);
+      }
+
+      const membership = await prisma.membership.create({
+        data: { userId: user.id, organizationId: id, role },
+        include: { user: { select: { id: true, email: true, name: true, isActive: true } } },
+      });
+
+      return res.status(201).json({ success: true, data: membership, message: 'Member added' } as ApiResponse);
+    } catch (error) {
+      console.error('Error adding member:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
 
 router.get('/:id/members', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {

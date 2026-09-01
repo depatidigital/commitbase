@@ -8,6 +8,7 @@ export interface RdashSummary {
   profile: RdashProfile | null;
   domains: any;
   balance: number | string | null;
+  errors?: Record<string, string>;
 }
 
 export interface RdashConfigStatus {

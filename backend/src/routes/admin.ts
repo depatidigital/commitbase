@@ -41,15 +41,44 @@ const userSelect = {
   },
 } as const;
 
-// List users
-router.get('/users', async (_req: AuthenticatedRequest, res: Response) => {
-  try {
-    const users = await prisma.user.findMany({
-      select: userSelect,
-      orderBy: { createdAt: 'desc' },
-    });
+// Server-side paging + keyword search, shared by the admin list endpoints below.
+const paging = (req: AuthenticatedRequest) => {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
+  const search = ((req.query.search as string) || '').trim();
+  return { page, limit, skip: (page - 1) * limit, search };
+};
 
-    return res.json({ success: true, data: users } as ApiResponse);
+const paginated = <T>(rows: T[], total: number, page: number, limit: number) => ({
+  success: true,
+  data: { data: rows, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
+});
+
+// List users
+router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { page, limit, skip, search } = paging(req);
+    const where = search
+      ? {
+          OR: [
+            { email: { contains: search, mode: 'insensitive' as const } },
+            { name: { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: userSelect,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    return res.json(paginated(users, total, page, limit) as ApiResponse);
   } catch (error) {
     console.error('Error listing users:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -114,18 +143,27 @@ router.put('/users/:id', validateRequest(UpdateUserSchema), async (req: Authenti
 });
 
 // List every domain with its owner (admin view — the tenant-scoped list lives at /api/domains)
-router.get('/domains', async (_req: AuthenticatedRequest, res: Response) => {
+router.get('/domains', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const domains = await prisma.domain.findMany({
-      include: {
-        organization: { select: { id: true, name: true, slug: true } },
-        user: { select: { id: true, email: true, name: true, role: true } },
-        _count: { select: { applications: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const { page, limit, skip, search } = paging(req);
+    const where = search ? { name: { contains: search, mode: 'insensitive' as const } } : {};
 
-    return res.json({ success: true, data: domains } as ApiResponse);
+    const [domains, total] = await Promise.all([
+      prisma.domain.findMany({
+        where,
+        include: {
+          organization: { select: { id: true, name: true, slug: true } },
+          user: { select: { id: true, email: true, name: true, role: true } },
+          _count: { select: { applications: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.domain.count({ where }),
+    ]);
+
+    return res.json(paginated(domains, total, page, limit) as ApiResponse);
   } catch (error) {
     console.error('Error listing domains:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);

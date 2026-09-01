@@ -1,5 +1,6 @@
 import apiRequest from './api';
-import { OrgRole } from './admin';
+import { OrgRole, ListParams, listQuery } from './admin';
+import type { Paginated } from '@/components/DataTable';
 
 export interface Organization {
   id: string;
@@ -39,6 +40,24 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
 
 export const getOrganizations = async (): Promise<Organization[]> =>
   unwrap(await apiRequest<Organization[]>('/organizations'), 'Failed to fetch organizations');
+
+export const getOrganizationsPage = async (params: ListParams): Promise<Paginated<Organization>> =>
+  unwrap(
+    await apiRequest<Paginated<Organization>>(`/organizations${listQuery(params)}`),
+    'Failed to fetch organizations'
+  );
+
+export const getOrganization = async (id: string): Promise<Organization> =>
+  unwrap(await apiRequest<Organization>(`/organizations/${id}`), 'Failed to fetch organization');
+
+export const addMember = async (orgId: string, data: { email: string; role?: OrgRole }): Promise<Member> =>
+  unwrap(
+    await apiRequest<Member>(`/organizations/${orgId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    'Failed to add member'
+  );
 
 export const createOrganization = async (data: { name: string; slug?: string }): Promise<Organization> =>
   unwrap(

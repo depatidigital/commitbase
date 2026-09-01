@@ -1,4 +1,14 @@
 import apiRequest from './api';
+import type { Paginated } from '@/components/DataTable';
+
+export interface ListParams {
+  page: number;
+  limit: number;
+  search: string;
+}
+
+export const listQuery = ({ page, limit, search }: ListParams) =>
+  `?page=${page}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`;
 
 export type OrgRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 
@@ -40,8 +50,11 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
   throw new Error(res.error || fallback);
 };
 
-export const getUsers = async (): Promise<AdminUser[]> =>
-  unwrap(await apiRequest<AdminUser[]>('/admin/users'), 'Failed to fetch users');
+export const getUsers = async (params: ListParams): Promise<Paginated<AdminUser>> =>
+  unwrap(
+    await apiRequest<Paginated<AdminUser>>(`/admin/users${listQuery(params)}`),
+    'Failed to fetch users'
+  );
 
 export const createUser = async (data: CreateUserData): Promise<AdminUser> =>
   unwrap(
@@ -58,8 +71,11 @@ export const updateUser = async (
     'Failed to update user'
   );
 
-export const getAdminDomains = async (): Promise<AdminDomain[]> =>
-  unwrap(await apiRequest<AdminDomain[]>('/admin/domains'), 'Failed to fetch domains');
+export const getAdminDomains = async (params: ListParams): Promise<Paginated<AdminDomain>> =>
+  unwrap(
+    await apiRequest<Paginated<AdminDomain>>(`/admin/domains${listQuery(params)}`),
+    'Failed to fetch domains'
+  );
 
 export const assignDomain = async (domainId: string, organizationId: string) =>
   unwrap(

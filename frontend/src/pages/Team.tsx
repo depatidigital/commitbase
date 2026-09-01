@@ -70,9 +70,7 @@ export default function Team() {
   }, [organizations, orgId]);
 
   const org = organizations.find((o) => o.id === orgId);
-  // platform admins can manage any org even without a membership row
-  const canManage =
-    currentUser?.role === "ADMIN" || org?.myRole === "OWNER" || org?.myRole === "ADMIN";
+  const canManage = org?.myRole === "OWNER" || org?.myRole === "ADMIN";
 
   const { data: members = [] } = useQuery({
     queryKey: ["organizations", orgId, "members"],
