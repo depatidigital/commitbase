@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Plus, Settings } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -17,11 +17,13 @@ import {
 import { isAdmin } from "@/lib/auth";
 
 const items = [
-  { title: "Application", url: "/", icon: Server },
-  { title: "Database", url: "/database", icon: Database },
+  { title: "Applications", url: "/", icon: Server },
+  { title: "Deploy new app", url: "/add-app", icon: Plus },
+  { title: "Databases", url: "/database", icon: Database },
   { title: "Domains", url: "/domains", icon: Globe },
   { title: "Logs", url: "/logs", icon: Terminal },
   { title: "Team", url: "/team", icon: Users },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -47,7 +49,7 @@ export function AppSidebar() {
                 </div>
                 <div>
                   <h1 className="text-lg font-bold bg-gradient-primary bg-clip-text text-transparent">
-                    Commitbase
+                    CommitBase
                   </h1>
                   <p className="text-xs text-muted-foreground">Self-hosted platform</p>
                 </div>
@@ -79,7 +81,9 @@ export function AppSidebar() {
                       }
                     >
                       <item.icon className="h-4 w-4" />
-                      {!collapsed && <span>{item.title}</span>}
+                      <span className={collapsed ? "sr-only" : undefined}>
+                        {item.title}
+                      </span>
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -90,7 +94,9 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location.pathname.startsWith("/admin")}>
                   <NavLink to="/admin" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
                     <ShieldCheck className="h-4 w-4" />
-                    {!collapsed && <span>Administration</span>}
+                    <span className={collapsed ? "sr-only" : undefined}>
+                      Administration
+                    </span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -98,10 +104,10 @@ export function AppSidebar() {
 
               {admin && (
               <SidebarMenuItem>
-                <SidebarMenuButton className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
+                <div className="flex items-center space-x-2 px-3 py-2 text-muted-foreground">
                   <Link2 className="h-4 w-4" />
-                  {!collapsed && <span>Integration</span>}
-                </SidebarMenuButton>
+                  {!collapsed && <span className="text-xs font-medium uppercase tracking-wide">Integrations</span>}
+                </div>
                 <SidebarMenuSub>
                   <SidebarMenuSubItem>
                     <SidebarMenuSubButton

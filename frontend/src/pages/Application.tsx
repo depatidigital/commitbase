@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { 
   Server, 
   Plus, 
@@ -263,6 +264,7 @@ export default function Application() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
+                    <TableHead>Organization</TableHead>
                     <TableHead>Domain</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
@@ -283,15 +285,20 @@ export default function Application() {
                         </Link>
                       </TableCell>
                       <TableCell>
+                        {app.organization ? (
+                          <Badge variant="outline">{app.organization.name}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center space-x-2">
                           <Globe className="h-4 w-4 text-muted-foreground" />
                           <span className="text-sm">{app.domain}</span>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {app.type}
-                        </span>
+                        <Badge variant="secondary">{app.type}</Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-2">

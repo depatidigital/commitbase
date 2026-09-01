@@ -22,6 +22,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Building2, Loader2, Plus, ShieldCheck } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   assignDomain,
@@ -41,6 +51,14 @@ export default function Admin() {
   const queryClient = useQueryClient();
 
   const [orgName, setOrgName] = useState("");
+  // moving a domain moves every application under it between tenants — confirm first
+  const [pendingAssign, setPendingAssign] = useState<{
+    domainId: string;
+    domainName: string;
+    appCount: number;
+    organizationId: string;
+    organizationName: string;
+  } | null>(null);
   const [newUser, setNewUser] = useState({ email: "", name: "", password: "" });
 
   const onError = (error: Error) =>
@@ -94,9 +112,13 @@ export default function Admin() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "domains"] });
       queryClient.invalidateQueries({ queryKey: ["domains"] });
+      setPendingAssign(null);
       toast({ title: "Domain ownership updated", description: "Its applications moved with it." });
     },
-    onError,
+    onError: (error: Error) => {
+      setPendingAssign(null);
+      onError(error);
+    },
   });
 
   return (
@@ -143,7 +165,15 @@ export default function Admin() {
                           <Select
                             value={d.organization?.id ?? UNASSIGNED}
                             onValueChange={(organizationId) =>
-                              assignMutation.mutate({ domainId: d.id, organizationId })
+                              setPendingAssign({
+                                domainId: d.id,
+                                domainName: d.name,
+                                appCount: d._count.applications,
+                                organizationId,
+                                organizationName:
+                                  organizations.find((o) => o.id === organizationId)?.name ??
+                                  "no organization",
+                              })
                             }
                           >
                             <SelectTrigger className="w-64">
@@ -304,6 +334,42 @@ export default function Admin() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog
+        open={!!pendingAssign}
+        onOpenChange={(open) => !open && setPendingAssign(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move this domain to another organization?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingAssign && (
+                <>
+                  <strong>{pendingAssign.domainName}</strong> and its{" "}
+                  {pendingAssign.appCount} application
+                  {pendingAssign.appCount === 1 ? "" : "s"} will move to{" "}
+                  <strong>{pendingAssign.organizationName}</strong>. The previous
+                  organization loses access immediately.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                pendingAssign &&
+                assignMutation.mutate({
+                  domainId: pendingAssign.domainId,
+                  organizationId: pendingAssign.organizationId,
+                })
+              }
+            >
+              Move domain
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

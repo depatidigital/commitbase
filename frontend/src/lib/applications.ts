@@ -12,7 +12,9 @@ export interface Application {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
-  userId: string;
+  userId: string | null;
+  organizationId?: string | null;
+  organization?: { id: string; name: string; slug: string } | null;
   createdAt: string;
   updatedAt: string;
   staticSiteUrl?: string | null;

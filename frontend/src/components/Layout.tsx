@@ -1,4 +1,5 @@
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { getCurrentUser } from "@/lib/auth";
@@ -8,14 +9,25 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Link } from "react-router-dom";
 import { Settings, LogOut, ChevronDown } from "lucide-react";
 
-import { logout } from "@/lib/auth";
 import { useLogout } from "@/hooks/useAuth";
+import { API_BASE_URL } from "@/lib/api";
 export function Layout() {
-  const location = useLocation();
   const logoutMutation = useLogout();
+
+  // real health signal instead of a decorative always-green pill
+  const { data: healthy } = useQuery({
+    queryKey: ["platform-health"],
+    queryFn: async () => {
+      const base = (API_BASE_URL || "").replace(/\/api\/?$/, "");
+      const res = await fetch(`${base}/health`);
+      return res.ok;
+    },
+    refetchInterval: 30000,
+    retry: false,
+  });
   const currentUser = getCurrentUser();
   const handleLogout = () => {
-    logout();
+    logoutMutation.mutate();
   };
   const getUserInitials = (name: string) => {
     return name
@@ -31,10 +43,24 @@ export function Layout() {
         <div className="flex-1 flex flex-col">
           <header className="h-12 flex items-center border-b border-border bg-card">
             <SidebarTrigger className="ml-4" />
-            <div className="flex items-center space-x-1 px-2 py-1 bg-success/10 rounded-full border border-success/20 ml-auto mr-4">
-              <div className="h-2 w-2 bg-success rounded-full animate-pulse" />
-              <span className="text-xs text-success font-medium">
-                Platform Online
+            <div
+              className={`flex items-center space-x-1 px-2 py-1 rounded-full border ml-auto mr-4 ${
+                healthy === false
+                  ? "bg-destructive/10 border-destructive/20"
+                  : "bg-success/10 border-success/20"
+              }`}
+            >
+              <div
+                className={`h-2 w-2 rounded-full ${
+                  healthy === false ? "bg-destructive" : "bg-success animate-pulse"
+                }`}
+              />
+              <span
+                className={`text-xs font-medium ${
+                  healthy === false ? "text-destructive" : "text-success"
+                }`}
+              >
+                {healthy === false ? "Platform Unreachable" : "Platform Online"}
               </span>
             </div>
 

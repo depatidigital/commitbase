@@ -702,11 +702,12 @@ export default function Domains() {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="rounded-md border">
+                <div className="rounded-md border overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Domain</TableHead>
+                        <TableHead>Organization</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>SSL Status</TableHead>
                         <TableHead>SSL Expiry</TableHead>
@@ -723,6 +724,13 @@ export default function Domains() {
                               <Globe className="h-4 w-4 text-muted-foreground" />
                               <span>{domain.name}</span>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {domain.organization ? (
+                              <Badge variant="outline">{domain.organization.name}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">Unassigned</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center space-x-2">
@@ -819,21 +827,6 @@ export default function Domains() {
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   <p>Renew SSL certificate</p>
-                                </TooltipContent>
-                              </Tooltip>
-
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <Settings className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Domain settings</p>
                                 </TooltipContent>
                               </Tooltip>
 

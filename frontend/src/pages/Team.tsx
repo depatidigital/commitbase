@@ -20,6 +20,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Copy, Loader2, Mail, Trash2, Users } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { getCurrentUser } from "@/lib/auth";
 import { OrgRole } from "@/lib/admin";
@@ -45,6 +55,10 @@ export default function Team() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<OrgRole>("MEMBER");
   const [lastInvite, setLastInvite] = useState<CreatedInvite | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<{
+    userId: string;
+    label: string;
+  } | null>(null);
 
   const { data: organizations = [], isLoading: orgsLoading } = useQuery({
     queryKey: ["organizations"],
@@ -105,9 +119,13 @@ export default function Team() {
     mutationFn: (userId: string) => removeMember(orgId, userId),
     onSuccess: () => {
       refresh();
+      setPendingRemove(null);
       toast({ title: "Member removed" });
     },
-    onError,
+    onError: (error: Error) => {
+      setPendingRemove(null);
+      onError(error);
+    },
   });
 
   const revokeMutation = useMutation({
@@ -206,6 +224,12 @@ export default function Team() {
               </Button>
             </div>
 
+            <p className="text-xs text-muted-foreground">
+              The invite link is shown once, right after you create it. It is stored
+              hashed, so it cannot be retrieved later — copy it before leaving this
+              page.
+            </p>
+
             {lastInvite && (
               <div className="rounded-md border bg-muted/50 p-3 text-sm">
                 <p className="mb-2 font-medium">
@@ -283,7 +307,13 @@ export default function Team() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => removeMutation.mutate(m.user.id)}
+                        aria-label={`Remove ${m.user.email}`}
+                        onClick={() =>
+                          setPendingRemove({
+                            userId: m.user.id,
+                            label: m.user.name || m.user.email,
+                          })
+                        }
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -336,6 +366,7 @@ export default function Team() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            aria-label={`Revoke invite for ${i.email}`}
                             onClick={() => revokeMutation.mutate(i.id)}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -350,6 +381,29 @@ export default function Team() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog
+        open={!!pendingRemove}
+        onOpenChange={(open) => !open && setPendingRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRemove?.label} will lose access to {org?.name ?? "this organization"}
+              , including its domains and applications. They can be invited back later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => pendingRemove && removeMutation.mutate(pendingRemove.userId)}
+            >
+              Remove member
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

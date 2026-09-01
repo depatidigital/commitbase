@@ -1,4 +1,11 @@
+export interface OrganizationRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 export interface Domain {
+  organization?: OrganizationRef | null;
   id: string;
   name: string;
   status: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ERROR';

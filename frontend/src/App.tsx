@@ -18,7 +18,8 @@ import Login from "./pages/Login";
 import Team from "./pages/Team";
 import Admin from "./pages/Admin";
 import AcceptInvite from "./pages/AcceptInvite";
-import { isAdmin, isAuthenticated } from "@/lib/auth";
+import ChangePassword from "./pages/ChangePassword";
+import { isAdmin, isAuthenticated, mustChangePassword } from "@/lib/auth";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,10 @@ const queryClient = new QueryClient();
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;
+  }
+  // an admin-issued temporary password must be rotated before anything else
+  if (mustChangePassword()) {
+    return <Navigate to="/change-password" replace />;
   }
   return <>{children}</>;
 };
@@ -47,6 +52,7 @@ const App = () => (
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
+          <Route path="/change-password" element={<ChangePassword />} />
           <Route
             path="/"
             element={
@@ -65,7 +71,6 @@ const App = () => (
             <Route path="domains/:id" element={<Domains />} />
             <Route path="team" element={<Team />} />
             <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
-            <Route path="integrations/domains" element={<AdminRoute><RdashOverview /></AdminRoute>} />
             <Route path="integrations/rdash" element={<AdminRoute><RdashOverview /></AdminRoute>} />
             <Route path="integrations/cloudflare" element={<AdminRoute><RdashOverview /></AdminRoute>} />
             <Route path="logs" element={<Logs />} />
