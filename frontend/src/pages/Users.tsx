@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +29,11 @@ export default function Users() {
   const [newUser, setNewUser] = useState(EMPTY_USER);
 
   const onError = (error: Error) =>
-    toast({ title: "Error", description: error.message, variant: "destructive" });
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+    });
 
   const query = useTableQuery();
 
@@ -75,7 +78,11 @@ export default function Users() {
     },
     {
       header: "Platform role",
-      cell: (u) => <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>{u.role}</Badge>,
+      cell: (u) => (
+        <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
+          {u.role}
+        </Badge>
+      ),
     },
     {
       header: "Organizations",
@@ -96,7 +103,9 @@ export default function Users() {
       cell: (u) => (
         <Switch
           checked={u.isActive}
-          onCheckedChange={(isActive) => toggleActive.mutate({ user: u, isActive })}
+          onCheckedChange={(isActive) =>
+            toggleActive.mutate({ user: u, isActive })
+          }
         />
       ),
     },
@@ -124,7 +133,8 @@ export default function Users() {
             <DialogHeader>
               <DialogTitle>New client account</DialogTitle>
               <DialogDescription>
-                They sign in with this temporary password and must change it on first login.
+                They sign in with this temporary password and must change it on
+                first login.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -134,7 +144,9 @@ export default function Users() {
                   id="email"
                   type="email"
                   value={newUser.email}
-                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, email: e.target.value })
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -142,7 +154,9 @@ export default function Users() {
                 <Input
                   id="name"
                   value={newUser.name}
-                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, name: e.target.value })
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -152,7 +166,9 @@ export default function Users() {
                   type="password"
                   placeholder="min 8 characters"
                   value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, password: e.target.value })
+                  }
                 />
               </div>
             </div>
@@ -162,9 +178,15 @@ export default function Users() {
               </Button>
               <Button
                 onClick={() => userMutation.mutate()}
-                disabled={!newUser.email || newUser.password.length < 8 || userMutation.isPending}
+                disabled={
+                  !newUser.email ||
+                  newUser.password.length < 8 ||
+                  userMutation.isPending
+                }
               >
-                {userMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {userMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
                 Create
               </Button>
             </DialogFooter>
@@ -172,23 +194,16 @@ export default function Users() {
         </Dialog>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">All users</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            rows={data?.data ?? []}
-            rowKey={(u) => u.id}
-            query={query}
-            pagination={data?.pagination}
-            isLoading={isFetching}
-            searchPlaceholder="Search email or name…"
-            empty="No users found."
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={columns}
+        rows={data?.data ?? []}
+        rowKey={(u) => u.id}
+        query={query}
+        pagination={data?.pagination}
+        isLoading={isFetching}
+        searchPlaceholder="Search email or name…"
+        empty="No users found."
+      />
     </div>
   );
 }

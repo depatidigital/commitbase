@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { AuthenticatedRequest } from '../middleware/auth';
+import { paging, paginated, contains } from '../lib/paging';
 
 // Mounted at /api/admin behind authenticateToken + requireRole(['ADMIN']) in index.ts.
 const router = Router();
@@ -41,31 +42,11 @@ const userSelect = {
   },
 } as const;
 
-// Server-side paging + keyword search, shared by the admin list endpoints below.
-const paging = (req: AuthenticatedRequest) => {
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
-  const search = ((req.query.search as string) || '').trim();
-  return { page, limit, skip: (page - 1) * limit, search };
-};
-
-const paginated = <T>(rows: T[], total: number, page: number, limit: number) => ({
-  success: true,
-  data: { data: rows, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
-});
-
 // List users
 router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search } = paging(req);
-    const where = search
-      ? {
-          OR: [
-            { email: { contains: search, mode: 'insensitive' as const } },
-            { name: { contains: search, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+    const where = search ? { OR: [{ email: contains(search) }, { name: contains(search) }] } : {};
 
     const [users, total] = await Promise.all([
       prisma.user.findMany({
@@ -146,7 +127,7 @@ router.put('/users/:id', validateRequest(UpdateUserSchema), async (req: Authenti
 router.get('/domains', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search } = paging(req);
-    const where = search ? { name: { contains: search, mode: 'insensitive' as const } } : {};
+    const where = search ? { name: contains(search) } : {};
 
     const [domains, total] = await Promise.all([
       prisma.domain.findMany({

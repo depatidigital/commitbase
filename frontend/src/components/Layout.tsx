@@ -2,6 +2,8 @@ import { Outlet } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
+import { Breadcrumbs } from "./Breadcrumbs";
+import { Separator } from "@/components/ui/separator";
 import { getCurrentUser } from "@/lib/auth";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,8 @@ export function Layout() {
         <div className="flex-1 flex flex-col">
           <header className="h-12 flex items-center border-b border-border bg-card">
             <SidebarTrigger className="ml-4" />
+            <Separator orientation="vertical" className="mx-3 h-5" />
+            <Breadcrumbs />
             <div
               className={`flex items-center space-x-1 px-2 py-1 rounded-full border ml-auto mr-4 ${
                 healthy === false

@@ -4,6 +4,7 @@ import { CreateDatabaseSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
+import { paging, paginated, contains } from '../lib/paging';
 
 const router = Router();
 
@@ -11,17 +12,27 @@ const router = Router();
 // All databases across the caller's organizations
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const databases = await prisma.database.findMany({
-      where: {
-        application: { ...(await orgScope(req)) },
-      },
-      include: {
-        application: { select: { id: true, name: true, domain: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const { page, limit, skip, search, paged } = paging(req);
+    const where = {
+      application: { ...(await orgScope(req)) },
+      ...(search && { OR: [{ name: contains(search) }, { application: { name: contains(search) } }] }),
+    };
 
-    return res.json({ success: true, data: databases } as ApiResponse);
+    const [databases, total] = await Promise.all([
+      prisma.database.findMany({
+        where,
+        include: {
+          application: { select: { id: true, name: true, domain: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        ...(paged && { skip, take: limit }),
+      }),
+      paged ? prisma.database.count({ where }) : Promise.resolve(0),
+    ]);
+
+    return res.json(
+      (paged ? paginated(databases, total, page, limit) : { success: true, data: databases }) as ApiResponse
+    );
   } catch (error) {
     console.error('List databases error:', error);
     return res.status(500).json({

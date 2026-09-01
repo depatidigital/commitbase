@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Plus, Settings, Building2, UserCog } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -18,7 +18,6 @@ import { isAdmin, isSuperAdmin } from "@/lib/auth";
 
 const items = [
   { title: "Applications", url: "/", icon: Server },
-  { title: "Deploy new app", url: "/add-app", icon: Plus },
   { title: "Databases", url: "/database", icon: Database },
   { title: "Domains", url: "/domains", icon: Globe },
   { title: "Logs", url: "/logs", icon: Terminal },

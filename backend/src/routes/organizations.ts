@@ -6,6 +6,7 @@ import { ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
+import { paging, contains } from '../lib/paging';
 
 const router = Router();
 
@@ -49,28 +50,18 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
   try {
     const where = isPlatformAdmin(req) ? {} : { id: { in: await getOrgIds(req) } };
 
-    const search = ((req.query.search as string) || '').trim();
+    const { page, limit, skip, search, paged } = paging(req);
     const scoped = {
       ...where,
-      ...(search && {
-        OR: [
-          { name: { contains: search, mode: 'insensitive' as const } },
-          { slug: { contains: search, mode: 'insensitive' as const } },
-        ],
-      }),
+      ...(search && { OR: [{ name: contains(search) }, { slug: contains(search) }] }),
     };
-
-    // Paged only when the caller asks for a page — the org picker/select still wants the full list.
-    const paged = req.query.page !== undefined || req.query.limit !== undefined;
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 10));
 
     const [organizations, total] = await Promise.all([
       prisma.organization.findMany({
         where: scoped,
         include: { _count: { select: { members: true, domains: true, applications: true } } },
         orderBy: { createdAt: 'desc' },
-        ...(paged && { skip: (page - 1) * limit, take: limit }),
+        ...(paged && { skip, take: limit }),
       }),
       paged ? prisma.organization.count({ where: scoped }) : Promise.resolve(0),
     ]);

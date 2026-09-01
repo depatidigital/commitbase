@@ -4,6 +4,7 @@ import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
+import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords } from '../services/cloudflareService';
 
 const router = Router();
@@ -11,23 +12,31 @@ const router = Router();
 // Get all domains for the authenticated user
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const domains = await prisma.domain.findMany({
-      where: {
-        ...(await orgScope(req)),
-      },
-      include: {
-        organization: { select: { id: true, name: true, slug: true } },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    const { page, limit, skip, search, paged } = paging(req);
+    const where = {
+      ...(await orgScope(req)),
+      ...(search && { name: contains(search) }),
+    };
 
-    res.json({
-      success: true,
-      data: domains,
-      message: 'Domains retrieved successfully',
-    } as ApiResponse<Domain[]>);
+    const [domains, total] = await Promise.all([
+      prisma.domain.findMany({
+        where,
+        include: {
+          organization: { select: { id: true, name: true, slug: true } },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        ...(paged && { skip, take: limit }),
+      }),
+      paged ? prisma.domain.count({ where }) : Promise.resolve(0),
+    ]);
+
+    res.json(
+      (paged
+        ? paginated(domains, total, page, limit)
+        : { success: true, data: domains, message: 'Domains retrieved successfully' }) as ApiResponse
+    );
   } catch (error) {
     console.error('Error fetching domains:', error);
     res.status(500).json({

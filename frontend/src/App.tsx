@@ -18,6 +18,7 @@ import Login from "./pages/Login";
 import Team from "./pages/Team";
 import Admin from "./pages/Admin";
 import Organizations from "./pages/Organizations";
+import OrganizationDetail from "./pages/OrganizationDetail";
 import Users from "./pages/Users";
 import AcceptInvite from "./pages/AcceptInvite";
 import ChangePassword from "./pages/ChangePassword";
@@ -89,6 +90,7 @@ const App = () => (
             <Route path="team" element={<UserRoute><Team /></UserRoute>} />
             <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="organizations" element={<AdminRoute><Organizations /></AdminRoute>} />
+            <Route path="organizations/:id" element={<AdminRoute><OrganizationDetail /></AdminRoute>} />
             <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="integrations/rdash" element={<SuperAdminRoute><RdashOverview /></SuperAdminRoute>} />
             <Route path="integrations/cloudflare" element={<SuperAdminRoute><RdashOverview /></SuperAdminRoute>} />
