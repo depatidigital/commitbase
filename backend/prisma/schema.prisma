@@ -232,6 +232,12 @@ model Domain {
   // Configuration
   redirectTo  String? // Domain redirect target
   customConfig Json? // Custom domain configuration
+
+  // Where the domain comes from — filled by the integrations sync
+  registrar    String?   // "RDASH" | "EXTERNAL" | null when unknown
+  cfZoneId     String?   // set when a Cloudflare zone exists for it
+  expiresAt    DateTime? // domain registration expiry, from the registrar
+  lastSyncedAt DateTime?
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

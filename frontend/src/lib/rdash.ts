@@ -117,18 +117,3 @@ export const getCloudflareZones = async (page?: number, perPage?: number): Promi
 
   throw new Error(response.error || 'Failed to fetch Cloudflare zones');
 };
-
-export type CloudflareSyncResult = { total: number; created: number; updated: number };
-
-// Import all Cloudflare zones as domains (organization left empty, assigned later)
-export const syncCloudflareDomains = async (): Promise<CloudflareSyncResult> => {
-  const response = await apiRequest<CloudflareSyncResult>('/cloudflare/sync-domains', {
-    method: 'POST',
-  });
-
-  if (response.success && response.data) {
-    return response.data;
-  }
-
-  throw new Error(response.error || 'Failed to sync Cloudflare domains');
-};

@@ -347,3 +347,86 @@ export async function syncDomainDns(domain: string, zoneIdOverride?: string): Pr
   }
 }
 
+export type ZoneSslState = {
+  status: 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'ERROR';
+  expiry: Date | null;
+};
+
+/**
+ * Real SSL state for a zone, straight from Cloudflare's certificate packs.
+ * Cloudflare terminates TLS for these domains, so it is the only honest source —
+ * we never issue certificates ourselves.
+ */
+export async function getZoneSslState(zoneId: string): Promise<ZoneSslState | null> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    return null;
+  }
+
+  const { fetchFn, config } = shared;
+  const trimmedZoneId = zoneId.trim();
+  if (!trimmedZoneId) {
+    return null;
+  }
+
+  const url = `${config.apiBase}/zones/${encodeURIComponent(trimmedZoneId)}/ssl/certificate_packs?status=all`;
+
+  try {
+    const response = await fetchFn(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const packs: any[] = data && Array.isArray(data.result) ? data.result : [];
+
+    if (packs.length === 0) {
+      return { status: 'PENDING', expiry: null };
+    }
+
+    // an active pack wins; otherwise report on the first one Cloudflare lists
+    const pack = packs.find((p) => p?.status === 'active') || packs[0];
+
+    const expiries: number[] = (Array.isArray(pack?.certificates) ? pack.certificates : [])
+      .map((c: any) => Date.parse(c?.expires_on))
+      .filter((t: number) => Number.isFinite(t));
+
+    const expiry = expiries.length > 0 ? new Date(Math.max(...expiries)) : null;
+
+    let status: ZoneSslState['status'];
+    switch (pack?.status) {
+      case 'active':
+        status = 'ACTIVE';
+        break;
+      case 'initializing':
+      case 'pending_validation':
+      case 'pending_issuance':
+      case 'pending_deployment':
+      case 'pending_cleanup':
+        status = 'PENDING';
+        break;
+      case 'expired':
+      case 'deleted':
+        status = 'EXPIRED';
+        break;
+      default:
+        status = 'ERROR';
+    }
+
+    // an active pack whose certificate already lapsed is not active
+    if (status === 'ACTIVE' && expiry && expiry.getTime() < Date.now()) {
+      status = 'EXPIRED';
+    }
+
+    return { status, expiry };
+  } catch {
+    return null;
+  }
+}

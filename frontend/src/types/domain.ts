@@ -14,6 +14,10 @@ export interface Domain {
   sslExpiry?: string;
   redirectTo?: string;
   customConfig?: any;
+  registrar?: 'RDASH' | 'EXTERNAL' | null;
+  cfZoneId?: string | null;
+  expiresAt?: string | null;
+  lastSyncedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   userId: string;

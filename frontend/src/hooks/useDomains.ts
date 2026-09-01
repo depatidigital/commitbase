@@ -9,7 +9,8 @@ import {
   updateDomain, 
   deleteDomain, 
   verifyDomain, 
-  renewSSL 
+  syncDomains,
+  bulkAssignDomains
 } from '@/lib/domains';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
 import { ListParams } from '@/lib/admin';
@@ -65,6 +66,59 @@ export const useCreateDomain = () => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to create domain.',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+// Sync domains from RDASH + Cloudflare
+export const useSyncDomains = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: syncDomains,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      const failed = data.errors ? Object.values(data.errors).join(' ') : '';
+      toast({
+        title: failed ? 'Sync finished with errors' : 'Sync complete',
+        description:
+          `${data.total} domains — ${data.created} added, ${data.updated} updated ` +
+          `(${data.rdashOnly} RDASH-only, ${data.cfOnly} Cloudflare-only). ${failed}`.trim(),
+        variant: failed ? 'destructive' : undefined,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to sync domains.',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+// Assign several domains to one organization
+export const useBulkAssignDomains = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: ({ ids, organizationId }: { ids: string[]; organizationId: string | null }) =>
+      bulkAssignDomains(ids, organizationId),
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({
+        title: 'Domains Assigned',
+        description: `${count} domain(s) updated.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to assign domains.',
         variant: 'destructive',
       });
     },
@@ -152,27 +206,3 @@ export const useVerifyDomain = () => {
     },
   });
 };
-
-// Renew SSL mutation
-export const useRenewSSL = () => {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  return useMutation({
-    mutationFn: (id: string) => renewSSL(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
-      toast({
-        title: 'SSL Renewed',
-        description: 'SSL certificate has been renewed successfully.',
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to renew SSL certificate.',
-        variant: 'destructive',
-      });
-    },
-  });
-}; 

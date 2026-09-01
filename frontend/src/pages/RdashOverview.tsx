@@ -1,4 +1,4 @@
-import { useRdashSummary, useCloudflareZones, useRdashConfigStatus, useCloudflareConfigStatus, useUpdateRdashConfig, useUpdateCloudflareConfig, useSyncCloudflareDomains } from '@/hooks/useRdash';
+import { useRdashSummary, useCloudflareZones, useRdashConfigStatus, useCloudflareConfigStatus, useUpdateRdashConfig, useUpdateCloudflareConfig } from '@/hooks/useRdash';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -8,13 +8,32 @@ import { Loader2, Globe, Cloud, CreditCard, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
+// RDash /domains returns status as an int enum plus status_label/status_badge (swagger v1).
+const RDASH_STATUS_LABEL: Record<number, string> = {
+  0: 'Pending',
+  1: 'Active',
+  2: 'Expired',
+  3: 'Pending Delete',
+  4: 'Deleted',
+  5: 'Pending Transfer',
+  6: 'Transferred Away',
+  7: 'Suspended',
+  8: 'Rejected',
+};
+
+const RDASH_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  success: 'default',
+  danger: 'destructive',
+  warning: 'secondary',
+  secondary: 'secondary',
+};
+
 const RdashOverview = () => {
   const { data: rdashConfig, isLoading: rdashConfigLoading } = useRdashConfigStatus();
   const { data: cloudflareConfig, isLoading: cloudflareConfigLoading } = useCloudflareConfigStatus();
   const [cloudflarePage, setCloudflarePage] = useState(1);
   const updateRdashConfig = useUpdateRdashConfig();
   const updateCloudflareConfig = useUpdateCloudflareConfig();
-  const syncCloudflareDomains = useSyncCloudflareDomains();
   const location = useLocation();
   const isCloudflarePage = location.pathname.includes('/integrations/cloudflare');
 
@@ -206,7 +225,12 @@ const RdashOverview = () => {
                     </div>
                   ) : (
                     <div className="text-2xl font-bold">
-                      {balance !== null && balance !== undefined ? balance : '-'}
+                      {balance !== null && balance !== undefined
+                        ? Number(balance).toLocaleString('id-ID', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        : '-'}
                     </div>
                   )}
                 </CardContent>
@@ -227,11 +251,13 @@ const RdashOverview = () => {
                     </div>
                   ) : (
                     <div className="text-2xl font-bold">
-                      {Array.isArray((rdashDomains as any)?.data)
-                        ? (rdashDomains as any).data.length
-                        : Array.isArray(rdashDomains)
-                        ? (rdashDomains as any).length
-                        : '-'}
+                      {/* meta.total is the account-wide count; data is only the current page */}
+                      {(rdashDomains as any)?.meta?.total ??
+                        (Array.isArray((rdashDomains as any)?.data)
+                          ? (rdashDomains as any).data.length
+                          : Array.isArray(rdashDomains)
+                          ? (rdashDomains as any).length
+                          : '-')}
                     </div>
                   )}
                 </CardContent>
@@ -276,12 +302,15 @@ const RdashOverview = () => {
                               {domain.domain || domain.name || '-'}
                             </TableCell>
                             <TableCell>
-                              <Badge variant="outline">
-                                {domain.status || domain.state || 'UNKNOWN'}
+                              <Badge variant={RDASH_BADGE_VARIANT[domain.status_badge] ?? 'outline'}>
+                                {domain.status_label ||
+                                  RDASH_STATUS_LABEL[domain.status] ||
+                                  domain.state ||
+                                  'UNKNOWN'}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {domain.expiryDate || domain.expire_date || domain.expired_at || '-'}
+                              {domain.expired_at || domain.expiryDate || domain.expire_date || '-'}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -421,27 +450,15 @@ const RdashOverview = () => {
               <Cloud className="h-4 w-4 text-primary" />
               Cloudflare Zones
             </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetchZones()}
-                disabled={zonesLoading}
-              >
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Refresh
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => syncCloudflareDomains.mutate()}
-                disabled={syncCloudflareDomains.isPending}
-              >
-                {syncCloudflareDomains.isPending && (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                )}
-                Sync zones to domains
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchZones()}
+              disabled={zonesLoading}
+            >
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Refresh
+            </Button>
           </CardHeader>
           <CardContent>
             {zonesLoading ? (

@@ -57,8 +57,8 @@ export function Layout() {
       <div className="relative min-h-screen flex w-full bg-background">
         <AppSidebar />
         <EdgeSidebarTrigger />
-        <div className="flex-1 flex flex-col">
-          <header className="h-12 flex items-center border-b border-border bg-card">
+        <div className="flex-1 flex flex-col min-w-0">
+          <header className="sticky top-0 z-40 h-12 flex items-center border-b border-border bg-card">
             <SidebarTrigger className="ml-4 md:hidden" />
             <Separator orientation="vertical" className="mx-3 h-5 md:hidden" />
             <div className="pl-4 md:pl-6">

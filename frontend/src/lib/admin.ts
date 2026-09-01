@@ -6,12 +6,33 @@ export interface ListParams {
   limit: number;
   search: string;
   organizationId?: string;
+  /** endpoint-specific narrowing, e.g. domains ?filter=unassigned */
+  filter?: string;
+  status?: string;
+  sort?: string;
+  order?: string;
+  /** domains only: 'expired' or a day window like '30' */
+  expiring?: string;
 }
 
-export const listQuery = ({ page, limit, search, organizationId }: ListParams) =>
+export const listQuery = ({
+  page,
+  limit,
+  search,
+  organizationId,
+  filter,
+  status,
+  expiring,
+  sort,
+  order,
+}: ListParams) =>
   `?page=${page}&limit=${limit}` +
   (search ? `&search=${encodeURIComponent(search)}` : '') +
-  (organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '');
+  (organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '') +
+  (filter ? `&filter=${encodeURIComponent(filter)}` : '') +
+  (status ? `&status=${encodeURIComponent(status)}` : '') +
+  (expiring ? `&expiring=${encodeURIComponent(expiring)}` : '') +
+  (sort ? `&sort=${encodeURIComponent(sort)}&order=${order === 'desc' ? 'desc' : 'asc'}` : '');
 
 export type OrgRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 

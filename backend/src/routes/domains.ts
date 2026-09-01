@@ -5,9 +5,24 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
-import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords } from '../services/cloudflareService';
+import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState } from '../services/cloudflareService';
+import { listRdashDomains } from '../services/rdashService';
 
 const router = Router();
+
+/** `?expiring=expired|30|60|90` — registration expiry windows for the domains list. */
+const expiryFilter = (value: unknown) => {
+  if (typeof value !== 'string' || !value) return [];
+
+  const now = new Date();
+  if (value === 'expired') return [{ expiresAt: { lt: now } }];
+
+  const days = parseInt(value, 10);
+  if (!Number.isFinite(days)) return [];
+
+  const until = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  return [{ expiresAt: { gte: now, lte: until } }];
+};
 
 // Get all domains for the authenticated user
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -17,6 +32,18 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       ...(await orgScope(req)),
       ...(organizationId && { organizationId }),
       ...(search && { name: contains(search) }),
+      // ?filter=unassigned | needs-attention — drives the tabs on the domains page.
+      // AND, not a bare key, so it narrows orgScope instead of replacing it.
+      AND: [
+        ...(req.query.filter === 'unassigned' ? [{ organizationId: null }] : []),
+        ...(req.query.filter === 'needs-attention'
+          ? [{ OR: [{ organizationId: null }, { cfZoneId: null }] }]
+          : []),
+        ...(typeof req.query.status === 'string' && req.query.status
+          ? [{ status: req.query.status as any }]
+          : []),
+        ...expiryFilter(req.query.expiring),
+      ],
     };
 
     const [domains, total] = await Promise.all([
@@ -157,6 +184,202 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), validateRequest(Crea
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error creating domain:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Pull every domain we know about from RDASH (registrar) and Cloudflare (DNS) and
+// reconcile them into one list. Organization is never touched — assigned by hand later.
+router.post('/sync', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const [cfResult, rdashResult] = await Promise.allSettled([
+      (async () => {
+        const perPage = 50;
+        const zones: any[] = [];
+        // ponytail: sequential paging, fine for a few hundred zones
+        for (let page = 1; page <= 50; page++) {
+          const batch = await listCloudflareZones({ page, perPage });
+          if (batch === null) throw new Error('Cloudflare zones unavailable');
+          zones.push(...batch);
+          if (batch.length < perPage) break;
+        }
+        return zones;
+      })(),
+      (async () => {
+        // RDASH pages at 10 per response and rejects per_page — follow meta.last_page
+        const rows: any[] = [];
+        let lastPage = 1;
+        for (let page = 1; page <= lastPage && page <= 100; page++) {
+          const raw: any = await listRdashDomains({ page });
+          const batch = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
+          rows.push(...batch);
+          lastPage = Number(raw?.meta?.last_page) || 1;
+        }
+        return rows;
+      })(),
+    ]);
+
+    const errors: Record<string, string> = {};
+
+    const zones: any[] = cfResult.status === 'fulfilled' ? cfResult.value : [];
+    if (cfResult.status === 'rejected') {
+      errors.cloudflare = 'Failed to fetch Cloudflare zones. Check the Cloudflare integration config.';
+    }
+
+    let rdashRows: any[] = [];
+    if (rdashResult.status === 'fulfilled') {
+      rdashRows = rdashResult.value;
+    } else {
+      errors.rdash = 'Failed to fetch RDASH domains. Check the RDASH integration config.';
+    }
+
+    // one row per domain name, merged from both sources
+    type Merged = { name: string; zone?: any; rdash?: any };
+    const merged = new Map<string, Merged>();
+    const put = (rawName: any, patch: Partial<Merged>) => {
+      const name = String(rawName || '').trim().toLowerCase();
+      if (!name) return;
+      merged.set(name, { ...(merged.get(name) || { name }), ...patch, name });
+    };
+
+    for (const zone of zones) put(zone?.name, { zone });
+    for (const row of rdashRows) put(row?.domain || row?.name, { rdash: row });
+
+    let created = 0;
+    let updated = 0;
+    const now = new Date();
+
+    for (const entry of merged.values()) {
+      const { name, zone, rdash } = entry;
+
+      const cfZoneId = zone?.id ? String(zone.id) : null;
+      const cloudflare = zone
+        ? {
+            zoneId: cfZoneId,
+            zoneName: name,
+            nameservers: Array.isArray(zone.name_servers) ? zone.name_servers : [],
+            synced: true,
+          }
+        : null;
+
+      // real certificate state — Cloudflare terminates TLS, so it is the only honest source
+      const ssl = cfZoneId ? await getZoneSslState(cfZoneId) : null;
+
+      // RDASH is not consistent about the field name, so try the ones it actually sends
+      const rawExpiry =
+        rdash?.expired_at ?? rdash?.expiryDate ?? rdash?.expire_date ?? rdash?.expiresAt ?? null;
+      const parsedExpiry = rawExpiry ? new Date(rawExpiry) : null;
+      const expiresAt =
+        parsedExpiry && Number.isFinite(parsedExpiry.getTime()) ? parsedExpiry : null;
+
+      const existing = await prisma.domain.findUnique({ where: { name } });
+
+      if (existing) {
+        await prisma.domain.update({
+          where: { id: existing.id },
+          data: {
+            ...(cfZoneId && { cfZoneId }),
+            ...(ssl && { sslStatus: ssl.status, sslExpiry: ssl.expiry }),
+            ...(expiresAt && { expiresAt }),
+            ...(cloudflare && {
+              customConfig: { ...((existing.customConfig as any) || {}), cloudflare },
+            }),
+            // never overwrite a registrar someone set by hand
+            ...(rdash && { registrar: 'RDASH' }),
+            ...(!rdash && !existing.registrar && zone && { registrar: 'EXTERNAL' }),
+            lastSyncedAt: now,
+          },
+        });
+        updated++;
+      } else {
+        await prisma.domain.create({
+          data: {
+            name,
+            status: zone?.status === 'active' ? 'ACTIVE' : 'PENDING',
+            cfZoneId,
+            registrar: rdash ? 'RDASH' : zone ? 'EXTERNAL' : null,
+            ...(ssl && { sslStatus: ssl.status, sslExpiry: ssl.expiry }),
+            expiresAt,
+            ...(cloudflare && { customConfig: { cloudflare } }),
+            organizationId: null,
+            userId: req.user!.userId,
+            lastSyncedAt: now,
+          },
+        });
+        created++;
+      }
+    }
+
+    const cfNames = new Set(zones.map((z: any) => String(z?.name || '').trim().toLowerCase()));
+    const rdashNames = new Set(
+      rdashRows.map((r: any) => String(r?.domain || r?.name || '').trim().toLowerCase()),
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        total: merged.size,
+        created,
+        updated,
+        cfOnly: [...cfNames].filter((n) => n && !rdashNames.has(n)).length,
+        rdashOnly: [...rdashNames].filter((n) => n && !cfNames.has(n)).length,
+        errors: Object.keys(errors).length ? errors : undefined,
+      },
+      message: `Synced ${merged.size} domains (${created} added, ${updated} updated)`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error syncing domains:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Assign many freshly-synced domains to one organization in a single call
+router.patch('/bulk-assign', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { ids, organizationId } = req.body as { ids?: unknown; organizationId?: unknown };
+
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids must be a non-empty array of domain IDs',
+      } as ApiResponse);
+    }
+
+    if (organizationId !== null && typeof organizationId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'organizationId must be an organization ID or null',
+      } as ApiResponse);
+    }
+
+    if (organizationId) {
+      const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+      if (!organization) {
+        return res.status(404).json({
+          success: false,
+          error: 'Organization not found',
+        } as ApiResponse);
+      }
+    }
+
+    const { count } = await prisma.domain.updateMany({
+      where: { id: { in: ids as string[] }, ...(await orgScope(req)) },
+      data: { organizationId: (organizationId as string) || null },
+    });
+
+    return res.json({
+      success: true,
+      data: { count },
+      message: `${count} domain(s) updated`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error bulk assigning domains:', error);
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -431,59 +654,6 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
     } as ApiResponse);
   } catch (error) {
     console.error('Error verifying domain:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    } as ApiResponse);
-  }
-});
-
-// Renew SSL certificate
-router.post('/:id/ssl/renew', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Domain ID is required',
-      } as ApiResponse);
-    }
-
-    const domain = await prisma.domain.findFirst({
-      where: {
-        id: id as string,
-        ...(await orgScope(req)),
-      },
-    });
-
-    if (!domain) {
-      return res.status(404).json({
-        success: false,
-        error: 'Domain not found',
-      } as ApiResponse);
-    }
-
-    // TODO: Implement actual SSL renewal logic
-    // For now, return a mock response
-    const sslExpiry = new Date();
-    sslExpiry.setFullYear(sslExpiry.getFullYear() + 1);
-
-    const updatedDomain = await prisma.domain.update({
-      where: { id: domain.id },
-      data: {
-        sslStatus: 'ACTIVE',
-        sslExpiry,
-      },
-    });
-
-    return res.json({
-      success: true,
-      data: updatedDomain,
-      message: 'SSL certificate renewed successfully',
-    } as ApiResponse<Domain>);
-  } catch (error) {
-    console.error('Error renewing SSL:', error);
     return res.status(500).json({
       success: false,
       error: 'Internal server error',

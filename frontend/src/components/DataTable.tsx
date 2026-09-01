@@ -16,7 +16,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  ChevronUp,
+  ChevronDown,
+  Loader2,
+  Search,
+} from "lucide-react";
 
 export interface PageMeta {
   page: number;
@@ -34,6 +42,8 @@ export interface Column<T> {
   header: ReactNode;
   cell: (row: T) => ReactNode;
   className?: string;
+  /** Server-side sort field. Set it and the header becomes a sort toggle. */
+  sortKey?: string;
 }
 
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -48,6 +58,8 @@ export function useTableQuery(initialLimit = 10) {
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
   const [organizationId, setOrganizationIdState] = useState("");
+  const [sort, setSort] = useState("");
+  const [order, setOrder] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -59,6 +71,17 @@ export function useTableQuery(initialLimit = 10) {
 
   const setLimit = (next: number) => {
     setLimitState(next);
+    setPage(1);
+  };
+
+  /** First click sorts ascending, clicking the same column flips direction. */
+  const toggleSort = (key: string) => {
+    if (sort === key) {
+      setOrder(order === "asc" ? "desc" : "asc");
+    } else {
+      setSort(key);
+      setOrder("asc");
+    }
     setPage(1);
   };
 
@@ -77,7 +100,10 @@ export function useTableQuery(initialLimit = 10) {
     setInput,
     organizationId,
     setOrganizationId,
-    params: { page, limit, search, organizationId },
+    sort,
+    order,
+    toggleSort,
+    params: { page, limit, search, organizationId, sort, order },
   };
 }
 
@@ -110,7 +136,8 @@ export function DataTable<T>({
   empty = "No results.",
   toolbar,
 }: DataTableProps<T>) {
-  const { page, setPage, limit, setLimit, input, setInput, search } = query;
+  const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
+    query;
 
   const local = !pagination;
   const matched =
@@ -160,19 +187,33 @@ export function DataTable<T>({
         </div>
       </div>
 
-      <div className="rounded-md border bg-card">
+      <div className="rounded-md border bg-card overflow-x-auto">
         <Table className="[&_td]:py-2.5 [&_th]:h-9 [&_th]:py-0">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-12 text-xs uppercase tracking-wide">
-                #
-              </TableHead>
               {columns.map((c, i) => (
                 <TableHead
                   key={i}
                   className={`text-xs uppercase tracking-wide ${c.className ?? ""}`}
                 >
-                  {c.header}
+                  {c.sortKey ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(c.sortKey as string)}
+                      className="flex items-center gap-1 uppercase hover:text-foreground"
+                    >
+                      {c.header}
+                      {sort !== c.sortKey ? (
+                        <ChevronsUpDown className="h-3 w-3 opacity-50" />
+                      ) : order === "asc" ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                    </button>
+                  ) : (
+                    c.header
+                  )}
                 </TableHead>
               ))}
             </TableRow>
@@ -181,7 +222,7 @@ export function DataTable<T>({
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length + 1}
+                  colSpan={columns.length}
                   className="py-8 text-center"
                 >
                   <Loader2 className="mx-auto h-5 w-5 animate-spin" />
@@ -190,18 +231,15 @@ export function DataTable<T>({
             ) : visible.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length + 1}
+                  colSpan={columns.length}
                   className="py-8 text-center text-muted-foreground"
                 >
                   {empty}
                 </TableCell>
               </TableRow>
             ) : (
-              visible.map((row, i) => (
+              visible.map((row) => (
                 <TableRow key={rowKey(row)}>
-                  <TableCell className="text-muted-foreground">
-                    {firstRowNumber + i + 1}
-                  </TableCell>
                   {columns.map((c, ci) => (
                     <TableCell key={ci} className={c.className}>
                       {c.cell(row)}

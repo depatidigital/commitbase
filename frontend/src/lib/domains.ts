@@ -1,7 +1,7 @@
 import apiRequest from './api';
 import { ListParams, listQuery } from './admin';
 import type { Paginated } from '@/components/DataTable';
-import { Domain, CreateDomainData, UpdateDomainData, DomainVerificationResult, SSLRenewalResult } from '@/types/domain';
+import { Domain, CreateDomainData, UpdateDomainData, DomainVerificationResult } from '@/types/domain';
 
 // Get all domains
 export const getDomainsPage = async (params: ListParams): Promise<Paginated<Domain>> => {
@@ -75,6 +75,42 @@ export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
   throw new Error(response.error || 'Failed to create domain');
 };
 
+export type DomainSyncResult = {
+  total: number;
+  created: number;
+  updated: number;
+  cfOnly: number;
+  rdashOnly: number;
+  errors?: Record<string, string>;
+};
+
+// Reconcile domains from RDASH (registrar) and Cloudflare (DNS) into our list
+export const syncDomains = async (): Promise<DomainSyncResult> => {
+  const response = await apiRequest<DomainSyncResult>('/domains/sync', { method: 'POST' });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to sync domains');
+};
+
+export const bulkAssignDomains = async (
+  ids: string[],
+  organizationId: string | null
+): Promise<number> => {
+  const response = await apiRequest<{ count: number }>('/domains/bulk-assign', {
+    method: 'PATCH',
+    body: JSON.stringify({ ids, organizationId }),
+  });
+
+  if (response.success && response.data) {
+    return response.data.count;
+  }
+
+  throw new Error(response.error || 'Failed to assign domains');
+};
+
 // Update a domain
 export const updateDomain = async (id: string, data: UpdateDomainData): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {
@@ -112,16 +148,3 @@ export const verifyDomain = async (id: string): Promise<DomainVerificationResult
 
   throw new Error(response.error || 'Failed to verify domain');
 };
-
-// Renew SSL certificate
-export const renewSSL = async (id: string): Promise<SSLRenewalResult> => {
-  const response = await apiRequest<SSLRenewalResult>(`/domains/${id}/ssl/renew`, {
-    method: 'POST',
-  });
-
-  if (response.success && response.data) {
-    return response.data;
-  }
-
-  throw new Error(response.error || 'Failed to renew SSL certificate');
-}; 

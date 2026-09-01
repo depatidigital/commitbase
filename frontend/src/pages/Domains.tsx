@@ -30,6 +30,10 @@ import {
   ExternalLink,
   Settings,
   ArrowLeft,
+  Lock,
+  LockOpen,
+  MoreHorizontal,
+  Building2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -38,9 +42,10 @@ import {
   useDomain,
   useDeleteDomain,
   useVerifyDomain,
-  useRenewSSL,
   useCreateDomain,
   useDomainDnsZone,
+  useSyncDomains,
+  useBulkAssignDomains,
 } from "@/hooks/useDomains";
 import { useQuery } from "@tanstack/react-query";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
@@ -82,6 +87,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// radix Select rejects an empty string value, so "no organization" needs a sentinel
+const UNASSIGNED = "__unassigned__";
+const ANY = "__any__";
 
 export default function Domains() {
   const navigate = useNavigate();
@@ -90,7 +108,7 @@ export default function Domains() {
 
   const query = useTableQuery();
   const [confirmAction, setConfirmAction] = useState<{
-    type: "delete" | "verify" | "renew";
+    type: "delete" | "verify";
     domainId: string;
     domainName: string;
   } | null>(null);
@@ -98,10 +116,25 @@ export default function Domains() {
   const [addMode, setAddMode] = useState<"existing" | "register">("existing");
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainOrgId, setNewDomainOrgId] = useState("");
+  const [listFilter, setListFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(ANY);
+  const [expiryFilter, setExpiryFilter] = useState(ANY);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOrgId, setBulkOrgId] = useState("");
+  const [assignTarget, setAssignTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [assignOrgId, setAssignOrgId] = useState(UNASSIGNED);
   const { toast } = useToast();
 
   // API hooks
-  const { data: domainsData, isLoading, error } = useDomainsPage(query.params);
+  const { data: domainsData, isLoading, error } = useDomainsPage({
+    ...query.params,
+    ...(listFilter !== "all" && { filter: listFilter }),
+    ...(statusFilter !== ANY && { status: statusFilter }),
+    ...(expiryFilter !== ANY && { expiring: expiryFilter }),
+  });
   const {
     data: domainDetail,
     isLoading: domainLoading,
@@ -109,8 +142,9 @@ export default function Domains() {
   } = useDomain(domainId || "");
   const deleteDomain = useDeleteDomain();
   const verifyDomain = useVerifyDomain();
-  const renewSSL = useRenewSSL();
   const createDomain = useCreateDomain();
+  const syncDomains = useSyncDomains();
+  const bulkAssign = useBulkAssignDomains();
   // adding a domain provisions a real Cloudflare zone — admins only
   const admin = isAdmin();
   const { data: organizations = [] } = useQuery({
@@ -125,16 +159,56 @@ export default function Domains() {
   } = useDomainDnsZone(domainId);
 
   const domains = domainsData?.data ?? [];
+  const allSelected =
+    domains.length > 0 && domains.every((d) => selectedIds.includes(d.id));
+
+  const toggleAll = () =>
+    setSelectedIds(allSelected ? [] : domains.map((d) => d.id));
+
+  const toggleOne = (id: string) =>
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
 
   const domainColumns: Column<(typeof domains)[number]>[] = [
+    ...(admin
+      ? [
+          {
+            header: (
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={toggleAll}
+                aria-label="Select all domains on this page"
+              />
+            ),
+            className: "w-10",
+            cell: (domain: Domain) => (
+              <Checkbox
+                checked={selectedIds.includes(domain.id)}
+                onCheckedChange={() => toggleOne(domain.id)}
+                aria-label={`Select ${domain.name}`}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       header: "Domain",
-      cell: (domain) => (
-        <div className="flex items-center space-x-2 font-medium">
-          <Globe className="h-4 w-4 text-muted-foreground" />
-          <span>{domain.name}</span>
-        </div>
-      ),
+      cell: (domain) => {
+        const secure = domain.sslStatus === "ACTIVE";
+        const LockIcon = secure ? Lock : LockOpen;
+        return (
+          <div className="flex items-center space-x-2 font-medium">
+            <LockIcon
+              className={`h-4 w-4 ${
+                secure ? "text-success" : "text-muted-foreground"
+              }`}
+              aria-label={secure ? "SSL active" : "No active SSL"}
+            />
+            <span>{domain.name}</span>
+          </div>
+        );
+      },
     },
     {
       header: "Organization",
@@ -146,135 +220,108 @@ export default function Domains() {
         ),
     },
     {
-      header: "Status",
+      header: "Source",
       cell: (domain) => (
-        <div className="flex items-center space-x-2">
-          {getStatusIcon(domain.status)}
-          {getStatusBadge(domain.status)}
+        <div className="flex items-center gap-1">
+          <Badge variant={domain.registrar === "RDASH" ? "default" : "outline"}>
+            {domain.registrar === "RDASH"
+              ? "RDASH"
+              : domain.registrar === "EXTERNAL"
+              ? "External"
+              : "Unknown"}
+          </Badge>
+          <Badge variant={domain.cfZoneId ? "secondary" : "outline"}>
+            {domain.cfZoneId ? "Cloudflare" : "No zone"}
+          </Badge>
         </div>
       ),
+    },
+    {
+      header: "Status",
+      cell: (domain) => getStatusBadge(domain.status),
     },
     {
       header: "SSL Status",
-      cell: (domain) => (
-        <div className="flex items-center space-x-2">
-          {getSSLIcon(domain.sslStatus)}
-          {getSSLBadge(domain.sslStatus)}
-        </div>
-      ),
+      cell: (domain) => getSSLBadge(domain.sslStatus),
     },
     {
-      header: "SSL Expiry",
-      cell: (domain) =>
-        domain.sslExpiry
-          ? new Date(domain.sslExpiry).toLocaleDateString()
-          : "-",
-    },
-    {
-      header: "Redirect To",
-      cell: (domain) =>
-        domain.redirectTo ? (
-          <div className="flex items-center space-x-2">
-            <ExternalLink className="h-3 w-3 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">
-              {domain.redirectTo}
-            </span>
-          </div>
-        ) : (
-          "-"
-        ),
-    },
-    {
-      header: "Created",
-      cell: (domain) => new Date(domain.createdAt).toLocaleDateString(),
+      header: "Expires",
+      cell: (domain) => {
+        if (!domain.expiresAt) {
+          return <span className="text-muted-foreground">-</span>;
+        }
+        const expiry = new Date(domain.expiresAt);
+        const daysLeft = Math.ceil(
+          (expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+        );
+        return (
+          <span
+            className={
+              daysLeft < 0
+                ? "text-destructive font-medium"
+                : daysLeft <= 30
+                ? "text-warning font-medium"
+                : ""
+            }
+          >
+            {expiry.toLocaleDateString()}
+            {daysLeft >= 0 && daysLeft <= 30 && (
+              <span className="ml-1 text-xs">({daysLeft}d)</span>
+            )}
+            {daysLeft < 0 && <span className="ml-1 text-xs">(expired)</span>}
+          </span>
+        );
+      },
     },
     {
       header: "Actions",
+      className: "w-16",
       cell: (domain) => (
-        <div className="flex items-center space-x-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(`/domains/${domain.id}`)}
-                aria-label={`View details for ${domain.name}`}
-                className="h-8 w-8 p-0"
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              aria-label={`Actions for ${domain.name}`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => navigate(`/domains/${domain.id}`)}>
+              <Eye className="mr-2 h-4 w-4" />
+              View details
+            </DropdownMenuItem>
+            {admin && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setAssignTarget({ id: domain.id, name: domain.name });
+                  setAssignOrgId(domain.organization?.id ?? UNASSIGNED);
+                }}
               >
-                <Eye className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>View domain details</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleVerify(domain.id, domain.name)}
-                aria-label={`Verify ${domain.name}`}
-                disabled={verifyDomain.isPending}
-                className="h-8 w-8 p-0"
-              >
-                {verifyDomain.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Verify DNS records</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleRenewSSL(domain.id, domain.name)}
-                aria-label={`Renew SSL for ${domain.name}`}
-                disabled={renewSSL.isPending}
-                className="h-8 w-8 p-0"
-              >
-                {renewSSL.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Shield className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Renew SSL certificate</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDelete(domain.id, domain.name)}
-                aria-label={`Delete ${domain.name}`}
-                disabled={deleteDomain.isPending}
-                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-              >
-                {deleteDomain.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Delete domain</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
+                <Building2 className="mr-2 h-4 w-4" />
+                Assign organization
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onClick={() => handleVerify(domain.id, domain.name)}
+              disabled={verifyDomain.isPending}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Verify DNS
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => handleDelete(domain.id, domain.name)}
+              disabled={deleteDomain.isPending}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete domain
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
@@ -315,10 +362,6 @@ export default function Domains() {
     setConfirmAction({ type: "verify", domainId: id, domainName: name });
   };
 
-  const handleRenewSSL = async (id: string, name: string) => {
-    setConfirmAction({ type: "renew", domainId: id, domainName: name });
-  };
-
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = newDomainName.trim();
@@ -353,9 +396,6 @@ export default function Domains() {
         case "verify":
           await verifyDomain.mutateAsync(confirmAction.domainId);
           break;
-        case "renew":
-          await renewSSL.mutateAsync(confirmAction.domainId);
-          break;
       }
     } catch (error) {
       // Error is handled by the mutation
@@ -382,13 +422,6 @@ export default function Domains() {
           title: "Verify Domain DNS",
           description: `Are you sure you want to verify the DNS records for "${domainName}"? This will check if the domain is properly configured.`,
           actionText: "Verify DNS",
-          variant: "default" as const,
-        };
-      case "renew":
-        return {
-          title: "Renew SSL Certificate",
-          description: `Are you sure you want to renew the SSL certificate for "${domainName}"? This will generate a new certificate valid for one year.`,
-          actionText: "Renew SSL",
           variant: "default" as const,
         };
     }
@@ -530,26 +563,6 @@ export default function Domains() {
                     <>
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Verify DNS
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    handleRenewSSL(domainDetail.id, domainDetail.name)
-                  }
-                  disabled={renewSSL.isPending}
-                >
-                  {renewSSL.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Renewing
-                    </>
-                  ) : (
-                    <>
-                      <Shield className="h-4 w-4 mr-2" />
-                      Renew SSL
                     </>
                   )}
                 </Button>
@@ -735,6 +748,19 @@ export default function Domains() {
               description="Manage your custom domains and SSL certificates."
               actions={
                 admin ? (
+                  <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => syncDomains.mutate()}
+                    disabled={syncDomains.isPending}
+                  >
+                    {syncDomains.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    Sync domains
+                  </Button>
                   <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
                     <Button
                       className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
@@ -852,9 +878,112 @@ export default function Domains() {
                       </form>
                     </DialogContent>
                   </Dialog>
+                  </div>
                 ) : null
               }
             >
+              <div className="flex flex-wrap items-center gap-3">
+                <Tabs
+                  value={listFilter}
+                  onValueChange={(value) => {
+                    setListFilter(value);
+                    query.setPage(1);
+                  }}
+                >
+                  <TabsList>
+                    <TabsTrigger value="all">All</TabsTrigger>
+                    <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
+                    <TabsTrigger value="needs-attention">
+                      Needs attention
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
+                <OrganizationFilter query={query} />
+
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => {
+                    setStatusFilter(value);
+                    query.setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="Any status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ANY}>Any status</SelectItem>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="PENDING">Pending</SelectItem>
+                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                    <SelectItem value="ERROR">Error</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={expiryFilter}
+                  onValueChange={(value) => {
+                    setExpiryFilter(value);
+                    query.setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Any expiration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ANY}>Any expiration</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                    <SelectItem value="30">Expiring in 30 days</SelectItem>
+                    <SelectItem value="60">Expiring in 60 days</SelectItem>
+                    <SelectItem value="90">Expiring in 90 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {admin && selectedIds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-muted/40 p-3">
+                  <span className="text-sm font-medium">
+                    {selectedIds.length} selected
+                  </span>
+                  <Select value={bulkOrgId} onValueChange={setBulkOrgId}>
+                    <SelectTrigger className="w-64">
+                      <SelectValue placeholder="Assign to organization" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {organizations.map((org) => (
+                        <SelectItem key={org.id} value={org.id}>
+                          {org.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    disabled={!bulkOrgId || bulkAssign.isPending}
+                    onClick={async () => {
+                      await bulkAssign.mutateAsync({
+                        ids: selectedIds,
+                        organizationId: bulkOrgId,
+                      });
+                      setSelectedIds([]);
+                      setBulkOrgId("");
+                    }}
+                  >
+                    {bulkAssign.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Assign
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedIds([])}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+
               <DataTable
                 columns={domainColumns}
                 rows={domains}
@@ -868,18 +997,65 @@ export default function Domains() {
                     ? "No domains yet — add your first custom domain."
                     : "No domains are assigned to your organization yet. Ask an administrator to assign one."
                 }
-                toolbar={
-                  <>
-                    <OrganizationFilter query={query} />
-                    <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      <Globe className="h-4 w-4 text-primary" />
-                      <span>{domainsData?.pagination.total ?? 0} domains</span>
-                    </div>
-                  </>
-                }
-              />
+                />
             </PageLayout>
           </>
+        )}
+
+        {assignTarget && (
+          <Dialog
+            open={!!assignTarget}
+            onOpenChange={(open) => !open && setAssignTarget(null)}
+          >
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Assign organization</DialogTitle>
+                <DialogDescription>
+                  Choose which organization owns {assignTarget.name}. Only its
+                  members can create applications on the domain.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Select value={assignOrgId} onValueChange={setAssignOrgId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an organization" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+                    {organizations.map((org) => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center justify-end space-x-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setAssignTarget(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={bulkAssign.isPending}
+                    onClick={async () => {
+                      await bulkAssign.mutateAsync({
+                        ids: [assignTarget.id],
+                        organizationId:
+                          assignOrgId === UNASSIGNED ? null : assignOrgId,
+                      });
+                      setAssignTarget(null);
+                    }}
+                  >
+                    {bulkAssign.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
 
         {confirmAction && dialogContent && (
@@ -899,9 +1075,7 @@ export default function Domains() {
                 <AlertDialogAction
                   onClick={executeAction}
                   disabled={
-                    deleteDomain.isPending ||
-                    verifyDomain.isPending ||
-                    renewSSL.isPending
+                    deleteDomain.isPending || verifyDomain.isPending
                   }
                   className={
                     dialogContent.variant === "destructive"
@@ -909,9 +1083,7 @@ export default function Domains() {
                       : ""
                   }
                 >
-                  {deleteDomain.isPending ||
-                  verifyDomain.isPending ||
-                  renewSSL.isPending ? (
+                  {deleteDomain.isPending || verifyDomain.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       Processing...
