@@ -76,6 +76,50 @@ export async function listCloudflareZones(params?: { page?: number; perPage?: nu
   }
 }
 
+let cachedAccountId: string | null = null;
+
+/**
+ * Cloudflare rejects zone creation without an account id (error 1067). Prefer the one
+ * stored in the integration config, otherwise take the token's first account.
+ */
+export async function getCloudflareAccountId(): Promise<string | null> {
+  if (cachedAccountId) return cachedAccountId;
+
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) return null;
+
+  const { fetchFn, config } = shared;
+
+  const configured = (config as any).accountId;
+  if (configured && typeof configured === 'string' && configured.trim()) {
+    cachedAccountId = configured.trim();
+    return cachedAccountId;
+  }
+
+  try {
+    const response = await fetchFn(`${config.apiBase}/accounts`, {
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const first = Array.isArray(data?.result) ? data.result[0] : null;
+
+    if (first?.id) {
+      cachedAccountId = String(first.id);
+      return cachedAccountId;
+    }
+  } catch {
+    // fall through
+  }
+
+  return null;
+}
+
 export async function getOrCreateCloudflareZone(domain: string): Promise<CloudflareZoneInfo | null> {
   const shared = await getCloudflareFetchConfig();
   if (!shared) {
@@ -119,27 +163,40 @@ export async function getOrCreateCloudflareZone(domain: string): Promise<Cloudfl
   } catch {
   }
 
+  const accountId = await getCloudflareAccountId();
+  if (!accountId) {
+    throw new Error(
+      'No Cloudflare account available for this API token — zones cannot be created.',
+    );
+  }
+
   const createUrl = `${apiBase}/zones`;
   const createBody = {
     name: trimmedDomain,
-    jump_start: false,
+    account: { id: accountId },
+    type: 'full',
   };
 
+  const createResponse = await fetchFn(createUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(createBody),
+  });
+
+  const createData = await createResponse.json().catch(() => null);
+
+  if (!createResponse.ok) {
+    // Cloudflare says exactly what is wrong — repeating it beats a generic failure
+    const reason = Array.isArray(createData?.errors)
+      ? createData.errors.map((e: any) => e?.message).filter(Boolean).join('; ')
+      : '';
+    throw new Error(reason || `Cloudflare rejected the zone (HTTP ${createResponse.status})`);
+  }
+
   try {
-    const createResponse = await fetchFn(createUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(createBody),
-    });
-
-    if (!createResponse.ok) {
-      return null;
-    }
-
-    const createData = await createResponse.json();
     const result = createData && createData.result;
     if (!result || !result.id) {
       return null;
@@ -155,8 +212,8 @@ export async function getOrCreateCloudflareZone(domain: string): Promise<Cloudfl
       name: String(result.name || trimmedDomain),
       nameServers,
     };
-  } catch {
-    return null;
+  } catch (error: any) {
+    throw new Error(error?.message || 'Could not read the created Cloudflare zone');
   }
 }
 
@@ -381,14 +438,20 @@ export async function getZoneSslState(zoneId: string): Promise<ZoneSslState | nu
     });
 
     if (!response.ok) {
-      return null;
+      // usually a token without "SSL and Certificates: Read" - say so instead of silently pending
+      console.error(
+        `Cloudflare certificate_packs ${response.status} for zone ${trimmedZoneId}:`,
+        (await response.text().catch(() => '')).slice(0, 300),
+      );
+      return getZoneSslStateFromVerification(fetchFn, config, trimmedZoneId);
     }
 
     const data = await response.json();
     const packs: any[] = data && Array.isArray(data.result) ? data.result : [];
 
+    // free zones list no packs at all - Universal SSL only shows up under /ssl/verification
     if (packs.length === 0) {
-      return { status: 'PENDING', expiry: null };
+      return getZoneSslStateFromVerification(fetchFn, config, trimmedZoneId);
     }
 
     // an active pack wins; otherwise report on the first one Cloudflare lists
@@ -426,6 +489,66 @@ export async function getZoneSslState(zoneId: string): Promise<ZoneSslState | nu
     }
 
     return { status, expiry };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Universal SSL fallback. certificate_packs only lists advanced packs on most plans,
+ * so a zone with a perfectly good Universal cert looks like it has none.
+ * /ssl/verification reports Universal on every plan.
+ */
+async function getZoneSslStateFromVerification(
+  fetchFn: any,
+  config: { apiBase: string; apiToken: string },
+  zoneId: string,
+): Promise<ZoneSslState | null> {
+  try {
+    const response = await fetchFn(
+      `${config.apiBase}/zones/${encodeURIComponent(zoneId)}/ssl/verification`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        `Cloudflare ssl/verification ${response.status} for zone ${zoneId}:`,
+        (await response.text().catch(() => '')).slice(0, 300),
+      );
+      return null;
+    }
+
+    const data = await response.json();
+    const rows: any[] = data && Array.isArray(data.result) ? data.result : [];
+
+    if (rows.length === 0) {
+      return { status: 'PENDING', expiry: null };
+    }
+
+    const row = rows.find((r) => r?.certificate_status === 'active') || rows[0];
+
+    switch (row?.certificate_status) {
+      case 'active':
+        // no expires_on here; the next certificate_packs hit fills sslExpiry in
+        return { status: 'ACTIVE', expiry: null };
+      case 'initializing':
+      case 'pending_validation':
+      case 'pending_issuance':
+      case 'pending_deployment':
+      case 'pending_cleanup':
+        return { status: 'PENDING', expiry: null };
+      case 'expired':
+      case 'deleted':
+        return { status: 'EXPIRED', expiry: null };
+      default:
+        return { status: 'ERROR', expiry: null };
+    }
   } catch {
     return null;
   }

@@ -45,7 +45,7 @@ function getDomainUpdateNameserversPath(): string {
 }
 
 export async function rdashRequest<T = any>(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: any,
 ): Promise<T> {
@@ -76,8 +76,14 @@ export async function rdashRequest<T = any>(
   let requestBody: string | undefined;
 
   if (body !== undefined && body !== null) {
-    headers['Content-Type'] = 'application/json';
-    requestBody = JSON.stringify(body);
+    if (body instanceof URLSearchParams) {
+      // the write endpoints are documented as application/x-www-form-urlencoded
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      requestBody = body.toString();
+    } else {
+      headers['Content-Type'] = 'application/json';
+      requestBody = JSON.stringify(body);
+    }
   }
 
   const response = await fetchFn(url, {
@@ -168,15 +174,39 @@ export async function registerRdashDomain(payload: any): Promise<any> {
   return rdashRequest('POST', getDomainRegisterPath(), body);
 }
 
-export async function updateRdashDomainNameservers(domain: string, payload?: any): Promise<any> {
-  const body: any = { ...(payload || {}), domain };
-  const nameservers = await getRdashNameservers();
+/**
+ * Point a domain's nameservers somewhere else.
+ * Documented as `PUT /domains/{id}/ns`, form-encoded, with `nameserver[0..4]` —
+ * not JSON, and not the `/domains/nameservers` path this used to call.
+ */
+export async function updateRdashDomainNameservers(
+  domain: string,
+  payload?: { nameservers?: string[] },
+): Promise<any> {
+  const requested = payload?.nameservers?.filter((ns) => ns && ns.trim().length > 0) ?? [];
+  const nameservers = requested.length > 0 ? requested : await getRdashNameservers();
 
-  if ((!body.nameservers || !Array.isArray(body.nameservers) || body.nameservers.length === 0) && nameservers.length > 0) {
-    body.nameservers = nameservers;
+  if (nameservers.length < 2) {
+    throw new Error('At least two nameservers are required');
   }
 
-  return rdashRequest('POST', getDomainUpdateNameserversPath(), body);
+  const rdashDomain = await findRdashDomain(domain);
+  if (!rdashDomain) {
+    throw new Error(`${domain} was not found in the RDASH account`);
+  }
+
+  const current = rdashDomain.nameservers.map((ns) => ns.toLowerCase()).sort().join(',');
+  const next = nameservers.map((ns) => ns.trim().toLowerCase()).sort().join(',');
+
+  // RDASH rejects a no-op write with a validation error, so treat it as already done
+  if (current === next) {
+    return { success: true, message: 'Nameservers already set', unchanged: true };
+  }
+
+  const form = new URLSearchParams();
+  nameservers.slice(0, 5).forEach((ns, i) => form.append(`nameserver[${i}]`, ns.trim()));
+
+  return rdashRequest('PUT', `/domains/${rdashDomain.id}/ns`, form);
 }
 
 export async function listRdashDomains(query?: Record<string, any>): Promise<any> {
@@ -243,4 +273,21 @@ export async function findRdashDomain(name: string): Promise<RdashDomainRef | nu
 export async function getRdashDomainDns(domainId: number | string): Promise<any[]> {
   const raw: any = await rdashRequest('GET', `/domains/${domainId}/dns`);
   return Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
+}
+
+/**
+ * Renew a domain registration at RDASH.
+ * Documented as `POST /domains/{id}/renew`, form-encoded, with `year`.
+ * This spends reseller balance — callers must confirm with the user first.
+ */
+export async function renewRdashDomain(domain: string, years = 1): Promise<any> {
+  const rdashDomain = await findRdashDomain(domain);
+  if (!rdashDomain) {
+    throw new Error(`${domain} was not found at the registrar`);
+  }
+
+  const form = new URLSearchParams();
+  form.append('year', String(years));
+
+  return rdashRequest('POST', `/domains/${rdashDomain.id}/renew`, form);
 }

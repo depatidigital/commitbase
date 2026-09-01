@@ -24,7 +24,11 @@ import AcceptInvite from "./pages/AcceptInvite";
 import ChangePassword from "./pages/ChangePassword";
 import { isAdmin, isSuperAdmin, isAuthenticated, mustChangePassword } from "@/lib/auth";
 
+import { APP_NAME } from "@/lib/branding";
+
 const queryClient = new QueryClient();
+
+document.title = APP_NAME;
 
 // Protected Route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {

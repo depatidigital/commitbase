@@ -6,8 +6,9 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords } from '../services/cloudflareService';
-import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers } from '../services/rdashService';
+import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain } from '../services/rdashService';
 import { syncDomains } from '../services/domainSyncService';
+import { getDomainRegistration } from '../services/rdapService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
 const sortOrder = (sort: unknown, order: unknown): any => {
@@ -415,7 +416,7 @@ router.get('/:id/rdash-dns', authenticateToken, async (req: AuthenticatedRequest
       return res.json({
         success: true,
         data: { registered: false, nameservers: [], records: [] },
-        message: 'Domain is not registered through RDASH',
+        message: 'Domain is not registered through a managed registrar',
       } as ApiResponse);
     }
 
@@ -425,7 +426,7 @@ router.get('/:id/rdash-dns', authenticateToken, async (req: AuthenticatedRequest
       return res.json({
         success: true,
         data: { registered: false, nameservers: [], records: [] },
-        message: 'Domain not found in the RDASH account',
+        message: 'Domain not found at the registrar',
       } as ApiResponse);
     }
 
@@ -442,13 +443,13 @@ router.get('/:id/rdash-dns', authenticateToken, async (req: AuthenticatedRequest
         ),
         records,
       },
-      message: 'RDASH DNS retrieved successfully',
+      message: 'Registrar DNS retrieved successfully',
     } as ApiResponse);
   } catch (error) {
     console.error('Error fetching RDASH DNS:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to read DNS from RDASH',
+      error: 'Failed to read DNS from the registrar',
     } as ApiResponse);
   }
 });
@@ -484,15 +485,24 @@ router.post('/:id/cloudflare/enable', authenticateToken, requireRole(['ADMIN']),
           snapshot = await getRdashDomainDns(rdashDomain.id);
           steps.push(`Recorded ${snapshot.length} DNS record(s) from RDASH`);
         } catch {
-          warnings.push('Could not read the existing DNS records from RDASH');
+          warnings.push('Could not read the existing DNS records from the registrar');
         }
       } else {
-        warnings.push('Domain is marked RDASH but was not found in the RDASH account');
+        warnings.push('Domain is marked as registrar-managed but was not found at the registrar');
       }
     }
 
     // 2. zone first, so there is somewhere to put them
-    const zone = await getOrCreateCloudflareZone(domain.name);
+    let zone;
+    try {
+      zone = await getOrCreateCloudflareZone(domain.name);
+    } catch (error: any) {
+      return res.status(502).json({
+        success: false,
+        error: `Cloudflare could not create the zone: ${error?.message || 'unknown error'}`,
+      } as ApiResponse);
+    }
+
     if (!zone) {
       return res.status(502).json({
         success: false,
@@ -522,7 +532,7 @@ router.post('/:id/cloudflare/enable', authenticateToken, requireRole(['ADMIN']),
         steps.push(`Pointed the RDASH nameservers at ${zone.nameServers.join(', ')}`);
       } catch (error: any) {
         warnings.push(
-          `Could not update the nameservers at RDASH: ${error?.message || 'unknown error'}`,
+          `Could not update the nameservers at the registrar: ${error?.message || 'unknown error'}`,
         );
       }
     } else if (!rdashDomain) {
@@ -616,6 +626,72 @@ router.post('/:id/cloudflare/disable', authenticateToken, requireRole(['ADMIN'])
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+// Registration record straight from the registry (RDAP) — who it is registered
+// with, when it was created, and what the registry-side status is.
+router.get('/:id/registration', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const domain = await prisma.domain.findFirst({
+      where: { id: id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    const registration = await getDomainRegistration(domain.name);
+
+    return res.json({
+      success: true,
+      data: registration,
+      message: registration
+        ? 'Registration retrieved successfully'
+        : 'No registry record available for this domain',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching domain registration:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// Renew a domain registration at the registrar (RDASH only) — spends reseller balance
+router.post('/:id/renew', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const years = Math.min(Math.max(Number(req.body?.years) || 1, 1), 10);
+
+    const domain = await prisma.domain.findFirst({
+      where: { id: id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    if (domain.registrar !== 'RDASH') {
+      return res.status(400).json({
+        success: false,
+        error: 'This domain is not managed by a connected registrar. Renew it where it is registered.',
+      } as ApiResponse);
+    }
+
+    await renewRdashDomain(domain.name, years);
+
+    return res.json({
+      success: true,
+      data: domain,
+      message: `Renewal for ${years} year(s) submitted to the registrar. Run Sync domains to refresh the expiry date.`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error renewing domain:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error',
     } as ApiResponse);
   }
 });

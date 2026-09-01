@@ -194,3 +194,43 @@ export const verifyDomain = async (id: string): Promise<DomainVerificationResult
 
   throw new Error(response.error || 'Failed to verify domain');
 };
+
+// Renew a domain registration at the registrar (RDASH only)
+export const renewDomain = async (id: string, years = 1): Promise<string> => {
+  const response = await apiRequest(`/domains/${id}/renew`, {
+    method: 'POST',
+    body: JSON.stringify({ years }),
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to renew domain');
+  }
+
+  return response.message || 'Renewal submitted.';
+};
+
+export type DomainRegistration = {
+  domain: string;
+  registrar: string | null;
+  registrarId: string | null;
+  status: string[];
+  registeredAt: string | null;
+  updatedAt: string | null;
+  expiresAt: string | null;
+  nameservers: string[];
+};
+
+// Registry record (RDAP). null means the TLD publishes nothing we can read.
+export const getDomainRegistration = async (
+  id: string
+): Promise<DomainRegistration | null> => {
+  const response = await apiRequest<DomainRegistration | null>(
+    `/domains/${id}/registration`
+  );
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to look up the registration');
+  }
+
+  return response.data ?? null;
+};

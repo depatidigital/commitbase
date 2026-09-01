@@ -10,6 +10,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { acceptInvite, getInvitePreview } from "@/lib/organizations";
 import { setAuthToken } from "@/lib/api";
+import { APP_NAME } from '@/lib/branding';
 
 export default function AcceptInvite() {
   const [params] = useSearchParams();
@@ -120,7 +121,7 @@ export default function AcceptInvite() {
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            You already have a CommitBase account with this email — accepting adds
+            You already have a {APP_NAME} account with this email — accepting adds
             you to {invite.organizationName}. Your password stays the same.
           </p>
         )}

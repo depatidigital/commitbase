@@ -33,6 +33,7 @@ import {
   LockOpen,
   MoreHorizontal,
   Building2,
+  RotateCw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -48,12 +49,14 @@ import {
   useRdashDns,
   useEnableCloudflare,
   useDisableCloudflare,
+  useRenewDomain,
+  useDomainRegistration,
 } from "@/hooks/useDomains";
 import { useQuery } from "@tanstack/react-query";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
-import { getOrganizations } from "@/lib/organizations";
+import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { isAdmin } from "@/lib/auth";
 import { Domain } from "@/types/domain";
 import {
@@ -98,11 +101,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { APP_NAME } from '@/lib/branding';
 
 // radix Select rejects an empty string value, so "no organization" needs a sentinel
 const UNASSIGNED = "__unassigned__";
 const ANY = "__any__";
+
+// expired, or inside the 30-day window the Expires column already highlights
+const needsRenewal = (domain: Pick<Domain, "expiresAt">) => {
+  if (!domain.expiresAt) return false;
+  const daysLeft =
+    (new Date(domain.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  return daysLeft <= 30;
+};
 
 const formatDate = (value: Date) =>
   value.toLocaleDateString("id-ID", {
@@ -118,7 +130,7 @@ export default function Domains() {
 
   const query = useTableQuery();
   const [confirmAction, setConfirmAction] = useState<{
-    type: "delete" | "verify";
+    type: "delete" | "verify" | "renew";
     domainId: string;
     domainName: string;
   } | null>(null);
@@ -158,18 +170,16 @@ export default function Domains() {
   const bulkAssign = useBulkAssignDomains();
   const enableCloudflare = useEnableCloudflare();
   const disableCloudflare = useDisableCloudflare();
+  const renewDomain = useRenewDomain();
   // adding a domain provisions a real Cloudflare zone — admins only
   const admin = isAdmin();
-  const { data: organizations = [] } = useQuery({
-    queryKey: ["organizations"],
-    queryFn: getOrganizations,
-    enabled: admin,
-  });
   const {
     data: domainDnsZone,
     isLoading: dnsZoneLoading,
     error: dnsZoneError,
   } = useDomainDnsZone(domainId);
+  const { data: registration, isLoading: registrationLoading } =
+    useDomainRegistration(domainId);
   const { data: rdashDns, isLoading: rdashDnsLoading } = useRdashDns(
     domainId,
     domainDetail?.registrar === "RDASH"
@@ -212,11 +222,12 @@ export default function Domains() {
     {
       header: "Domain",
       sortKey: "name",
+      className: "w-[26%]",
       cell: (domain) => {
         const secure = domain.sslStatus === "ACTIVE";
         const Icon = secure ? Globe : LockOpen;
         return (
-          <div className="flex items-center space-x-2 font-medium">
+          <div className="flex min-w-0 items-center space-x-2 font-medium">
             <Icon
               className={`h-4 w-4 ${
                 secure ? "text-success" : "text-warning"
@@ -228,10 +239,13 @@ export default function Domains() {
             <button
               type="button"
               onClick={() => navigate(`/domains/${domain.id}`)}
-              className="hover:underline"
+              className="truncate hover:underline"
             >
               {domain.name}
             </button>
+            {domain.registrar === "EXTERNAL" && (
+              <Badge variant="secondary">External</Badge>
+            )}
             {!domain.cfZoneId && (
               <Badge
                 variant="outline"
@@ -246,20 +260,25 @@ export default function Domains() {
     },
     {
       header: "Organization",
+      className: "w-[26%]",
       cell: (domain) =>
         domain.organization ? (
-          <Badge variant="outline">{domain.organization.name}</Badge>
+          <Badge variant="outline" className="max-w-full truncate">
+            {domain.organization.name}
+          </Badge>
         ) : (
           <span className="text-muted-foreground">Unassigned</span>
         ),
     },
     {
       header: "Status",
+      className: "w-28",
       cell: (domain) => getStatusBadge(domain.status),
     },
     {
       header: "Expires",
       sortKey: "expiresAt",
+      className: "w-64",
       cell: (domain) => {
         if (!domain.expiresAt) {
           return <span className="text-muted-foreground">-</span>;
@@ -283,6 +302,18 @@ export default function Domains() {
               <span className="ml-1 text-xs">({daysLeft}d)</span>
             )}
             {daysLeft < 0 && <span className="ml-1 text-xs">(expired)</span>}
+            {admin && needsRenewal(domain) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-2 h-6 px-2 text-xs"
+                onClick={() => handleRenew(domain)}
+                disabled={renewDomain.isPending}
+              >
+                <RotateCw className="h-3 w-3 mr-1" />
+                Renew
+              </Button>
+            )}
           </span>
         );
       },
@@ -316,6 +347,15 @@ export default function Domains() {
               >
                 <Building2 className="mr-2 h-4 w-4" />
                 Assign organization
+              </DropdownMenuItem>
+            )}
+            {admin && needsRenewal(domain) && (
+              <DropdownMenuItem
+                onClick={() => handleRenew(domain)}
+                disabled={renewDomain.isPending}
+              >
+                <RotateCw className="mr-2 h-4 w-4" />
+                Renew registration
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
@@ -376,6 +416,18 @@ export default function Domains() {
     setConfirmAction({ type: "verify", domainId: id, domainName: name });
   };
 
+  const handleRenew = (domain: Pick<Domain, "id" | "name" | "registrar">) => {
+    // external domains live at a registrar we do not talk to — say so instead of failing
+    if (domain.registrar !== "RDASH") {
+      toast({
+        title: "External domain",
+        description: `${domain.name} is registered outside ${APP_NAME}. Renew it with the registrar you bought it from.`,
+      });
+      return;
+    }
+    setConfirmAction({ type: "renew", domainId: domain.id, domainName: domain.name });
+  };
+
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = newDomainName.trim();
@@ -410,6 +462,9 @@ export default function Domains() {
         case "verify":
           await verifyDomain.mutateAsync(confirmAction.domainId);
           break;
+        case "renew":
+          await renewDomain.mutateAsync({ id: confirmAction.domainId });
+          break;
       }
     } catch (error) {
       // Error is handled by the mutation
@@ -436,6 +491,13 @@ export default function Domains() {
           title: "Verify Domain DNS",
           description: `Are you sure you want to verify the DNS records for "${domainName}"? This will check if the domain is properly configured.`,
           actionText: "Verify DNS",
+          variant: "default" as const,
+        };
+      case "renew":
+        return {
+          title: "Renew Domain",
+          description: `Renew "${domainName}" for 1 year at the registrar? This charges your registrar account and cannot be undone.`,
+          actionText: "Renew for 1 year",
           variant: "default" as const,
         };
     }
@@ -555,7 +617,7 @@ export default function Domains() {
                 </Button>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-semibold">
+                    <h1 className="text-xl font-semibold">
                       {domainDetail.name}
                     </h1>
                     {getStatusBadge(domainDetail.status)}
@@ -566,6 +628,18 @@ export default function Domains() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {admin && needsRenewal(domainDetail) && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      handleRenew(domainDetail)
+                    }
+                    disabled={renewDomain.isPending}
+                  >
+                    <RotateCw className="h-4 w-4 mr-2" />
+                    Renew
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -609,210 +683,411 @@ export default function Domains() {
               </div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Overview</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Status</span>
-                    {getStatusBadge(domainDetail.status)}
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">SSL</span>
-                    {getSSLBadge(domainDetail.sslStatus)}
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Registrar</span>
-                    <span>
-                      {domainDetail.registrar === "RDASH"
-                        ? "RDASH"
-                        : domainDetail.registrar === "EXTERNAL"
-                        ? "External"
-                        : "Unknown"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Registration expiry</span>
-                    <span>
-                      {domainDetail.expiresAt
-                        ? formatDate(new Date(domainDetail.expiresAt))
-                        : "-"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">SSL expiry</span>
-                    <span>
-                      {domainDetail.sslExpiry
-                        ? formatDate(new Date(domainDetail.sslExpiry))
-                        : "-"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Redirect to</span>
-                    <span className="flex items-center gap-2">
-                      {domainDetail.redirectTo ? (
-                        <>
-                          <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">
-                            {domainDetail.redirectTo}
-                          </span>
-                        </>
-                      ) : (
-                        "-"
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Created</span>
-                    <span>
-                      {formatDate(new Date(domainDetail.createdAt))}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+            <Tabs defaultValue="overview" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                {admin && (
+                  <TabsTrigger value="settings">Settings</TabsTrigger>
+                )}
+              </TabsList>
 
-              <Card
-                className={
-                  domainDetail.cfZoneId
-                    ? undefined
-                    : "border-warning/50 bg-warning/5"
-                }
-              >
-                <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                  <CardTitle className="flex items-center gap-2">
-                    Cloudflare Zone
-                    {!domainDetail.cfZoneId && (
-                      <Badge
-                        variant="outline"
-                        className="border-warning text-warning gap-1"
-                      >
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        Not configured
-                      </Badge>
-                    )}
-                  </CardTitle>
-                  {admin && (
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs ${
-                          domainDetail.cfZoneId
-                            ? "text-muted-foreground"
-                            : "font-medium text-warning"
-                        }`}
-                      >
-                        {domainDetail.cfZoneId ? "On" : "Off"}
+              <TabsContent value="overview" className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Overview</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 pt-0">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Status</span>
+                      {getStatusBadge(domainDetail.status)}
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">SSL</span>
+                      {getSSLBadge(domainDetail.sslStatus)}
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Registrar</span>
+                      <span>
+                        {domainDetail.registrar === "RDASH"
+                          ? "Managed"
+                          : domainDetail.registrar === "EXTERNAL"
+                          ? "External"
+                          : "Unknown"}
                       </span>
-                      <Switch
-                        checked={!!domainDetail.cfZoneId}
-                        disabled={
-                          enableCloudflare.isPending || disableCloudflare.isPending
-                        }
-                        onCheckedChange={(next) =>
-                          setCloudflarePrompt(next ? "enable" : "disable")
-                        }
-                        aria-label="Cloudflare DNS"
-                      />
                     </div>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {dnsZoneLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Loading DNS zone from Cloudflare...</span>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Registration expiry</span>
+                      <span>
+                        {domainDetail.expiresAt
+                          ? formatDate(new Date(domainDetail.expiresAt))
+                          : "-"}
+                      </span>
                     </div>
-                  ) : dnsZoneError ? (
-                    <p className="text-sm text-destructive">
-                      Failed to load DNS zone configuration.
-                    </p>
-                  ) : domainDnsZone && domainDnsZone.zone ? (
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Globe className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">
-                          {domainDnsZone.zone.name}
-                        </span>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">SSL expiry</span>
+                      <span>
+                        {domainDetail.sslExpiry
+                          ? formatDate(new Date(domainDetail.sslExpiry))
+                          : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Redirect to</span>
+                      <span className="flex items-center gap-2">
+                        {domainDetail.redirectTo ? (
+                          <>
+                            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              {domainDetail.redirectTo}
+                            </span>
+                          </>
+                        ) : (
+                          "-"
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Created</span>
+                      <span>
+                        {formatDate(new Date(domainDetail.createdAt))}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card
+                  className={
+                    domainDetail.cfZoneId
+                      ? undefined
+                      : "border-warning/50 bg-warning/5"
+                  }
+                >
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      Cloudflare Zone
+                      {!domainDetail.cfZoneId && (
+                        <Badge
+                          variant="outline"
+                          className="border-warning text-warning gap-1"
+                        >
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          Not configured
+                        </Badge>
+                      )}
+                    </CardTitle>
+                    {admin && !domainDetail.cfZoneId && (
+                      <Button
+                        size="sm"
+                        onClick={() => setCloudflarePrompt("enable")}
+                        disabled={enableCloudflare.isPending}
+                      >
+                        {enableCloudflare.isPending && (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        )}
+                        Move to Cloudflare
+                      </Button>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-2 pt-0">
+                    {dnsZoneLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Loading DNS zone from Cloudflare...</span>
                       </div>
-                      {domainDnsZone.zone.nameservers.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">
-                            Nameservers
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {domainDnsZone.zone.nameservers.map(
-                              (ns: string) => (
+                    ) : dnsZoneError ? (
+                      <p className="text-sm text-destructive">
+                        Failed to load DNS zone configuration.
+                      </p>
+                    ) : domainDnsZone && domainDnsZone.zone ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Globe className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium">
+                            {domainDnsZone.zone.name}
+                          </span>
+                        </div>
+                        {domainDnsZone.zone.nameservers.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-muted-foreground">
+                              Nameservers
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {domainDnsZone.zone.nameservers.map(
+                                (ns: string) => (
+                                  <Badge key={ns} variant="outline">
+                                    {ns}
+                                  </Badge>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-warning">
+                        No Cloudflare zone yet — DNS and SSL are not managed for
+                        this domain. Toggle on to create the zone and move DNS
+                        across.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Registration</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {registrationLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Looking up the registry record…</span>
+                      </div>
+                    ) : !registration ? (
+                      <p className="text-sm text-muted-foreground">
+                        This TLD publishes no public registry record, or the
+                        domain is not registered.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-4 text-sm">
+                          <span className="text-muted-foreground">
+                            Registered with
+                          </span>
+                          <span className="text-right">
+                            {registration.registrar ?? "Unknown"}
+                            {registration.registrarId && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (IANA {registration.registrarId})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Registered on
+                          </span>
+                          <span>
+                            {registration.registeredAt
+                              ? formatDate(new Date(registration.registeredAt))
+                              : "-"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Last changed
+                          </span>
+                          <span>
+                            {registration.updatedAt
+                              ? formatDate(new Date(registration.updatedAt))
+                              : "-"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Expires</span>
+                          <span>
+                            {registration.expiresAt
+                              ? formatDate(new Date(registration.expiresAt))
+                              : "-"}
+                          </span>
+                        </div>
+                        {registration.status.length > 0 && (
+                          <div className="space-y-1 text-sm">
+                            <span className="text-muted-foreground">
+                              Registry status
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {registration.status.map((state) => (
+                                <Badge key={state} variant="secondary">
+                                  {state}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {registration.nameservers.length > 0 && (
+                          <div className="space-y-1 text-sm">
+                            <span className="text-muted-foreground">
+                              Nameservers at the registry
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {registration.nameservers.map((ns) => (
                                 <Badge key={ns} variant="outline">
                                   {ns}
                                 </Badge>
-                              ),
-                            )}
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">DNS Records</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {dnsZoneLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Loading DNS records...</span>
+                    </div>
+                  ) : domainDnsZone && domainDnsZone.records.length > 0 ? (
+                    <div className="rounded-md border border-border/60 bg-muted/20 max-h-96 overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[80px]">Type</TableHead>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Content</TableHead>
+                            <TableHead className="w-[80px] text-right">
+                              TTL
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {domainDnsZone.records.map((record: any) => (
+                            <TableRow key={record.id}>
+                              <TableCell className="font-mono text-xs">
+                                {record.type}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {record.name}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {record.content}
+                              </TableCell>
+                              <TableCell className="text-right text-xs">
+                                {record.ttl}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
                   ) : (
-                    <p className="text-sm text-warning">
-                      No Cloudflare zone yet — DNS and SSL are not managed for
-                      this domain. Toggle on to create the zone and move DNS
-                      across.
+                    <p className="text-sm text-muted-foreground">
+                      No DNS records found in Cloudflare for this domain.
                     </p>
                   )}
                 </CardContent>
               </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>DNS Records</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {dnsZoneLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Loading DNS records...</span>
-                  </div>
-                ) : domainDnsZone && domainDnsZone.records.length > 0 ? (
-                  <div className="rounded-md border border-border/60 bg-muted/20 max-h-96 overflow-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[80px]">Type</TableHead>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Content</TableHead>
-                          <TableHead className="w-[80px] text-right">
-                            TTL
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {domainDnsZone.records.map((record: any) => (
-                          <TableRow key={record.id}>
-                            <TableCell className="font-mono text-xs">
-                              {record.type}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {record.name}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {record.content}
-                            </TableCell>
-                            <TableCell className="text-right text-xs">
-                              {record.ttl}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No DNS records found in Cloudflare for this domain.
-                  </p>
+                {domainDetail.registrar === "RDASH" && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Registrar DNS</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      {rdashDnsLoading ? (
+                        <div className="flex items-center text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reading DNS
+                          from the registrar…
+                        </div>
+                      ) : !rdashDns?.registered ? (
+                        <p className="text-sm text-muted-foreground">
+                          This domain was not found at the registrar.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="text-sm">
+                            <span className="text-muted-foreground">Nameservers: </span>
+                            <span className="font-mono text-xs">
+                              {rdashDns.nameservers.join(", ") || "-"}
+                            </span>
+                            {rdashDns.delegatedToCloudflare && (
+                              <Badge variant="secondary" className="ml-2">
+                                Delegated to Cloudflare
+                              </Badge>
+                            )}
+                          </div>
+                          {rdashDns.records.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              The registrar holds no DNS records for this domain.
+                            </p>
+                          ) : (
+                            <div className="rounded-md border overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Content</TableHead>
+                                    <TableHead className="text-right">TTL</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {rdashDns.records.map((record: any, i: number) => (
+                                    <TableRow key={record.id ?? i}>
+                                      <TableCell className="font-mono text-xs">
+                                        {record.type ?? record.record_type ?? "-"}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs">
+                                        {record.name ?? record.host ?? "@"}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs">
+                                        {record.content ?? record.value ?? record.data ?? "-"}
+                                      </TableCell>
+                                      <TableCell className="text-right text-xs">
+                                        {record.ttl ?? "-"}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
-              </CardContent>
-            </Card>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="settings" className="space-y-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Cloudflare</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 pt-0">
+                    {domainDetail.cfZoneId ? (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          DNS for this domain is managed in Cloudflare zone{" "}
+                          <span className="font-mono text-xs">
+                            {domainDetail.cfZoneId}
+                          </span>
+                          . Detaching only stops {APP_NAME} managing it — the zone
+                          stays in Cloudflare and the nameservers keep pointing
+                          there until you change them at the registrar.
+                        </p>
+                        <Button
+                          variant="outline"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setCloudflarePrompt("disable")}
+                          disabled={disableCloudflare.isPending}
+                        >
+                          {disableCloudflare.isPending && (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          )}
+                          Detach from Cloudflare
+                        </Button>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        This domain is not attached to Cloudflare.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </>
         ) : (
           <>
@@ -854,21 +1129,10 @@ export default function Domains() {
                       <form onSubmit={handleAddDomain} className="space-y-6">
                         <div className="space-y-2">
                           <Label className="text-sm">Owning organization</Label>
-                          <Select
-                            value={newDomainOrgId}
-                            onValueChange={setNewDomainOrgId}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select an organization" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {organizations.map((org) => (
-                                <SelectItem key={org.id} value={org.id}>
-                                  {org.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <OrganizationCombobox
+                            value={newDomainOrgId || null}
+                            onChange={(id) => setNewDomainOrgId(id ?? "")}
+                          />
                           <p className="text-xs text-muted-foreground">
                             Only this organization's members can create
                             applications on it.
@@ -909,7 +1173,7 @@ export default function Domains() {
                                 </Label>
                                 <p className="text-xs text-muted-foreground">
                                   Mark this domain as new. Registration is
-                                  handled externally or via RDASH.
+                                  handled externally or through the registrar.
                                 </p>
                               </div>
                             </div>
@@ -1016,18 +1280,12 @@ export default function Domains() {
                   <span className="text-sm font-medium">
                     {selectedIds.length} selected
                   </span>
-                  <Select value={bulkOrgId} onValueChange={setBulkOrgId}>
-                    <SelectTrigger className="w-64">
-                      <SelectValue placeholder="Assign to organization" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {organizations.map((org) => (
-                        <SelectItem key={org.id} value={org.id}>
-                          {org.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <OrganizationCombobox
+                    value={bulkOrgId || null}
+                    onChange={(id) => setBulkOrgId(id ?? "")}
+                    placeholder="Assign to organization"
+                    className="w-64"
+                  />
                   <Button
                     size="sm"
                     disabled={!bulkOrgId || bulkAssign.isPending}
@@ -1073,75 +1331,6 @@ export default function Domains() {
           </>
         )}
 
-        {domainId && domainDetail?.registrar === "RDASH" && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Registrar DNS (RDASH)</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {rdashDnsLoading ? (
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reading DNS
-                  from RDASH…
-                </div>
-              ) : !rdashDns?.registered ? (
-                <p className="text-sm text-muted-foreground">
-                  This domain was not found in the RDASH account.
-                </p>
-              ) : (
-                <>
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Nameservers: </span>
-                    <span className="font-mono text-xs">
-                      {rdashDns.nameservers.join(", ") || "-"}
-                    </span>
-                    {rdashDns.delegatedToCloudflare && (
-                      <Badge variant="secondary" className="ml-2">
-                        Delegated to Cloudflare
-                      </Badge>
-                    )}
-                  </div>
-                  {rdashDns.records.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      RDASH holds no DNS records for this domain.
-                    </p>
-                  ) : (
-                    <div className="rounded-md border overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Content</TableHead>
-                            <TableHead className="text-right">TTL</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {rdashDns.records.map((record: any, i: number) => (
-                            <TableRow key={record.id ?? i}>
-                              <TableCell className="font-mono text-xs">
-                                {record.type ?? record.record_type ?? "-"}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {record.name ?? record.host ?? "@"}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {record.content ?? record.value ?? record.data ?? "-"}
-                              </TableCell>
-                              <TableCell className="text-right text-xs">
-                                {record.ttl ?? "-"}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {domainDetail && cloudflarePrompt && (
           <AlertDialog
@@ -1155,35 +1344,12 @@ export default function Domains() {
                     ? `Move ${domainDetail.name} to Cloudflare?`
                     : `Detach ${domainDetail.name} from Cloudflare?`}
                 </AlertDialogTitle>
-                <AlertDialogDescription asChild>
-                  {cloudflarePrompt === "enable" ? (
-                    <div className="space-y-2">
-                      <p>This will, in order:</p>
-                      <ol className="list-decimal space-y-1 pl-5">
-                        {domainDetail.registrar === "RDASH" && (
-                          <li>
-                            Save a copy of the DNS records RDASH currently
-                            serves ({rdashDns?.records.length ?? 0} record
-                            {(rdashDns?.records.length ?? 0) === 1 ? "" : "s"}).
-                          </li>
-                        )}
-                        <li>Create the Cloudflare zone if it does not exist.</li>
-                        <li>Copy those records into the new zone.</li>
-                        <li>
-                          {domainDetail.registrar === "RDASH"
-                            ? "Change the nameservers at RDASH to Cloudflare's. DNS for this domain will start resolving from Cloudflare once it propagates."
-                            : "Show you the nameservers to set at your registrar — we cannot change them for you."}
-                        </li>
-                      </ol>
-                    </div>
-                  ) : (
-                    <span>
-                      This only detaches the domain in CommitBase. The Cloudflare
-                      zone is left in place — deleting it while the nameservers
-                      still point there would take the domain offline. Repoint the
-                      nameservers at your registrar first.
-                    </span>
-                  )}
+                <AlertDialogDescription>
+                  {cloudflarePrompt === "enable"
+                    ? domainDetail.registrar === "RDASH"
+                      ? "DNS moves to Cloudflare. Existing records are copied across and the nameservers at the registrar are repointed."
+                      : "DNS moves to Cloudflare. Set the nameservers we show you at your registrar to finish the switch."
+                    : "The Cloudflare zone stays in place — repoint the nameservers at your registrar before deleting it."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1231,19 +1397,11 @@ export default function Domains() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
-                <Select value={assignOrgId} onValueChange={setAssignOrgId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select an organization" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-                    {organizations.map((org) => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {org.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <OrganizationCombobox
+                  value={assignOrgId === UNASSIGNED ? null : assignOrgId}
+                  onChange={(id) => setAssignOrgId(id ?? UNASSIGNED)}
+                  noneLabel="Unassigned"
+                />
                 <div className="flex items-center justify-end space-x-3">
                   <Button
                     variant="outline"
@@ -1290,7 +1448,9 @@ export default function Domains() {
                 <AlertDialogAction
                   onClick={executeAction}
                   disabled={
-                    deleteDomain.isPending || verifyDomain.isPending
+                    deleteDomain.isPending ||
+                    verifyDomain.isPending ||
+                    renewDomain.isPending
                   }
                   className={
                     dialogContent.variant === "destructive"
@@ -1298,7 +1458,9 @@ export default function Domains() {
                       : ""
                   }
                 >
-                  {deleteDomain.isPending || verifyDomain.isPending ? (
+                  {deleteDomain.isPending ||
+                  verifyDomain.isPending ||
+                  renewDomain.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       Processing...

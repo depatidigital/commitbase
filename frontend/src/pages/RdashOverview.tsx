@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Globe, Cloud, CreditCard, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { APP_NAME } from '@/lib/branding';
 
 // RDash /domains returns status as an int enum plus status_label/status_badge (swagger v1).
 const RDASH_STATUS_LABEL: Record<number, string> = {
@@ -181,7 +182,7 @@ const RdashOverview = () => {
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Changes here are saved directly to the CommitBase database and used by the backend services.
+                  Changes here are saved directly to the {APP_NAME} database and used by the backend services.
                 </div>
               </>
             )}
@@ -436,7 +437,7 @@ const RdashOverview = () => {
                 </div>
               </div>
               <div className="text-xs text-muted-foreground">
-                Changes here are saved directly to the CommitBase database and used by the backend services.
+                Changes here are saved directly to the {APP_NAME} database and used by the backend services.
               </div>
             </>
           )}

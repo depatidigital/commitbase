@@ -13,7 +13,9 @@ import {
   bulkAssignDomains,
   getRdashDns,
   enableCloudflare,
-  disableCloudflare
+  disableCloudflare,
+  renewDomain,
+  getDomainRegistration
 } from '@/lib/domains';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
 import { ListParams } from '@/lib/admin';
@@ -264,5 +266,36 @@ export const useVerifyDomain = () => {
         variant: 'destructive',
       });
     },
+  });
+};
+
+// Registrar renewal — RDASH only, spends reseller balance
+export const useRenewDomain = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: ({ id, years }: { id: string; years?: number }) => renewDomain(id, years),
+    onSuccess: (message) => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({ title: 'Renewal submitted', description: message });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to renew domain.',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+// Registry lookup — slow-ish and rarely changes, so cache it for the session
+export const useDomainRegistration = (id: string | null) => {
+  return useQuery({
+    queryKey: ['domains', id, 'registration'],
+    queryFn: () => getDomainRegistration(id as string),
+    enabled: !!id,
+    staleTime: 60 * 60 * 1000,
   });
 };

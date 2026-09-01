@@ -21,7 +21,7 @@ function EdgeSidebarTrigger() {
 
   return (
     <SidebarTrigger
-      className="absolute top-2.5 z-50 hidden h-7 w-7 -translate-x-1/2 rounded-full border border-border bg-card shadow-md transition-[left] duration-200 ease-linear hover:bg-muted md:flex"
+      className="fixed top-2.5 z-50 hidden h-7 w-7 -translate-x-1/2 rounded-full border border-border bg-card shadow-md transition-[left] duration-200 ease-linear hover:bg-muted md:flex"
       style={{ left: collapsed ? "var(--sidebar-width-icon)" : "var(--sidebar-width)" }}
     />
   );

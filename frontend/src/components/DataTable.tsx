@@ -187,9 +187,10 @@ export function DataTable<T>({
         </div>
       </div>
 
-      <div className="rounded-md border bg-card overflow-x-auto">
-        <Table className="[&_td]:py-2.5 [&_th]:h-9 [&_th]:py-0">
-          <TableHeader>
+      {/* ponytail: fixed viewport-relative cap, tune the offset if page chrome grows */}
+      <div className="rounded-md border bg-card overflow-hidden max-h-[calc(100vh-20rem)]">
+        <Table className="table-fixed [&_td]:py-2.5 [&_th]:h-9 [&_th]:py-0">
+          <TableHeader className="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_hsl(var(--border))]">
             <TableRow className="hover:bg-transparent">
               {columns.map((c, i) => (
                 <TableHead

@@ -15,6 +15,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
+import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
 
 const items = [
   { title: "Applications", url: "/", icon: Server },
@@ -49,9 +50,9 @@ export function AppSidebar() {
                 </div>
                 <div>
                   <h1 className="text-lg font-bold bg-gradient-primary bg-clip-text text-transparent">
-                    CommitBase
+                    {APP_NAME}
                   </h1>
-                  <p className="text-xs text-muted-foreground">Self-hosted platform</p>
+                  <p className="text-xs text-muted-foreground">{APP_TAGLINE}</p>
                 </div>
               </>
             )}
