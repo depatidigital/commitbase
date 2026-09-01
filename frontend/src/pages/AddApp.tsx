@@ -139,7 +139,7 @@ export default function AddApp() {
   };
 
   const appTypeOptions = [
-    { value: "NODEJS", label: "Node.js Application", icon: "⚡" },
+    { value: "NODEJS", label: "Node.js App", icon: "⚡" },
     { value: "STATIC", label: "Static Website", icon: "🌐" },
   ];
 
@@ -315,7 +315,7 @@ export default function AddApp() {
             className="hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Applications
+            Back to Apps
           </Button>
         </div>
 
@@ -343,7 +343,7 @@ export default function AddApp() {
   return (
     <PageLayout
       backTo="/"
-      title="Deploy New Application"
+      title="Add App"
       description="Configure and deploy your application to the platform"
     >
       <form onSubmit={handleSubmit} className="space-y-8">
@@ -359,7 +359,7 @@ export default function AddApp() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="name">
-                  Application Name <span className="text-red-500">*</span>
+                  App Name <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="name"
@@ -421,7 +421,7 @@ export default function AddApp() {
 
             <div className="space-y-2">
               <Label htmlFor="app-type">
-                Application Type <span className="text-red-500">*</span>
+                App Type <span className="text-red-500">*</span>
               </Label>
               <Select
                 value={formData.type}

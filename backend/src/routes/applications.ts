@@ -6,10 +6,75 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService, getDockerContainerName } from '../services/deployment';
-import { getStaticSiteBaseUrl } from '../services/s3Service';
+import { getStaticSiteBaseUrl, uploadStaticFile } from '../services/s3Service';
+import { configureCaddyForStaticApplication } from '../services/caddyService';
+import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
+import { requireRole } from '../middleware/auth';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs/promises';
 
 const router = Router();
 const deploymentService = new DeploymentService();
+
+/**
+ * Apps discovered by the server sync are owned by pm2, not by our Docker
+ * deployer, so start/stop/restart route to pm2 for them. Returns null when the
+ * app is not pm2-managed and the caller should fall through to Docker.
+ */
+async function handlePm2Action(
+  application: { id: string; runtime: string | null; processName: string | null },
+  action: 'start' | 'stop' | 'restart',
+  res: Response
+): Promise<Response | null> {
+  if (application.runtime !== 'PM2' || !application.processName) {
+    return null;
+  }
+
+  const result = await controlPm2Process(application.processName, action);
+
+  if (!result.success) {
+    await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
+    return res.status(500).json({ success: false, error: result.output } as ApiResponse);
+  }
+
+  await prisma.application.update({
+    where: { id: application.id },
+    data: { status: action === 'stop' ? 'STOPPED' : 'RUNNING' },
+  });
+
+  return res.json({
+    success: true,
+    data: { runtime: 'PM2', processName: application.processName },
+    message: `pm2 ${action} succeeded`,
+  } as ApiResponse);
+}
+
+// Preview what is running on the server without touching the database
+router.get('/scan', authenticateToken, requireRole(['SUPERADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const apps = await scanServerApps();
+    return res.json({ success: true, data: apps, message: `${apps.length} apps found on the server` } as ApiResponse);
+  } catch (error) {
+    console.error('Error scanning server apps:', error);
+    return res.status(500).json({ success: false, error: 'Failed to scan server apps' } as ApiResponse);
+  }
+});
+
+// Import/refresh the server inventory (pm2 processes + Caddy sites)
+router.post('/sync', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await syncServerApps(req.user!.userId);
+    return res.json({
+      success: true,
+      data: result,
+      message: `${result.created} imported, ${result.updated} updated`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error syncing server apps:', error);
+    return res.status(500).json({ success: false, error: 'Failed to sync server apps' } as ApiResponse);
+  }
+});
 
 // Get all applications for the authenticated user
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -182,6 +247,128 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     } as ApiResponse);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Uploaded sources: an app can be deployed from a folder the user picked in the
+// browser instead of a git repository. Files land straight in the app's
+// sources/ directory, which is what the deploy step builds from.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024, files: 5000 },
+});
+
+/** Keeps an uploaded relative path inside sources/ — a client can send anything. */
+const safeRelativePath = (raw: string): string | null => {
+  const cleaned = String(raw || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .trim();
+
+  if (!cleaned) return null;
+  if (cleaned.split('/').some((part) => part === '..' || part === '.' || !part)) return null;
+  if (path.isAbsolute(cleaned) || /^[a-zA-Z]:/.test(cleaned)) return null;
+
+  return cleaned;
+};
+
+router.post(
+  '/:id/source',
+  authenticateToken,
+  upload.array('files'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const files = (req.files as Express.Multer.File[]) || [];
+
+      if (files.length === 0) {
+        return res.status(400).json({ success: false, error: 'No files uploaded' } as ApiResponse);
+      }
+
+      const application = await prisma.application.findFirst({
+        where: { id: id as string, ...(await orgScope(req)) },
+      });
+
+      if (!application) {
+        return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+      }
+
+      // paths[i] carries the file's path inside the picked folder; a plain file
+      // upload has none, so fall back to its own name
+      const rawPaths = req.body?.paths;
+      const paths: string[] = Array.isArray(rawPaths) ? rawPaths : rawPaths ? [rawPaths] : [];
+
+      // Static sites are served from object storage, so their files never touch
+      // our disk — they go straight to the bucket. Runtime apps still need a
+      // sources/ tree for the build step.
+      if (application.type === 'STATIC') {
+        let uploaded = 0;
+        for (const [index, file] of files.entries()) {
+          const relative = safeRelativePath(paths[index] || file.originalname);
+          if (!relative) continue;
+
+          const stored = await uploadStaticFile(application.id, relative, file.buffer);
+          if (!stored) {
+            return res.status(500).json({
+              success: false,
+              error: 'Object storage is not configured — static uploads have nowhere to go',
+            } as ApiResponse);
+          }
+          uploaded += 1;
+        }
+
+        if (uploaded === 0) {
+          return res.status(400).json({ success: false, error: 'No usable files in the upload' } as ApiResponse);
+        }
+
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { status: 'RUNNING', lastDeployment: new Date() },
+        });
+
+        await configureCaddyForStaticApplication(application.id, application.domain).catch(() => {});
+
+        return res.json({
+          success: true,
+          data: { files: uploaded },
+          message: 'Static files uploaded to object storage',
+        } as ApiResponse);
+      }
+
+      const appDir = await deploymentService.prepareAppDirectory(application.id);
+      const sourcesDir = path.join(appDir, 'sources');
+
+      // a fresh upload replaces the previous one — leftovers would ship in the build
+      await fs.rm(sourcesDir, { recursive: true, force: true });
+      await fs.mkdir(sourcesDir, { recursive: true });
+
+      let written = 0;
+      for (const [index, file] of files.entries()) {
+        const relative = safeRelativePath(paths[index] || file.originalname);
+        if (!relative) continue;
+
+        const target = path.join(sourcesDir, relative);
+        if (!target.startsWith(sourcesDir + path.sep)) continue;
+
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, file.buffer);
+        written += 1;
+      }
+
+      if (written === 0) {
+        return res.status(400).json({ success: false, error: 'No usable files in the upload' } as ApiResponse);
+      }
+
+      return res.json({
+        success: true,
+        data: { files: written },
+        message: 'Source files uploaded successfully',
+      } as ApiResponse);
+    } catch (error) {
+      console.error('Error uploading application source:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
 
 // Update an application
 router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
@@ -378,6 +565,9 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
       } as ApiResponse);
     }
 
+    const pm2Handled = await handlePm2Action(application, 'start', res);
+    if (pm2Handled) return pm2Handled;
+
     if (application.status === 'RUNNING') {
       return res.status(400).json({
         success: false,
@@ -560,6 +750,9 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
       } as ApiResponse);
     }
 
+    const pm2Handled = await handlePm2Action(application, 'stop', res);
+    if (pm2Handled) return pm2Handled;
+
     if (application.status !== 'RUNNING') {
       return res.status(400).json({
         success: false,
@@ -622,6 +815,9 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
         error: 'Application not found',
       } as ApiResponse);
     }
+
+    const pm2Handled = await handlePm2Action(application, 'restart', res);
+    if (pm2Handled) return pm2Handled;
     // check if application is running
     const status = await deploymentService.getApplicationStatus(application.domain);
     if (status === 'STOPPED') {

@@ -67,7 +67,7 @@ export default function Database() {
         ]
       : []),
     {
-      header: "Application",
+      header: "App",
       className: "w-[18%]",
       cell: (db) =>
         db.application ? (

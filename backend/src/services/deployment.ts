@@ -882,7 +882,46 @@ build
 
       if (application.type === 'STATIC') {
         const sourcesDir = path.join(appDir, 'sources');
+        // Files uploaded straight from the browser are already built — there is no
+        // repository and no build command, so serve what was uploaded as-is.
+        const prebuilt = !application.repository && !application.buildCommand;
         const buildCommand = application.buildCommand || 'npm run build';
+
+        if (prebuilt) {
+          const uploadTimestamp = new Date().toISOString();
+          await fs.appendFile(buildLogPath, `[${uploadTimestamp}] UPLOADED SOURCES — no build step
+`);
+
+          await uploadDirectoryToS3(sourcesDir, application.id);
+          await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+
+          const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+
+          await prisma.deployment.update({
+            where: { id: deployment.id },
+            data: {
+              status: 'SUCCESS',
+              buildLogs,
+              deployLogs: 'Uploaded files deployed to object storage',
+            },
+          });
+
+          await prisma.application.update({
+            where: { id: application.id },
+            data: { status: 'RUNNING', lastDeployment: new Date() },
+          });
+
+          try {
+            await configureCaddyForStaticApplication(application.id, application.domain);
+          } catch {
+          }
+
+          return {
+            success: true,
+            buildLogs,
+            deployLogs: 'Uploaded files deployed to object storage',
+          };
+        }
 
         const staticBuildEnv = {
           ...process.env,

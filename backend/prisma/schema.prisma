@@ -105,6 +105,13 @@ model Application {
   // Deployment info
   lastDeployment DateTime?
   deploymentCount Int @default(0)
+
+  // Server inventory — filled by the app sync (pm2 + Caddy site files)
+  runtime      String?   // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for docker-managed
+  processName  String?   // pm2 process name, when the runtime is PM2
+  rootPath     String?   // document root / working directory on the server
+  configPath   String?   // /etc/caddy/sites/<name>.caddy
+  lastSyncedAt DateTime?
   
   // Timestamps
   createdAt DateTime @default(now())

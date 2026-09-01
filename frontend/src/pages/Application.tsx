@@ -132,8 +132,8 @@ export default function Application() {
       case "start":
         return {
           title: hasBeenDeployed(app!)
-            ? "Redeploy & Start Application"
-            : "Deploy & Start Application",
+            ? "Redeploy & Start App"
+            : "Deploy & Start App",
           description: hasBeenDeployed(app!)
             ? `Are you sure you want to redeploy and start "${appName}"? This will rebuild and run the application.`
             : `Are you sure you want to deploy and start "${appName}"? This will build and run the application for the first time.`,
@@ -144,30 +144,30 @@ export default function Application() {
         };
       case "start-existing":
         return {
-          title: "Start Application",
+          title: "Start App",
           description: `Are you sure you want to start "${appName}"? This will start the existing built application without rebuilding.`,
-          actionText: "Start Application",
+          actionText: "Start App",
           variant: "default" as const,
         };
       case "stop":
         return {
-          title: "Stop Application",
+          title: "Stop App",
           description: `Are you sure you want to stop "${appName}"? This will shut down the running application.`,
-          actionText: "Stop Application",
+          actionText: "Stop App",
           variant: "destructive" as const,
         };
       case "restart":
         return {
-          title: "Restart Application",
+          title: "Restart App",
           description: `Are you sure you want to restart "${appName}"? This will stop and then start the application.`,
-          actionText: "Restart Application",
+          actionText: "Restart App",
           variant: "default" as const,
         };
       case "delete":
         return {
-          title: "Delete Application",
+          title: "Delete App",
           description: `Are you sure you want to delete "${appName}"? This action cannot be undone and will permanently remove the application and all its data.`,
-          actionText: "Delete Application",
+          actionText: "Delete App",
           variant: "destructive" as const,
         };
     }
@@ -187,7 +187,7 @@ export default function Application() {
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">
-            Error Loading Applications
+            Error Loading Apps
           </h3>
           <p className="text-muted-foreground">
             Failed to load applications. Please try again.
@@ -296,7 +296,7 @@ export default function Application() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Stop Application</p>
+                <p>Stop App</p>
               </TooltipContent>
             </Tooltip>
           ) : hasBeenDeployed(app) ? (
@@ -389,7 +389,7 @@ export default function Application() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Restart Application</p>
+                <p>Restart App</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -424,13 +424,13 @@ export default function Application() {
   return (
     <TooltipProvider>
       <PageLayout
-        title="Applications"
+        title="Apps"
         description="Manage your applications and services."
         actions={
           <Link to="/add-app">
             <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
               <Plus className="mr-2 h-4 w-4" />
-              Deploy New Application
+              Add App
             </Button>
           </Link>
         }

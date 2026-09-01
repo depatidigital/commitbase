@@ -1,4 +1,4 @@
-import apiRequest, { PaginatedResponse } from './api';
+import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
 
 export interface Application {
   id: string;
@@ -18,6 +18,11 @@ export interface Application {
   createdAt: string;
   updatedAt: string;
   staticSiteUrl?: string | null;
+  runtime?: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | null;
+  processName?: string | null;
+  rootPath?: string | null;
+  configPath?: string | null;
+  lastSyncedAt?: string | null;
   deployments?: Deployment[];
   databases?: Database[];
   logs?: Log[];
@@ -116,6 +121,36 @@ export const createApplication = async (data: CreateApplicationData): Promise<Ap
   throw new Error(response.error || 'Failed to create application');
 };
 
+/**
+ * Ship a picked file or folder as the app's sources. FormData, so it cannot go
+ * through apiRequest — that one forces a JSON content type.
+ */
+export const uploadApplicationSource = async (
+  id: string,
+  files: File[]
+): Promise<{ files: number }> => {
+  const body = new FormData();
+  files.forEach((file) => {
+    body.append('files', file);
+    // folder picks carry their path inside the folder; a plain file has none
+    body.append('paths', (file as any).webkitRelativePath || file.name);
+  });
+
+  const token = localStorage.getItem('authToken');
+  const response = await fetch(`${API_BASE_URL}/applications/${id}/source`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body,
+  });
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Failed to upload source files');
+  }
+
+  return data.data;
+};
+
 // Update application
 export const updateApplication = async (id: string, data: UpdateApplicationData): Promise<Application> => {
   const response = await apiRequest<Application>(`/applications/${id}`, {
@@ -205,3 +240,29 @@ export const hasBeenDeployed = (application: Application): boolean => {
   // Check if lastDeployment exists (from backend)
   return !!(application as any).lastDeployment;
 }; 
+
+export interface AppSyncResult {
+  discovered: number;
+  created: number;
+  updated: number;
+  apps: Array<{
+    name: string;
+    domain: string;
+    runtime: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
+    status: 'RUNNING' | 'STOPPED' | 'ERROR';
+    port?: number;
+    action: 'created' | 'updated';
+  }>;
+  errors?: string[];
+}
+
+// Import/refresh the apps running on the server (pm2 processes + Caddy sites)
+export const syncServerApps = async (): Promise<AppSyncResult> => {
+  const response = await apiRequest<AppSyncResult>('/applications/sync', { method: 'POST' });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to sync server apps');
+};

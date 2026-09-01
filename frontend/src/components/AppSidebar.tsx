@@ -18,7 +18,7 @@ import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
 
 const items = [
-  { title: "Applications", url: "/", icon: Server },
+  { title: "Apps", url: "/", icon: Server },
   { title: "Databases", url: "/database", icon: Database },
   { title: "Domains", url: "/domains", icon: Globe },
   { title: "Logs", url: "/logs", icon: Terminal },

@@ -236,11 +236,11 @@ export default function ApplicationDetail() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Application Not Found</h3>
+          <h3 className="text-lg font-semibold mb-2">App Not Found</h3>
           <p className="text-muted-foreground mb-4">The application you're looking for doesn't exist.</p>
           <Button onClick={() => navigate('/')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Applications
+            Back to Apps
           </Button>
         </div>
       </div>
@@ -249,7 +249,7 @@ export default function ApplicationDetail() {
 
   const dialogContent = confirmAction ? {
     start: {
-      title: hasBeenDeployed(application) ? 'Redeploy & Start Application' : 'Deploy & Start Application',
+      title: hasBeenDeployed(application) ? 'Redeploy & Start App' : 'Deploy & Start App',
       description: hasBeenDeployed(application) 
         ? `Are you sure you want to redeploy and start "${confirmAction.appName}"? This will rebuild and run the application.`
         : `Are you sure you want to deploy and start "${confirmAction.appName}"? This will build and run the application for the first time.`,
@@ -257,27 +257,27 @@ export default function ApplicationDetail() {
       variant: 'default' as const,
     },
     'start-existing': {
-      title: 'Start Application',
+      title: 'Start App',
       description: `Are you sure you want to start "${confirmAction.appName}"? This will start the existing built application without rebuilding.`,
-      actionText: 'Start Application',
+      actionText: 'Start App',
       variant: 'default' as const,
     },
     stop: {
-      title: 'Stop Application',
+      title: 'Stop App',
       description: `Are you sure you want to stop "${confirmAction.appName}"? This will shut down the running application.`,
-      actionText: 'Stop Application',
+      actionText: 'Stop App',
       variant: 'destructive' as const,
     },
     restart: {
-      title: 'Restart Application',
+      title: 'Restart App',
       description: `Are you sure you want to restart "${confirmAction.appName}"? This will stop and then start the application.`,
-      actionText: 'Restart Application',
+      actionText: 'Restart App',
       variant: 'default' as const,
     },
     delete: {
-      title: 'Delete Application',
+      title: 'Delete App',
       description: `Are you sure you want to delete "${confirmAction.appName}"? This action cannot be undone and will permanently remove the application and all its data.`,
-      actionText: 'Delete Application',
+      actionText: 'Delete App',
       variant: 'destructive' as const,
     },
   }[confirmAction.type] : null;
@@ -301,7 +301,7 @@ export default function ApplicationDetail() {
                 {application.name}
               </h1>
               <p className="text-muted-foreground">
-                Application Details & Management
+                App Details & Management
               </p>
             </div>
           </div>
@@ -439,7 +439,7 @@ export default function ApplicationDetail() {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Application</AlertDialogTitle>
+                  <AlertDialogTitle>Delete App</AlertDialogTitle>
                   <AlertDialogDescription>
                     Are you sure you want to delete "{application.name}"? This action cannot be undone and will permanently remove the application and all its data.
                   </AlertDialogDescription>
@@ -471,10 +471,10 @@ export default function ApplicationDetail() {
                 <div>
                   <h3 className="text-lg font-semibold">Status: {application.status}</h3>
                   <p className="text-muted-foreground">
-                    {application.status === 'RUNNING' ? 'Application is running and accessible' :
-                     application.status === 'STOPPED' ? 'Application is stopped and not accessible' :
-                     application.status === 'ERROR' ? 'Application encountered an error' :
-                     'Application is being deployed'}
+                    {application.status === 'RUNNING' ? 'App is running and accessible' :
+                     application.status === 'STOPPED' ? 'App is stopped and not accessible' :
+                     application.status === 'ERROR' ? 'App encountered an error' :
+                     'App is being deployed'}
                   </p>
                 </div>
               </div>
@@ -721,7 +721,7 @@ export default function ApplicationDetail() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Terminal className="h-5 w-5 text-primary" />
-                  <span>Application Logs</span>
+                  <span>App Logs</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -822,7 +822,7 @@ export default function ApplicationDetail() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Settings className="h-5 w-5 text-primary" />
-                  <span>Application Settings</span>
+                  <span>App Settings</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -908,7 +908,7 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
       
       toast({
         title: 'Success',
-        description: 'Application settings updated successfully',
+        description: 'App settings updated successfully',
       });
       
       // Refetch application data

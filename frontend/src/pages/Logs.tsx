@@ -144,7 +144,7 @@ export default function Logs() {
   return (
     <PageLayout
       icon={Terminal}
-      title="Application Logs"
+      title="App Logs"
       description="Monitor and debug your applications"
       actions={
         <>
@@ -175,7 +175,7 @@ export default function Logs() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="log-app">Application</Label>
+              <Label htmlFor="log-app">App</Label>
               <Select value={selectedApp} onValueChange={setSelectedApp}>
                 <SelectTrigger id="log-app">
                   <SelectValue />
@@ -183,7 +183,7 @@ export default function Logs() {
                 <SelectContent>
                   {apps.map((app) => (
                     <SelectItem key={app} value={app}>
-                      {app === ALL ? "All Applications" : app}
+                      {app === ALL ? "All Apps" : app}
                     </SelectItem>
                   ))}
                 </SelectContent>

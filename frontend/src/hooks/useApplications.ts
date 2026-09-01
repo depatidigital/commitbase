@@ -9,6 +9,7 @@ import {
   startExistingApplication,
   stopApplication, 
   restartApplication,
+  syncServerApps,
   type Application,
   type CreateApplicationData,
   type UpdateApplicationData
@@ -120,7 +121,7 @@ export const useCreateApplication = () => {
     onSuccess: (data) => {
       toast({
         title: 'Success',
-        description: 'Application created successfully',
+        description: 'App created successfully',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
     },
@@ -144,7 +145,7 @@ export const useUpdateApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: 'Success',
-        description: 'Application updated successfully',
+        description: 'App updated successfully',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables.id] });
@@ -168,7 +169,7 @@ export const useDeleteApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: 'Success',
-        description: 'Application deleted successfully',
+        description: 'App deleted successfully',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.removeQueries({ queryKey: ['application', variables] });
@@ -192,7 +193,7 @@ export const useStartExistingApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: 'Success',
-        description: 'Application is starting...',
+        description: 'App is starting...',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -216,7 +217,7 @@ export const useStartApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: 'Success',
-        description: 'Application is starting...',
+        description: 'App is starting...',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -240,7 +241,7 @@ export const useStopApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: 'Success',
-        description: 'Application is stopping...',
+        description: 'App is stopping...',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -264,7 +265,7 @@ export const useRestartApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: 'Success',
-        description: 'Application is restarting...',
+        description: 'App is restarting...',
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -278,3 +279,29 @@ export const useRestartApplication = () => {
     },
   });
 }; 
+/**
+ * Superadmin-only: scan pm2 + /etc/caddy/sites and import what is running.
+ */
+export const useSyncServerApps = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: syncServerApps,
+    onSuccess: (result) => {
+      toast({
+        title: 'Server apps synced',
+        description: `${result.discovered} found — ${result.created} imported, ${result.updated} updated.`,
+        ...(result.errors?.length ? { variant: 'destructive' as const } : {}),
+      });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Sync failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+};

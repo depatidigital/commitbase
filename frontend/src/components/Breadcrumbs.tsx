@@ -11,8 +11,8 @@ import {
 import { Home } from "lucide-react";
 
 const LABELS: Record<string, string> = {
-  application: "Applications",
-  "add-app": "Deploy new app",
+  application: "Apps",
+  "add-app": "Add App",
   database: "Databases",
   domains: "Domains",
   logs: "Logs",
