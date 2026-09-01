@@ -51,6 +51,12 @@ export type DomainDnsZone = {
   synced: boolean;
 };
 
+/** What "this platform" points at, for labelling records in the domains list. */
+export const getPlatformTarget = async (): Promise<DomainDnsZone['platformTarget']> => {
+  const response = await apiRequest<DomainDnsZone['platformTarget']>('/domains/platform-target');
+  return response.success ? response.data ?? null : null;
+};
+
 export const getDomainDnsZone = async (id: string): Promise<DomainDnsZone> => {
   const response = await apiRequest<DomainDnsZone>(`/domains/${id}/dns-zone`, {
     method: 'GET',

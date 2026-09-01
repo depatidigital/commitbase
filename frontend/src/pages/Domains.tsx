@@ -57,6 +57,7 @@ import {
   useImportRegistrarDns,
   useRenewDomain,
   useDomainRegistration,
+  usePlatformTarget,
 } from "@/hooks/useDomains";
 import { useQuery } from "@tanstack/react-query";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
@@ -256,7 +257,10 @@ export default function Domains() {
 
   const domains = domainsData?.data ?? [];
 
-  const platformTarget = domainDnsZone?.platformTarget?.content ?? null;
+  // the list has no zone loaded, so it gets the platform target on its own
+  const { data: listPlatformTarget } = usePlatformTarget();
+  const platformTarget =
+    domainDnsZone?.platformTarget?.content ?? listPlatformTarget?.content ?? null;
 
   /** Records pointing at our own server read better as "this platform" than as a bare IP. */
   const isPlatformTarget = (content: unknown) =>
@@ -397,7 +401,14 @@ export default function Domains() {
                 }
               >
                 <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="truncate">{value}</span>
+                {!domain.redirectTo && isPlatformTarget(value) ? (
+                  <Badge className="gap-1">
+                    <Cloud className="h-3 w-3" />
+                    This platform
+                  </Badge>
+                ) : (
+                  <span className="truncate">{value}</span>
+                )}
               </span>
             ) : (
               <span className="text-muted-foreground">-</span>
@@ -1215,15 +1226,10 @@ export default function Domains() {
                                 </TableCell>
                                 <TableCell className="font-mono text-xs">
                                   {isPlatformTarget(record.content) ? (
-                                    <span className="flex items-center gap-2">
-                                      <Badge className="gap-1">
-                                        <Cloud className="h-3.5 w-3.5" />
-                                        This platform
-                                      </Badge>
-                                      <span className="text-muted-foreground">
-                                        {record.content}
-                                      </span>
-                                    </span>
+                                    <Badge className="gap-1">
+                                      <Cloud className="h-3.5 w-3.5" />
+                                      This platform
+                                    </Badge>
                                   ) : (
                                     record.content
                                   )}

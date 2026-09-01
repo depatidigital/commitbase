@@ -6,6 +6,7 @@ import {
   getDomainsPage,
   getDomain, 
   getDomainDnsZone,
+  getPlatformTarget,
   createDomain, 
   updateDomain, 
   deleteDomain, 
@@ -58,6 +59,14 @@ export const useDomainDnsZone = (id: string | null) => {
     queryKey: ['domains', id, 'dns-zone'],
     queryFn: () => getDomainDnsZone(id as string),
     enabled: !!id,
+  });
+};
+
+export const usePlatformTarget = () => {
+  return useQuery({
+    queryKey: ['domains', 'platform-target'],
+    queryFn: getPlatformTarget,
+    staleTime: 5 * 60 * 1000,
   });
 };
 

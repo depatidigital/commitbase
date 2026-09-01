@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Building2, Copy, Loader2, Plus, Settings2 } from "lucide-react";
+import { Building2, Loader2, Plus, Settings2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -32,7 +32,6 @@ export default function Organizations() {
   const [orgName, setOrgName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [open, setOpen] = useState(false);
-  const [invite, setInvite] = useState<CreatedInvite | null>(null);
   const query = useTableQuery();
 
   const { data, isFetching } = useQuery({
@@ -53,13 +52,14 @@ export default function Organizations() {
     onSuccess: ({ invite: created }) => {
       setOrgName("");
       setAdminEmail("");
-      setInvite(created);
       queryClient.invalidateQueries({ queryKey: ["organizations"] });
-      if (!created) setOpen(false);
+      setOpen(false);
       toast({
         title: "Organization created",
         description: created
-          ? "Invite created for the admin — copy the link below."
+          ? created.emailed
+            ? `Invite emailed to ${created.email}.`
+            : "Invite created, but the email failed — check the SMTP settings."
           : adminEmail
             ? "Admin added."
             : undefined,
@@ -72,9 +72,6 @@ export default function Organizations() {
         variant: "destructive",
       }),
   });
-
-  const inviteLink = (i: CreatedInvite) =>
-    i.acceptUrl ?? `${window.location.origin}/accept-invite?token=${i.token}`;
 
   const columns: Column<Organization>[] = [
     {
@@ -113,10 +110,7 @@ export default function Organizations() {
       actions={
         <Dialog
           open={open}
-          onOpenChange={(next) => {
-            setOpen(next);
-            if (!next) setInvite(null);
-          }}
+          onOpenChange={setOpen}
         >
           <DialogTrigger asChild>
             <Button>
@@ -159,34 +153,11 @@ export default function Organizations() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Joins as ADMIN if the account exists, otherwise gets an
-                    invite link. You can also add members later from the
-                    organization page.
+                    invite emailed to them. You can also invite members later
+                    from the organization page.
                   </p>
                 </div>
 
-                {invite && (
-                  <div className="rounded-md border bg-muted/50 p-3 text-sm">
-                    <p className="mb-2 font-medium">
-                      Email could not be sent — send this link to {invite.email} yourself. Shown once:
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded bg-background px-2 py-1 text-xs">
-                        {inviteLink(invite)}
-                      </code>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          navigator.clipboard.writeText(inviteLink(invite));
-                          toast({ title: "Copied to clipboard" });
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
               </div>
               <DialogFooter>
                 <Button

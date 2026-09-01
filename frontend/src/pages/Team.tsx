@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Copy, Loader2, Mail, Trash2, Users } from "lucide-react";
+import { Loader2, Mail, Trash2, Users } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +36,6 @@ import {
   removeMember,
   revokeInvite,
   updateMemberRole,
-  CreatedInvite,
 } from "@/lib/organizations";
 
 const ROLES: OrgRole[] = ["OWNER", "ADMIN", "MEMBER"];
@@ -49,7 +48,6 @@ export default function Team() {
   const [orgId, setOrgId] = useState<string>("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<OrgRole>("MEMBER");
-  const [lastInvite, setLastInvite] = useState<CreatedInvite | null>(null);
   const [pendingRemove, setPendingRemove] = useState<{
     userId: string;
     label: string;
@@ -118,10 +116,10 @@ export default function Team() {
         return;
       }
 
-      setLastInvite(result);
       toast({
-        title: "Invite created",
-        description: "Email could not be sent — copy the link below, it is shown only once.",
+        title: "Invite created, but the email failed",
+        description: "Check the SMTP settings, then revoke and re-send the invite.",
+        variant: "destructive",
       });
     },
     onError,
@@ -350,36 +348,11 @@ export default function Team() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              The invite link is shown once, right after you create it. It is
-              stored hashed, so it cannot be retrieved later — copy it before
-              leaving this page.
+              The invite link is emailed to the address you enter. It is stored
+              hashed, so it cannot be retrieved or resent later — revoke and
+              invite again instead.
             </p>
 
-            {lastInvite && (
-              <div className="rounded-md border bg-muted/50 p-3 text-sm">
-                <p className="mb-2 font-medium">
-                  Email could not be sent — send this link to {lastInvite.email} yourself. Shown once:
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 truncate rounded bg-background px-2 py-1 text-xs">
-                    {lastInvite.acceptUrl ??
-                      `${window.location.origin}/accept-invite?token=${lastInvite.token}`}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      copy(
-                        lastInvite.acceptUrl ??
-                          `${window.location.origin}/accept-invite?token=${lastInvite.token}`,
-                      )
-                    }
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
       )}

@@ -92,6 +92,17 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
   }
 });
 
+// What "this platform" resolves to — the list uses it to badge domains pointing at us.
+// Must sit before GET /:id or express matches "platform-target" as a domain id
+router.get('/platform-target', authenticateToken, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    return res.json({ success: true, data: await getDefaultDnsTarget() } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching platform DNS target:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 // Status of the running/last sync — must sit before GET /:id or express
 // matches "sync" as a domain id
 router.get('/sync/status', authenticateToken, requireRole(['ADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
