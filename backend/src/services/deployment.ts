@@ -882,8 +882,9 @@ build
 
       if (application.type === 'STATIC') {
         const sourcesDir = path.join(appDir, 'sources');
-        // Files uploaded straight from the browser are already built — there is no
-        // repository and no build command, so serve what was uploaded as-is.
+        // Uploaded static sites already live in object storage — a redeploy has
+        // nothing to build, so keep the deployment green instead of running a
+        // build command against an empty sources tree.
         const prebuilt = !application.repository && !application.buildCommand;
         const buildCommand = application.buildCommand || 'npm run build';
 

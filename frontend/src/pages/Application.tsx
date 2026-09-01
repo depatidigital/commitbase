@@ -19,6 +19,7 @@ import {
   Trash2,
   Search,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -29,7 +30,9 @@ import {
   useStopApplication,
   useRestartApplication,
   useDeleteApplication,
+  useSyncServerApps,
 } from "@/hooks/useApplications";
+import { isSuperAdmin } from "@/lib/auth";
 import { hasBeenDeployed } from "@/lib/applications";
 import {
   Tooltip,
@@ -57,6 +60,8 @@ export default function Application() {
     appName: string;
   } | null>(null);
   const { toast } = useToast();
+  const syncApps = useSyncServerApps();
+  const superAdmin = isSuperAdmin();
 
   // API hooks
   const {
@@ -427,12 +432,28 @@ export default function Application() {
         title="Apps"
         description="Manage your applications and services."
         actions={
-          <Link to="/add-app">
+          <div className="flex items-center gap-2">
+            {superAdmin && (
+              <Button
+                variant="outline"
+                onClick={() => syncApps.mutate()}
+                disabled={syncApps.isPending}
+              >
+                {syncApps.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {syncApps.isPending ? "Syncing…" : "Sync Apps"}
+              </Button>
+            )}
+            <Link to="/add-app">
             <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
               <Plus className="mr-2 h-4 w-4" />
               Add App
-            </Button>
-          </Link>
+              </Button>
+            </Link>
+          </div>
         }
       >
         <DataTable
