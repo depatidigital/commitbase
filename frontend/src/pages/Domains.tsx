@@ -31,9 +31,11 @@ import {
   Settings,
   ArrowLeft,
   LockOpen,
+  Cloud,
   MoreHorizontal,
   Building2,
   RotateCw,
+  Unlink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -53,7 +55,6 @@ import {
   useUpdateDnsRecord,
   useDeleteDnsRecord,
   useImportRegistrarDns,
-  useHideDnsRecord,
   useRenewDomain,
   useDomainRegistration,
 } from "@/hooks/useDomains";
@@ -160,6 +161,14 @@ const expiryTone = (value: Date): ExpiryTone => {
   return { days, className: "", note: "", urgent: false };
 };
 
+// compact form for the table — "25 Sep 2027"
+const formatDateShort = (value: Date) =>
+  value.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
 const formatDate = (value: Date) =>
   value.toLocaleDateString("id-ID", {
     day: "numeric",
@@ -230,7 +239,6 @@ export default function Domains() {
   const updateDnsRecord = useUpdateDnsRecord(domainId || "");
   const deleteDnsRecord = useDeleteDnsRecord(domainId || "");
   const importRegistrarDns = useImportRegistrarDns(domainId || "");
-  const hideDnsRecord = useHideDnsRecord(domainId || "");
   const renewDomain = useRenewDomain();
   // adding a domain provisions a real Cloudflare zone — admins only
   const admin = isAdmin();
@@ -255,7 +263,9 @@ export default function Domains() {
     !!platformTarget && String(content) === platformTarget;
 
   // hostname records for the zone, apex included — it is shown as "@" like every DNS UI does
-  const hiddenRecordIds = domainDnsZone?.hiddenDnsRecords ?? [];
+  // editing the domain itself: there is no subdomain part to fill in
+  const editingApex =
+    !!recordForm?.id && (recordForm.name === "" || recordForm.name === "@");
 
   // what the domain itself resolves to, hidden-from-list or not
   const apexRecord = (domainDnsZone?.records ?? []).find(
@@ -268,17 +278,10 @@ export default function Domains() {
     .filter(
       (record: any) =>
         typeof record?.name === "string" &&
-        ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase()) &&
-        !hiddenRecordIds.includes(record.id)
+        record.name !== domainDetail?.name &&
+        ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase())
     )
-    // the apex is what the domain itself resolves to — keep it first so the
-    // Overview preview never truncates it away
-    .sort((a: any, b: any) => {
-      const apex = domainDetail?.name;
-      if (a.name === apex) return -1;
-      if (b.name === apex) return 1;
-      return String(a.name).localeCompare(String(b.name));
-    });
+    .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
   const hostLabel = (name: string) =>
     name === domainDetail?.name
@@ -320,20 +323,29 @@ export default function Domains() {
     {
       header: "Domain",
       sortKey: "name",
-      className: "w-[26%]",
+      className: "w-[30%]",
       cell: (domain) => {
         const secure = domain.sslStatus === "ACTIVE";
         const Icon = secure ? Globe : LockOpen;
+        const sslLabel = secure
+          ? "HTTPS active — valid certificate served"
+          : domain.sslStatus === "PENDING"
+          ? "HTTPS pending — certificate not issued yet"
+          : domain.sslStatus === "EXPIRED"
+          ? "HTTPS expired — the certificate has lapsed"
+          : domain.sslStatus === "ERROR"
+          ? "HTTPS broken — the certificate is not trusted for this domain"
+          : "No HTTPS — nothing answered on port 443";
         return (
           <div className="flex min-w-0 items-center space-x-2 font-medium">
             <Icon
-              className={`h-4 w-4 ${
+              className={`h-4 w-4 shrink-0 ${
                 secure ? "text-success" : "text-warning"
               }`}
-              aria-label={
-                secure ? "Secure — SSL active" : "Not secure — no active SSL"
-              }
-            />
+              aria-label={sslLabel}
+            >
+              <title>{sslLabel}</title>
+            </Icon>
             <button
               type="button"
               onClick={() => navigate(`/domains/${domain.id}`)}
@@ -342,7 +354,13 @@ export default function Domains() {
               {domain.name}
             </button>
             {domain.registrar === "EXTERNAL" && (
-              <Badge variant="secondary">External</Badge>
+              <Badge
+                variant="outline"
+                className="gap-1 border-border/60 bg-transparent px-1.5 py-0 text-[11px] font-normal text-muted-foreground"
+              >
+                <Unlink className="h-3 w-3" />
+                External
+              </Badge>
             )}
             {!domain.cfZoneId && (
               <Badge
@@ -357,8 +375,48 @@ export default function Domains() {
       },
     },
     {
+      header: "Points to",
+      className: "w-[14%]",
+      cell: (domain) => {
+        // a redirect set by hand wins; otherwise the apex DNS record found by sync
+        const target = domain.customConfig?.cloudflare?.target;
+        const value = domain.redirectTo || target?.content;
+
+        if (!value) {
+          return <span className="text-muted-foreground">-</span>;
+        }
+
+        return (
+          <span
+            className="flex min-w-0 items-center gap-1 text-muted-foreground"
+            title={
+              domain.redirectTo
+                ? `Redirects to ${domain.redirectTo}`
+                : `Apex ${target?.type} record${target?.proxied ? " (proxied)" : ""}`
+            }
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span className="truncate">{value}</span>
+          </span>
+        );
+      },
+    },
+    {
+      header: "Subdomains",
+      className: "w-28",
+      cell: (domain) => {
+        // counted during sync from the Cloudflare zone
+        const count = domain.customConfig?.cloudflare?.subdomains;
+        return typeof count === "number" ? (
+          <span>{count}</span>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        );
+      },
+    },
+    {
       header: "Organization",
-      className: "w-[26%]",
+      className: "w-[16%]",
       cell: (domain) =>
         domain.organization ? (
           <Badge variant="outline" className="max-w-full truncate">
@@ -371,12 +429,12 @@ export default function Domains() {
     {
       header: "Status",
       className: "w-28",
-      cell: (domain) => getStatusBadge(domain.status),
+      cell: (domain) => getStatusBadge(domain.status, domain.expiresAt),
     },
     {
       header: "Expires",
       sortKey: "expiresAt",
-      className: "w-64",
+      className: "w-56",
       cell: (domain) => {
         if (!domain.expiresAt) {
           return <span className="text-muted-foreground">-</span>;
@@ -388,7 +446,7 @@ export default function Domains() {
             {tone.urgent && (
               <AlertCircle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
             )}
-            {formatDate(expiry)}
+            {formatDateShort(expiry)}
             {tone.note && <span className="ml-1 text-xs">({tone.note})</span>}
             {admin && needsRenewal(domain) && (
               <Button
@@ -621,7 +679,11 @@ export default function Domains() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  /**
+   * Registration status. An ACTIVE domain about to lapse is its own state —
+   * "active" hides the one thing an admin has to act on.
+   */
+  const getStatusBadge = (status: string, expiresAt?: string | Date | null) => {
     const variants = {
       ACTIVE: "default",
       INACTIVE: "secondary",
@@ -629,10 +691,42 @@ export default function Domains() {
       ERROR: "destructive",
     } as const;
 
+    if (status === "ACTIVE" && expiresAt) {
+      const daysLeft = Math.ceil(
+        (new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      );
+
+      if (daysLeft < 0) {
+        return (
+          <Badge variant="destructive" className="gap-1">
+            <AlertCircle className="h-3.5 w-3.5" />
+            expired
+          </Badge>
+        );
+      }
+
+      if (daysLeft <= 30) {
+        return (
+          <Badge
+            variant="outline"
+            className="gap-1 border-warning bg-warning/10 text-warning"
+          >
+            <Clock className="h-3.5 w-3.5" />
+            expiring
+          </Badge>
+        );
+      }
+    }
+
     return (
       <Badge
         variant={variants[status as keyof typeof variants] || "secondary"}
-        className="gap-1"
+        // active is a healthy state, not a branded one
+        className={`gap-1 ${
+          status === "ACTIVE"
+            ? "bg-success text-success-foreground hover:bg-success/90"
+            : ""
+        }`}
       >
         {getStatusIcon(status)}
         {status.toLowerCase()}
@@ -651,7 +745,11 @@ export default function Domains() {
     return (
       <Badge
         variant={variants[sslStatus as keyof typeof variants] || "secondary"}
-        className="gap-1"
+        className={`gap-1 ${
+          sslStatus === "ACTIVE"
+            ? "bg-success text-success-foreground hover:bg-success/90"
+            : ""
+        }`}
       >
         {getSSLIcon(sslStatus)}
         {sslStatus.toLowerCase()}
@@ -728,7 +826,7 @@ export default function Domains() {
                           </Badge>
                         );
                       })()}
-                    {getStatusBadge(domainDetail.status)}
+                    {getStatusBadge(domainDetail.status, domainDetail.expiresAt)}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     Domain DNS zone and SSL configuration.
@@ -809,30 +907,31 @@ export default function Domains() {
                     <CardTitle className="text-base">Overview</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2 pt-0">
+                    {/* what it is doing now */}
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Status</span>
-                      {getStatusBadge(domainDetail.status)}
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">SSL</span>
-                      {getSSLBadge(domainDetail.sslStatus)}
+                      {getStatusBadge(domainDetail.status, domainDetail.expiresAt)}
                     </div>
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <span className="text-muted-foreground">Points to</span>
                       {apexRecord ? (
                         <span className="flex items-center gap-2">
-                          <span className="font-mono text-xs">
-                            {apexRecord.type} →{" "}
-                            {isPlatformTarget(apexRecord.content)
-                              ? "this platform"
-                              : apexRecord.content}
-                          </span>
+                          {isPlatformTarget(apexRecord.content) ? (
+                            <Badge className="gap-1">
+                              <Cloud className="h-3.5 w-3.5" />
+                              This platform
+                            </Badge>
+                          ) : (
+                            <span className="font-mono text-xs">
+                              {apexRecord.type} → {apexRecord.content}
+                            </span>
+                          )}
                           {admin && domainDetail.cfZoneId && (
                             <Button
                               variant="ghost"
                               size="sm"
                               className="h-6 w-6 p-0"
-                              aria-label="Edit the root domain record"
+                              aria-label="Edit where the domain points"
                               onClick={() =>
                                 setRecordForm({
                                   id: apexRecord.id,
@@ -871,7 +970,47 @@ export default function Domains() {
                         <span className="text-muted-foreground">Not set</span>
                       )}
                     </div>
+
+                    {/* who runs its DNS and certificate */}
+                    <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
+                      <span className="text-muted-foreground">DNS</span>
+                      {domainDetail.cfZoneId ? (
+                        <Badge variant="secondary">Cloudflare</Badge>
+                      ) : admin ? (
+                        <Button
+                          size="sm"
+                          className="h-7"
+                          onClick={() => setCloudflarePrompt("enable")}
+                          disabled={enableCloudflare.isPending}
+                        >
+                          {enableCloudflare.isPending && (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          )}
+                          Move to Cloudflare
+                        </Button>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="border-warning text-warning"
+                        >
+                          Not on Cloudflare
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">SSL</span>
+                      <span className="flex items-center gap-2">
+                        {getSSLBadge(domainDetail.sslStatus)}
+                        {domainDetail.sslExpiry && (
+                          <span className="text-xs text-muted-foreground">
+                            until {formatDate(new Date(domainDetail.sslExpiry))}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* who owns it and for how long */}
+                    <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
                       <span className="text-muted-foreground">Registrar</span>
                       <span>
                         {domainDetail.registrar === "RDASH"
@@ -882,7 +1021,9 @@ export default function Domains() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Registration expiry</span>
+                      <span className="text-muted-foreground">
+                        Registration expiry
+                      </span>
                       {domainDetail.expiresAt ? (
                         (() => {
                           const expiry = new Date(domainDetail.expiresAt);
@@ -894,7 +1035,9 @@ export default function Domains() {
                               )}
                               {formatDate(expiry)}
                               {tone.note && (
-                                <span className="ml-1 text-xs">({tone.note})</span>
+                                <span className="ml-1 text-xs">
+                                  ({tone.note})
+                                </span>
                               )}
                             </span>
                           );
@@ -903,115 +1046,18 @@ export default function Domains() {
                         <span>-</span>
                       )}
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">SSL expiry</span>
-                      <span>
-                        {domainDetail.sslExpiry
-                          ? formatDate(new Date(domainDetail.sslExpiry))
-                          : "-"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Redirect to</span>
-                      <span className="flex items-center gap-2">
-                        {domainDetail.redirectTo ? (
-                          <>
-                            <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">
-                              {domainDetail.redirectTo}
-                            </span>
-                          </>
-                        ) : (
-                          "-"
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Created</span>
-                      <span>
-                        {formatDate(new Date(domainDetail.createdAt))}
-                      </span>
-                    </div>
+                    {domainDetail.redirectTo && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Redirect to</span>
+                        <span className="flex items-center gap-2 text-muted-foreground">
+                          <ExternalLink className="h-3 w-3" />
+                          {domainDetail.redirectTo}
+                        </span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
-                <Card
-                  className={
-                    domainDetail.cfZoneId
-                      ? undefined
-                      : "border-warning/50 bg-warning/5"
-                  }
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      Cloudflare Zone
-                      {!domainDetail.cfZoneId && (
-                        <Badge
-                          variant="outline"
-                          className="border-warning text-warning gap-1"
-                        >
-                          <AlertCircle className="h-3.5 w-3.5" />
-                          Not configured
-                        </Badge>
-                      )}
-                    </CardTitle>
-                    {admin && !domainDetail.cfZoneId && (
-                      <Button
-                        size="sm"
-                        onClick={() => setCloudflarePrompt("enable")}
-                        disabled={enableCloudflare.isPending}
-                      >
-                        {enableCloudflare.isPending && (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        )}
-                        Move to Cloudflare
-                      </Button>
-                    )}
-                  </CardHeader>
-                  <CardContent className="space-y-2 pt-0">
-                    {dnsZoneLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Loading DNS zone from Cloudflare...</span>
-                      </div>
-                    ) : dnsZoneError ? (
-                      <p className="text-sm text-destructive">
-                        Failed to load DNS zone configuration.
-                      </p>
-                    ) : domainDnsZone && domainDnsZone.zone ? (
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Globe className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">
-                            {domainDnsZone.zone.name}
-                          </span>
-                        </div>
-                        {domainDnsZone.zone.nameservers.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-xs text-muted-foreground">
-                              Nameservers
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {domainDnsZone.zone.nameservers.map(
-                                (ns: string) => (
-                                  <Badge key={ns} variant="outline">
-                                    {ns}
-                                  </Badge>
-                                ),
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-warning">
-                        No Cloudflare zone yet — DNS and SSL are not managed
-                        for this domain. Use Move to Cloudflare to create the
-                        zone and migrate DNS.
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
@@ -1056,10 +1102,16 @@ export default function Domains() {
                               {hostLabel(record.name)}
                             </span>
                             <span className="truncate font-mono text-xs text-muted-foreground">
-                              {record.type} →{" "}
-                              {isPlatformTarget(record.content)
-                                ? "this platform"
-                                : record.content}
+                              {isPlatformTarget(record.content) ? (
+                                <Badge className="gap-1">
+                                  <Cloud className="h-3.5 w-3.5" />
+                                  This platform
+                                </Badge>
+                              ) : (
+                                <>
+                                  {record.type} → {record.content}
+                                </>
+                              )}
                             </span>
                           </div>
                         ))}
@@ -1155,7 +1207,8 @@ export default function Domains() {
                                 <TableCell className="font-mono text-xs">
                                   {isPlatformTarget(record.content) ? (
                                     <span className="flex items-center gap-2">
-                                      <Badge variant="secondary">
+                                      <Badge className="gap-1">
+                                        <Cloud className="h-3.5 w-3.5" />
                                         This platform
                                       </Badge>
                                       <span className="text-muted-foreground">
@@ -1211,25 +1264,13 @@ export default function Domains() {
                                         Edit
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
-                                      {record.name === domainDetail.name ? (
-                                        <DropdownMenuItem
-                                          onClick={() =>
-                                            hideDnsRecord.mutate(record.id)
-                                          }
-                                          disabled={hideDnsRecord.isPending}
-                                        >
-                                          <XCircle className="mr-2 h-4 w-4" />
-                                          Remove from list
-                                        </DropdownMenuItem>
-                                      ) : (
-                                        <DropdownMenuItem
-                                          className="text-destructive focus:text-destructive"
-                                          onClick={() => setRecordToDelete(record)}
-                                        >
-                                          <Trash2 className="mr-2 h-4 w-4" />
-                                          Delete
-                                        </DropdownMenuItem>
-                                      )}
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onClick={() => setRecordToDelete(record)}
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete
+                                      </DropdownMenuItem>
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 </TableCell>
@@ -1756,11 +1797,14 @@ export default function Domains() {
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>
-                  {recordForm.id ? "Edit subdomain" : "Add subdomain"}
+                  {!recordForm.id
+                    ? "Add subdomain"
+                    : editingApex
+                    ? `Edit ${domainDetail.name}`
+                    : "Edit subdomain"}
                 </DialogTitle>
                 <DialogDescription>
-                  Written straight to the Cloudflare zone for{" "}
-                  {domainDetail.name}.
+                  Saved to Cloudflare straight away.
                 </DialogDescription>
               </DialogHeader>
               <form
@@ -1779,9 +1823,11 @@ export default function Domains() {
                           name: recordForm.name.trim() || "@",
                           type: recordForm.type,
                           content: recordForm.content.trim(),
-                          ttl: Number(recordForm.ttl) || 1,
+                          // TTL and proxying are not worth a field each — automatic
+                          // TTL and proxy-on are right for everything this page creates
+                          ttl: 1,
                           proxied: ["A", "AAAA", "CNAME"].includes(recordForm.type)
-                            ? recordForm.proxied
+                            ? true
                             : undefined,
                         };
 
@@ -1796,25 +1842,24 @@ export default function Domains() {
                   setRecordForm(null);
                 }}
               >
-                <div className="space-y-2">
-                  <Label htmlFor="record-name">Subdomain</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="record-name"
-                      placeholder="app"
-                      value={recordForm.name}
-                      onChange={(e) =>
-                        setRecordForm({ ...recordForm, name: e.target.value })
-                      }
-                    />
-                    <span className="text-sm text-muted-foreground">
-                      .{domainDetail.name}
-                    </span>
+                {!editingApex && (
+                  <div className="space-y-2">
+                    <Label htmlFor="record-name">Subdomain</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="record-name"
+                        placeholder="app"
+                        value={recordForm.name}
+                        onChange={(e) =>
+                          setRecordForm({ ...recordForm, name: e.target.value })
+                        }
+                      />
+                      <span className="whitespace-nowrap text-sm text-muted-foreground">
+                        .{domainDetail.name}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to use the domain itself.
-                  </p>
-                </div>
+                )}
 
                 <div className="space-y-2">
                   <Label>Points to</Label>
@@ -1831,31 +1876,21 @@ export default function Domains() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">
-                        Auto — this platform
-                      </SelectItem>
-                      <SelectItem value="custom">Custom</SelectItem>
+                      <SelectItem value="auto">This platform</SelectItem>
+                      <SelectItem value="custom">Somewhere else</SelectItem>
                     </SelectContent>
                   </Select>
-                  {recordForm.mode === "auto" && (
-                    <p className="text-xs text-muted-foreground">
-                      Uses the platform's configured DNS target, as an A record
-                      or CNAME depending on what it is.
-                    </p>
-                  )}
                 </div>
 
                 {recordForm.mode === "custom" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Type</Label>
+                  <div className="flex gap-2">
                     <Select
                       value={recordForm.type}
                       onValueChange={(value) =>
                         setRecordForm({ ...recordForm, type: value })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="w-28">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1866,62 +1901,24 @@ export default function Domains() {
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="record-ttl">TTL</Label>
                     <Input
-                      id="record-ttl"
-                      value={recordForm.ttl}
+                      placeholder={
+                        recordForm.type === "A"
+                          ? "203.0.113.10"
+                          : domainDetail.name
+                      }
+                      value={recordForm.content}
                       onChange={(e) =>
-                        setRecordForm({ ...recordForm, ttl: e.target.value })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      1 = automatic
-                    </p>
-                  </div>
-                </div>
-                )}
-
-                {recordForm.mode === "custom" && (
-                <div className="space-y-2">
-                  <Label htmlFor="record-content">
-                    {recordForm.type === "CNAME" ? "Target" : "Value"}
-                  </Label>
-                  <Input
-                    id="record-content"
-                    placeholder={
-                      recordForm.type === "A"
-                        ? "203.0.113.10"
-                        : domainDetail.name
-                    }
-                    value={recordForm.content}
-                    onChange={(e) =>
-                      setRecordForm({ ...recordForm, content: e.target.value })
-                    }
-                  />
-                </div>
-                )}
-
-                {recordForm.mode === "custom" &&
-                  ["A", "AAAA", "CNAME"].includes(recordForm.type) && (
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <div>
-                      <Label className="text-sm">Proxy through Cloudflare</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Hides the origin IP and serves the certificate.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={recordForm.proxied}
-                      onCheckedChange={(next) =>
-                        setRecordForm({ ...recordForm, proxied: next })
+                        setRecordForm({
+                          ...recordForm,
+                          content: e.target.value,
+                        })
                       }
                     />
                   </div>
                 )}
 
-                <div className="flex items-center justify-end gap-3">
+                <div className="flex items-center justify-end gap-3 pt-2">
                   <Button
                     type="button"
                     variant="outline"

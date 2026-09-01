@@ -22,8 +22,7 @@ import {
   updateDnsRecord,
   deleteDnsRecord,
   DnsRecordInput,
-  importRegistrarDns,
-  hideDnsRecord
+  importRegistrarDns
 } from '@/lib/domains';
 import { isAdmin } from '@/lib/auth';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
@@ -314,13 +313,6 @@ export const useImportRegistrarDns = (domainId: string) => {
     },
   });
 };
-
-export const useHideDnsRecord = (domainId: string) =>
-  useDnsRecordMutation<string>(
-    domainId,
-    (recordId) => hideDnsRecord(domainId, recordId),
-    'Removed from the subdomain list'
-  );
 
 // Update domain mutation
 export const useUpdateDomain = () => {

@@ -48,8 +48,6 @@ export type DomainDnsZone = {
   records: any[];
   /** what "this platform" resolves to, so records pointing at us can be labelled */
   platformTarget: { type: 'A' | 'CNAME'; content: string } | null;
-  /** record ids kept out of the subdomain list; they still exist in Cloudflare */
-  hiddenDnsRecords: string[];
   synced: boolean;
 };
 
@@ -233,21 +231,6 @@ export const importRegistrarDns = async (
 
   if (response.success && response.data) return response.data;
   throw new Error(response.error || 'Failed to import the registrar DNS records');
-};
-
-export const hideDnsRecord = async (
-  domainId: string,
-  recordId: string,
-  hidden = true
-): Promise<void> => {
-  const response = await apiRequest(`/domains/${domainId}/dns-records/${recordId}/hide`, {
-    method: 'POST',
-    body: JSON.stringify({ hidden }),
-  });
-
-  if (!response.success) {
-    throw new Error(response.error || 'Failed to update the subdomain list');
-  }
 };
 
 // Update a domain

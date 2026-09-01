@@ -1,7 +1,8 @@
 import { prisma } from '../lib/prisma';
-import { listCloudflareZones, getZoneSslState } from './cloudflareService';
+import { listCloudflareZones, getZoneSslState, listCloudflareDnsRecords } from './cloudflareService';
 import { listRdashDomains } from './rdashService';
 import { getDomainExpiry } from './rdapService';
+import { getTlsCertificate } from './tlsService';
 
 export type DomainSyncResult = {
   total: number;
@@ -165,17 +166,61 @@ export async function syncDomains(ownerUserId: string): Promise<DomainSyncResult
     const { name, zone, rdash } = entry;
 
     const cfZoneId = zone?.id ? String(zone.id) : null;
+
+    // hostnames below the apex that actually resolve somewhere — what an admin
+    // means by "how many subdomains does this domain have"
+    const dns = cfZoneId ? await listCloudflareDnsRecords(cfZoneId) : null;
+    const subdomains = dns
+      ? new Set(
+          dns
+            .filter((r: any) => ['A', 'AAAA', 'CNAME'].includes(String(r?.type)))
+            .map((r: any) => String(r?.name || '').trim().toLowerCase())
+            .filter((host: string) => host.length > 0 && host !== name),
+        ).size
+      : null;
+
+    // where the bare domain actually resolves — the apex record, CNAME first
+    // because that is the one that names another host rather than an address
+    const apex = dns
+      ? dns.find(
+          (r: any) =>
+            String(r?.name || '').trim().toLowerCase() === name &&
+            String(r?.type) === 'CNAME',
+        ) ??
+        dns.find(
+          (r: any) =>
+            String(r?.name || '').trim().toLowerCase() === name &&
+            ['A', 'AAAA'].includes(String(r?.type)),
+        ) ??
+        null
+      : null;
+
+    const target = apex
+      ? {
+          type: String(apex.type),
+          content: String(apex.content || ''),
+          proxied: !!apex.proxied,
+        }
+      : null;
+
     const cloudflare = zone
       ? {
           zoneId: cfZoneId,
           zoneName: name,
           nameservers: Array.isArray(zone.name_servers) ? zone.name_servers : [],
+          ...(subdomains !== null && { subdomains }),
+          ...(target && { target }),
           synced: true,
         }
       : null;
 
-    // real certificate state — Cloudflare terminates TLS, so it is the only honest source
-    const ssl = cfZoneId ? await getZoneSslState(cfZoneId) : null;
+    // Cloudflare knows about the zones it hosts…
+    const cfSsl = cfZoneId ? await getZoneSslState(cfZoneId) : null;
+
+    // …but a domain served from anywhere else, or a zone Cloudflare will not
+    // tell us about, still answers a TLS handshake. Ask the domain itself
+    // whenever Cloudflare has no active certificate to report.
+    const ssl = cfSsl?.status === 'ACTIVE' ? cfSsl : (await getTlsCertificate(name)) ?? cfSsl;
 
     const existing = await prisma.domain.findUnique({ where: { name } });
 

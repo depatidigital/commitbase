@@ -352,9 +352,6 @@ router.get('/:id/dns-zone', authenticateToken, async (req: AuthenticatedRequest,
       records: records || [],
       // so the UI can show "this platform" instead of a bare IP for records pointing at us
       platformTarget: await getDefaultDnsTarget(),
-      hiddenDnsRecords: Array.isArray((domain.customConfig as any)?.hiddenDnsRecords)
-        ? ((domain.customConfig as any).hiddenDnsRecords as string[])
-        : [],
       synced: true,
     };
 
@@ -919,49 +916,6 @@ router.post('/:id/dns-records/import', authenticateToken, async (req: Authentica
     return res.status(502).json({
       success: false,
       error: error?.message || 'Failed to import the DNS records',
-    } as ApiResponse);
-  }
-});
-
-/**
- * Hide a record from the Subdomains list without touching Cloudflare. The apex record is
- * what the domain itself resolves to — deleting it would take the site down, so the list
- * offers this instead. The record stays in the zone and in the DNS tab.
- */
-router.post('/:id/dns-records/:recordId/hide', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const domain = await prisma.domain.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
-    });
-
-    if (!domain) {
-      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
-    }
-
-    const config = (domain.customConfig as any) || {};
-    const hidden: string[] = Array.isArray(config.hiddenDnsRecords) ? config.hiddenDnsRecords : [];
-    const recordId = req.params.recordId as string;
-    const hide = req.body?.hidden !== false;
-
-    const next = hide
-      ? Array.from(new Set([...hidden, recordId]))
-      : hidden.filter((id) => id !== recordId);
-
-    await prisma.domain.update({
-      where: { id: domain.id },
-      data: { customConfig: { ...config, hiddenDnsRecords: next } },
-    });
-
-    return res.json({
-      success: true,
-      data: { hiddenDnsRecords: next },
-      message: hide ? 'Record hidden from the subdomain list' : 'Record restored to the list',
-    } as ApiResponse);
-  } catch (error) {
-    console.error('Error hiding DNS record:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
     } as ApiResponse);
   }
 });
