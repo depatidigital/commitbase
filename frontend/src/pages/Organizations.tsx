@@ -21,7 +21,6 @@ import {
   Organization,
   addMember,
   isInviteResult,
-  createInvite,
   createOrganization,
   getOrganizationsPage,
 } from "@/lib/organizations";
