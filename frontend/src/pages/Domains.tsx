@@ -49,6 +49,10 @@ import {
   useRdashDns,
   useEnableCloudflare,
   useDisableCloudflare,
+  useCreateDnsRecord,
+  useUpdateDnsRecord,
+  useDeleteDnsRecord,
+  useImportRegistrarDns,
   useRenewDomain,
   useDomainRegistration,
 } from "@/hooks/useDomains";
@@ -188,6 +192,18 @@ export default function Domains() {
   } | null>(null);
   const [assignOrgId, setAssignOrgId] = useState(UNASSIGNED);
   const [cloudflarePrompt, setCloudflarePrompt] = useState<"enable" | "disable" | null>(null);
+  // null = closed, {} = adding, {id} = editing that record
+  const [recordForm, setRecordForm] = useState<{
+    id?: string;
+    name: string;
+    /** "auto" points at the platform's own target and picks A vs CNAME for you */
+    mode: "auto" | "custom";
+    type: string;
+    content: string;
+    ttl: string;
+    proxied: boolean;
+  } | null>(null);
+  const [recordToDelete, setRecordToDelete] = useState<any | null>(null);
   const { toast } = useToast();
 
   // API hooks
@@ -209,6 +225,10 @@ export default function Domains() {
   const bulkAssign = useBulkAssignDomains();
   const enableCloudflare = useEnableCloudflare();
   const disableCloudflare = useDisableCloudflare();
+  const createDnsRecord = useCreateDnsRecord(domainId || "");
+  const updateDnsRecord = useUpdateDnsRecord(domainId || "");
+  const deleteDnsRecord = useDeleteDnsRecord(domainId || "");
+  const importRegistrarDns = useImportRegistrarDns(domainId || "");
   const renewDomain = useRenewDomain();
   // adding a domain provisions a real Cloudflare zone — admins only
   const admin = isAdmin();
@@ -225,6 +245,14 @@ export default function Domains() {
   );
 
   const domains = domainsData?.data ?? [];
+
+  // a subdomain is any record in the zone whose name sits below the apex
+  const subdomainRecords = (domainDnsZone?.records ?? []).filter(
+    (record: any) =>
+      typeof record?.name === "string" &&
+      domainDetail?.name &&
+      record.name !== domainDetail.name
+  );
   const allSelected =
     domains.length > 0 && domains.every((d) => selectedIds.includes(d.id));
 
@@ -735,6 +763,7 @@ export default function Domains() {
             <Tabs defaultValue="overview" className="space-y-4">
               <TabsList>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="subdomains">Subdomains</TabsTrigger>
                 <TabsTrigger value="dns">DNS</TabsTrigger>
                 <TabsTrigger value="registration">Registration</TabsTrigger>
                 {admin && (
@@ -899,7 +928,211 @@ export default function Domains() {
                   </CardContent>
                 </Card>
 
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                    <CardTitle className="text-base">Subdomains</CardTitle>
+                    {domainDetail.cfZoneId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setRecordForm({
+                            name: "",
+                            mode: "auto",
+                            type: "CNAME",
+                            content: "",
+                            ttl: "1",
+                            proxied: true,
+                          })
+                        }
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add
+                      </Button>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {!domainDetail.cfZoneId ? (
+                      <p className="text-sm text-muted-foreground">
+                        Move this domain to Cloudflare to manage subdomains.
+                      </p>
+                    ) : subdomainRecords.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        None yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {subdomainRecords.slice(0, 5).map((record: any) => (
+                          <div
+                            key={record.id}
+                            className="flex items-center justify-between gap-2 text-sm"
+                          >
+                            <span className="font-mono text-xs">
+                              {record.name}
+                            </span>
+                            <span className="truncate font-mono text-xs text-muted-foreground">
+                              {record.type} → {record.content}
+                            </span>
+                          </div>
+                        ))}
+                        {subdomainRecords.length > 5 && (
+                          <p className="pt-1 text-xs text-muted-foreground">
+                            +{subdomainRecords.length - 5} more in the
+                            Subdomains tab
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
+              </TabsContent>
+
+              <TabsContent value="subdomains" className="space-y-4">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                    <CardTitle className="text-base">Subdomains</CardTitle>
+                    {domainDetail.cfZoneId && (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          setRecordForm({
+                            name: "",
+                            mode: "auto",
+                            type: "CNAME",
+                            content: "",
+                            ttl: "1",
+                            proxied: true,
+                          })
+                        }
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add subdomain
+                      </Button>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {!domainDetail.cfZoneId ? (
+                      <p className="text-sm text-warning">
+                        Move this domain to Cloudflare before managing
+                        subdomains.
+                      </p>
+                    ) : dnsZoneLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Loading subdomains…</span>
+                      </div>
+                    ) : subdomainRecords.length === 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          No subdomains yet. Add one, or pull across whatever
+                          the registrar was serving.
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => importRegistrarDns.mutate()}
+                          disabled={importRegistrarDns.isPending}
+                        >
+                          {importRegistrarDns.isPending ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                          )}
+                          Sync from registrar DNS
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Subdomain</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Target</TableHead>
+                              <TableHead>Proxied</TableHead>
+                              <TableHead className="text-right">TTL</TableHead>
+                              <TableHead className="w-12" />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {subdomainRecords.map((record: any) => (
+                              <TableRow key={record.id}>
+                                <TableCell className="font-mono text-xs">
+                                  {record.name.replace(
+                                    `.${domainDetail.name}`,
+                                    ""
+                                  )}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {record.type}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {record.content}
+                                </TableCell>
+                                <TableCell>
+                                  {record.proxied ? (
+                                    <Badge variant="secondary">Proxied</Badge>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                      DNS only
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {record.ttl === 1 ? "Auto" : record.ttl}
+                                </TableCell>
+                                <TableCell>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        aria-label={`Actions for ${record.name}`}
+                                      >
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          setRecordForm({
+                                            id: record.id,
+                                            mode: "custom",
+                                            name: record.name.replace(
+                                              `.${domainDetail.name}`,
+                                              ""
+                                            ),
+                                            type: record.type,
+                                            content: record.content,
+                                            ttl: String(record.ttl ?? 1),
+                                            proxied: !!record.proxied,
+                                          })
+                                        }
+                                      >
+                                        <Edit className="mr-2 h-4 w-4" />
+                                        Edit
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onClick={() => setRecordToDelete(record)}
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               <TabsContent value="dns" className="space-y-4">
@@ -1406,6 +1639,241 @@ export default function Domains() {
           </>
         )}
 
+
+        {domainDetail && recordForm && (
+          <Dialog
+            open={!!recordForm}
+            onOpenChange={(open) => !open && setRecordForm(null)}
+          >
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {recordForm.id ? "Edit subdomain" : "Add subdomain"}
+                </DialogTitle>
+                <DialogDescription>
+                  Written straight to the Cloudflare zone for{" "}
+                  {domainDetail.name}.
+                </DialogDescription>
+              </DialogHeader>
+              <form
+                className="space-y-4"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const record =
+                    recordForm.mode === "auto"
+                      ? {
+                          auto: true,
+                          name: recordForm.name.trim() || "@",
+                          type: "",
+                          content: "",
+                        }
+                      : {
+                          name: recordForm.name.trim() || "@",
+                          type: recordForm.type,
+                          content: recordForm.content.trim(),
+                          ttl: Number(recordForm.ttl) || 1,
+                          proxied: ["A", "AAAA", "CNAME"].includes(recordForm.type)
+                            ? recordForm.proxied
+                            : undefined,
+                        };
+
+                  if (recordForm.id) {
+                    await updateDnsRecord.mutateAsync({
+                      recordId: recordForm.id,
+                      record,
+                    });
+                  } else {
+                    await createDnsRecord.mutateAsync(record);
+                  }
+                  setRecordForm(null);
+                }}
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="record-name">Subdomain</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="record-name"
+                      placeholder="app"
+                      value={recordForm.name}
+                      onChange={(e) =>
+                        setRecordForm({ ...recordForm, name: e.target.value })
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      .{domainDetail.name}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to use the domain itself.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Points to</Label>
+                  <Select
+                    value={recordForm.mode}
+                    onValueChange={(value) =>
+                      setRecordForm({
+                        ...recordForm,
+                        mode: value as "auto" | "custom",
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">
+                        Auto — this platform
+                      </SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {recordForm.mode === "auto" && (
+                    <p className="text-xs text-muted-foreground">
+                      Uses the platform's configured DNS target, as an A record
+                      or CNAME depending on what it is.
+                    </p>
+                  )}
+                </div>
+
+                {recordForm.mode === "custom" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Type</Label>
+                    <Select
+                      value={recordForm.type}
+                      onValueChange={(value) =>
+                        setRecordForm({ ...recordForm, type: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["A", "AAAA", "CNAME", "TXT", "MX", "CAA"].map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="record-ttl">TTL</Label>
+                    <Input
+                      id="record-ttl"
+                      value={recordForm.ttl}
+                      onChange={(e) =>
+                        setRecordForm({ ...recordForm, ttl: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      1 = automatic
+                    </p>
+                  </div>
+                </div>
+                )}
+
+                {recordForm.mode === "custom" && (
+                <div className="space-y-2">
+                  <Label htmlFor="record-content">
+                    {recordForm.type === "CNAME" ? "Target" : "Value"}
+                  </Label>
+                  <Input
+                    id="record-content"
+                    placeholder={
+                      recordForm.type === "A"
+                        ? "203.0.113.10"
+                        : domainDetail.name
+                    }
+                    value={recordForm.content}
+                    onChange={(e) =>
+                      setRecordForm({ ...recordForm, content: e.target.value })
+                    }
+                  />
+                </div>
+                )}
+
+                {recordForm.mode === "custom" &&
+                  ["A", "AAAA", "CNAME"].includes(recordForm.type) && (
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <div>
+                      <Label className="text-sm">Proxy through Cloudflare</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Hides the origin IP and serves the certificate.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={recordForm.proxied}
+                      onCheckedChange={(next) =>
+                        setRecordForm({ ...recordForm, proxied: next })
+                      }
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRecordForm(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      (recordForm.mode === "custom" &&
+                        !recordForm.content.trim()) ||
+                      createDnsRecord.isPending ||
+                      updateDnsRecord.isPending
+                    }
+                  >
+                    {(createDnsRecord.isPending || updateDnsRecord.isPending) && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    {recordForm.id ? "Save" : "Add"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {recordToDelete && (
+          <AlertDialog
+            open={!!recordToDelete}
+            onOpenChange={() => setRecordToDelete(null)}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete DNS record</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {recordToDelete.type} {recordToDelete.name} →{" "}
+                  {recordToDelete.content}. Anything relying on this hostname
+                  stops resolving.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deleteDnsRecord.isPending}
+                  onClick={async () => {
+                    await deleteDnsRecord.mutateAsync(recordToDelete.id);
+                    setRecordToDelete(null);
+                  }}
+                >
+                  {deleteDnsRecord.isPending && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
 
         {domainDetail && cloudflarePrompt && (
           <AlertDialog

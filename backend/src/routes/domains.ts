@@ -5,7 +5,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
-import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords } from '../services/cloudflareService';
+import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords, createDnsRecord, updateDnsRecord, deleteDnsRecord, getDefaultDnsTarget } from '../services/cloudflareService';
 import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain } from '../services/rdashService';
 import { startDomainSync, getDomainSyncState } from '../services/domainSyncService';
 import { getDomainRegistration } from '../services/rdapService';
@@ -691,6 +691,218 @@ router.post('/:id/renew', authenticateToken, requireRole(['ADMIN']), async (req:
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+const DNS_RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'];
+
+/** The zone a domain's records live in, or null when it is not on Cloudflare yet. */
+const zoneIdOf = (domain: { cfZoneId: string | null; customConfig: any }) =>
+  domain.cfZoneId || ((domain.customConfig as any)?.cloudflare?.zoneId as string | undefined) || null;
+
+/**
+ * Records are written straight to Cloudflare, so validate here: the name has to stay
+ * inside this domain, otherwise one tenant could point a record at another's hostname.
+ */
+const parseRecordBody = async (body: any, domainName: string) => {
+  // "Auto" means: point at whatever the platform serves, and let the target decide A vs CNAME
+  if (body?.auto === true) {
+    const target = await getDefaultDnsTarget();
+    if (!target) {
+      return { error: 'No platform DNS target is configured — pick a custom record type' };
+    }
+    body = { ...body, type: target.type, content: target.content, proxied: true };
+  }
+
+  const type = String(body?.type || '').trim().toUpperCase();
+  const content = String(body?.content || '').trim();
+  const rawName = String(body?.name || '').trim().toLowerCase().replace(/\.$/, '');
+
+  if (!DNS_RECORD_TYPES.includes(type)) {
+    return { error: `Type must be one of ${DNS_RECORD_TYPES.join(', ')}` };
+  }
+  if (!content) {
+    return { error: 'Content is required' };
+  }
+
+  // accept "app", "app.example.com" and "@" — all resolve to a name inside the zone
+  const name =
+    !rawName || rawName === '@' || rawName === domainName
+      ? domainName
+      : rawName.endsWith(`.${domainName}`)
+      ? rawName
+      : `${rawName}.${domainName}`;
+
+  if (name !== domainName && !name.endsWith(`.${domainName}`)) {
+    return { error: `Name must be inside ${domainName}` };
+  }
+
+  const ttl = Number(body?.ttl);
+  const priority = Number(body?.priority);
+
+  return {
+    record: {
+      type,
+      name,
+      content,
+      ...(Number.isFinite(ttl) && ttl > 0 && { ttl }),
+      ...(type === 'MX' && Number.isFinite(priority) && { priority }),
+      ...(typeof body?.proxied === 'boolean' && { proxied: body.proxied }),
+    },
+  };
+};
+
+const loadDomainForDns = async (req: AuthenticatedRequest) => {
+  const domain = await prisma.domain.findFirst({
+    where: { id: req.params.id as string, ...(await orgScope(req)) },
+  });
+
+  if (!domain) return { error: { status: 404, message: 'Domain not found' } };
+
+  const zoneId = zoneIdOf(domain);
+  if (!zoneId) {
+    return { error: { status: 400, message: 'This domain has no Cloudflare zone yet' } };
+  }
+
+  return { domain, zoneId };
+};
+
+// Create a DNS record (a subdomain, in practice) in the domain's Cloudflare zone
+router.post('/:id/dns-records', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const loaded = await loadDomainForDns(req);
+    if (loaded.error) {
+      return res
+        .status(loaded.error.status)
+        .json({ success: false, error: loaded.error.message } as ApiResponse);
+    }
+
+    const parsed = await parseRecordBody(req.body, loaded.domain!.name);
+    if (parsed.error) {
+      return res.status(400).json({ success: false, error: parsed.error } as ApiResponse);
+    }
+
+    const record = await createDnsRecord(loaded.zoneId!, parsed.record!);
+
+    return res.status(201).json({
+      success: true,
+      data: record,
+      message: 'DNS record created',
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error creating DNS record:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Failed to create the DNS record',
+    } as ApiResponse);
+  }
+});
+
+router.put('/:id/dns-records/:recordId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const loaded = await loadDomainForDns(req);
+    if (loaded.error) {
+      return res
+        .status(loaded.error.status)
+        .json({ success: false, error: loaded.error.message } as ApiResponse);
+    }
+
+    const parsed = await parseRecordBody(req.body, loaded.domain!.name);
+    if (parsed.error) {
+      return res.status(400).json({ success: false, error: parsed.error } as ApiResponse);
+    }
+
+    const record = await updateDnsRecord(
+      loaded.zoneId!,
+      req.params.recordId as string,
+      parsed.record!,
+    );
+
+    return res.json({
+      success: true,
+      data: record,
+      message: 'DNS record updated',
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error updating DNS record:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Failed to update the DNS record',
+    } as ApiResponse);
+  }
+});
+
+router.delete('/:id/dns-records/:recordId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const loaded = await loadDomainForDns(req);
+    if (loaded.error) {
+      return res
+        .status(loaded.error.status)
+        .json({ success: false, error: loaded.error.message } as ApiResponse);
+    }
+
+    await deleteDnsRecord(loaded.zoneId!, req.params.recordId as string);
+
+    return res.json({ success: true, message: 'DNS record deleted' } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error deleting DNS record:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Failed to delete the DNS record',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * Copy the DNS the registrar holds into the Cloudflare zone. Uses the snapshot taken at
+ * cutover when there is one, otherwise reads RDASH live — after a migration the registrar's
+ * own zone is usually already empty, so the snapshot is the useful source.
+ */
+router.post('/:id/dns-records/import', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const loaded = await loadDomainForDns(req);
+    if (loaded.error) {
+      return res
+        .status(loaded.error.status)
+        .json({ success: false, error: loaded.error.message } as ApiResponse);
+    }
+
+    const domain = loaded.domain!;
+    const snapshot = (domain.customConfig as any)?.rdashDnsSnapshot?.records;
+    let records: any[] = Array.isArray(snapshot) ? snapshot : [];
+    let source = 'the snapshot taken when this domain moved to Cloudflare';
+
+    if (records.length === 0 && domain.registrar === 'RDASH') {
+      const rdashDomain = await findRdashDomain(domain.name);
+      if (rdashDomain) {
+        records = await getRdashDomainDns(rdashDomain.id);
+        source = 'RDASH';
+      }
+    }
+
+    if (records.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No registrar DNS records were found to import',
+      } as ApiResponse);
+    }
+
+    const result = await importDnsRecords(
+      loaded.zoneId!,
+      toImportableRecords(records, domain.name),
+    );
+
+    return res.json({
+      success: true,
+      data: result,
+      message: `Imported ${result.imported} record(s) from ${source} (${result.skipped} already present)`,
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error importing DNS records:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Failed to import the DNS records',
     } as ApiResponse);
   }
 });

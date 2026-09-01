@@ -17,7 +17,12 @@ import {
   enableCloudflare,
   disableCloudflare,
   renewDomain,
-  getDomainRegistration
+  getDomainRegistration,
+  createDnsRecord,
+  updateDnsRecord,
+  deleteDnsRecord,
+  DnsRecordInput,
+  importRegistrarDns
 } from '@/lib/domains';
 import { isAdmin } from '@/lib/auth';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
@@ -238,6 +243,71 @@ export const useDisableCloudflare = () => {
         description: error.message || 'Failed to disable Cloudflare.',
         variant: 'destructive',
       });
+    },
+  });
+};
+
+// Subdomain / DNS record writes — all refresh the zone view they came from
+const useDnsRecordMutation = <TArgs,>(
+  domainId: string,
+  fn: (args: TArgs) => Promise<unknown>,
+  successTitle: string
+) => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['domains', domainId, 'dns-zone'] });
+      toast({ title: successTitle });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+export const useCreateDnsRecord = (domainId: string) =>
+  useDnsRecordMutation<DnsRecordInput>(
+    domainId,
+    (record) => createDnsRecord(domainId, record),
+    'DNS record created'
+  );
+
+export const useUpdateDnsRecord = (domainId: string) =>
+  useDnsRecordMutation<{ recordId: string; record: DnsRecordInput }>(
+    domainId,
+    ({ recordId, record }) => updateDnsRecord(domainId, recordId, record),
+    'DNS record updated'
+  );
+
+export const useDeleteDnsRecord = (domainId: string) =>
+  useDnsRecordMutation<string>(
+    domainId,
+    (recordId) => deleteDnsRecord(domainId, recordId),
+    'DNS record deleted'
+  );
+
+export const useImportRegistrarDns = (domainId: string) => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: () => importRegistrarDns(domainId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['domains', domainId, 'dns-zone'] });
+      toast({
+        title: 'Registrar DNS imported',
+        description: `${data.imported} record(s) copied, ${data.skipped} already present.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 };

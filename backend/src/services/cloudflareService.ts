@@ -625,3 +625,82 @@ export async function importDnsRecords(
 
   return { imported, skipped, failed };
 }
+
+export type DnsRecordInput = {
+  type: string;
+  name: string;
+  content: string;
+  ttl?: number;
+  priority?: number;
+  proxied?: boolean;
+};
+
+/** Shared plumbing for the single-record writes — they only differ by method and path. */
+async function dnsRecordRequest(
+  method: 'POST' | 'PUT' | 'DELETE',
+  zoneId: string,
+  recordId: string | null,
+  body?: DnsRecordInput,
+): Promise<any> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    throw new Error('Cloudflare is not configured');
+  }
+
+  const { fetchFn, config } = shared;
+  const path = recordId
+    ? `${config.apiBase}/zones/${zoneId}/dns_records/${encodeURIComponent(recordId)}`
+    : `${config.apiBase}/zones/${zoneId}/dns_records`;
+
+  const response = await fetchFn(path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+      'Content-Type': 'application/json',
+    },
+    ...(body && {
+      body: JSON.stringify({
+        type: body.type.toUpperCase(),
+        name: body.name,
+        content: body.content,
+        ttl: body.ttl && body.ttl > 0 ? body.ttl : 1,
+        ...(body.priority !== undefined && { priority: body.priority }),
+        ...(body.proxied !== undefined && { proxied: body.proxied }),
+      }),
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    // Cloudflare explains itself well — pass its wording through rather than a generic failure
+    const reason = Array.isArray(data?.errors)
+      ? data.errors.map((e: any) => e?.message).filter(Boolean).join('; ')
+      : '';
+    throw new Error(reason || `Cloudflare rejected the record (HTTP ${response.status})`);
+  }
+
+  return data?.result ?? null;
+}
+
+export const createDnsRecord = (zoneId: string, record: DnsRecordInput) =>
+  dnsRecordRequest('POST', zoneId, null, record);
+
+export const updateDnsRecord = (zoneId: string, recordId: string, record: DnsRecordInput) =>
+  dnsRecordRequest('PUT', zoneId, recordId, record);
+
+export const deleteDnsRecord = (zoneId: string, recordId: string) =>
+  dnsRecordRequest('DELETE', zoneId, recordId);
+
+/**
+ * Where an "Auto" record should point: the platform's configured DNS target.
+ * An IP means an A record, a hostname means a CNAME — same rule syncDomainDns uses.
+ */
+export async function getDefaultDnsTarget(): Promise<{ type: 'A' | 'CNAME'; content: string } | null> {
+  const config = await getCloudflareConfigFromDb();
+  const target = config?.dnsTarget?.trim();
+
+  if (!target) return null;
+
+  return { type: isIPv4(target) ? 'A' : 'CNAME', content: target };
+}

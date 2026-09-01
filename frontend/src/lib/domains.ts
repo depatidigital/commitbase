@@ -176,6 +176,61 @@ export const disableCloudflare = async (id: string): Promise<void> => {
   }
 };
 
+export type DnsRecordInput = {
+  type: string;
+  name: string;
+  content: string;
+  ttl?: number;
+  priority?: number;
+  proxied?: boolean;
+};
+
+export const createDnsRecord = async (domainId: string, record: DnsRecordInput): Promise<any> => {
+  const response = await apiRequest<any>(`/domains/${domainId}/dns-records`, {
+    method: 'POST',
+    body: JSON.stringify(record),
+  });
+
+  if (response.success) return response.data;
+  throw new Error(response.error || 'Failed to create the DNS record');
+};
+
+export const updateDnsRecord = async (
+  domainId: string,
+  recordId: string,
+  record: DnsRecordInput
+): Promise<any> => {
+  const response = await apiRequest<any>(`/domains/${domainId}/dns-records/${recordId}`, {
+    method: 'PUT',
+    body: JSON.stringify(record),
+  });
+
+  if (response.success) return response.data;
+  throw new Error(response.error || 'Failed to update the DNS record');
+};
+
+export const deleteDnsRecord = async (domainId: string, recordId: string): Promise<void> => {
+  const response = await apiRequest(`/domains/${domainId}/dns-records/${recordId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to delete the DNS record');
+  }
+};
+
+export const importRegistrarDns = async (
+  domainId: string
+): Promise<{ imported: number; skipped: number; failed: string[] }> => {
+  const response = await apiRequest<{ imported: number; skipped: number; failed: string[] }>(
+    `/domains/${domainId}/dns-records/import`,
+    { method: 'POST' }
+  );
+
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || 'Failed to import the registrar DNS records');
+};
+
 // Update a domain
 export const updateDomain = async (id: string, data: UpdateDomainData): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {
