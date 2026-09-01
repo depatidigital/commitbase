@@ -41,6 +41,7 @@ import { OrgRole } from "@/lib/admin";
 import {
   CreatedInvite,
   addMember,
+  isInviteResult,
   createInvite,
   getInvites,
   getMembers,
@@ -100,10 +101,18 @@ export default function OrganizationDetail() {
 
   const addMutation = useMutation({
     mutationFn: () => addMember(id, form),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setForm({ email: "", role: "MEMBER" });
-      setAddOpen(false);
       refresh();
+      if (isInviteResult(result)) {
+        setLastInvite(result.invite);
+        toast({
+          title: "Invite created",
+          description: "No account with that email yet — copy the link, it is shown only once.",
+        });
+        return;
+      }
+      setAddOpen(false);
       toast({ title: "Member added" });
     },
     onError,
@@ -280,15 +289,11 @@ export default function OrganizationDetail() {
 
   return (
     <PageLayout
+      backTo="/organizations"
       title={org.name}
       description={`${org.slug} · ${org._count.members} members · ${org._count.domains} domains · ${org._count.applications} apps`}
       actions={
         <>
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/organizations">
-              <ArrowLeft className="mr-2 h-4 w-4" /> Organizations
-            </Link>
-          </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button>

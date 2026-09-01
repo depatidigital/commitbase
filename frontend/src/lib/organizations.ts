@@ -50,9 +50,19 @@ export const getOrganizationsPage = async (params: ListParams): Promise<Paginate
 export const getOrganization = async (id: string): Promise<Organization> =>
   unwrap(await apiRequest<Organization>(`/organizations/${id}`), 'Failed to fetch organization');
 
-export const addMember = async (orgId: string, data: { email: string; role?: OrgRole }): Promise<Member> =>
+// no account with that email? the backend issues an invite instead of failing
+export type AddMemberResult = Member | { invited: true; invite: CreatedInvite };
+
+export const isInviteResult = (
+  r: AddMemberResult
+): r is { invited: true; invite: CreatedInvite } => 'invited' in r;
+
+export const addMember = async (
+  orgId: string,
+  data: { email: string; role?: OrgRole }
+): Promise<AddMemberResult> =>
   unwrap(
-    await apiRequest<Member>(`/organizations/${orgId}/members`, {
+    await apiRequest<AddMemberResult>(`/organizations/${orgId}/members`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

@@ -6,7 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Globe,
@@ -17,7 +23,7 @@ import {
   CheckCircle,
   AlertCircle,
   Github,
-  Gitlab
+  Gitlab,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
@@ -27,16 +33,20 @@ import { CreateApplicationData } from "@/lib/applications";
 import { useGitProjects } from "@/hooks/useGitProjects";
 import { useGitBranches } from "@/hooks/useGitBranches";
 import { useGitAccounts } from "@/hooks/useGitAccounts";
-import { getGithubAuthUrl, getGitlabAuthUrl, getGitConnectionStatus } from "@/lib/git";
+import {
+  getGithubAuthUrl,
+  getGitlabAuthUrl,
+  getGitConnectionStatus,
+} from "@/lib/git";
 
 // Function to slugify text (convert to URL-friendly format)
 const slugify = (text: string): string => {
   return text
     .toLowerCase()
     .trim()
-    .replace(/[^\w\s-]/g, '') // Remove special characters except hyphens
-    .replace(/[\s_-]+/g, '-') // Replace spaces and underscores with hyphens
-    .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+    .replace(/[^\w\s-]/g, "") // Remove special characters except hyphens
+    .replace(/[\s_-]+/g, "-") // Replace spaces and underscores with hyphens
+    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
 };
 
 // Radix Select forbids an empty-string item value, so "no filter" needs a sentinel.
@@ -46,7 +56,11 @@ export default function AddApp() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const createApp = useCreateApplication();
-  const { data: domains, isLoading: domainsLoading, error: domainsError } = useDomains();
+  const {
+    data: domains,
+    isLoading: domainsLoading,
+    error: domainsError,
+  } = useDomains();
 
   const [formData, setFormData] = useState({
     name: "",
@@ -58,21 +72,25 @@ export default function AddApp() {
     buildCommand: "",
     startCommand: "",
     port: "",
-    envVars: ""
+    envVars: "",
   });
-  const [repoSource, setRepoSource] = useState<'manual' | 'github' | 'gitlab'>('manual');
+  const [repoSource, setRepoSource] = useState<"manual" | "github" | "gitlab">(
+    "manual",
+  );
   const [selectedGithubAccountId, setSelectedGithubAccountId] = useState("");
   const [selectedGitlabAccountId, setSelectedGitlabAccountId] = useState("");
   const [selectedGithubRepoId, setSelectedGithubRepoId] = useState("");
   const [selectedGitlabRepoId, setSelectedGitlabRepoId] = useState("");
-  const [selectedGithubWorkspace, setSelectedGithubWorkspace] = useState(ALL_WORKSPACES);
-  const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] = useState(ALL_WORKSPACES);
+  const [selectedGithubWorkspace, setSelectedGithubWorkspace] =
+    useState(ALL_WORKSPACES);
+  const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] =
+    useState(ALL_WORKSPACES);
 
   useEffect(() => {
     if (formData.name && !formData.subdomain) {
       const sluggedName = slugify(formData.name);
       if (sluggedName) {
-        setFormData(prev => ({ ...prev, subdomain: sluggedName }));
+        setFormData((prev) => ({ ...prev, subdomain: sluggedName }));
       }
     }
   }, [formData.name, formData.subdomain]);
@@ -88,10 +106,10 @@ export default function AddApp() {
     // Parse environment variables
     const envVars: Record<string, string> = {};
     if (formData.envVars) {
-      formData.envVars.split('\n').forEach(line => {
-        const [key, ...valueParts] = line.split('=');
+      formData.envVars.split("\n").forEach((line) => {
+        const [key, ...valueParts] = line.split("=");
         if (key && valueParts.length > 0) {
-          envVars[key.trim()] = valueParts.join('=').trim();
+          envVars[key.trim()] = valueParts.join("=").trim();
         }
       });
     }
@@ -117,7 +135,7 @@ export default function AddApp() {
   };
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const appTypeOptions = [
@@ -125,19 +143,34 @@ export default function AddApp() {
     { value: "STATIC", label: "Static Website", icon: "🌐" },
   ];
 
-  const availableDomains = domains?.filter(domain => domain.status === 'ACTIVE') || [];
-  const { data: githubAccounts } = useGitAccounts('github', repoSource === 'github');
-  const { data: gitlabAccounts } = useGitAccounts('gitlab', repoSource === 'gitlab');
+  const availableDomains =
+    domains?.filter((domain) => domain.status === "ACTIVE") || [];
+  const { data: githubAccounts } = useGitAccounts(
+    "github",
+    repoSource === "github",
+  );
+  const { data: gitlabAccounts } = useGitAccounts(
+    "gitlab",
+    repoSource === "gitlab",
+  );
   const {
     data: githubProjects,
     isLoading: githubLoading,
     error: githubError,
-  } = useGitProjects('github', repoSource === 'github' && !!selectedGithubAccountId, selectedGithubAccountId);
+  } = useGitProjects(
+    "github",
+    repoSource === "github" && !!selectedGithubAccountId,
+    selectedGithubAccountId,
+  );
   const {
     data: gitlabProjects,
     isLoading: gitlabLoading,
     error: gitlabError,
-  } = useGitProjects('gitlab', repoSource === 'gitlab' && !!selectedGitlabAccountId, selectedGitlabAccountId);
+  } = useGitProjects(
+    "gitlab",
+    repoSource === "gitlab" && !!selectedGitlabAccountId,
+    selectedGitlabAccountId,
+  );
 
   const { data: gitStatus } = useQuery({
     queryKey: ["git", "connection-status"],
@@ -192,9 +225,11 @@ export default function AddApp() {
     isLoading: githubBranchesLoading,
     error: githubBranchesError,
   } = useGitBranches(
-    'github',
+    "github",
     selectedGithubRepoId,
-    repoSource === 'github' && !!selectedGithubRepoId && !!selectedGithubAccountId,
+    repoSource === "github" &&
+      !!selectedGithubRepoId &&
+      !!selectedGithubAccountId,
     selectedGithubAccountId,
   );
 
@@ -203,9 +238,11 @@ export default function AddApp() {
     isLoading: gitlabBranchesLoading,
     error: gitlabBranchesError,
   } = useGitBranches(
-    'gitlab',
+    "gitlab",
     selectedGitlabRepoId,
-    repoSource === 'gitlab' && !!selectedGitlabRepoId && !!selectedGitlabAccountId,
+    repoSource === "gitlab" &&
+      !!selectedGitlabRepoId &&
+      !!selectedGitlabAccountId,
     selectedGitlabAccountId,
   );
 
@@ -215,9 +252,9 @@ export default function AddApp() {
       window.location.href = url;
     } catch (error: any) {
       const message =
-        error?.message === 'GitHub OAuth is not configured'
-          ? 'GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.'
-          : 'Could not start GitHub OAuth flow.';
+        error?.message === "GitHub OAuth is not configured"
+          ? "GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
+          : "Could not start GitHub OAuth flow.";
       toast({
         variant: "destructive",
         title: "GitHub connection failed",
@@ -232,9 +269,9 @@ export default function AddApp() {
       window.location.href = url;
     } catch (error: any) {
       const message =
-        error?.message === 'GitLab OAuth is not configured'
-          ? 'GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET.'
-          : 'Could not start GitLab OAuth flow.';
+        error?.message === "GitLab OAuth is not configured"
+          ? "GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET."
+          : "Could not start GitLab OAuth flow.";
       toast({
         variant: "destructive",
         title: "GitLab connection failed",
@@ -260,7 +297,9 @@ export default function AddApp() {
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">Error Loading Domains</h3>
-          <p className="text-muted-foreground">Failed to load domains. Please try again.</p>
+          <p className="text-muted-foreground">
+            Failed to load domains. Please try again.
+          </p>
         </div>
       </div>
     );
@@ -285,8 +324,8 @@ export default function AddApp() {
             <Globe className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Active Domains</h3>
             <p className="text-muted-foreground text-center max-w-md mb-4">
-              You need to have at least one active domain to deploy applications.
-              Please add a domain first.
+              You need to have at least one active domain to deploy
+              applications. Please add a domain first.
             </p>
             <Button
               onClick={() => navigate("/domains")}
@@ -303,16 +342,10 @@ export default function AddApp() {
 
   return (
     <PageLayout
+      backTo="/"
       title="Deploy New Application"
       description="Configure and deploy your application to the platform"
-      actions={
-        <Button variant="ghost" onClick={() => navigate("/")} className="hover:bg-muted">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Applications
-        </Button>
-      }
     >
-
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Information */}
         <Card className="bg-gradient-card border-border/50 shadow-elegant">
@@ -348,12 +381,16 @@ export default function AddApp() {
                       id="subdomain"
                       placeholder="app"
                       value={formData.subdomain}
-                      onChange={(e) => handleInputChange("subdomain", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("subdomain", e.target.value)
+                      }
                     />
                     <span className="text-muted-foreground">.</span>
                     <Select
                       value={formData.selectedDomain}
-                      onValueChange={(value) => handleInputChange("selectedDomain", value)}
+                      onValueChange={(value) =>
+                        handleInputChange("selectedDomain", value)
+                      }
                     >
                       <SelectTrigger id="domain-select">
                         <SelectValue placeholder="Select a domain" />
@@ -372,7 +409,8 @@ export default function AddApp() {
                   </div>
                   {formData.selectedDomain && (
                     <div className="text-xs text-muted-foreground">
-                      Full domain: <span className="font-mono">
+                      Full domain:{" "}
+                      <span className="font-mono">
                         {formData.subdomain}.{formData.selectedDomain}
                       </span>
                     </div>
@@ -420,27 +458,27 @@ export default function AddApp() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  variant={repoSource === 'manual' ? 'default' : 'outline'}
+                  variant={repoSource === "manual" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setRepoSource('manual')}
+                  onClick={() => setRepoSource("manual")}
                 >
                   <GitBranch className="h-4 w-4 mr-2" />
                   Manual URL
                 </Button>
                 <Button
                   type="button"
-                  variant={repoSource === 'github' ? 'default' : 'outline'}
+                  variant={repoSource === "github" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setRepoSource('github')}
+                  onClick={() => setRepoSource("github")}
                 >
                   <Github className="h-4 w-4 mr-2" />
                   GitHub
                 </Button>
                 <Button
                   type="button"
-                  variant={repoSource === 'gitlab' ? 'default' : 'outline'}
+                  variant={repoSource === "gitlab" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setRepoSource('gitlab')}
+                  onClick={() => setRepoSource("gitlab")}
                 >
                   <Gitlab className="h-4 w-4 mr-2" />
                   GitLab
@@ -452,19 +490,23 @@ export default function AddApp() {
                   className="text-xs"
                 >
                   <Github className="h-3 w-3 mr-1" />
-                  {githubConnected ? "GitHub connected" : "GitHub not connected"}
+                  {githubConnected
+                    ? "GitHub connected"
+                    : "GitHub not connected"}
                 </Badge>
                 <Badge
                   variant={gitlabConnected ? "outline" : "secondary"}
                   className="text-xs"
                 >
                   <Gitlab className="h-3 w-3 mr-1" />
-                  {gitlabConnected ? "GitLab connected" : "GitLab not connected"}
+                  {gitlabConnected
+                    ? "GitLab connected"
+                    : "GitLab not connected"}
                 </Badge>
               </div>
             </div>
 
-            {repoSource === 'manual' && (
+            {repoSource === "manual" && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="repository">Git Repository URL</Label>
@@ -492,7 +534,7 @@ export default function AddApp() {
               </>
             )}
 
-            {repoSource === 'github' && (
+            {repoSource === "github" && (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="github-account">GitHub account</Label>
@@ -513,7 +555,9 @@ export default function AddApp() {
                       <SelectContent>
                         {githubAccounts.map((account) => (
                           <SelectItem key={account.id} value={account.id}>
-                            {account.displayName || account.username || account.id}
+                            {account.displayName ||
+                              account.username ||
+                              account.id}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -535,7 +579,8 @@ export default function AddApp() {
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      GitHub is not connected. Click the GitHub button above to connect and manage repositories.
+                      GitHub is not connected. Click the GitHub button above to
+                      connect and manage repositories.
                     </p>
                   )}
                 </div>
@@ -556,7 +601,9 @@ export default function AddApp() {
                         <SelectValue placeholder="All workspaces" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
+                        <SelectItem value={ALL_WORKSPACES}>
+                          All workspaces
+                        </SelectItem>
                         {githubWorkspaces.map((workspace) => (
                           <SelectItem key={workspace} value={workspace}>
                             {workspace}
@@ -581,7 +628,8 @@ export default function AddApp() {
                     <p className="text-sm text-destructive">
                       Failed to load GitHub repositories.
                     </p>
-                  ) : filteredGithubProjects && filteredGithubProjects.length > 0 ? (
+                  ) : filteredGithubProjects &&
+                    filteredGithubProjects.length > 0 ? (
                     <Select
                       value={selectedGithubRepoId}
                       onValueChange={(value) => {
@@ -615,7 +663,8 @@ export default function AddApp() {
                   ) : (
                     <div className="space-y-2">
                       <p className="text-sm text-muted-foreground">
-                        No GitHub repositories found or your GitHub account is not connected.
+                        No GitHub repositories found or your GitHub account is
+                        not connected.
                       </p>
                       <Button
                         type="button"
@@ -667,7 +716,7 @@ export default function AddApp() {
               </div>
             )}
 
-            {repoSource === 'gitlab' && (
+            {repoSource === "gitlab" && (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="gitlab-account">GitLab account</Label>
@@ -688,7 +737,9 @@ export default function AddApp() {
                       <SelectContent>
                         {gitlabAccounts.map((account) => (
                           <SelectItem key={account.id} value={account.id}>
-                            {account.displayName || account.username || account.id}
+                            {account.displayName ||
+                              account.username ||
+                              account.id}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -710,7 +761,8 @@ export default function AddApp() {
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      GitLab is not connected. Click the GitLab button above to connect and manage repositories.
+                      GitLab is not connected. Click the GitLab button above to
+                      connect and manage repositories.
                     </p>
                   )}
                 </div>
@@ -731,7 +783,9 @@ export default function AddApp() {
                         <SelectValue placeholder="All workspaces" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
+                        <SelectItem value={ALL_WORKSPACES}>
+                          All workspaces
+                        </SelectItem>
                         {gitlabWorkspaces.map((workspace) => (
                           <SelectItem key={workspace} value={workspace}>
                             {workspace}
@@ -756,7 +810,8 @@ export default function AddApp() {
                     <p className="text-sm text-destructive">
                       Failed to load GitLab projects.
                     </p>
-                  ) : filteredGitlabProjects && filteredGitlabProjects.length > 0 ? (
+                  ) : filteredGitlabProjects &&
+                    filteredGitlabProjects.length > 0 ? (
                     <Select
                       value={selectedGitlabRepoId}
                       onValueChange={(value) => {
@@ -790,7 +845,8 @@ export default function AddApp() {
                   ) : (
                     <div className="space-y-2">
                       <p className="text-sm text-muted-foreground">
-                        No GitLab projects found or your GitLab account is not connected.
+                        No GitLab projects found or your GitLab account is not
+                        connected.
                       </p>
                       <Button
                         type="button"
@@ -858,9 +914,13 @@ export default function AddApp() {
                 <Label htmlFor="buildCommand">Build Command</Label>
                 <Input
                   id="buildCommand"
-                  placeholder={formData.type === "STATIC" ? "npm run build" : "npm install"}
+                  placeholder={
+                    formData.type === "STATIC" ? "npm run build" : "npm install"
+                  }
                   value={formData.buildCommand}
-                  onChange={(e) => handleInputChange("buildCommand", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("buildCommand", e.target.value)
+                  }
                 />
               </div>
 
@@ -872,7 +932,9 @@ export default function AddApp() {
                       id="startCommand"
                       placeholder="npm start"
                       value={formData.startCommand}
-                      onChange={(e) => handleInputChange("startCommand", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("startCommand", e.target.value)
+                      }
                     />
                   </div>
 
@@ -883,7 +945,9 @@ export default function AddApp() {
                       type="number"
                       placeholder="3000"
                       value={formData.port}
-                      onChange={(e) => handleInputChange("port", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("port", e.target.value)
+                      }
                     />
                   </div>
                 </>
@@ -910,7 +974,10 @@ export default function AddApp() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             {formData.name && formData.selectedDomain && formData.type && (
-              <Badge variant="outline" className="bg-success/10 text-success border-success/20">
+              <Badge
+                variant="outline"
+                className="bg-success/10 text-success border-success/20"
+              >
                 <CheckCircle className="h-3 w-3 mr-1" />
                 Ready to Deploy
               </Badge>
@@ -919,7 +986,12 @@ export default function AddApp() {
 
           <Button
             type="submit"
-            disabled={!formData.name || !formData.selectedDomain || !formData.type || createApp.isPending}
+            disabled={
+              !formData.name ||
+              !formData.selectedDomain ||
+              !formData.type ||
+              createApp.isPending
+            }
             className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300 min-w-[140px]"
           >
             {createApp.isPending ? (

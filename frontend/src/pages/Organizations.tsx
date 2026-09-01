@@ -20,6 +20,7 @@ import {
   CreatedInvite,
   Organization,
   addMember,
+  isInviteResult,
   createInvite,
   createOrganization,
   getOrganizationsPage,
@@ -46,16 +47,9 @@ export default function Organizations() {
       const email = adminEmail.trim();
       if (!email) return { org, invite: null };
 
-      // existing account joins straight away; anyone else gets an invite link
-      try {
-        await addMember(org.id, { email, role: "ADMIN" });
-        return { org, invite: null };
-      } catch {
-        return {
-          org,
-          invite: await createInvite(org.id, { email, role: "ADMIN" }),
-        };
-      }
+      // existing account joins straight away; anyone else gets an invite link back
+      const result = await addMember(org.id, { email, role: "ADMIN" });
+      return { org, invite: isInviteResult(result) ? result.invite : null };
     },
     onSuccess: ({ invite: created }) => {
       setOrgName("");
