@@ -5,14 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -31,6 +23,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
 import { getCurrentUser } from "@/lib/auth";
 import { OrgRole } from "@/lib/admin";
 import {
@@ -59,6 +53,8 @@ export default function Team() {
     userId: string;
     label: string;
   } | null>(null);
+  const memberQuery = useTableQuery();
+  const inviteQuery = useTableQuery();
 
   const { data: organizations = [], isLoading: orgsLoading } = useQuery({
     queryKey: ["organizations"],
@@ -85,20 +81,32 @@ export default function Team() {
   });
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "members"] });
-    queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "invites"] });
+    queryClient.invalidateQueries({
+      queryKey: ["organizations", orgId, "members"],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["organizations", orgId, "invites"],
+    });
   };
 
   const onError = (error: Error) =>
-    toast({ title: "Error", description: error.message, variant: "destructive" });
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+    });
 
   const inviteMutation = useMutation({
-    mutationFn: () => createInvite(orgId, { email: inviteEmail, role: inviteRole }),
+    mutationFn: () =>
+      createInvite(orgId, { email: inviteEmail, role: inviteRole }),
     onSuccess: (invite) => {
       setLastInvite(invite);
       setInviteEmail("");
       refresh();
-      toast({ title: "Invite created", description: "Copy the link below — it is shown only once." });
+      toast({
+        title: "Invite created",
+        description: "Copy the link below — it is shown only once.",
+      });
     },
     onError,
   });
@@ -140,6 +148,99 @@ export default function Team() {
     toast({ title: "Copied to clipboard" });
   };
 
+  const memberColumns: Column<(typeof members)[number]>[] = [
+    {
+      header: "User",
+      cell: (m) => (
+        <>
+          <div className="font-medium">{m.user.name || m.user.email}</div>
+          <div className="text-xs text-muted-foreground">{m.user.email}</div>
+        </>
+      ),
+    },
+    {
+      header: "Role",
+      cell: (m) =>
+        canManage ? (
+          <Select
+            value={m.role}
+            onValueChange={(v) =>
+              roleMutation.mutate({ userId: m.user.id, role: v as OrgRole })
+            }
+          >
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ROLES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Badge variant="secondary">{m.role}</Badge>
+        ),
+    },
+    {
+      header: "",
+      className: "w-20",
+      cell: (m) =>
+        canManage && m.user.id !== currentUser?.id ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Remove ${m.user.email}`}
+            onClick={() =>
+              setPendingRemove({
+                userId: m.user.id,
+                label: m.user.name || m.user.email,
+              })
+            }
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null,
+    },
+  ];
+
+  const inviteColumns: Column<(typeof invites)[number]>[] = [
+    { header: "Email", cell: (i) => i.email },
+    {
+      header: "Role",
+      cell: (i) => <Badge variant="secondary">{i.role}</Badge>,
+    },
+    {
+      header: "Status",
+      cell: (i) =>
+        i.acceptedAt ? (
+          <Badge>Accepted</Badge>
+        ) : new Date(i.expiresAt) < new Date() ? (
+          <Badge variant="destructive">Expired</Badge>
+        ) : (
+          <Badge variant="outline">
+            Expires {new Date(i.expiresAt).toLocaleDateString()}
+          </Badge>
+        ),
+    },
+    {
+      header: "",
+      className: "w-20",
+      cell: (i) =>
+        !i.acceptedAt ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Revoke invite for ${i.email}`}
+            onClick={() => revokeMutation.mutate(i.id)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null,
+    },
+  ];
+
   if (orgsLoading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -161,17 +262,11 @@ export default function Team() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Users className="h-5 w-5" /> Team
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            People who can manage this organization's domains and applications.
-          </p>
-        </div>
-
+    <PageLayout
+      icon={Users}
+      title="Team"
+      description="People who can manage this organization's domains and applications."
+      actions={
         <Select value={orgId} onValueChange={setOrgId}>
           <SelectTrigger className="w-64">
             <SelectValue placeholder="Select organization" />
@@ -184,8 +279,8 @@ export default function Team() {
             ))}
           </SelectContent>
         </Select>
-      </div>
-
+      }
+    >
       {canManage && (
         <Card>
           <CardHeader>
@@ -201,7 +296,10 @@ export default function Team() {
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
               />
-              <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as OrgRole)}>
+              <Select
+                value={inviteRole}
+                onValueChange={(v) => setInviteRole(v as OrgRole)}
+              >
                 <SelectTrigger className="sm:w-40">
                   <SelectValue />
                 </SelectTrigger>
@@ -217,15 +315,17 @@ export default function Team() {
                 onClick={() => inviteMutation.mutate()}
                 disabled={!inviteEmail || inviteMutation.isPending}
               >
-                {inviteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {inviteMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
                 Send invite
               </Button>
             </div>
 
             <p className="text-xs text-muted-foreground">
-              The invite link is shown once, right after you create it. It is stored
-              hashed, so it cannot be retrieved later — copy it before leaving this
-              page.
+              The invite link is shown once, right after you create it. It is
+              stored hashed, so it cannot be retrieved later — copy it before
+              leaving this page.
             </p>
 
             {lastInvite && (
@@ -244,7 +344,7 @@ export default function Team() {
                     onClick={() =>
                       copy(
                         lastInvite.acceptUrl ??
-                          `${window.location.origin}/accept-invite?token=${lastInvite.token}`
+                          `${window.location.origin}/accept-invite?token=${lastInvite.token}`,
                       )
                     }
                   >
@@ -259,68 +359,24 @@ export default function Team() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Members ({members.length})</CardTitle>
+          <CardTitle className="text-base">
+            Members ({members.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead className="w-20" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {members.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell>
-                    <div className="font-medium">{m.user.name || m.user.email}</div>
-                    <div className="text-xs text-muted-foreground">{m.user.email}</div>
-                  </TableCell>
-                  <TableCell>
-                    {canManage ? (
-                      <Select
-                        value={m.role}
-                        onValueChange={(v) =>
-                          roleMutation.mutate({ userId: m.user.id, role: v as OrgRole })
-                        }
-                      >
-                        <SelectTrigger className="w-36">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ROLES.map((r) => (
-                            <SelectItem key={r} value={r}>
-                              {r}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Badge variant="secondary">{m.role}</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {canManage && m.user.id !== currentUser?.id && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Remove ${m.user.email}`}
-                        onClick={() =>
-                          setPendingRemove({
-                            userId: m.user.id,
-                            label: m.user.name || m.user.email,
-                          })
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            columns={memberColumns}
+            rows={members}
+            rowKey={(m) => m.id}
+            query={memberQuery}
+            filter={(m, q) =>
+              `${m.user.name ?? ""} ${m.user.email}`
+                .toLowerCase()
+                .includes(q.toLowerCase())
+            }
+            searchPlaceholder="Search members…"
+            empty="No members yet."
+          />
         </CardContent>
       </Card>
 
@@ -330,52 +386,15 @@ export default function Team() {
             <CardTitle className="text-base">Pending invites</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invites.map((i) => {
-                  const expired = new Date(i.expiresAt) < new Date();
-                  return (
-                    <TableRow key={i.id}>
-                      <TableCell>{i.email}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{i.role}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {i.acceptedAt ? (
-                          <Badge>Accepted</Badge>
-                        ) : expired ? (
-                          <Badge variant="destructive">Expired</Badge>
-                        ) : (
-                          <Badge variant="outline">
-                            Expires {new Date(i.expiresAt).toLocaleDateString()}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {!i.acceptedAt && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Revoke invite for ${i.email}`}
-                            onClick={() => revokeMutation.mutate(i.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <DataTable
+              columns={inviteColumns}
+              rows={invites}
+              rowKey={(i) => i.id}
+              query={inviteQuery}
+              filter={(i, q) => i.email.toLowerCase().includes(q.toLowerCase())}
+              searchPlaceholder="Search invites…"
+              empty="No invites."
+            />
           </CardContent>
         </Card>
       )}
@@ -388,20 +407,23 @@ export default function Team() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this member?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingRemove?.label} will lose access to {org?.name ?? "this organization"}
-              , including its domains and applications. They can be invited back later.
+              {pendingRemove?.label} will lose access to{" "}
+              {org?.name ?? "this organization"}, including its domains and
+              applications. They can be invited back later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => pendingRemove && removeMutation.mutate(pendingRemove.userId)}
+              onClick={() =>
+                pendingRemove && removeMutation.mutate(pendingRemove.userId)
+              }
             >
               Remove member
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageLayout>
   );
 }

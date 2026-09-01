@@ -1,4 +1,4 @@
-import { useRdashSummary, useCloudflareZones, useRdashConfigStatus, useCloudflareConfigStatus, useUpdateRdashConfig, useUpdateCloudflareConfig } from '@/hooks/useRdash';
+import { useRdashSummary, useCloudflareZones, useRdashConfigStatus, useCloudflareConfigStatus, useUpdateRdashConfig, useUpdateCloudflareConfig, useSyncCloudflareDomains } from '@/hooks/useRdash';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,7 @@ const RdashOverview = () => {
   const [cloudflarePage, setCloudflarePage] = useState(1);
   const updateRdashConfig = useUpdateRdashConfig();
   const updateCloudflareConfig = useUpdateCloudflareConfig();
+  const syncCloudflareDomains = useSyncCloudflareDomains();
   const location = useLocation();
   const isCloudflarePage = location.pathname.includes('/integrations/cloudflare');
 
@@ -420,15 +421,27 @@ const RdashOverview = () => {
               <Cloud className="h-4 w-4 text-primary" />
               Cloudflare Zones
             </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetchZones()}
-              disabled={zonesLoading}
-            >
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchZones()}
+                disabled={zonesLoading}
+              >
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Refresh
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => syncCloudflareDomains.mutate()}
+                disabled={syncCloudflareDomains.isPending}
+              >
+                {syncCloudflareDomains.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                Sync zones to domains
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {zonesLoading ? (

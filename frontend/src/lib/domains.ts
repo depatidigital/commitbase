@@ -75,21 +75,6 @@ export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
   throw new Error(response.error || 'Failed to create domain');
 };
 
-// Import all Cloudflare zones as domains (organization left empty)
-export type CloudflareSyncResult = { total: number; created: number; updated: number };
-
-export const syncCloudflareDomains = async (): Promise<CloudflareSyncResult> => {
-  const response = await apiRequest<CloudflareSyncResult>('/domains/sync-cloudflare', {
-    method: 'POST',
-  });
-
-  if (response.success && response.data) {
-    return response.data;
-  }
-
-  throw new Error(response.error || 'Failed to sync Cloudflare domains');
-};
-
 // Update a domain
 export const updateDomain = async (id: string, data: UpdateDomainData): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {

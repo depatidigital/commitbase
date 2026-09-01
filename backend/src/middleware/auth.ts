@@ -50,7 +50,8 @@ export const requireRole = (roles: string[]) => {
       return;
     }
 
-    if (!roles.includes(req.user.role)) {
+    // SUPERADMIN outranks every role gate
+    if (req.user.role !== 'SUPERADMIN' && !roles.includes(req.user.role)) {
       res.status(403).json({
         success: false,
         error: 'Insufficient permissions',

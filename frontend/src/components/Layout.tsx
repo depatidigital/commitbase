@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { getCurrentUser } from "@/lib/auth";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Link } from "react-router-dom";
 import { Settings, LogOut, ChevronDown } from "lucide-react";
@@ -102,10 +103,15 @@ export function Layout() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">
-                        {currentUser.name || 'User'}
-                      </p>
+                    <div className="flex flex-col space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium leading-none">
+                          {currentUser.name || currentUser.email.split('@')[0]}
+                        </p>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          {currentUser.role}
+                        </Badge>
+                      </div>
                       <p className="text-xs leading-none text-muted-foreground">
                         {currentUser.email}
                       </p>

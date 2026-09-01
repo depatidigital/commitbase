@@ -7,14 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -42,6 +34,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Copy, Loader2, Mail, Trash2, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
 import { getCurrentUser } from "@/lib/auth";
 import { OrgRole } from "@/lib/admin";
 import {
@@ -68,10 +62,19 @@ export default function OrganizationDetail() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "MEMBER" as OrgRole });
   const [lastInvite, setLastInvite] = useState<CreatedInvite | null>(null);
-  const [pendingRemove, setPendingRemove] = useState<{ userId: string; label: string } | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<{
+    userId: string;
+    label: string;
+  } | null>(null);
+  const memberQuery = useTableQuery();
+  const inviteQuery = useTableQuery();
 
   const onError = (error: Error) =>
-    toast({ title: "Error", description: error.message, variant: "destructive" });
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+    });
 
   const { data: org, isLoading } = useQuery({
     queryKey: ["organizations", id],
@@ -112,7 +115,10 @@ export default function OrganizationDetail() {
       setLastInvite(invite);
       setForm({ email: "", role: "MEMBER" });
       refresh();
-      toast({ title: "Invite created", description: "Copy the link — it is shown only once." });
+      toast({
+        title: "Invite created",
+        description: "Copy the link — it is shown only once.",
+      });
     },
     onError,
   });
@@ -150,7 +156,98 @@ export default function OrganizationDetail() {
   });
 
   const inviteLink = (invite: CreatedInvite) =>
-    invite.acceptUrl ?? `${window.location.origin}/accept-invite?token=${invite.token}`;
+    invite.acceptUrl ??
+    `${window.location.origin}/accept-invite?token=${invite.token}`;
+
+  const memberColumns: Column<(typeof members)[number]>[] = [
+    {
+      header: "User",
+      cell: (m) => (
+        <>
+          <div className="font-medium">{m.user.name || m.user.email}</div>
+          <div className="text-xs text-muted-foreground">{m.user.email}</div>
+        </>
+      ),
+    },
+    {
+      header: "Role",
+      cell: (m) => (
+        <Select
+          value={m.role}
+          onValueChange={(v) =>
+            roleMutation.mutate({ userId: m.user.id, role: v as OrgRole })
+          }
+        >
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ROLES.map((r) => (
+              <SelectItem key={r} value={r}>
+                {r}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    },
+    {
+      header: "",
+      className: "w-20",
+      cell: (m) =>
+        m.user.id !== currentUser?.id ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Remove ${m.user.email}`}
+            onClick={() =>
+              setPendingRemove({
+                userId: m.user.id,
+                label: m.user.name || m.user.email,
+              })
+            }
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null,
+    },
+  ];
+
+  const inviteColumns: Column<(typeof invites)[number]>[] = [
+    { header: "Email", cell: (i) => i.email },
+    {
+      header: "Role",
+      cell: (i) => <Badge variant="secondary">{i.role}</Badge>,
+    },
+    {
+      header: "Status",
+      cell: (i) =>
+        i.acceptedAt ? (
+          <Badge>Accepted</Badge>
+        ) : new Date(i.expiresAt) < new Date() ? (
+          <Badge variant="destructive">Expired</Badge>
+        ) : (
+          <Badge variant="outline">
+            Expires {new Date(i.expiresAt).toLocaleDateString()}
+          </Badge>
+        ),
+    },
+    {
+      header: "",
+      className: "w-20",
+      cell: (i) =>
+        !i.acceptedAt ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Revoke invite for ${i.email}`}
+            onClick={() => revokeMutation.mutate(i.id)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null,
+    },
+  ];
 
   if (isLoading) {
     return (
@@ -171,22 +268,16 @@ export default function OrganizationDetail() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <Button asChild variant="ghost" size="sm" className="-ml-2 mb-1">
+    <PageLayout
+      title={org.name}
+      description={`${org.slug} · ${org._count.members} members · ${org._count.domains} domains · ${org._count.applications} apps`}
+      actions={
+        <>
+          <Button asChild variant="ghost" size="sm">
             <Link to="/organizations">
               <ArrowLeft className="mr-2 h-4 w-4" /> Organizations
             </Link>
           </Button>
-          <h1 className="text-2xl font-semibold">{org.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            {org.slug} · {org._count.members} members · {org._count.domains} domains ·{" "}
-            {org._count.applications} apps
-          </p>
-        </div>
-
-        <div className="flex gap-2">
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -203,8 +294,8 @@ export default function OrganizationDetail() {
                 <DialogHeader>
                   <DialogTitle>Add member by email</DialogTitle>
                   <DialogDescription>
-                    Adds an existing account to {org.name} straight away. If no account uses
-                    that email, send an invite link instead.
+                    Adds an existing account to {org.name} straight away. If no
+                    account uses that email, send an invite link instead.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
@@ -215,14 +306,18 @@ export default function OrganizationDetail() {
                       autoFocus
                       type="email"
                       value={form.email}
-                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, email: e.target.value })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Role</Label>
                     <Select
                       value={form.role}
-                      onValueChange={(v) => setForm({ ...form, role: v as OrgRole })}
+                      onValueChange={(v) =>
+                        setForm({ ...form, role: v as OrgRole })
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -238,8 +333,13 @@ export default function OrganizationDetail() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit" disabled={!form.email || addMutation.isPending}>
-                    {addMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button
+                    type="submit"
+                    disabled={!form.email || addMutation.isPending}
+                  >
+                    {addMutation.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
                     Add member
                   </Button>
                 </DialogFooter>
@@ -269,8 +369,8 @@ export default function OrganizationDetail() {
                 <DialogHeader>
                   <DialogTitle>Invite to {org.name}</DialogTitle>
                   <DialogDescription>
-                    For people without an account yet. The link is stored hashed and shown
-                    once — copy it before closing.
+                    For people without an account yet. The link is stored hashed
+                    and shown once — copy it before closing.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
@@ -280,14 +380,18 @@ export default function OrganizationDetail() {
                       id="invite-email"
                       type="email"
                       value={form.email}
-                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, email: e.target.value })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Role</Label>
                     <Select
                       value={form.role}
-                      onValueChange={(v) => setForm({ ...form, role: v as OrgRole })}
+                      onValueChange={(v) =>
+                        setForm({ ...form, role: v as OrgRole })
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -316,7 +420,9 @@ export default function OrganizationDetail() {
                           size="sm"
                           variant="outline"
                           onClick={() => {
-                            navigator.clipboard.writeText(inviteLink(lastInvite));
+                            navigator.clipboard.writeText(
+                              inviteLink(lastInvite),
+                            );
                             toast({ title: "Copied to clipboard" });
                           }}
                         >
@@ -327,86 +433,42 @@ export default function OrganizationDetail() {
                   )}
                 </div>
                 <DialogFooter>
-                  <Button type="submit" disabled={!form.email || inviteMutation.isPending}>
-                    {inviteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button
+                    type="submit"
+                    disabled={!form.email || inviteMutation.isPending}
+                  >
+                    {inviteMutation.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
                     Create invite
                   </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Members ({members.length})</CardTitle>
+          <CardTitle className="text-base">
+            Members ({members.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">#</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead className="w-20" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {members.map((m, i) => (
-                <TableRow key={m.id}>
-                  <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                  <TableCell>
-                    <div className="font-medium">{m.user.name || m.user.email}</div>
-                    <div className="text-xs text-muted-foreground">{m.user.email}</div>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={m.role}
-                      onValueChange={(v) =>
-                        roleMutation.mutate({ userId: m.user.id, role: v as OrgRole })
-                      }
-                    >
-                      <SelectTrigger className="w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    {m.user.id !== currentUser?.id && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Remove ${m.user.email}`}
-                        onClick={() =>
-                          setPendingRemove({
-                            userId: m.user.id,
-                            label: m.user.name || m.user.email,
-                          })
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {members.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                    No members yet.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <DataTable
+            columns={memberColumns}
+            rows={members}
+            rowKey={(m) => m.id}
+            query={memberQuery}
+            filter={(m, q) =>
+              `${m.user.name ?? ""} ${m.user.email}`
+                .toLowerCase()
+                .includes(q.toLowerCase())
+            }
+            searchPlaceholder="Search members…"
+            empty="No members yet."
+          />
         </CardContent>
       </Card>
 
@@ -416,77 +478,43 @@ export default function OrganizationDetail() {
             <CardTitle className="text-base">Pending invites</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">#</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invites.map((invite, i) => {
-                  const expired = new Date(invite.expiresAt) < new Date();
-                  return (
-                    <TableRow key={invite.id}>
-                      <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                      <TableCell>{invite.email}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{invite.role}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {invite.acceptedAt ? (
-                          <Badge>Accepted</Badge>
-                        ) : expired ? (
-                          <Badge variant="destructive">Expired</Badge>
-                        ) : (
-                          <Badge variant="outline">
-                            Expires {new Date(invite.expiresAt).toLocaleDateString()}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {!invite.acceptedAt && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Revoke invite for ${invite.email}`}
-                            onClick={() => revokeMutation.mutate(invite.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <DataTable
+              columns={inviteColumns}
+              rows={invites}
+              rowKey={(i) => i.id}
+              query={inviteQuery}
+              filter={(i, q) => i.email.toLowerCase().includes(q.toLowerCase())}
+              searchPlaceholder="Search invites…"
+              empty="No invites."
+            />
           </CardContent>
         </Card>
       )}
 
-      <AlertDialog open={!!pendingRemove} onOpenChange={(open) => !open && setPendingRemove(null)}>
+      <AlertDialog
+        open={!!pendingRemove}
+        onOpenChange={(open) => !open && setPendingRemove(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this member?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingRemove?.label} will lose access to {org.name}, including its domains
-              and applications. They can be added back later.
+              {pendingRemove?.label} will lose access to {org.name}, including
+              its domains and applications. They can be added back later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => pendingRemove && removeMutation.mutate(pendingRemove.userId)}
+              onClick={() =>
+                pendingRemove && removeMutation.mutate(pendingRemove.userId)
+              }
             >
               Remove member
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageLayout>
   );
 }

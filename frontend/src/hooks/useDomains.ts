@@ -9,8 +9,7 @@ import {
   updateDomain, 
   deleteDomain, 
   verifyDomain, 
-  renewSSL,
-  syncCloudflareDomains
+  renewSSL 
 } from '@/lib/domains';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
 import { ListParams } from '@/lib/admin';
@@ -66,30 +65,6 @@ export const useCreateDomain = () => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to create domain.',
-        variant: 'destructive',
-      });
-    },
-  });
-};
-
-// Sync domains from Cloudflare
-export const useSyncCloudflareDomains = () => {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  return useMutation({
-    mutationFn: syncCloudflareDomains,
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
-      toast({
-        title: 'Cloudflare Sync Complete',
-        description: `${data.total} zones found — ${data.created} added, ${data.updated} updated. Assign organizations later.`,
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to sync domains from Cloudflare.',
         variant: 'destructive',
       });
     },

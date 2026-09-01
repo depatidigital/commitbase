@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { getRdashSummary, getCloudflareZones, getRdashConfigStatus, getCloudflareConfigStatus, updateRdashConfig, updateCloudflareConfig, RdashSummary, RdashConfigStatus, CloudflareConfigStatus, RdashConfigUpdatePayload, CloudflareConfigUpdatePayload } from '@/lib/rdash';
+import { getRdashSummary, getCloudflareZones, getRdashConfigStatus, getCloudflareConfigStatus, updateRdashConfig, updateCloudflareConfig, RdashSummary, RdashConfigStatus, CloudflareConfigStatus, RdashConfigUpdatePayload, CloudflareConfigUpdatePayload, syncCloudflareDomains } from '@/lib/rdash';
 
 export const useRdashSummary = (enabled: boolean = true) => {
   const { toast } = useToast();
@@ -124,6 +124,29 @@ export const useUpdateCloudflareConfig = () => {
       toast({
         title: 'Failed to update Cloudflare config',
         description: error.message || 'Unable to save Cloudflare configuration',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+export const useSyncCloudflareDomains = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: syncCloudflareDomains,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({
+        title: 'Cloudflare sync complete',
+        description: `${data.total} zones found — ${data.created} added, ${data.updated} updated. Assign organizations later.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Failed to sync domains',
+        description: error.message || 'Unable to import Cloudflare zones',
         variant: 'destructive',
       });
     },

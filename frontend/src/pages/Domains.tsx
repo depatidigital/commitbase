@@ -44,6 +44,7 @@ import {
 } from "@/hooks/useDomains";
 import { useQuery } from "@tanstack/react-query";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { getOrganizations } from "@/lib/organizations";
 import { isAdmin } from "@/lib/auth";
@@ -728,159 +729,156 @@ export default function Domains() {
           </>
         ) : (
           <>
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                  Domains
-                </h1>
-                <p className="text-muted-foreground">
-                  Manage your custom domains and SSL certificates.
-                </p>
-              </div>
-              {admin && (
-                <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-                  <Button
-                    className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
-                    onClick={() => setAddDialogOpen(true)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Domain
-                  </Button>
-                  <DialogContent className="max-w-lg">
-                    <DialogHeader>
-                      <DialogTitle>Add Domain</DialogTitle>
-                      <DialogDescription>
-                        Connect an existing domain or register a new one through
-                        your registrar.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleAddDomain} className="space-y-6">
-                      <div className="space-y-2">
-                        <Label className="text-sm">Owning organization</Label>
-                        <Select
-                          value={newDomainOrgId}
-                          onValueChange={setNewDomainOrgId}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select an organization" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {organizations.map((org) => (
-                              <SelectItem key={org.id} value={org.id}>
-                                {org.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                          Only this organization's members can create
-                          applications on it.
-                        </p>
-                      </div>
-                      <div className="space-y-3">
-                        <Label className="text-sm">Domain type</Label>
-                        <RadioGroup
-                          className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                          value={addMode}
-                          onValueChange={(value) =>
-                            setAddMode(value as "existing" | "register")
-                          }
-                        >
-                          <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
-                            <RadioGroupItem
-                              value="existing"
-                              id="domain-mode-existing"
-                            />
-                            <div className="space-y-1">
-                              <Label htmlFor="domain-mode-existing">
-                                Use existing domain
-                              </Label>
-                              <p className="text-xs text-muted-foreground">
-                                Use a domain you already own and connect it to
-                                Cloudflare automatically.
-                              </p>
+            <PageLayout
+              icon={Globe}
+              title="Domains"
+              description="Manage your custom domains and SSL certificates."
+              actions={
+                admin ? (
+                  <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+                    <Button
+                      className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
+                      onClick={() => setAddDialogOpen(true)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Domain
+                    </Button>
+                    <DialogContent className="max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>Add Domain</DialogTitle>
+                        <DialogDescription>
+                          Connect an existing domain or register a new one
+                          through your registrar.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleAddDomain} className="space-y-6">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Owning organization</Label>
+                          <Select
+                            value={newDomainOrgId}
+                            onValueChange={setNewDomainOrgId}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select an organization" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {organizations.map((org) => (
+                                <SelectItem key={org.id} value={org.id}>
+                                  {org.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Only this organization's members can create
+                            applications on it.
+                          </p>
+                        </div>
+                        <div className="space-y-3">
+                          <Label className="text-sm">Domain type</Label>
+                          <RadioGroup
+                            className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                            value={addMode}
+                            onValueChange={(value) =>
+                              setAddMode(value as "existing" | "register")
+                            }
+                          >
+                            <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
+                              <RadioGroupItem
+                                value="existing"
+                                id="domain-mode-existing"
+                              />
+                              <div className="space-y-1">
+                                <Label htmlFor="domain-mode-existing">
+                                  Use existing domain
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                  Use a domain you already own and connect it to
+                                  Cloudflare automatically.
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                            <RadioGroupItem
-                              value="register"
-                              id="domain-mode-register"
-                            />
-                            <div className="space-y-1">
-                              <Label htmlFor="domain-mode-register">
-                                Register new domain
-                              </Label>
-                              <p className="text-xs text-muted-foreground">
-                                Mark this domain as new. Registration is handled
-                                externally or via RDASH.
-                              </p>
+                            <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                              <RadioGroupItem
+                                value="register"
+                                id="domain-mode-register"
+                              />
+                              <div className="space-y-1">
+                                <Label htmlFor="domain-mode-register">
+                                  Register new domain
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                  Mark this domain as new. Registration is
+                                  handled externally or via RDASH.
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        </RadioGroup>
-                      </div>
+                          </RadioGroup>
+                        </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="new-domain-name">Domain name</Label>
-                        <Input
-                          id="new-domain-name"
-                          placeholder="example.com"
-                          value={newDomainName}
-                          onChange={(e) => setNewDomainName(e.target.value)}
-                        />
-                      </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="new-domain-name">Domain name</Label>
+                          <Input
+                            id="new-domain-name"
+                            placeholder="example.com"
+                            value={newDomainName}
+                            onChange={(e) => setNewDomainName(e.target.value)}
+                          />
+                        </div>
 
-                      <div className="flex items-center justify-end space-x-3 pt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setAddDialogOpen(false)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="submit"
-                          className="bg-gradient-primary"
-                          disabled={
-                            createDomain.isPending ||
-                            !newDomainName.trim() ||
-                            !newDomainOrgId
-                          }
-                        >
-                          {createDomain.isPending && (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          )}
-                          Save domain
-                        </Button>
-                      </div>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              )}
-            </div>
-
-            <DataTable
-              columns={domainColumns}
-              rows={domains}
-              rowKey={(domain) => domain.id}
-              query={query}
-              pagination={domainsData?.pagination}
-              isLoading={isLoading}
-              searchPlaceholder="Search domains…"
-              empty={
-                admin
-                  ? "No domains yet — add your first custom domain."
-                  : "No domains are assigned to your organization yet. Ask an administrator to assign one."
+                        <div className="flex items-center justify-end space-x-3 pt-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setAddDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="submit"
+                            className="bg-gradient-primary"
+                            disabled={
+                              createDomain.isPending ||
+                              !newDomainName.trim() ||
+                              !newDomainOrgId
+                            }
+                          >
+                            {createDomain.isPending && (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            )}
+                            Save domain
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                ) : null
               }
-              toolbar={
-                <>
-                  <OrganizationFilter query={query} />
-                  <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                    <Globe className="h-4 w-4 text-primary" />
-                    <span>{domainsData?.pagination.total ?? 0} domains</span>
-                  </div>
-                </>
-              }
-            />
+            >
+              <DataTable
+                columns={domainColumns}
+                rows={domains}
+                rowKey={(domain) => domain.id}
+                query={query}
+                pagination={domainsData?.pagination}
+                isLoading={isLoading}
+                searchPlaceholder="Search domains…"
+                empty={
+                  admin
+                    ? "No domains yet — add your first custom domain."
+                    : "No domains are assigned to your organization yet. Ask an administrator to assign one."
+                }
+                toolbar={
+                  <>
+                    <OrganizationFilter query={query} />
+                    <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                      <Globe className="h-4 w-4 text-primary" />
+                      <span>{domainsData?.pagination.total ?? 0} domains</span>
+                    </div>
+                  </>
+                }
+              />
+            </PageLayout>
           </>
         )}
 

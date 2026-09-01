@@ -72,6 +72,7 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
       {
         userId: user.id,
         email: user.email,
+        name: user.name,
         role: user.role,
       },
       process.env.JWT_SECRET as any,
@@ -163,6 +164,7 @@ const AcceptInviteSchema = z.object({
 const signToken = (user: {
   id: string;
   email: string;
+  name?: string | null;
   role: string;
   mustChangePassword?: boolean;
 }) =>
@@ -170,6 +172,7 @@ const signToken = (user: {
     {
       userId: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
       mustChangePassword: user.mustChangePassword ?? false,
     },
