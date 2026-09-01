@@ -129,15 +129,7 @@ router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Re
       } as ApiResponse);
     }
 
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        role: user.role,
-      },
-      process.env.JWT_SECRET as any,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
-    );
+    const token = signToken(user);
 
     return res.json({
       success: true,
@@ -147,6 +139,7 @@ router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Re
           email: user.email,
           name: user.name,
           role: user.role,
+          mustChangePassword: user.mustChangePassword,
         },
         token,
       },
@@ -167,12 +160,116 @@ const AcceptInviteSchema = z.object({
   password: z.string().min(8).optional(), // required only when the account does not exist yet
 });
 
-const signToken = (user: { id: string; email: string; role: string }) =>
+const signToken = (user: {
+  id: string;
+  email: string;
+  role: string;
+  mustChangePassword?: boolean;
+}) =>
   jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword ?? false,
+    },
     process.env.JWT_SECRET as any,
     { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
   );
+
+/**
+ * Public preview of an invite, so the accept screen can name the organization
+ * instead of asking for a password against an opaque token.
+ * Returns only what the holder of the token already knows.
+ */
+router.get('/invite/:token', async (req: Request, res: Response) => {
+  try {
+    const token = String(req.params.token || '');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const invite = await prisma.invite.findUnique({
+      where: { tokenHash },
+      include: { organization: { select: { name: true } } },
+    });
+
+    if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invite is invalid, already used, or expired',
+      } as ApiResponse);
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: invite.email },
+      select: { id: true },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        email: invite.email,
+        role: invite.role,
+        organizationName: invite.organization.name,
+        expiresAt: invite.expiresAt,
+        needsPassword: !existingUser,
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Invite preview error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+// Change your own password. Also clears the forced-change flag set on admin-issued accounts.
+router.post(
+  '/change-password',
+  authenticateToken,
+  validateRequest(ChangePasswordSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+
+      const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' } as ApiResponse);
+      }
+
+      if (!(await bcrypt.compare(currentPassword, user.password))) {
+        return res.status(401).json({ success: false, error: 'Current password is incorrect' } as ApiResponse);
+      }
+
+      if (await bcrypt.compare(newPassword, user.password)) {
+        return res.status(400).json({
+          success: false,
+          error: 'New password must differ from the current one',
+        } as ApiResponse);
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: await bcrypt.hash(newPassword, 12),
+          mustChangePassword: false,
+        },
+      });
+
+      // reissue so the client stops seeing the forced-change flag
+      return res.json({
+        success: true,
+        data: { token: signToken(updated) },
+        message: 'Password updated',
+      } as ApiResponse);
+    } catch (error) {
+      console.error('Change password error:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
 
 /**
  * Accept an organization invite. Creates the account on first use, then joins the org.

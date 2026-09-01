@@ -38,6 +38,9 @@ const slugify = (text: string): string => {
     .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
 };
 
+// Radix Select forbids an empty-string item value, so "no filter" needs a sentinel.
+const ALL_WORKSPACES = "__all__";
+
 export default function AddApp() {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -61,8 +64,8 @@ export default function AddApp() {
   const [selectedGitlabAccountId, setSelectedGitlabAccountId] = useState("");
   const [selectedGithubRepoId, setSelectedGithubRepoId] = useState("");
   const [selectedGitlabRepoId, setSelectedGitlabRepoId] = useState("");
-  const [selectedGithubWorkspace, setSelectedGithubWorkspace] = useState("");
-  const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] = useState("");
+  const [selectedGithubWorkspace, setSelectedGithubWorkspace] = useState(ALL_WORKSPACES);
+  const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] = useState(ALL_WORKSPACES);
 
   useEffect(() => {
     if (formData.name && !formData.subdomain) {
@@ -168,7 +171,7 @@ export default function AddApp() {
   const filteredGithubProjects =
     githubProjects && githubProjects.length > 0
       ? githubProjects.filter((repo) =>
-          selectedGithubWorkspace
+          selectedGithubWorkspace !== ALL_WORKSPACES
             ? repo.workspace === selectedGithubWorkspace
             : true,
         )
@@ -177,7 +180,7 @@ export default function AddApp() {
   const filteredGitlabProjects =
     gitlabProjects && gitlabProjects.length > 0
       ? gitlabProjects.filter((repo) =>
-          selectedGitlabWorkspace
+          selectedGitlabWorkspace !== ALL_WORKSPACES
             ? repo.workspace === selectedGitlabWorkspace
             : true,
         )
@@ -561,7 +564,7 @@ export default function AddApp() {
                         <SelectValue placeholder="All workspaces" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All workspaces</SelectItem>
+                        <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
                         {githubWorkspaces.map((workspace) => (
                           <SelectItem key={workspace} value={workspace}>
                             {workspace}
@@ -578,7 +581,11 @@ export default function AddApp() {
                     <p className="text-sm text-muted-foreground">
                       Loading GitHub repositories...
                     </p>
-                  ) : githubError || !selectedGithubAccountId ? (
+                  ) : !selectedGithubAccountId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select a GitHub account above to list its repositories.
+                    </p>
+                  ) : githubError ? (
                     <p className="text-sm text-destructive">
                       Failed to load GitHub repositories.
                     </p>
@@ -732,7 +739,7 @@ export default function AddApp() {
                         <SelectValue placeholder="All workspaces" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All workspaces</SelectItem>
+                        <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
                         {gitlabWorkspaces.map((workspace) => (
                           <SelectItem key={workspace} value={workspace}>
                             {workspace}
@@ -749,7 +756,11 @@ export default function AddApp() {
                     <p className="text-sm text-muted-foreground">
                       Loading GitLab projects...
                     </p>
-                  ) : gitlabError || !selectedGitlabAccountId ? (
+                  ) : !selectedGitlabAccountId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select a GitLab account above to list its projects.
+                    </p>
+                  ) : gitlabError ? (
                     <p className="text-sm text-destructive">
                       Failed to load GitLab projects.
                     </p>

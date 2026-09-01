@@ -15,6 +15,9 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       where: {
         ...(await orgScope(req)),
       },
+      include: {
+        organization: { select: { id: true, name: true, slug: true } },
+      },
       orderBy: {
         createdAt: 'desc',
       },

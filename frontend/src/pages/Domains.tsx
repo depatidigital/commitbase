@@ -97,22 +97,26 @@ export default function Domains() {
   );
 
   if (domainId) {
-    if (domainLoading || !domainDetail) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      );
-    }
-
     if (domainError) {
       return (
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Error Loading Domain</h3>
-            <p className="text-muted-foreground">Failed to load domain. Please try again.</p>
+            <p className="text-muted-foreground mb-4">Failed to load domain. Please try again.</p>
+            <Button variant="outline" onClick={() => navigate('/domains')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to domains
+            </Button>
           </div>
+        </div>
+      );
+    }
+
+    if (domainLoading || !domainDetail) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin" />
         </div>
       );
     }
@@ -632,7 +636,9 @@ export default function Domains() {
                         type="submit"
                         className="bg-gradient-primary"
                         disabled={
-                          createDomain.isPending || !newDomainName.trim()
+                          createDomain.isPending ||
+                          !newDomainName.trim() ||
+                          !newDomainOrgId
                         }
                       >
                         {createDomain.isPending && (
@@ -669,18 +675,30 @@ export default function Domains() {
                   <CardContent className="flex flex-col items-center justify-center py-12">
                     <Globe className="h-12 w-12 text-muted-foreground mb-4" />
                     <h3 className="text-lg font-semibold mb-2">
-                      No Domains Yet
+                      {searchTerm ? 'No matching domains' : 'No Domains Yet'}
                     </h3>
                     <p className="text-muted-foreground text-center max-w-md mb-4">
-                      Get started by adding your first custom domain to the platform.
+                      {searchTerm
+                        ? `Nothing matches "${searchTerm}".`
+                        : admin
+                          ? 'Get started by adding your first custom domain to the platform.'
+                          : 'No domains are assigned to your organization yet. Ask an administrator to assign one.'}
                     </p>
-                    <Button
-                      className="bg-gradient-primary"
-                      onClick={() => setAddDialogOpen(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Your First Domain
-                    </Button>
+                    {searchTerm ? (
+                      <Button variant="outline" onClick={() => setSearchTerm('')}>
+                        Clear search
+                      </Button>
+                    ) : (
+                      admin && (
+                        <Button
+                          className="bg-gradient-primary"
+                          onClick={() => setAddDialogOpen(true)}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Your First Domain
+                        </Button>
+                      )
+                    )}
                   </CardContent>
                 </Card>
               ) : (

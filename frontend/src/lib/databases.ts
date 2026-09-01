@@ -85,3 +85,21 @@ export const deleteDatabase = async (id: string): Promise<void> => {
     throw new Error(response.error || 'Failed to delete database');
   }
 }; 
+export interface DatabaseWithApplication extends Database {
+  status: 'CREATING' | 'RUNNING' | 'STOPPED' | 'ERROR';
+  port?: number | null;
+  memory?: string | null;
+  cpu?: string | null;
+  application: { id: string; name: string; domain: string };
+}
+
+// Every database across the organizations the caller belongs to
+export const getAllDatabases = async (): Promise<DatabaseWithApplication[]> => {
+  const response = await apiRequest<DatabaseWithApplication[]>('/databases');
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to fetch databases');
+};

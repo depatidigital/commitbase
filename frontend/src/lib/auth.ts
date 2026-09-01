@@ -5,6 +5,7 @@ export interface User {
   email: string;
   name: string;
   role: 'ADMIN' | 'USER' | 'CLIENT';
+  mustChangePassword?: boolean;
   createdAt: string;
 }
 
@@ -94,6 +95,7 @@ export const getCurrentUser = (): User | null => {
       email: payload.email,
       name: payload.name || '',
       role: payload.role,
+      mustChangePassword: !!payload.mustChangePassword,
       createdAt: new Date(payload.iat * 1000).toISOString(),
     };
   } catch (error) {
@@ -106,6 +108,27 @@ export const getCurrentUser = (): User | null => {
 // Role of the signed-in user, read from the JWT. UI gating only —
 // every admin action is also blocked server-side by requireRole().
 export const isAdmin = (): boolean => getCurrentUser()?.role === 'ADMIN';
+
+// Admin-issued accounts start with a password the admin also knows.
+export const mustChangePassword = (): boolean =>
+  !!getCurrentUser()?.mustChangePassword;
+
+export const changePassword = async (
+  currentPassword: string,
+  newPassword: string
+): Promise<void> => {
+  const response = await apiRequest<{ token: string }>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+  if (response.success && response.data) {
+    setAuthToken(response.data.token);
+    return;
+  }
+
+  throw new Error(response.error || 'Failed to change password');
+};
 
 // Check if user is authenticated
 export const isAuthenticated = (): boolean => {

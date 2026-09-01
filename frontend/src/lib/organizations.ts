@@ -85,6 +85,20 @@ export const revokeInvite = async (orgId: string, inviteId: string) =>
     'Failed to revoke invite'
   );
 
+export interface InvitePreview {
+  email: string;
+  role: OrgRole;
+  organizationName: string;
+  expiresAt: string;
+  needsPassword: boolean;
+}
+
+export const getInvitePreview = async (token: string): Promise<InvitePreview> =>
+  unwrap(
+    await apiRequest<InvitePreview>(`/auth/invite/${encodeURIComponent(token)}`),
+    'This invite link is invalid or has expired'
+  );
+
 export const acceptInvite = async (data: { token: string; name?: string; password?: string }) =>
   unwrap(
     await apiRequest<{ user: unknown; token: string; organizationId: string }>('/auth/accept-invite', {

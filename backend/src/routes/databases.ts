@@ -8,6 +8,29 @@ import { orgScope } from '../lib/scope';
 const router = Router();
 
 // Get databases for an application
+// All databases across the caller's organizations
+router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const databases = await prisma.database.findMany({
+      where: {
+        application: { ...(await orgScope(req)) },
+      },
+      include: {
+        application: { select: { id: true, name: true, domain: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.json({ success: true, data: databases } as ApiResponse);
+  } catch (error) {
+    console.error('List databases error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
 router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { appId } = req.params;

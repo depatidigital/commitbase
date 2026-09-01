@@ -23,6 +23,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           ...(await orgScope(req)),
         },
         include: {
+          organization: { select: { id: true, name: true, slug: true } },
           deployments: {
             orderBy: {
               createdAt: 'desc',

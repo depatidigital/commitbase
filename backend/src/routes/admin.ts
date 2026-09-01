@@ -73,6 +73,7 @@ router.post('/users', validateRequest(CreateClientSchema), async (req: Authentic
         name,
         password: await bcrypt.hash(password, 12),
         role: role ?? 'CLIENT',
+        mustChangePassword: true, // the admin knows this password; force a rotation
       },
       select: userSelect,
     });

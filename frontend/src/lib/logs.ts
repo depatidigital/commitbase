@@ -88,3 +88,20 @@ export const exportLogs = async (
 
   return response.blob();
 }; 
+export interface SystemLog extends Log {
+  application: { id: string; name: string } | null;
+}
+
+// Recent log lines the caller may see: their own, plus their organizations' apps
+export const getSystemLogs = async (
+  lines = 200,
+  level: 'all' | 'error' | 'warn' | 'info' = 'all'
+): Promise<SystemLog[]> => {
+  const response = await apiRequest<SystemLog[]>(`/logs/system?lines=${lines}&type=${level}`);
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to fetch logs');
+};

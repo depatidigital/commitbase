@@ -22,7 +22,6 @@ type LoginForm = z.infer<typeof loginSchema>;
 const Login = () => {
   const navigate = useNavigate();
   const login = useLogin();
-  const [isRegister, setIsRegister] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const {
@@ -62,7 +61,7 @@ const Login = () => {
   // Show loading while checking authentication
   if (isCheckingAuth) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-muted/40">
         <div className="flex flex-col items-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Checking authentication...</p>
@@ -72,17 +71,14 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-muted/40">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
-            {isRegister ? 'Create Account' : 'Sign In'}
+            Sign In
           </CardTitle>
           <CardDescription className="text-center">
-            {isRegister 
-              ? 'Create your CommitBase account to get started'
-              : 'Enter your credentials to access your dashboard'
-            }
+            Enter your credentials to access your dashboard
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -120,32 +116,14 @@ const Login = () => {
               className="w-full"
               disabled={login.isPending}
             >
-              {login.isPending ? 'Signing in...' : (isRegister ? 'Create Account' : 'Sign In')}
+              {login.isPending ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
 
-          <div className="mt-4 text-center">
-            <button
-              type="button"
-              onClick={() => setIsRegister(!isRegister)}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              {isRegister 
-                ? 'Already have an account? Sign in'
-                : "Don't have an account? Sign up"
-              }
-            </button>
-          </div>
-
-          {isRegister && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-md">
-              <p className="text-sm text-blue-800">
-                <strong>Demo Credentials:</strong><br />
-                Email: admin@commitbase.com<br />
-                Password: admin123
-              </p>
-            </div>
-          )}
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Accounts are created by an administrator or through an organization
+            invite link.
+          </p>
         </CardContent>
       </Card>
     </div>
