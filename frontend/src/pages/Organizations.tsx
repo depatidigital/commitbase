@@ -167,7 +167,7 @@ export default function Organizations() {
                 {invite && (
                   <div className="rounded-md border bg-muted/50 p-3 text-sm">
                     <p className="mb-2 font-medium">
-                      Invite link for {invite.email} — shown once, copy it now:
+                      Email could not be sent — send this link to {invite.email} yourself. Shown once:
                     </p>
                     <div className="flex items-center gap-2">
                       <code className="flex-1 truncate rounded bg-background px-2 py-1 text-xs">

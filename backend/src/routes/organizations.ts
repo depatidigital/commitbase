@@ -7,6 +7,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
+import { sendMail } from '../lib/mailer';
 
 const router = Router();
 
@@ -60,7 +61,35 @@ async function issueInvite(orgId: string, email: string, role: 'OWNER' | 'ADMIN'
     ? `${process.env.APP_URL.replace(/\/$/, '')}/accept-invite?token=${token}`
     : null;
 
-  return { ...invite, token, acceptUrl };
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { name: true },
+  });
+  const appName = process.env.APP_NAME || 'CommitBase';
+
+  // best effort: the link is still returned to the caller if the mail fails
+  const emailed = acceptUrl
+    ? await sendMail({
+        to: email,
+        subject: `You have been invited to ${org?.name || appName}`,
+        text: [
+          `You have been invited to join ${org?.name || appName} on ${appName} as ${role}.`,
+          '',
+          `Accept the invite: ${acceptUrl}`,
+          '',
+          `The link expires on ${expiresAt.toDateString()}.`,
+        ].join('\n'),
+        html: `<p>You have been invited to join <strong>${org?.name || appName}</strong> on ${appName} as <strong>${role}</strong>.</p>
+<p><a href="${acceptUrl}">Accept the invite</a></p>
+<p>The link expires on ${expiresAt.toDateString()}.</p>`,
+      })
+    : false;
+
+  if (!acceptUrl) {
+    console.warn('APP_URL not set — invite email skipped, only the raw token is returned');
+  }
+
+  return { ...invite, token, acceptUrl, emailed };
 }
 
 const forbidden = (res: Response) =>
@@ -344,7 +373,7 @@ router.post(
         return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
       }
 
-      // already a member? nothing to invite
+      // an account that already exists joins straight away — no link to pass around
       const existingUser = await prisma.user.findUnique({ where: { email } });
       if (existingUser) {
         const membership = await prisma.membership.findUnique({
@@ -353,6 +382,17 @@ router.post(
         if (membership) {
           return res.status(400).json({ success: false, error: 'User is already a member' } as ApiResponse);
         }
+
+        const created = await prisma.membership.create({
+          data: { userId: existingUser.id, organizationId: id, role },
+          include: { user: { select: { id: true, email: true, name: true, isActive: true } } },
+        });
+
+        return res.status(201).json({
+          success: true,
+          data: { added: true, membership: created },
+          message: 'That account already exists — added to the organization directly.',
+        } as ApiResponse);
       }
 
       const invite = await issueInvite(id, email, role, req.user!.userId);

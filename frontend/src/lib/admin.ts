@@ -70,7 +70,8 @@ export interface CreateUserData {
 }
 
 const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback: string): T => {
-  if (res.success && res.data !== undefined) return res.data;
+  // DELETE routes answer { success: true } with no body — that is still a success
+  if (res.success) return res.data as T;
   throw new Error(res.error || fallback);
 };
 

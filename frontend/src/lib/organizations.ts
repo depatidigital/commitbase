@@ -31,10 +31,13 @@ export interface Invite {
 export interface CreatedInvite extends Invite {
   token: string;
   acceptUrl: string | null;
+  // false when SMTP is unconfigured or the send failed — the link still works
+  emailed?: boolean;
 }
 
 const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback: string): T => {
-  if (res.success && res.data !== undefined) return res.data;
+  // DELETE routes answer { success: true } with no body — that is still a success
+  if (res.success) return res.data as T;
   throw new Error(res.error || fallback);
 };
 
@@ -96,12 +99,19 @@ export const removeMember = async (orgId: string, userId: string) =>
 export const getInvites = async (orgId: string): Promise<Invite[]> =>
   unwrap(await apiRequest<Invite[]>(`/organizations/${orgId}/invites`), 'Failed to fetch invites');
 
+// an email that already has an account is added as a member instead of invited
+export type InviteResult = CreatedInvite | { added: true; membership: Member };
+
+export const isMemberAdded = (
+  r: InviteResult
+): r is { added: true; membership: Member } => 'added' in r;
+
 export const createInvite = async (
   orgId: string,
   data: { email: string; role?: OrgRole }
-): Promise<CreatedInvite> =>
+): Promise<InviteResult> =>
   unwrap(
-    await apiRequest<CreatedInvite>(`/organizations/${orgId}/invites`, {
+    await apiRequest<InviteResult>(`/organizations/${orgId}/invites`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

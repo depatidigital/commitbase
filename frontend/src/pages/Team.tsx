@@ -29,6 +29,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { OrgRole } from "@/lib/admin";
 import {
   createInvite,
+  isMemberAdded,
   getInvites,
   getMembers,
   getOrganizations,
@@ -99,13 +100,28 @@ export default function Team() {
   const inviteMutation = useMutation({
     mutationFn: () =>
       createInvite(orgId, { email: inviteEmail, role: inviteRole }),
-    onSuccess: (invite) => {
-      setLastInvite(invite);
+    onSuccess: (result) => {
       setInviteEmail("");
       refresh();
+
+      // that email already had an account — the backend joined them, nothing to copy
+      if (isMemberAdded(result)) {
+        toast({ title: "Member added", description: "That account already existed." });
+        return;
+      }
+
+      if (result.emailed) {
+        toast({
+          title: "Invite sent",
+          description: `An email is on its way to ${result.email}.`,
+        });
+        return;
+      }
+
+      setLastInvite(result);
       toast({
         title: "Invite created",
-        description: "Copy the link below — it is shown only once.",
+        description: "Email could not be sent — copy the link below, it is shown only once.",
       });
     },
     onError,
@@ -342,7 +358,7 @@ export default function Team() {
             {lastInvite && (
               <div className="rounded-md border bg-muted/50 p-3 text-sm">
                 <p className="mb-2 font-medium">
-                  Invite link for {lastInvite.email} — shown once, copy it now:
+                  Email could not be sent — send this link to {lastInvite.email} yourself. Shown once:
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 truncate rounded bg-background px-2 py-1 text-xs">

@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Copy, Loader2, Mail, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Copy, Loader2, Mail, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -40,9 +40,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { OrgRole } from "@/lib/admin";
 import {
   CreatedInvite,
-  addMember,
-  isInviteResult,
   createInvite,
+  isMemberAdded,
   getInvites,
   getMembers,
   getOrganization,
@@ -59,7 +58,6 @@ export default function OrganizationDetail() {
   const queryClient = useQueryClient();
   const currentUser = getCurrentUser();
 
-  const [addOpen, setAddOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "MEMBER" as OrgRole });
   const [lastInvite, setLastInvite] = useState<CreatedInvite | null>(null);
@@ -99,34 +97,34 @@ export default function OrganizationDetail() {
     queryClient.invalidateQueries({ queryKey: ["organizations", id] });
   };
 
-  const addMutation = useMutation({
-    mutationFn: () => addMember(id, form),
+  const inviteMutation = useMutation({
+    mutationFn: () => createInvite(id, form),
     onSuccess: (result) => {
       setForm({ email: "", role: "MEMBER" });
       refresh();
-      if (isInviteResult(result)) {
-        setLastInvite(result.invite);
+
+      // the email already had an account — the backend joined them, no link to copy
+      if (isMemberAdded(result)) {
+        setInviteOpen(false);
+        toast({ title: "Member added", description: "That account already existed." });
+        return;
+      }
+
+      // mail delivered? nothing for the admin to copy
+      if (result.emailed) {
+        setInviteOpen(false);
         toast({
-          title: "Invite created",
-          description: "No account with that email yet — copy the link, it is shown only once.",
+          title: "Invite sent",
+          description: `An email is on its way to ${result.email}.`,
         });
         return;
       }
-      setAddOpen(false);
-      toast({ title: "Member added" });
-    },
-    onError,
-  });
 
-  const inviteMutation = useMutation({
-    mutationFn: () => createInvite(id, form),
-    onSuccess: (invite) => {
-      setLastInvite(invite);
-      setForm({ email: "", role: "MEMBER" });
-      refresh();
+      // no mail server (or the send failed) — fall back to the one-time link
+      setLastInvite(result);
       toast({
         title: "Invite created",
-        description: "Copy the link — it is shown only once.",
+        description: "Email could not be sent — copy the link below, it is shown only once.",
       });
     },
     onError,
@@ -294,75 +292,6 @@ export default function OrganizationDetail() {
       description={`${org.slug} · ${org._count.members} members · ${org._count.domains} domains · ${org._count.applications} apps`}
       actions={
         <>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <UserPlus className="mr-2 h-4 w-4" /> Add member
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  addMutation.mutate();
-                }}
-              >
-                <DialogHeader>
-                  <DialogTitle>Add member by email</DialogTitle>
-                  <DialogDescription>
-                    Adds an existing account to {org.name} straight away. If no
-                    account uses that email, send an invite link instead.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="member-email">Email</Label>
-                    <Input
-                      id="member-email"
-                      autoFocus
-                      type="email"
-                      value={form.email}
-                      onChange={(e) =>
-                        setForm({ ...form, email: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Role</Label>
-                    <Select
-                      value={form.role}
-                      onValueChange={(v) =>
-                        setForm({ ...form, role: v as OrgRole })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button
-                    type="submit"
-                    disabled={!form.email || addMutation.isPending}
-                  >
-                    {addMutation.isPending && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    Add member
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-
           <Dialog
             open={inviteOpen}
             onOpenChange={(open) => {
@@ -371,7 +300,7 @@ export default function OrganizationDetail() {
             }}
           >
             <DialogTrigger asChild>
-              <Button variant="outline">
+              <Button>
                 <Mail className="mr-2 h-4 w-4" /> Invite
               </Button>
             </DialogTrigger>
@@ -385,8 +314,8 @@ export default function OrganizationDetail() {
                 <DialogHeader>
                   <DialogTitle>Invite to {org.name}</DialogTitle>
                   <DialogDescription>
-                    For people without an account yet. The link is stored hashed
-                    and shown once — copy it before closing.
+                    An existing account joins {org.name} straight away. Anyone
+                    else is emailed an invite link.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
@@ -425,7 +354,8 @@ export default function OrganizationDetail() {
                   {lastInvite && (
                     <div className="rounded-md border bg-muted/50 p-3 text-sm">
                       <p className="mb-2 font-medium">
-                        Invite link for {lastInvite.email} — copy it now:
+                        Email could not be sent — send this link to{" "}
+                        {lastInvite.email} yourself. It is shown only once:
                       </p>
                       <div className="flex items-center gap-2">
                         <code className="flex-1 truncate rounded bg-background px-2 py-1 text-xs">
@@ -456,7 +386,7 @@ export default function OrganizationDetail() {
                     {inviteMutation.isPending && (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     )}
-                    Create invite
+                    Send invite
                   </Button>
                 </DialogFooter>
               </form>
