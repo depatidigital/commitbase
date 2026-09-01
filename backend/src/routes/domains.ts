@@ -5,8 +5,30 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
-import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState } from '../services/cloudflareService';
-import { listRdashDomains } from '../services/rdashService';
+import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords } from '../services/cloudflareService';
+import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers } from '../services/rdashService';
+import { syncDomains } from '../services/domainSyncService';
+
+/** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
+const sortOrder = (sort: unknown, order: unknown): any => {
+  const direction = order === 'desc' ? 'desc' : 'asc';
+
+  switch (sort) {
+    case 'name':
+      return { name: direction };
+    case 'status':
+      return { status: direction };
+    // undated domains sort last either way — they are not "expiring soonest"
+    case 'expiresAt':
+      return { expiresAt: { sort: direction, nulls: 'last' } };
+    case 'sslExpiry':
+      return { sslExpiry: { sort: direction, nulls: 'last' } };
+    case 'createdAt':
+      return { createdAt: direction };
+    default:
+      return { createdAt: 'desc' };
+  }
+};
 
 const router = Router();
 
@@ -32,13 +54,10 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       ...(await orgScope(req)),
       ...(organizationId && { organizationId }),
       ...(search && { name: contains(search) }),
-      // ?filter=unassigned | needs-attention — drives the tabs on the domains page.
+      // ?filter=unassigned — drives the tabs on the domains page.
       // AND, not a bare key, so it narrows orgScope instead of replacing it.
       AND: [
         ...(req.query.filter === 'unassigned' ? [{ organizationId: null }] : []),
-        ...(req.query.filter === 'needs-attention'
-          ? [{ OR: [{ organizationId: null }, { cfZoneId: null }] }]
-          : []),
         ...(typeof req.query.status === 'string' && req.query.status
           ? [{ status: req.query.status as any }]
           : []),
@@ -52,9 +71,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
         include: {
           organization: { select: { id: true, name: true, slug: true } },
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: sortOrder(req.query.sort, req.query.order),
         ...(paged && { skip, take: limit }),
       }),
       paged ? prisma.domain.count({ where }) : Promise.resolve(0),
@@ -195,140 +212,12 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), validateRequest(Crea
 // reconcile them into one list. Organization is never touched — assigned by hand later.
 router.post('/sync', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const [cfResult, rdashResult] = await Promise.allSettled([
-      (async () => {
-        const perPage = 50;
-        const zones: any[] = [];
-        // ponytail: sequential paging, fine for a few hundred zones
-        for (let page = 1; page <= 50; page++) {
-          const batch = await listCloudflareZones({ page, perPage });
-          if (batch === null) throw new Error('Cloudflare zones unavailable');
-          zones.push(...batch);
-          if (batch.length < perPage) break;
-        }
-        return zones;
-      })(),
-      (async () => {
-        // RDASH pages at 10 per response and rejects per_page — follow meta.last_page
-        const rows: any[] = [];
-        let lastPage = 1;
-        for (let page = 1; page <= lastPage && page <= 100; page++) {
-          const raw: any = await listRdashDomains({ page });
-          const batch = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
-          rows.push(...batch);
-          lastPage = Number(raw?.meta?.last_page) || 1;
-        }
-        return rows;
-      })(),
-    ]);
-
-    const errors: Record<string, string> = {};
-
-    const zones: any[] = cfResult.status === 'fulfilled' ? cfResult.value : [];
-    if (cfResult.status === 'rejected') {
-      errors.cloudflare = 'Failed to fetch Cloudflare zones. Check the Cloudflare integration config.';
-    }
-
-    let rdashRows: any[] = [];
-    if (rdashResult.status === 'fulfilled') {
-      rdashRows = rdashResult.value;
-    } else {
-      errors.rdash = 'Failed to fetch RDASH domains. Check the RDASH integration config.';
-    }
-
-    // one row per domain name, merged from both sources
-    type Merged = { name: string; zone?: any; rdash?: any };
-    const merged = new Map<string, Merged>();
-    const put = (rawName: any, patch: Partial<Merged>) => {
-      const name = String(rawName || '').trim().toLowerCase();
-      if (!name) return;
-      merged.set(name, { ...(merged.get(name) || { name }), ...patch, name });
-    };
-
-    for (const zone of zones) put(zone?.name, { zone });
-    for (const row of rdashRows) put(row?.domain || row?.name, { rdash: row });
-
-    let created = 0;
-    let updated = 0;
-    const now = new Date();
-
-    for (const entry of merged.values()) {
-      const { name, zone, rdash } = entry;
-
-      const cfZoneId = zone?.id ? String(zone.id) : null;
-      const cloudflare = zone
-        ? {
-            zoneId: cfZoneId,
-            zoneName: name,
-            nameservers: Array.isArray(zone.name_servers) ? zone.name_servers : [],
-            synced: true,
-          }
-        : null;
-
-      // real certificate state — Cloudflare terminates TLS, so it is the only honest source
-      const ssl = cfZoneId ? await getZoneSslState(cfZoneId) : null;
-
-      // RDASH is not consistent about the field name, so try the ones it actually sends
-      const rawExpiry =
-        rdash?.expired_at ?? rdash?.expiryDate ?? rdash?.expire_date ?? rdash?.expiresAt ?? null;
-      const parsedExpiry = rawExpiry ? new Date(rawExpiry) : null;
-      const expiresAt =
-        parsedExpiry && Number.isFinite(parsedExpiry.getTime()) ? parsedExpiry : null;
-
-      const existing = await prisma.domain.findUnique({ where: { name } });
-
-      if (existing) {
-        await prisma.domain.update({
-          where: { id: existing.id },
-          data: {
-            ...(cfZoneId && { cfZoneId }),
-            ...(ssl && { sslStatus: ssl.status, sslExpiry: ssl.expiry }),
-            ...(expiresAt && { expiresAt }),
-            ...(cloudflare && {
-              customConfig: { ...((existing.customConfig as any) || {}), cloudflare },
-            }),
-            // never overwrite a registrar someone set by hand
-            ...(rdash && { registrar: 'RDASH' }),
-            ...(!rdash && !existing.registrar && zone && { registrar: 'EXTERNAL' }),
-            lastSyncedAt: now,
-          },
-        });
-        updated++;
-      } else {
-        await prisma.domain.create({
-          data: {
-            name,
-            status: zone?.status === 'active' ? 'ACTIVE' : 'PENDING',
-            cfZoneId,
-            registrar: rdash ? 'RDASH' : zone ? 'EXTERNAL' : null,
-            ...(ssl && { sslStatus: ssl.status, sslExpiry: ssl.expiry }),
-            expiresAt,
-            ...(cloudflare && { customConfig: { cloudflare } }),
-            organizationId: null,
-            userId: req.user!.userId,
-            lastSyncedAt: now,
-          },
-        });
-        created++;
-      }
-    }
-
-    const cfNames = new Set(zones.map((z: any) => String(z?.name || '').trim().toLowerCase()));
-    const rdashNames = new Set(
-      rdashRows.map((r: any) => String(r?.domain || r?.name || '').trim().toLowerCase()),
-    );
+    const result = await syncDomains(req.user!.userId);
 
     return res.json({
       success: true,
-      data: {
-        total: merged.size,
-        created,
-        updated,
-        cfOnly: [...cfNames].filter((n) => n && !rdashNames.has(n)).length,
-        rdashOnly: [...rdashNames].filter((n) => n && !cfNames.has(n)).length,
-        errors: Object.keys(errors).length ? errors : undefined,
-      },
-      message: `Synced ${merged.size} domains (${created} added, ${updated} updated)`,
+      data: result,
+      message: `Synced ${result.total} domains (${result.created} added, ${result.updated} updated)`,
     } as ApiResponse);
   } catch (error) {
     console.error('Error syncing domains:', error);
@@ -478,6 +367,259 @@ router.get('/:id/dns-zone', authenticateToken, async (req: AuthenticatedRequest,
   }
 });
 
+/** RDASH sends records in a few shapes — normalise to what Cloudflare's API wants. */
+const toImportableRecords = (rows: any[], domainName: string) =>
+  rows
+    .map((row) => {
+      const type = String(row?.type || row?.record_type || '').trim().toUpperCase();
+      const rawName = String(row?.name || row?.host || row?.hostname || '').trim();
+      const content = String(row?.content ?? row?.value ?? row?.data ?? '').trim();
+
+      if (!type || !content) return null;
+
+      // "@", "" and bare subdomains all need to be fully qualified for Cloudflare
+      const name =
+        !rawName || rawName === '@'
+          ? domainName
+          : rawName.endsWith(domainName)
+          ? rawName
+          : `${rawName}.${domainName}`;
+
+      const ttl = Number(row?.ttl);
+      const priority = Number(row?.priority ?? row?.prio ?? row?.mx_priority);
+
+      return {
+        type,
+        name,
+        content,
+        ...(Number.isFinite(ttl) && ttl > 0 && { ttl }),
+        ...(Number.isFinite(priority) && { priority }),
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+
+// What RDASH still holds for this domain: its nameservers and, while it is authoritative, its DNS records
+router.get('/:id/rdash-dns', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const domain = await prisma.domain.findFirst({
+      where: { id: id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    if (domain.registrar !== 'RDASH') {
+      return res.json({
+        success: true,
+        data: { registered: false, nameservers: [], records: [] },
+        message: 'Domain is not registered through RDASH',
+      } as ApiResponse);
+    }
+
+    const rdashDomain = await findRdashDomain(domain.name);
+
+    if (!rdashDomain) {
+      return res.json({
+        success: true,
+        data: { registered: false, nameservers: [], records: [] },
+        message: 'Domain not found in the RDASH account',
+      } as ApiResponse);
+    }
+
+    const records = await getRdashDomainDns(rdashDomain.id);
+
+    return res.json({
+      success: true,
+      data: {
+        registered: true,
+        nameservers: rdashDomain.nameservers,
+        // nameservers already on Cloudflare mean RDASH's own zone is no longer authoritative
+        delegatedToCloudflare: rdashDomain.nameservers.some((ns) =>
+          ns.toLowerCase().includes('ns.cloudflare.com'),
+        ),
+        records,
+      },
+      message: 'RDASH DNS retrieved successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching RDASH DNS:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to read DNS from RDASH',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * Turn Cloudflare on for a domain. Order matters: snapshot the registrar's records
+ * FIRST, copy them into the new zone, and only then repoint the nameservers —
+ * otherwise the domain resolves from an empty zone during the cutover.
+ */
+router.post('/:id/cloudflare/enable', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const domain = await prisma.domain.findFirst({
+      where: { id: id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    const steps: string[] = [];
+    const warnings: string[] = [];
+
+    // 1. snapshot whatever the registrar serves today
+    let snapshot: any[] = [];
+    let rdashDomain = null;
+
+    if (domain.registrar === 'RDASH') {
+      rdashDomain = await findRdashDomain(domain.name);
+      if (rdashDomain) {
+        try {
+          snapshot = await getRdashDomainDns(rdashDomain.id);
+          steps.push(`Recorded ${snapshot.length} DNS record(s) from RDASH`);
+        } catch {
+          warnings.push('Could not read the existing DNS records from RDASH');
+        }
+      } else {
+        warnings.push('Domain is marked RDASH but was not found in the RDASH account');
+      }
+    }
+
+    // 2. zone first, so there is somewhere to put them
+    const zone = await getOrCreateCloudflareZone(domain.name);
+    if (!zone) {
+      return res.status(502).json({
+        success: false,
+        error: 'Could not create the Cloudflare zone. Check the Cloudflare integration config.',
+      } as ApiResponse);
+    }
+    steps.push(`Cloudflare zone ready (${zone.id})`);
+
+    // 3. copy the records across
+    let importResult = { imported: 0, skipped: 0, failed: [] as string[] };
+    if (snapshot.length > 0) {
+      importResult = await importDnsRecords(zone.id, toImportableRecords(snapshot, domain.name));
+      steps.push(
+        `Copied ${importResult.imported} record(s) into Cloudflare (${importResult.skipped} already present)`,
+      );
+      if (importResult.failed.length > 0) {
+        warnings.push(`Cloudflare rejected: ${importResult.failed.join(', ')}`);
+      }
+    }
+
+    // 4. only now hand DNS over
+    let nameserversUpdated = false;
+    if (rdashDomain && zone.nameServers.length > 0) {
+      try {
+        await updateRdashDomainNameservers(domain.name, { nameservers: zone.nameServers });
+        nameserversUpdated = true;
+        steps.push(`Pointed the RDASH nameservers at ${zone.nameServers.join(', ')}`);
+      } catch (error: any) {
+        warnings.push(
+          `Could not update the nameservers at RDASH: ${error?.message || 'unknown error'}`,
+        );
+      }
+    } else if (!rdashDomain) {
+      warnings.push(
+        `Set these nameservers at your registrar manually: ${zone.nameServers.join(', ')}`,
+      );
+    }
+
+    const ssl = await getZoneSslState(zone.id);
+
+    const updated = await prisma.domain.update({
+      where: { id: domain.id },
+      data: {
+        cfZoneId: zone.id,
+        status: 'ACTIVE',
+        ...(ssl && { sslStatus: ssl.status, sslExpiry: ssl.expiry }),
+        customConfig: {
+          ...((domain.customConfig as any) || {}),
+          cloudflare: {
+            zoneId: zone.id,
+            zoneName: zone.name,
+            nameservers: zone.nameServers,
+            synced: true,
+          },
+          // kept so the pre-cutover DNS is recoverable if the migration goes wrong
+          ...(snapshot.length > 0 && {
+            rdashDnsSnapshot: { takenAt: new Date().toISOString(), records: snapshot },
+          }),
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        domain: updated,
+        zone,
+        steps,
+        warnings,
+        nameserversUpdated,
+        recordsImported: importResult.imported,
+      },
+      message: 'Cloudflare enabled for this domain',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error enabling Cloudflare for domain:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * Detach the domain from Cloudflare in our records. The zone itself is left alone —
+ * deleting it while the nameservers still point there would take the domain offline.
+ */
+router.post('/:id/cloudflare/disable', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const domain = await prisma.domain.findFirst({
+      where: { id: id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    const { cloudflare, ...restConfig } = ((domain.customConfig as any) || {}) as Record<string, any>;
+
+    const updated = await prisma.domain.update({
+      where: { id: domain.id },
+      data: {
+        cfZoneId: null,
+        status: 'PENDING',
+        sslStatus: 'PENDING',
+        sslExpiry: null,
+        customConfig: restConfig,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: updated,
+      message:
+        'Cloudflare detached in CommitBase. The zone still exists in Cloudflare — repoint the nameservers at your registrar before deleting it.',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error disabling Cloudflare for domain:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as ApiResponse);
+  }
+});
+
 // Update a domain
 router.put('/:id', authenticateToken, validateRequest(UpdateDomainSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -587,7 +729,8 @@ router.delete('/:id', authenticateToken, requireRole(['ADMIN']), async (req: Aut
   }
 });
 
-// Verify domain DNS
+// Point the domain's DNS at us, through Cloudflare. Reports what actually happened —
+// a domain with no zone, or a Cloudflare call that fails, is not "verified".
 router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -613,26 +756,24 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
       } as ApiResponse);
     }
 
-    let dnsRecords: any = null;
-    let verified = false;
+    const zoneId =
+      domain.cfZoneId || ((domain.customConfig as any)?.cloudflare?.zoneId as string | undefined);
 
-    const existingCloudflareConfig = (domain.customConfig as any)?.cloudflare;
-    const zoneIdOverride =
-      existingCloudflareConfig && typeof existingCloudflareConfig.zoneId === 'string'
-        ? existingCloudflareConfig.zoneId
-        : undefined;
+    if (!zoneId) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Cloudflare zone for this domain — create the zone before verifying DNS.',
+      } as ApiResponse);
+    }
 
-    const cloudflareRecords = await syncDomainDns(domain.name, zoneIdOverride);
-    if (cloudflareRecords) {
-      dnsRecords = cloudflareRecords;
-      verified = true;
-    } else {
-      dnsRecords = {
-        a: '192.168.1.1',
-        cname: 'app.commitbase.com',
-        mx: 'mail.commitbase.com',
-      };
-      verified = true;
+    const dnsRecords = await syncDomainDns(domain.name, zoneId);
+
+    if (!dnsRecords) {
+      return res.status(502).json({
+        success: false,
+        error:
+          'Cloudflare did not accept the DNS record. Check the zone and the configured DNS target.',
+      } as ApiResponse);
     }
 
     const updatedDomain = await prisma.domain.update({
@@ -648,9 +789,9 @@ router.post('/:id/verify', authenticateToken, async (req: AuthenticatedRequest, 
       data: {
         domain: updatedDomain,
         dnsRecords,
-        verified,
+        verified: true,
       },
-      message: 'Domain DNS verified successfully',
+      message: 'DNS record confirmed in Cloudflare',
     } as ApiResponse);
   } catch (error) {
     console.error('Error verifying domain:', error);

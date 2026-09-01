@@ -111,6 +111,52 @@ export const bulkAssignDomains = async (
   throw new Error(response.error || 'Failed to assign domains');
 };
 
+export type RdashDns = {
+  registered: boolean;
+  nameservers: string[];
+  delegatedToCloudflare?: boolean;
+  records: any[];
+};
+
+// What the registrar still holds for the domain, before/independently of Cloudflare
+export const getRdashDns = async (id: string): Promise<RdashDns> => {
+  const response = await apiRequest<RdashDns>(`/domains/${id}/rdash-dns`);
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to read DNS from RDASH');
+};
+
+export type CloudflareEnableResult = {
+  steps: string[];
+  warnings: string[];
+  nameserversUpdated: boolean;
+  recordsImported: number;
+  zone: { id: string; name: string; nameServers: string[] };
+};
+
+export const enableCloudflare = async (id: string): Promise<CloudflareEnableResult> => {
+  const response = await apiRequest<CloudflareEnableResult>(`/domains/${id}/cloudflare/enable`, {
+    method: 'POST',
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to enable Cloudflare');
+};
+
+export const disableCloudflare = async (id: string): Promise<void> => {
+  const response = await apiRequest(`/domains/${id}/cloudflare/disable`, { method: 'POST' });
+
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to disable Cloudflare');
+  }
+};
+
 // Update a domain
 export const updateDomain = async (id: string, data: UpdateDomainData): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {

@@ -30,7 +30,6 @@ import {
   ExternalLink,
   Settings,
   ArrowLeft,
-  Lock,
   LockOpen,
   MoreHorizontal,
   Building2,
@@ -46,6 +45,9 @@ import {
   useDomainDnsZone,
   useSyncDomains,
   useBulkAssignDomains,
+  useRdashDns,
+  useEnableCloudflare,
+  useDisableCloudflare,
 } from "@/hooks/useDomains";
 import { useQuery } from "@tanstack/react-query";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
@@ -88,6 +90,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -100,6 +103,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // radix Select rejects an empty string value, so "no organization" needs a sentinel
 const UNASSIGNED = "__unassigned__";
 const ANY = "__any__";
+
+const formatDate = (value: Date) =>
+  value.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 
 export default function Domains() {
   const navigate = useNavigate();
@@ -126,6 +136,7 @@ export default function Domains() {
     name: string;
   } | null>(null);
   const [assignOrgId, setAssignOrgId] = useState(UNASSIGNED);
+  const [cloudflarePrompt, setCloudflarePrompt] = useState<"enable" | "disable" | null>(null);
   const { toast } = useToast();
 
   // API hooks
@@ -145,6 +156,8 @@ export default function Domains() {
   const createDomain = useCreateDomain();
   const syncDomains = useSyncDomains();
   const bulkAssign = useBulkAssignDomains();
+  const enableCloudflare = useEnableCloudflare();
+  const disableCloudflare = useDisableCloudflare();
   // adding a domain provisions a real Cloudflare zone — admins only
   const admin = isAdmin();
   const { data: organizations = [] } = useQuery({
@@ -157,6 +170,10 @@ export default function Domains() {
     isLoading: dnsZoneLoading,
     error: dnsZoneError,
   } = useDomainDnsZone(domainId);
+  const { data: rdashDns, isLoading: rdashDnsLoading } = useRdashDns(
+    domainId,
+    domainDetail?.registrar === "RDASH"
+  );
 
   const domains = domainsData?.data ?? [];
   const allSelected =
@@ -194,18 +211,35 @@ export default function Domains() {
       : []),
     {
       header: "Domain",
+      sortKey: "name",
       cell: (domain) => {
         const secure = domain.sslStatus === "ACTIVE";
-        const LockIcon = secure ? Lock : LockOpen;
+        const Icon = secure ? Globe : LockOpen;
         return (
           <div className="flex items-center space-x-2 font-medium">
-            <LockIcon
+            <Icon
               className={`h-4 w-4 ${
-                secure ? "text-success" : "text-muted-foreground"
+                secure ? "text-success" : "text-warning"
               }`}
-              aria-label={secure ? "SSL active" : "No active SSL"}
+              aria-label={
+                secure ? "Secure — SSL active" : "Not secure — no active SSL"
+              }
             />
-            <span>{domain.name}</span>
+            <button
+              type="button"
+              onClick={() => navigate(`/domains/${domain.id}`)}
+              className="hover:underline"
+            >
+              {domain.name}
+            </button>
+            {!domain.cfZoneId && (
+              <Badge
+                variant="outline"
+                className="border-warning text-warning"
+              >
+                No zone
+              </Badge>
+            )}
           </div>
         );
       },
@@ -220,32 +254,12 @@ export default function Domains() {
         ),
     },
     {
-      header: "Source",
-      cell: (domain) => (
-        <div className="flex items-center gap-1">
-          <Badge variant={domain.registrar === "RDASH" ? "default" : "outline"}>
-            {domain.registrar === "RDASH"
-              ? "RDASH"
-              : domain.registrar === "EXTERNAL"
-              ? "External"
-              : "Unknown"}
-          </Badge>
-          <Badge variant={domain.cfZoneId ? "secondary" : "outline"}>
-            {domain.cfZoneId ? "Cloudflare" : "No zone"}
-          </Badge>
-        </div>
-      ),
-    },
-    {
       header: "Status",
       cell: (domain) => getStatusBadge(domain.status),
     },
     {
-      header: "SSL Status",
-      cell: (domain) => getSSLBadge(domain.sslStatus),
-    },
-    {
       header: "Expires",
+      sortKey: "expiresAt",
       cell: (domain) => {
         if (!domain.expiresAt) {
           return <span className="text-muted-foreground">-</span>;
@@ -264,7 +278,7 @@ export default function Domains() {
                 : ""
             }
           >
-            {expiry.toLocaleDateString()}
+            {formatDate(expiry)}
             {daysLeft >= 0 && daysLeft <= 30 && (
               <span className="ml-1 text-xs">({daysLeft}d)</span>
             )}
@@ -430,30 +444,30 @@ export default function Domains() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "ACTIVE":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-3.5 w-3.5" />;
       case "INACTIVE":
-        return <XCircle className="h-4 w-4 text-gray-500" />;
+        return <XCircle className="h-3.5 w-3.5" />;
       case "PENDING":
-        return <Clock className="h-4 w-4 text-yellow-500" />;
+        return <Clock className="h-3.5 w-3.5" />;
       case "ERROR":
-        return <AlertCircle className="h-4 w-4 text-red-500" />;
+        return <AlertCircle className="h-3.5 w-3.5" />;
       default:
-        return <Clock className="h-4 w-4 text-gray-500" />;
+        return <Clock className="h-3.5 w-3.5" />;
     }
   };
 
   const getSSLIcon = (sslStatus: string) => {
     switch (sslStatus) {
       case "ACTIVE":
-        return <ShieldCheck className="h-4 w-4 text-green-500" />;
+        return <ShieldCheck className="h-3.5 w-3.5" />;
       case "PENDING":
-        return <Shield className="h-4 w-4 text-yellow-500" />;
+        return <Shield className="h-3.5 w-3.5" />;
       case "EXPIRED":
-        return <ShieldX className="h-4 w-4 text-red-500" />;
+        return <ShieldX className="h-3.5 w-3.5" />;
       case "ERROR":
-        return <ShieldX className="h-4 w-4 text-red-500" />;
+        return <ShieldX className="h-3.5 w-3.5" />;
       default:
-        return <Shield className="h-4 w-4 text-gray-500" />;
+        return <Shield className="h-3.5 w-3.5" />;
     }
   };
 
@@ -466,7 +480,11 @@ export default function Domains() {
     } as const;
 
     return (
-      <Badge variant={variants[status as keyof typeof variants] || "secondary"}>
+      <Badge
+        variant={variants[status as keyof typeof variants] || "secondary"}
+        className="gap-1"
+      >
+        {getStatusIcon(status)}
         {status.toLowerCase()}
       </Badge>
     );
@@ -483,7 +501,9 @@ export default function Domains() {
     return (
       <Badge
         variant={variants[sslStatus as keyof typeof variants] || "secondary"}
+        className="gap-1"
       >
+        {getSSLIcon(sslStatus)}
         {sslStatus.toLowerCase()}
       </Badge>
     );
@@ -597,23 +617,35 @@ export default function Domains() {
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Status</span>
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(domainDetail.status)}
-                      {getStatusBadge(domainDetail.status)}
-                    </div>
+                    {getStatusBadge(domainDetail.status)}
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">SSL</span>
-                    <div className="flex items-center gap-2">
-                      {getSSLIcon(domainDetail.sslStatus)}
-                      {getSSLBadge(domainDetail.sslStatus)}
-                    </div>
+                    {getSSLBadge(domainDetail.sslStatus)}
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Registrar</span>
+                    <span>
+                      {domainDetail.registrar === "RDASH"
+                        ? "RDASH"
+                        : domainDetail.registrar === "EXTERNAL"
+                        ? "External"
+                        : "Unknown"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Registration expiry</span>
+                    <span>
+                      {domainDetail.expiresAt
+                        ? formatDate(new Date(domainDetail.expiresAt))
+                        : "-"}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">SSL expiry</span>
                     <span>
                       {domainDetail.sslExpiry
-                        ? new Date(domainDetail.sslExpiry).toLocaleDateString()
+                        ? formatDate(new Date(domainDetail.sslExpiry))
                         : "-"}
                     </span>
                   </div>
@@ -635,15 +667,55 @@ export default function Domains() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Created</span>
                     <span>
-                      {new Date(domainDetail.createdAt).toLocaleDateString()}
+                      {formatDate(new Date(domainDetail.createdAt))}
                     </span>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Cloudflare Zone</CardTitle>
+              <Card
+                className={
+                  domainDetail.cfZoneId
+                    ? undefined
+                    : "border-warning/50 bg-warning/5"
+                }
+              >
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="flex items-center gap-2">
+                    Cloudflare Zone
+                    {!domainDetail.cfZoneId && (
+                      <Badge
+                        variant="outline"
+                        className="border-warning text-warning gap-1"
+                      >
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        Not configured
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  {admin && (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs ${
+                          domainDetail.cfZoneId
+                            ? "text-muted-foreground"
+                            : "font-medium text-warning"
+                        }`}
+                      >
+                        {domainDetail.cfZoneId ? "On" : "Off"}
+                      </span>
+                      <Switch
+                        checked={!!domainDetail.cfZoneId}
+                        disabled={
+                          enableCloudflare.isPending || disableCloudflare.isPending
+                        }
+                        onCheckedChange={(next) =>
+                          setCloudflarePrompt(next ? "enable" : "disable")
+                        }
+                        aria-label="Cloudflare DNS"
+                      />
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {dnsZoneLoading ? (
@@ -681,8 +753,10 @@ export default function Domains() {
                       )}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Cloudflare zone is not configured for this domain.
+                    <p className="text-sm text-warning">
+                      No Cloudflare zone yet — DNS and SSL are not managed for
+                      this domain. Toggle on to create the zone and move DNS
+                      across.
                     </p>
                   )}
                 </CardContent>
@@ -893,9 +967,6 @@ export default function Domains() {
                   <TabsList>
                     <TabsTrigger value="all">All</TabsTrigger>
                     <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
-                    <TabsTrigger value="needs-attention">
-                      Needs attention
-                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
 
@@ -1000,6 +1071,150 @@ export default function Domains() {
                 />
             </PageLayout>
           </>
+        )}
+
+        {domainId && domainDetail?.registrar === "RDASH" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Registrar DNS (RDASH)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {rdashDnsLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reading DNS
+                  from RDASH…
+                </div>
+              ) : !rdashDns?.registered ? (
+                <p className="text-sm text-muted-foreground">
+                  This domain was not found in the RDASH account.
+                </p>
+              ) : (
+                <>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Nameservers: </span>
+                    <span className="font-mono text-xs">
+                      {rdashDns.nameservers.join(", ") || "-"}
+                    </span>
+                    {rdashDns.delegatedToCloudflare && (
+                      <Badge variant="secondary" className="ml-2">
+                        Delegated to Cloudflare
+                      </Badge>
+                    )}
+                  </div>
+                  {rdashDns.records.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      RDASH holds no DNS records for this domain.
+                    </p>
+                  ) : (
+                    <div className="rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Content</TableHead>
+                            <TableHead className="text-right">TTL</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {rdashDns.records.map((record: any, i: number) => (
+                            <TableRow key={record.id ?? i}>
+                              <TableCell className="font-mono text-xs">
+                                {record.type ?? record.record_type ?? "-"}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {record.name ?? record.host ?? "@"}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {record.content ?? record.value ?? record.data ?? "-"}
+                              </TableCell>
+                              <TableCell className="text-right text-xs">
+                                {record.ttl ?? "-"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {domainDetail && cloudflarePrompt && (
+          <AlertDialog
+            open={!!cloudflarePrompt}
+            onOpenChange={() => setCloudflarePrompt(null)}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {cloudflarePrompt === "enable"
+                    ? `Move ${domainDetail.name} to Cloudflare?`
+                    : `Detach ${domainDetail.name} from Cloudflare?`}
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  {cloudflarePrompt === "enable" ? (
+                    <div className="space-y-2">
+                      <p>This will, in order:</p>
+                      <ol className="list-decimal space-y-1 pl-5">
+                        {domainDetail.registrar === "RDASH" && (
+                          <li>
+                            Save a copy of the DNS records RDASH currently
+                            serves ({rdashDns?.records.length ?? 0} record
+                            {(rdashDns?.records.length ?? 0) === 1 ? "" : "s"}).
+                          </li>
+                        )}
+                        <li>Create the Cloudflare zone if it does not exist.</li>
+                        <li>Copy those records into the new zone.</li>
+                        <li>
+                          {domainDetail.registrar === "RDASH"
+                            ? "Change the nameservers at RDASH to Cloudflare's. DNS for this domain will start resolving from Cloudflare once it propagates."
+                            : "Show you the nameservers to set at your registrar — we cannot change them for you."}
+                        </li>
+                      </ol>
+                    </div>
+                  ) : (
+                    <span>
+                      This only detaches the domain in CommitBase. The Cloudflare
+                      zone is left in place — deleting it while the nameservers
+                      still point there would take the domain offline. Repoint the
+                      nameservers at your registrar first.
+                    </span>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={async () => {
+                    if (cloudflarePrompt === "enable") {
+                      await enableCloudflare.mutateAsync(domainDetail.id);
+                    } else {
+                      await disableCloudflare.mutateAsync(domainDetail.id);
+                    }
+                    setCloudflarePrompt(null);
+                  }}
+                  disabled={
+                    enableCloudflare.isPending || disableCloudflare.isPending
+                  }
+                >
+                  {enableCloudflare.isPending || disableCloudflare.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Working…
+                    </>
+                  ) : cloudflarePrompt === "enable" ? (
+                    "Move to Cloudflare"
+                  ) : (
+                    "Detach"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
 
         {assignTarget && (

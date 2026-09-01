@@ -5,6 +5,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
 import { ContainerWatcher } from './services/containerWatcher';
+import { startCronJobs } from './services/cron';
 
 config();
 
@@ -182,4 +183,6 @@ app.listen(PORT, async () => {
   const containerWatcher = new ContainerWatcher();
   await containerWatcher.startWatching();
   console.log('🔍 Container watcher started');
+
+  startCronJobs();
 }); 

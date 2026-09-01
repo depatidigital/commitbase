@@ -198,3 +198,49 @@ export async function listRdashDomains(query?: Record<string, any>): Promise<any
 
   return rdashRequest('GET', path);
 }
+
+export interface RdashDomainRef {
+  id: number | string;
+  name: string;
+  nameservers: string[];
+}
+
+/** Find one domain in the reseller account by name, following RDASH's 10-per-page listing. */
+export async function findRdashDomain(name: string): Promise<RdashDomainRef | null> {
+  const wanted = name.trim().toLowerCase();
+  let lastPage = 1;
+
+  for (let page = 1; page <= lastPage && page <= 100; page++) {
+    const raw: any = await listRdashDomains({ page });
+    const rows: any[] = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
+    lastPage = Number(raw?.meta?.last_page) || 1;
+
+    const match = rows.find(
+      (row) => String(row?.name || row?.domain || '').trim().toLowerCase() === wanted,
+    );
+
+    if (match) {
+      return {
+        id: match.id,
+        name: wanted,
+        nameservers: [
+          match.nameserver_1,
+          match.nameserver_2,
+          match.nameserver_3,
+          match.nameserver_4,
+          match.nameserver_5,
+        ]
+          .map((ns: any) => String(ns || '').trim())
+          .filter((ns: string) => ns.length > 0),
+      };
+    }
+  }
+
+  return null;
+}
+
+/** DNS records RDASH holds for a domain, while it is still authoritative for it. */
+export async function getRdashDomainDns(domainId: number | string): Promise<any[]> {
+  const raw: any = await rdashRequest('GET', `/domains/${domainId}/dns`);
+  return Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
+}

@@ -430,3 +430,75 @@ export async function getZoneSslState(zoneId: string): Promise<ZoneSslState | nu
     return null;
   }
 }
+
+export type ImportableRecord = {
+  type: string;
+  name: string;
+  content: string;
+  ttl?: number;
+  priority?: number;
+};
+
+/**
+ * Copy records into a zone, skipping any Cloudflare already has with the same
+ * type+name+content. Returns what happened per record so the caller can report it.
+ */
+export async function importDnsRecords(
+  zoneId: string,
+  records: ImportableRecord[],
+): Promise<{ imported: number; skipped: number; failed: string[] }> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    return { imported: 0, skipped: 0, failed: records.map((r) => `${r.type} ${r.name}`) };
+  }
+
+  const { fetchFn, config } = shared;
+  const existing = (await listCloudflareDnsRecords(zoneId)) || [];
+
+  let imported = 0;
+  let skipped = 0;
+  const failed: string[] = [];
+
+  for (const record of records) {
+    const label = `${record.type} ${record.name}`;
+
+    const duplicate = existing.some(
+      (e: any) =>
+        String(e.type).toUpperCase() === record.type.toUpperCase() &&
+        String(e.name).toLowerCase() === record.name.toLowerCase() &&
+        String(e.content) === record.content,
+    );
+
+    if (duplicate) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const response = await fetchFn(`${config.apiBase}/zones/${zoneId}/dns_records`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: record.type.toUpperCase(),
+          name: record.name,
+          content: record.content,
+          ttl: record.ttl && record.ttl > 0 ? record.ttl : 1,
+          ...(record.priority !== undefined && { priority: record.priority }),
+        }),
+      });
+
+      if (response.ok) {
+        imported++;
+      } else {
+        failed.push(label);
+      }
+    } catch {
+      failed.push(label);
+    }
+  }
+
+  return { imported, skipped, failed };
+}

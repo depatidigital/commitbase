@@ -10,7 +10,10 @@ import {
   deleteDomain, 
   verifyDomain, 
   syncDomains,
-  bulkAssignDomains
+  bulkAssignDomains,
+  getRdashDns,
+  enableCloudflare,
+  disableCloudflare
 } from '@/lib/domains';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
 import { ListParams } from '@/lib/admin';
@@ -119,6 +122,63 @@ export const useBulkAssignDomains = () => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to assign domains.',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+// DNS the registrar still holds — only meaningful for RDASH domains
+export const useRdashDns = (id: string | null, enabled: boolean) => {
+  return useQuery({
+    queryKey: ['domains', id, 'rdash-dns'],
+    queryFn: () => getRdashDns(id as string),
+    enabled: !!id && enabled,
+  });
+};
+
+export const useEnableCloudflare = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (id: string) => enableCloudflare(id),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({
+        title: data.warnings.length ? 'Cloudflare enabled with warnings' : 'Cloudflare enabled',
+        description: [...data.steps, ...data.warnings].join(' · '),
+        variant: data.warnings.length ? 'destructive' : undefined,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to enable Cloudflare.',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+export const useDisableCloudflare = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (id: string) => disableCloudflare(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({
+        title: 'Cloudflare detached',
+        description:
+          'The zone still exists in Cloudflare. Repoint the nameservers at your registrar before deleting it.',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to disable Cloudflare.',
         variant: 'destructive',
       });
     },
