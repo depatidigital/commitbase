@@ -25,6 +25,7 @@ import {
   Download,
 } from "lucide-react";
 import { getSystemLogs, type SystemLog } from "@/lib/logs";
+import { PageLayout } from "@/components/PageLayout";
 
 const ALL = "all";
 const LEVELS = [ALL, "error", "warn", "info"] as const;
@@ -141,18 +142,12 @@ export default function Logs() {
   }
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Application Logs
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Monitor and debug your applications
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2">
+    <PageLayout
+      icon={Terminal}
+      title="Application Logs"
+      description="Monitor and debug your applications"
+      actions={
+        <>
           <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw
               className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`}
@@ -167,9 +162,9 @@ export default function Logs() {
             <Download className="h-4 w-4 mr-2" />
             Export CSV
           </Button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       <Card className="bg-gradient-card border-border/50 shadow-elegant">
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
@@ -310,6 +305,6 @@ export default function Logs() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </PageLayout>
   );
 }

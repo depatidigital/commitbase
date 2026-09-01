@@ -38,9 +38,9 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar className={collapsed ? "w-14" : "w-60"} collapsible="icon">
+    <Sidebar collapsible="icon">
       <SidebarContent className="bg-gradient-card">
-        <div className="p-4 border-b border-border">
+        <div className={`border-b border-border ${collapsed ? "p-2" : "p-4"}`}>
           <div className="flex items-center space-x-2">
             {!collapsed && (
               <>
@@ -56,8 +56,8 @@ export function AppSidebar() {
               </>
             )}
             {collapsed && (
-              <div className="p-2 bg-gradient-primary rounded-lg shadow-glow mx-auto">
-                <Server className="h-5 w-5 text-primary-foreground" />
+              <div className="p-1.5 bg-gradient-primary rounded-lg shadow-glow mx-auto">
+                <Server className="h-4 w-4 text-primary-foreground" />
               </div>
             )}
           </div>
@@ -71,13 +71,13 @@ export function AppSidebar() {
                 .filter((item) => item.url !== "/team" || !admin)
                 .map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild tooltip={item.title}>
                     <NavLink
                       to={item.url}
                       className={
                         isActive(item.url)
                           ? "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg bg-gradient-primary text-primary-foreground shadow-elegant"
-                          : "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg text-sidebar-foreground hover:bg-muted hover:text-foreground"
+                          : "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg text-sidebar-foreground hover:bg-primary hover:text-primary-foreground"
                       }
                     >
                       <item.icon className="h-4 w-4" />
@@ -117,7 +117,7 @@ export function AppSidebar() {
 
               {admin && (
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/admin")}>
+                <SidebarMenuButton asChild tooltip="Administration" isActive={location.pathname.startsWith("/admin")}>
                   <NavLink to="/admin" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
                     <ShieldCheck className="h-4 w-4" />
                     <span className={collapsed ? "sr-only" : undefined}>

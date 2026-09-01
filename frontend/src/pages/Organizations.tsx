@@ -15,6 +15,7 @@ import {
 import { Building2, Copy, Loader2, Plus, Settings2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
 import {
   CreatedInvite,
   Organization,
@@ -108,17 +109,11 @@ export default function Organizations() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Building2 className="h-5 w-5" /> Organizations
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Client tenants. Domain ownership lives on the Administration page.
-          </p>
-        </div>
-
+    <PageLayout
+      icon={Building2}
+      title="Organizations"
+      description="Client tenants. Domain ownership lives on the Administration page."
+      actions={
         <Dialog
           open={open}
           onOpenChange={(next) => {
@@ -210,8 +205,8 @@ export default function Organizations() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>
-
+      }
+    >
       <DataTable
         columns={columns}
         rows={data?.data ?? []}
@@ -222,6 +217,6 @@ export default function Organizations() {
         searchPlaceholder="Search name or slug…"
         empty="No organizations yet."
       />
-    </div>
+    </PageLayout>
   );
 }

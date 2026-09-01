@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
 import {
   Dialog,
   DialogContent,
@@ -112,17 +113,11 @@ export default function Users() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <UsersIcon className="h-5 w-5" /> Users
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Client accounts on the platform and their organization memberships.
-          </p>
-        </div>
-
+    <PageLayout
+      icon={UsersIcon}
+      title="Users"
+      description="Client accounts on the platform and their organization memberships."
+      actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -192,8 +187,8 @@ export default function Users() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
-
+      }
+    >
       <DataTable
         columns={columns}
         rows={data?.data ?? []}
@@ -204,6 +199,6 @@ export default function Users() {
         searchPlaceholder="Search email or name…"
         empty="No users found."
       />
-    </div>
+    </PageLayout>
   );
 }

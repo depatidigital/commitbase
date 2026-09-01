@@ -1,4 +1,6 @@
 import apiRequest, { PaginatedResponse } from './api';
+import { ListParams, listQuery } from './admin';
+import type { Paginated } from '@/components/DataTable';
 
 export interface Database {
   id: string;
@@ -90,12 +92,21 @@ export interface DatabaseWithApplication extends Database {
   port?: number | null;
   memory?: string | null;
   cpu?: string | null;
-  application: { id: string; name: string; domain: string };
+  application: {
+    id: string;
+    name: string;
+    domain: string;
+    organization?: { id: string; name: string; slug: string } | null;
+  };
 }
 
 // Every database across the organizations the caller belongs to
-export const getAllDatabases = async (): Promise<DatabaseWithApplication[]> => {
-  const response = await apiRequest<DatabaseWithApplication[]>('/databases');
+export const getAllDatabases = async (
+  params: ListParams
+): Promise<Paginated<DatabaseWithApplication>> => {
+  const response = await apiRequest<Paginated<DatabaseWithApplication>>(
+    `/databases${listQuery(params)}`
+  );
 
   if (response.success && response.data) {
     return response.data;

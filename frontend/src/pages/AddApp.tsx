@@ -22,6 +22,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { useDomains } from "@/hooks/useDomains";
+import { PageLayout } from "@/components/PageLayout";
 import { CreateApplicationData } from "@/lib/applications";
 import { useGitProjects } from "@/hooks/useGitProjects";
 import { useGitBranches } from "@/hooks/useGitBranches";
@@ -301,26 +302,16 @@ export default function AddApp() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center space-x-4">
-        <Button
-          variant="ghost"
-          onClick={() => navigate("/")}
-          className="hover:bg-muted"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
+    <PageLayout
+      title="Deploy New Application"
+      description="Configure and deploy your application to the platform"
+      actions={
+        <Button variant="ghost" onClick={() => navigate("/")} className="hover:bg-muted">
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Applications
         </Button>
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Deploy New Application
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Configure and deploy your application to the platform
-          </p>
-        </div>
-      </div>
+      }
+    >
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Information */}
@@ -945,6 +936,6 @@ export default function AddApp() {
           </Button>
         </div>
       </form>
-    </div>
+    </PageLayout>
   );
 }

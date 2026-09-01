@@ -47,6 +47,7 @@ export function useTableQuery(initialLimit = 10) {
   const [limit, setLimitState] = useState(initialLimit);
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
+  const [organizationId, setOrganizationIdState] = useState("");
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -61,6 +62,11 @@ export function useTableQuery(initialLimit = 10) {
     setPage(1);
   };
 
+  const setOrganizationId = (next: string) => {
+    setOrganizationIdState(next);
+    setPage(1);
+  };
+
   return {
     page,
     setPage,
@@ -69,7 +75,9 @@ export function useTableQuery(initialLimit = 10) {
     search,
     input,
     setInput,
-    params: { page, limit, search },
+    organizationId,
+    setOrganizationId,
+    params: { page, limit, search, organizationId },
   };
 }
 

@@ -16,20 +16,20 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useEffect, useRef } from 'react';
 
-export const useApplications = (page = 1, limit = 10) => {
+export const useApplications = (page = 1, limit = 10, search = '') => {
   return useQuery({
-    queryKey: ['applications', page, limit],
-    queryFn: () => getApplications(page, limit),
+    queryKey: ['applications', page, limit, search],
+    queryFn: () => getApplications(page, limit, search),
     staleTime: 30000, // 30 seconds
   });
 };
 
 // Real-time applications list monitoring hook
-export const useApplicationsWithRealtime = (page = 1, limit = 10) => {
+export const useApplicationsWithRealtime = (page = 1, limit = 10, search = '') => {
   const queryClient = useQueryClient();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   
-  const { data: applicationsData, isLoading, error } = useApplications(page, limit);
+  const { data: applicationsData, isLoading, error } = useApplications(page, limit, search);
   
   useEffect(() => {
     // Check if any application is deploying or building
@@ -45,7 +45,7 @@ export const useApplicationsWithRealtime = (page = 1, limit = 10) => {
       
       // Start polling every 3 seconds
       intervalRef.current = setInterval(() => {
-        queryClient.invalidateQueries({ queryKey: ['applications', page, limit] });
+        queryClient.invalidateQueries({ queryKey: ['applications', page, limit, search] });
       }, 3000);
       
       return () => {

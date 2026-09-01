@@ -1,7 +1,19 @@
 import apiRequest from './api';
+import { ListParams, listQuery } from './admin';
+import type { Paginated } from '@/components/DataTable';
 import { Domain, CreateDomainData, UpdateDomainData, DomainVerificationResult, SSLRenewalResult } from '@/types/domain';
 
 // Get all domains
+export const getDomainsPage = async (params: ListParams): Promise<Paginated<Domain>> => {
+  const response = await apiRequest<Paginated<Domain>>(`/domains${listQuery(params)}`);
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to fetch domains');
+};
+
 export const getDomains = async (): Promise<Domain[]> => {
   const response = await apiRequest<Domain[]>('/domains', {
     method: 'GET',
@@ -61,6 +73,21 @@ export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
   }
 
   throw new Error(response.error || 'Failed to create domain');
+};
+
+// Import all Cloudflare zones as domains (organization left empty)
+export type CloudflareSyncResult = { total: number; created: number; updated: number };
+
+export const syncCloudflareDomains = async (): Promise<CloudflareSyncResult> => {
+  const response = await apiRequest<CloudflareSyncResult>('/domains/sync-cloudflare', {
+    method: 'POST',
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to sync Cloudflare domains');
 };
 
 // Update a domain

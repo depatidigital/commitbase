@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Server, 
-  Plus, 
-  Activity, 
+import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
+import { OrganizationFilter } from "@/components/OrganizationFilter";
+import {
+  Server,
+  Plus,
+  Activity,
   AlertCircle,
   Zap,
   Globe,
@@ -18,11 +18,18 @@ import {
   RotateCcw,
   Trash2,
   Search,
-  Loader2
+  Loader2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { useApplicationsWithRealtime, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication } from "@/hooks/useApplications";
+import {
+  useApplicationsWithRealtime,
+  useStartApplication,
+  useStartExistingApplication,
+  useStopApplication,
+  useRestartApplication,
+  useDeleteApplication,
+} from "@/hooks/useApplications";
 import { hasBeenDeployed } from "@/lib/applications";
 import {
   Tooltip,
@@ -43,16 +50,20 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function Application() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const query = useTableQuery();
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'start' | 'start-existing' | 'stop' | 'restart' | 'delete';
+    type: "start" | "start-existing" | "stop" | "restart" | "delete";
     appId: string;
     appName: string;
   } | null>(null);
   const { toast } = useToast();
-  
+
   // API hooks
-  const { data: applicationsData, isLoading, error } = useApplicationsWithRealtime();
+  const {
+    data: applicationsData,
+    isLoading,
+    error,
+  } = useApplicationsWithRealtime(query.page, query.limit, query.search);
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
@@ -60,31 +71,25 @@ export default function Application() {
   const deleteApp = useDeleteApplication();
 
   const applications = applicationsData?.data || [];
-  const filteredApps = applications.filter(app =>
-    searchTerm.toLowerCase() === "" ||
-    app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    app.domain.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    app.type.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const handleStart = async (id: string, name: string) => {
-    setConfirmAction({ type: 'start', appId: id, appName: name });
+    setConfirmAction({ type: "start", appId: id, appName: name });
   };
 
   const handleStartExisting = async (id: string, name: string) => {
-    setConfirmAction({ type: 'start-existing', appId: id, appName: name });
+    setConfirmAction({ type: "start-existing", appId: id, appName: name });
   };
 
   const handleStop = async (id: string, name: string) => {
-    setConfirmAction({ type: 'stop', appId: id, appName: name });
+    setConfirmAction({ type: "stop", appId: id, appName: name });
   };
 
   const handleRestart = async (id: string, name: string) => {
-    setConfirmAction({ type: 'restart', appId: id, appName: name });
+    setConfirmAction({ type: "restart", appId: id, appName: name });
   };
 
   const handleDelete = async (id: string, name: string) => {
-    setConfirmAction({ type: 'delete', appId: id, appName: name });
+    setConfirmAction({ type: "delete", appId: id, appName: name });
   };
 
   const executeAction = async () => {
@@ -92,19 +97,19 @@ export default function Application() {
 
     try {
       switch (confirmAction.type) {
-        case 'start':
+        case "start":
           await startApp.mutateAsync(confirmAction.appId);
           break;
-        case 'start-existing':
+        case "start-existing":
           await startExistingApp.mutateAsync(confirmAction.appId);
           break;
-        case 'stop':
+        case "stop":
           await stopApp.mutateAsync(confirmAction.appId);
           break;
-        case 'restart':
+        case "restart":
           await restartApp.mutateAsync(confirmAction.appId);
           break;
-        case 'delete':
+        case "delete":
           await deleteApp.mutateAsync(confirmAction.appId);
           break;
       }
@@ -119,70 +124,74 @@ export default function Application() {
     if (!confirmAction) return null;
 
     const { type, appName } = confirmAction;
-    
+
     // Find the application to check if it has been deployed
-    const app = applications.find(a => a.id === confirmAction.appId);
-    
+    const app = applications.find((a) => a.id === confirmAction.appId);
+
     switch (type) {
-      case 'start':
+      case "start":
         return {
-          title: hasBeenDeployed(app!) ? 'Redeploy & Start Application' : 'Deploy & Start Application',
-          description: hasBeenDeployed(app!) 
+          title: hasBeenDeployed(app!)
+            ? "Redeploy & Start Application"
+            : "Deploy & Start Application",
+          description: hasBeenDeployed(app!)
             ? `Are you sure you want to redeploy and start "${appName}"? This will rebuild and run the application.`
             : `Are you sure you want to deploy and start "${appName}"? This will build and run the application for the first time.`,
-          actionText: hasBeenDeployed(app!) ? 'Redeploy & Start' : 'Deploy & Start',
-          variant: 'default' as const,
+          actionText: hasBeenDeployed(app!)
+            ? "Redeploy & Start"
+            : "Deploy & Start",
+          variant: "default" as const,
         };
-      case 'start-existing':
+      case "start-existing":
         return {
-          title: 'Start Application',
+          title: "Start Application",
           description: `Are you sure you want to start "${appName}"? This will start the existing built application without rebuilding.`,
-          actionText: 'Start Application',
-          variant: 'default' as const,
+          actionText: "Start Application",
+          variant: "default" as const,
         };
-      case 'stop':
+      case "stop":
         return {
-          title: 'Stop Application',
+          title: "Stop Application",
           description: `Are you sure you want to stop "${appName}"? This will shut down the running application.`,
-          actionText: 'Stop Application',
-          variant: 'destructive' as const,
+          actionText: "Stop Application",
+          variant: "destructive" as const,
         };
-      case 'restart':
+      case "restart":
         return {
-          title: 'Restart Application',
+          title: "Restart Application",
           description: `Are you sure you want to restart "${appName}"? This will stop and then start the application.`,
-          actionText: 'Restart Application',
-          variant: 'default' as const,
+          actionText: "Restart Application",
+          variant: "default" as const,
         };
-      case 'delete':
+      case "delete":
         return {
-          title: 'Delete Application',
+          title: "Delete Application",
           description: `Are you sure you want to delete "${appName}"? This action cannot be undone and will permanently remove the application and all its data.`,
-          actionText: 'Delete Application',
-          variant: 'destructive' as const,
+          actionText: "Delete Application",
+          variant: "destructive" as const,
         };
     }
   };
 
-  const runningApps = filteredApps.filter(app => app.status === "RUNNING").length;
-  const errorApps = filteredApps.filter(app => app.status === "ERROR").length;
-  const deployingApps = filteredApps.filter(app => app.status === "DEPLOYING" || app.status === "BUILDING").length;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
+  const runningApps = applications.filter(
+    (app) => app.status === "RUNNING",
+  ).length;
+  const errorApps = applications.filter((app) => app.status === "ERROR").length;
+  const deployingApps = applications.filter(
+    (app) => app.status === "DEPLOYING" || app.status === "BUILDING",
+  ).length;
 
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Error Loading Applications</h3>
-          <p className="text-muted-foreground">Failed to load applications. Please try again.</p>
+          <h3 className="text-lg font-semibold mb-2">
+            Error Loading Applications
+          </h3>
+          <p className="text-muted-foreground">
+            Failed to load applications. Please try again.
+          </p>
         </div>
       </div>
     );
@@ -190,293 +199,271 @@ export default function Application() {
 
   const dialogContent = getDialogContent();
 
+  const columns: Column<(typeof applications)[number]>[] = [
+    {
+      header: "Name",
+      cell: (app) => (
+        <Link
+          to={`/application/${app.id}`}
+          className="font-medium transition-colors hover:text-primary"
+        >
+          {app.name}
+        </Link>
+      ),
+    },
+    {
+      header: "Organization",
+      cell: (app) =>
+        app.organization ? (
+          <Badge variant="outline">{app.organization.name}</Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      header: "Domain",
+      cell: (app) => (
+        <div className="flex items-center space-x-2">
+          <Globe className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm">{app.domain}</span>
+        </div>
+      ),
+    },
+    {
+      header: "Type",
+      cell: (app) => <Badge variant="secondary">{app.type}</Badge>,
+    },
+    {
+      header: "Status",
+      cell: (app) => (
+        <div className="flex items-center space-x-2">
+          {app.status === "DEPLOYING" || app.status === "BUILDING" ? (
+            <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />
+          ) : (
+            <div
+              className={`h-2 w-2 rounded-full ${
+                app.status === "RUNNING"
+                  ? "bg-green-500"
+                  : app.status === "STOPPED"
+                    ? "bg-gray-500"
+                    : app.status === "ERROR"
+                      ? "bg-red-500"
+                      : "bg-blue-500"
+              }`}
+            />
+          )}
+          <span className="capitalize">{app.status.toLowerCase()}</span>
+        </div>
+      ),
+    },
+    { header: "Port", cell: (app) => app.port || "-" },
+    {
+      header: "Last Deployment",
+      cell: (app) =>
+        app.deployments && app.deployments.length > 0
+          ? new Date(app.deployments[0].createdAt).toLocaleDateString()
+          : "-",
+    },
+    {
+      header: "Actions",
+      cell: (app) => (
+        <div className="flex items-center space-x-2">
+          {app.status === "RUNNING" ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleStop(app.id, app.name)}
+                  aria-label="Stop application"
+                  disabled={stopApp.isPending}
+                  className="h-8 w-8 p-0"
+                >
+                  {stopApp.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Stop Application</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : hasBeenDeployed(app) ? (
+            // Show both Start and Redeploy buttons for previously deployed apps
+            <div className="flex items-center space-x-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    onClick={() => handleStartExisting(app.id, app.name)}
+                    aria-label="Start existing container"
+                    disabled={startExistingApp.isPending}
+                    className="h-8 px-2 text-xs"
+                  >
+                    {startExistingApp.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Play className="h-3 w-3" />
+                    )}
+                    Start
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Start existing application</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleStart(app.id, app.name)}
+                    aria-label="Start application"
+                    disabled={startApp.isPending}
+                    className="h-8 px-2 text-xs"
+                  >
+                    {startApp.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3 w-3" />
+                    )}
+                    Redeploy
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Rebuild and start application</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleStart(app.id, app.name)}
+                  aria-label="Start application"
+                  disabled={startApp.isPending}
+                  className="h-8 w-8 p-0"
+                >
+                  {startApp.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Deploy & Start</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {/* Restart button - only show if application is running */}
+          {app.status === "RUNNING" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleRestart(app.id, app.name)}
+                  aria-label="Restart application"
+                  disabled={restartApp.isPending}
+                  className="h-8 w-8 p-0"
+                >
+                  {restartApp.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Restart Application</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDelete(app.id, app.name)}
+                aria-label="Delete application"
+                disabled={deleteApp.isPending || app.status === "RUNNING"}
+                className="h-8 w-8 p-0 text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleteApp.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            {app.status === "RUNNING" && (
+              <TooltipContent>
+                <p>Stop the application first before deleting</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <TooltipProvider>
-      <div className="space-y-8 animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              Applications
-            </h1>
-            <p className="text-muted-foreground">
-              Manage your applications and services.
-            </p>
-          </div>
+      <PageLayout
+        title="Applications"
+        description="Manage your applications and services."
+        actions={
           <Link to="/add-app">
-            <Button className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300">
-              <Plus className="h-4 w-4 mr-2" />
+            <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
+              <Plus className="mr-2 h-4 w-4" />
               Deploy New Application
             </Button>
           </Link>
-        </div>
-
-        {/* Search */}
-        <div className="flex items-center space-x-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              aria-label="Search applications"
-            placeholder="Search applications..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-            <Activity className="h-4 w-4 text-success" />
-            <span>{runningApps} running</span>
-            {deployingApps > 0 && (
-              <>
-                <Loader2 className="h-4 w-4 text-yellow-500 ml-4 animate-spin" />
-                <span>{deployingApps} deploying</span>
-              </>
-            )}
-            {errorApps > 0 && (
-              <>
-                <AlertCircle className="h-4 w-4 text-destructive ml-4" />
-                <span>{errorApps} errors</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Apps Section */}
-        <div className="space-y-6">
-          {filteredApps.length === 0 ? (
-            <Card className="bg-gradient-card border-border/50">
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Zap className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Applications Yet</h3>
-                <p className="text-muted-foreground text-center max-w-md mb-4">
-                  Get started by deploying your first application to the platform.
-                </p>
-                <Link to="/add-app">
-                  <Button className="bg-gradient-primary">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Deploy Your First Application
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Organization</TableHead>
-                    <TableHead>Domain</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Port</TableHead>
-                    <TableHead>Last Deployment</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredApps.map((app) => (
-                    <TableRow key={app.id}>
-                      <TableCell className="font-medium">
-                        <Link 
-                          to={`/application/${app.id}`}
-                          className="hover:text-primary transition-colors"
-                        >
-                          {app.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        {app.organization ? (
-                          <Badge variant="outline">{app.organization.name}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Globe className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">{app.domain}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{app.type}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {app.status === 'DEPLOYING' || app.status === 'BUILDING' ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />
-                          ) : (
-                            <div className={`w-2 h-2 rounded-full ${
-                              app.status === 'RUNNING' ? 'bg-green-500' : 
-                              app.status === 'STOPPED' ? 'bg-gray-500' : 
-                              app.status === 'ERROR' ? 'bg-red-500' :
-                              'bg-blue-500'
-                            }`} />
-                          )}
-                          <span className="capitalize">{app.status.toLowerCase()}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{app.port || '-'}</TableCell>
-                      <TableCell>
-                        {app.deployments && app.deployments.length > 0 
-                          ? new Date(app.deployments[0].createdAt).toLocaleDateString()
-                          : '-'
-                        }
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {app.status === 'RUNNING' ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => handleStop(app.id, app.name)}
-                                  aria-label="Stop application"
-                                  disabled={stopApp.isPending}
-                                  className="h-8 w-8 p-0"
-                                >
-                                  {stopApp.isPending ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Square className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Stop Application</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : hasBeenDeployed(app) ? (
-                            // Show both Start and Redeploy buttons for previously deployed apps
-                            <div className="flex items-center space-x-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="sm"
-                                    onClick={() => handleStartExisting(app.id, app.name)}
-                                  aria-label="Start existing container"
-                                    disabled={startExistingApp.isPending}
-                                    className="h-8 px-2 text-xs"
-                                  >
-                                    {startExistingApp.isPending ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Play className="h-3 w-3" />
-                                    )}
-                                    Start
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Start existing application</p>
-                                </TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleStart(app.id, app.name)}
-                                  aria-label="Start application"
-                                    disabled={startApp.isPending}
-                                    className="h-8 px-2 text-xs"
-                                  >
-                                    {startApp.isPending ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <RotateCcw className="h-3 w-3" />
-                                    )}
-                                    Redeploy
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Rebuild and start application</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleStart(app.id, app.name)}
-                                  aria-label="Start application"
-                                  disabled={startApp.isPending}
-                                  className="h-8 w-8 p-0"
-                                >
-                                  {startApp.isPending ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Play className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Deploy & Start</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                          {/* Restart button - only show if application is running */}
-                          {app.status === 'RUNNING' && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleRestart(app.id, app.name)}
-                                  aria-label="Restart application"
-                                  disabled={restartApp.isPending}
-                                  className="h-8 w-8 p-0"
-                                >
-                                  {restartApp.isPending ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <RotateCcw className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Restart Application</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete(app.id, app.name)}
-                                  aria-label="Delete application"
-                                disabled={deleteApp.isPending || app.status === 'RUNNING'}
-                                className="h-8 w-8 p-0 text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {deleteApp.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            {app.status === 'RUNNING' && (
-                              <TooltipContent>
-                                <p>Stop the application first before deleting</p>
-                              </TooltipContent>
-                            )}
-                          </Tooltip>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </div>
+        }
+      >
+        <DataTable
+          columns={columns}
+          rows={applications}
+          rowKey={(app) => app.id}
+          query={query}
+          pagination={applicationsData?.pagination}
+          isLoading={isLoading}
+          searchPlaceholder="Search name or domain…"
+          empty="No applications yet — deploy your first one."
+          toolbar={
+            <>
+              <OrganizationFilter query={query} />
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Activity className="h-4 w-4 text-success" />
+                <span>{runningApps} running</span>
+                {deployingApps > 0 && (
+                  <>
+                    <Loader2 className="ml-4 h-4 w-4 animate-spin text-yellow-500" />
+                    <span>{deployingApps} deploying</span>
+                  </>
+                )}
+                {errorApps > 0 && (
+                  <>
+                    <AlertCircle className="ml-4 h-4 w-4 text-destructive" />
+                    <span>{errorApps} errors</span>
+                  </>
+                )}
+              </div>
+            </>
+          }
+        />
 
         {/* Confirmation Dialog */}
         {confirmAction && dialogContent && (
-          <AlertDialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
+          <AlertDialog
+            open={!!confirmAction}
+            onOpenChange={() => setConfirmAction(null)}
+          >
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{dialogContent.title}</AlertDialogTitle>
@@ -489,13 +476,21 @@ export default function Application() {
                 <AlertDialogAction
                   onClick={executeAction}
                   className={
-                    dialogContent.variant === 'destructive'
-                      ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                    dialogContent.variant === "destructive"
+                      ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       : undefined
                   }
-                  disabled={startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending}
+                  disabled={
+                    startApp.isPending ||
+                    stopApp.isPending ||
+                    restartApp.isPending ||
+                    deleteApp.isPending
+                  }
                 >
-                  {startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending ? (
+                  {startApp.isPending ||
+                  stopApp.isPending ||
+                  restartApp.isPending ||
+                  deleteApp.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       Processing...
@@ -508,7 +503,7 @@ export default function Application() {
             </AlertDialogContent>
           </AlertDialog>
         )}
-      </div>
+      </PageLayout>
     </TooltipProvider>
   );
 }

@@ -75,8 +75,14 @@ export interface UpdateApplicationData {
 }
 
 // Get all applications
-export const getApplications = async (page = 1, limit = 10): Promise<PaginatedResponse<Application>> => {
-  const response = await apiRequest<PaginatedResponse<Application>>(`/applications?page=${page}&limit=${limit}`);
+export const getApplications = async (
+  page = 1,
+  limit = 10,
+  search = ''
+): Promise<PaginatedResponse<Application>> => {
+  const response = await apiRequest<PaginatedResponse<Application>>(
+    `/applications?page=${page}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`
+  );
   
   if (response.success && response.data) {
     return response.data;

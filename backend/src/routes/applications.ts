@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { paging, contains } from '../lib/paging';
 import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService, getDockerContainerName } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
@@ -13,15 +14,16 @@ const deploymentService = new DeploymentService();
 // Get all applications for the authenticated user
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, search, organizationId } = paging(req);
+    const where = {
+      ...(await orgScope(req)),
+      ...(organizationId && { organizationId }),
+      ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }] }),
+    };
 
     const [applications, total] = await Promise.all([
       prisma.application.findMany({
-        where: {
-          ...(await orgScope(req)),
-        },
+        where,
         include: {
           organization: { select: { id: true, name: true, slug: true } },
           deployments: {
@@ -37,11 +39,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           createdAt: 'desc',
         },
       }),
-      prisma.application.count({
-        where: {
-          ...(await orgScope(req)),
-        },
-      }),
+      prisma.application.count({ where }),
     ]);
 
     const totalPages = Math.ceil(total / limit);

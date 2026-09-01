@@ -20,6 +20,7 @@ import {
 import { ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { PageLayout } from "@/components/PageLayout";
 import {
   AdminDomain,
   assignDomain,
@@ -128,16 +129,11 @@ export default function Admin() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5" /> Platform administration
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Which organization owns which domain.
-        </p>
-      </div>
-
+    <PageLayout
+      icon={ShieldCheck}
+      title="Platform administration"
+      description="Which organization owns which domain."
+    >
       <DataTable
         columns={columns}
         rows={data?.data ?? []}
@@ -186,6 +182,6 @@ export default function Admin() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageLayout>
   );
 }

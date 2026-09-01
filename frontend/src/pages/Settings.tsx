@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Server, Shield, Bell, GitBranch, Github, Gitlab, Trash2 } from "lucide-react";
+import { Server, Shield, Bell, GitBranch, Github, Gitlab, Trash2, Settings as SettingsIcon } from "lucide-react";
+import { PageLayout } from "@/components/PageLayout";
 import { useGitAccounts } from "@/hooks/useGitAccounts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { deleteGitAccount, updateGitAccountDisplayName } from "@/lib/git";
@@ -82,15 +83,11 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-          Settings
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Configure your deployment platform
-        </p>
-      </div>
+    <PageLayout
+      icon={SettingsIcon}
+      title="Settings"
+      description="Configure your deployment platform"
+    >
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="bg-gradient-card border-border/50 hover:shadow-elegant transition-all duration-300">
@@ -269,6 +266,6 @@ export default function Settings() {
           </AlertDialog>
         )}
       </div>
-    </div>
+    </PageLayout>
   );
 }

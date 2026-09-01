@@ -5,10 +5,13 @@ export interface ListParams {
   page: number;
   limit: number;
   search: string;
+  organizationId?: string;
 }
 
-export const listQuery = ({ page, limit, search }: ListParams) =>
-  `?page=${page}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`;
+export const listQuery = ({ page, limit, search, organizationId }: ListParams) =>
+  `?page=${page}&limit=${limit}` +
+  (search ? `&search=${encodeURIComponent(search)}` : '') +
+  (organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '');
 
 export type OrgRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 

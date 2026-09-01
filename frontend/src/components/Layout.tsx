@@ -1,6 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { Separator } from "@/components/ui/separator";
@@ -13,6 +13,19 @@ import { Settings, LogOut, ChevronDown } from "lucide-react";
 
 import { useLogout } from "@/hooks/useAuth";
 import { API_BASE_URL } from "@/lib/api";
+// Floating toggle that sits on the sidebar/content divider, above everything.
+function EdgeSidebarTrigger() {
+  const { state } = useSidebar();
+  const collapsed = state === "collapsed";
+
+  return (
+    <SidebarTrigger
+      className="absolute top-2.5 z-50 hidden h-7 w-7 -translate-x-1/2 rounded-full border border-border bg-card shadow-md transition-[left] duration-200 ease-linear hover:bg-muted md:flex"
+      style={{ left: collapsed ? "var(--sidebar-width-icon)" : "var(--sidebar-width)" }}
+    />
+  );
+}
+
 export function Layout() {
   const logoutMutation = useLogout();
 
@@ -40,13 +53,16 @@ export function Layout() {
   }
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
+      <div className="relative min-h-screen flex w-full bg-background">
         <AppSidebar />
+        <EdgeSidebarTrigger />
         <div className="flex-1 flex flex-col">
           <header className="h-12 flex items-center border-b border-border bg-card">
-            <SidebarTrigger className="ml-4" />
-            <Separator orientation="vertical" className="mx-3 h-5" />
-            <Breadcrumbs />
+            <SidebarTrigger className="ml-4 md:hidden" />
+            <Separator orientation="vertical" className="mx-3 h-5 md:hidden" />
+            <div className="pl-4 md:pl-6">
+              <Breadcrumbs />
+            </div>
             <div
               className={`flex items-center space-x-1 px-2 py-1 rounded-full border ml-auto mr-4 ${
                 healthy === false

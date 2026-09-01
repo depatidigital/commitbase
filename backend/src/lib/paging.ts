@@ -7,7 +7,9 @@ export const paging = (req: AuthenticatedRequest) => {
   const search = ((req.query.search as string) || '').trim();
   // some lists still serve the full array to pickers — they page only when asked
   const paged = req.query.page !== undefined || req.query.limit !== undefined;
-  return { page, limit, skip: (page - 1) * limit, search, paged };
+  // narrows within what the caller may already see — orgScope still applies on top
+  const organizationId = ((req.query.organizationId as string) || '').trim();
+  return { page, limit, skip: (page - 1) * limit, search, paged, organizationId };
 };
 
 export const paginated = <T>(rows: T[], total: number, page: number, limit: number) => ({

@@ -12,9 +12,12 @@ const router = Router();
 // All databases across the caller's organizations
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { page, limit, skip, search, paged } = paging(req);
+    const { page, limit, skip, search, paged, organizationId } = paging(req);
     const where = {
-      application: { ...(await orgScope(req)) },
+      application: {
+        ...(await orgScope(req)),
+        ...(organizationId && { organizationId }),
+      },
       ...(search && { OR: [{ name: contains(search) }, { application: { name: contains(search) } }] }),
     };
 
@@ -22,7 +25,14 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       prisma.database.findMany({
         where,
         include: {
-          application: { select: { id: true, name: true, domain: true } },
+          application: {
+            select: {
+              id: true,
+              name: true,
+              domain: true,
+              organization: { select: { id: true, name: true, slug: true } },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         ...(paged && { skip, take: limit }),
