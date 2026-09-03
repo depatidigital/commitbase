@@ -12,7 +12,14 @@ type StaticTarget = {
   redirectUrl: string;
 };
 
-type Target = RuntimeTarget | StaticTarget;
+// R2-backed site: Caddy proxies the hostname to the bucket's public host and
+// Cloudflare caches the answers at the edge.
+type BucketTarget = {
+  type: 'bucket';
+  origin: string;
+};
+
+type Target = RuntimeTarget | StaticTarget | BucketTarget;
 
 async function fetchCaddyConfig(): Promise<any | null> {
   if (!CADDY_API_URL) {
@@ -113,6 +120,39 @@ function buildRoute(domain: string, target: Target): any {
         },
       ],
     });
+  } else if (target.type === 'bucket') {
+    // object storage has no directory index, so ask for index.html explicitly
+    route.handle.push({
+      handler: 'subroute',
+      routes: [
+        {
+          match: [{ path: ['*/'] }],
+          handle: [{ handler: 'rewrite', path_regexp: [{ find: '/$', replace: '/index.html' }] }],
+        },
+        {
+          // extensionless paths are pages too — /about serves /about/index.html
+          match: [{ path_regexp: { pattern: '^/[^.]*[^/.]$' } }],
+          handle: [{ handler: 'rewrite', path_regexp: [{ find: '$', replace: '/index.html' }] }],
+        },
+      ],
+    });
+
+    route.handle.push({
+      handler: 'reverse_proxy',
+      transport: { protocol: 'http', tls: {} },
+      headers: {
+        request: {
+          set: {
+            Host: [target.origin],
+          },
+        },
+      },
+      upstreams: [
+        {
+          dial: `${target.origin}:443`,
+        },
+      ],
+    });
   } else {
     route.handle.push({
       handler: 'redirect',
@@ -157,8 +197,21 @@ async function upsertRoute(domain: string, target: Target): Promise<void> {
   await putCaddyConfig(config);
 }
 
-export async function configureCaddyForStaticApplication(applicationId: string, domain: string): Promise<void> {
+export async function configureCaddyForStaticApplication(
+  applicationId: string,
+  domain: string,
+  bucketOrigin?: string | null
+): Promise<void> {
   if (!CADDY_API_URL) {
+    return;
+  }
+
+  // R2-backed sites are proxied; older ones still redirect to their S3 URL
+  if (bucketOrigin) {
+    await upsertRoute(domain, {
+      type: 'bucket',
+      origin: bucketOrigin,
+    });
     return;
   }
 

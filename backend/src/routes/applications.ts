@@ -6,7 +6,8 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService, getDockerContainerName } from '../services/deployment';
-import { getStaticSiteBaseUrl, uploadStaticFile } from '../services/s3Service';
+import { getStaticSiteBaseUrl } from '../services/s3Service';
+import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
 import { configureCaddyForStaticApplication } from '../services/caddyService';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { requireRole } from '../middleware/auth';
@@ -170,7 +171,12 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       } as ApiResponse);
     }
 
-    const staticSiteUrl = application.type === 'STATIC' ? getStaticSiteBaseUrl(application.id) : undefined;
+    const staticSiteUrl =
+      application.type === 'STATIC'
+        ? (application as any).staticOrigin
+          ? `https://${application.domain}`
+          : getStaticSiteBaseUrl(application.id)
+        : undefined;
 
     return res.json({
       success: true,
@@ -297,22 +303,28 @@ router.post(
       const rawPaths = req.body?.paths;
       const paths: string[] = Array.isArray(rawPaths) ? rawPaths : rawPaths ? [rawPaths] : [];
 
-      // Static sites are served from object storage, so their files never touch
-      // our disk — they go straight to the bucket. Runtime apps still need a
-      // sources/ tree for the build step.
+      // Static sites live in their own R2 bucket and are served through
+      // Cloudflare, so their files never touch our disk. Runtime apps still
+      // need a sources/ tree for the build step.
       if (application.type === 'STATIC') {
+        let bucket: string;
+        let origin: string;
+
+        try {
+          ({ bucket, origin } = await ensureSiteBucket(application.domain));
+        } catch (error: any) {
+          return res.status(500).json({
+            success: false,
+            error: error?.message || 'Could not prepare the site bucket',
+          } as ApiResponse);
+        }
+
         let uploaded = 0;
         for (const [index, file] of files.entries()) {
           const relative = safeRelativePath(paths[index] || file.originalname);
           if (!relative) continue;
 
-          const stored = await uploadStaticFile(application.id, relative, file.buffer);
-          if (!stored) {
-            return res.status(500).json({
-              success: false,
-              error: 'Object storage is not configured — static uploads have nowhere to go',
-            } as ApiResponse);
-          }
+          await uploadSiteObject(bucket, relative, file.buffer);
           uploaded += 1;
         }
 
@@ -322,15 +334,20 @@ router.post(
 
         await prisma.application.update({
           where: { id: application.id },
-          data: { status: 'RUNNING', lastDeployment: new Date() },
+          data: {
+            status: 'RUNNING',
+            lastDeployment: new Date(),
+            staticBucket: bucket,
+            staticOrigin: origin,
+          },
         });
 
-        await configureCaddyForStaticApplication(application.id, application.domain).catch(() => {});
+        await configureCaddyForStaticApplication(application.id, application.domain, origin).catch(() => {});
 
         return res.json({
           success: true,
           data: { files: uploaded },
-          message: 'Static files uploaded to object storage',
+          message: 'Static files uploaded to Cloudflare R2',
         } as ApiResponse);
       }
 

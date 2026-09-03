@@ -6,8 +6,9 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import * as crypto from 'crypto';
 import { TemplateEngine, TemplateData } from '../utils/templateEngine';
-import { uploadBuildLog, uploadDirectoryToS3 } from './s3Service';
+import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication } from './caddyService';
+import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 
 const execAsync = promisify(exec);
 
@@ -893,7 +894,6 @@ build
           await fs.appendFile(buildLogPath, `[${uploadTimestamp}] UPLOADED SOURCES — no build step
 `);
 
-          await uploadDirectoryToS3(sourcesDir, application.id);
           await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
 
           const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
@@ -903,7 +903,7 @@ build
             data: {
               status: 'SUCCESS',
               buildLogs,
-              deployLogs: 'Uploaded files deployed to object storage',
+              deployLogs: 'Uploaded files are already served from Cloudflare R2',
             },
           });
 
@@ -913,14 +913,18 @@ build
           });
 
           try {
-            await configureCaddyForStaticApplication(application.id, application.domain);
+            await configureCaddyForStaticApplication(
+              application.id,
+              application.domain,
+              (application as any).staticOrigin
+            );
           } catch {
           }
 
           return {
             success: true,
             buildLogs,
-            deployLogs: 'Uploaded files deployed to object storage',
+            deployLogs: 'Uploaded files are already served from Cloudflare R2',
           };
         }
 
@@ -962,7 +966,14 @@ build
             throw new Error('Static build directory not found (expected dist/ or build/)');
           }
 
-          await uploadDirectoryToS3(distDir, application.id);
+          const { bucket, origin } = await ensureSiteBucket(application.domain);
+          await uploadSiteDirectory(bucket, distDir);
+
+          await prisma.application.update({
+            where: { id: application.id },
+            data: { staticBucket: bucket, staticOrigin: origin },
+          });
+          (application as any).staticOrigin = origin;
 
           await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
 
@@ -973,7 +984,7 @@ build
             data: {
               status: 'SUCCESS',
               buildLogs,
-              deployLogs: 'Static site deployed to object storage',
+              deployLogs: 'Static site deployed to Cloudflare R2',
             },
           });
 
@@ -986,14 +997,18 @@ build
           });
 
           try {
-            await configureCaddyForStaticApplication(application.id, application.domain);
+            await configureCaddyForStaticApplication(
+              application.id,
+              application.domain,
+              (application as any).staticOrigin
+            );
           } catch {
           }
 
           return {
             success: true,
             buildLogs,
-            deployLogs: 'Static site deployed to object storage',
+            deployLogs: 'Static site deployed to Cloudflare R2',
           };
         } catch (error: any) {
           const errorTimestamp = new Date().toISOString();

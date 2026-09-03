@@ -186,21 +186,6 @@ function getStaticSitePrefix(applicationId: string): string | null {
   return `${normalizedRoot}sites/${applicationId}/`;
 }
 
-/** Put one uploaded static file straight into the site's object-storage prefix. */
-export async function uploadStaticFile(
-  applicationId: string,
-  relativePath: string,
-  body: Buffer
-): Promise<boolean> {
-  const prefix = getStaticSitePrefix(applicationId);
-  if (!prefix) {
-    return false;
-  }
-
-  await uploadObject(`${prefix}${relativePath}`, body);
-  return true;
-}
-
 export async function uploadDirectoryToS3(localDir: string, applicationId: string): Promise<void> {
   const prefix = getStaticSitePrefix(applicationId);
   const config = getS3Config();

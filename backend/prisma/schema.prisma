@@ -102,6 +102,11 @@ model Application {
   startCommand String?
   envVars     Json? // Store as JSON object
   
+  // Static sites: the R2 bucket holding the files and the public host Caddy
+  // proxies to (Cloudflare caches in front of it)
+  staticBucket String?
+  staticOrigin String?
+
   // Deployment info
   lastDeployment DateTime?
   deploymentCount Int @default(0)
