@@ -9,8 +9,21 @@ import { TemplateEngine, TemplateData } from '../utils/templateEngine';
 import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication } from './caddyService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
+import { resolveAppDir, resolveAppDirByDomain } from '../lib/appPaths';
+import * as systemd from './systemdService';
 
 const execAsync = promisify(exec);
+
+/**
+ * Runtime for application processes. 'systemd' runs each app as its
+ * organization's OS user inside that org's cgroup slice (see systemdService);
+ * anything else keeps the Docker path. Defaults to Docker so an existing
+ * install is not broken by an upgrade — flip it once the orgs are provisioned
+ * (npx tsx src/scripts/provisionOrgUsers.ts).
+ */
+const NATIVE_RUNTIME = process.env.APP_RUNTIME === 'systemd';
+
+const NL = '\n';
 
 export interface DeploymentConfig {
   application: Application;
@@ -35,29 +48,43 @@ export function getDockerContainerName(application: Application) {
 }
 
 export class DeploymentService {
-  private baseDir: string;
   private templateEngine: TemplateEngine;
 
   constructor() {
-    this.baseDir = process.env.APPS_DIR || path.join(process.cwd(), 'apps_dir');
     this.templateEngine = new TemplateEngine();
   }
 
-  private getAppDir(applicationId: string): string {
-    return path.join(this.baseDir, applicationId);
+  /**
+   * Application directory, resolved through the owning organization so each
+   * tenant's files sit under its own OS user's home. See lib/appPaths.ts.
+   */
+  private async getAppDir(applicationId: string): Promise<string> {
+    return resolveAppDir(applicationId);
+  }
+
+  /** Load an application with the organization the native runtime needs. */
+  private async appWithOrg(domain: string) {
+    return prisma.application.findFirst({
+      where: { domain },
+      include: { organization: { select: { slug: true } } },
+    });
+  }
+
+  /** Same, for the log helpers that only carry a hostname. */
+  private async getAppDirByDomain(domain: string): Promise<string> {
+    const dir = await resolveAppDirByDomain(domain);
+    if (!dir) throw new Error(`No application found for domain ${domain}`);
+    return dir;
   }
 
   /**
    * Prepare the application directory using subdomain.domain.tld format
    */
   async prepareAppDirectory(applicationId: string): Promise<string> {
-    const appDir = this.getAppDir(applicationId);
+    const appDir = await this.getAppDir(applicationId);
 
     try {
-      // Create apps_dir directory if it doesn't exist
-      await fs.mkdir(this.baseDir, { recursive: true });
-
-      // Create app directory if it doesn't exist
+      // Create app directory if it doesn't exist (parents included)
       await fs.mkdir(appDir, { recursive: true });
 
       const logsDir = path.join(appDir, 'logs');
@@ -407,6 +434,52 @@ build
   }
 
   /**
+   * Build for the native runtime: no image, just dependencies and the app's own
+   * build command, run in the sources tree. The tree is handed to the tenant
+   * user by cb-app-unit install, which runs at start.
+   */
+  async runNativeBuild(appDir: string, application: Application, _deployment: Deployment): Promise<BuildResult> {
+    const sourcesDir = path.join(appDir, 'sources');
+    const logsDir = path.join(appDir, 'logs');
+    await fs.mkdir(logsDir, { recursive: true });
+    const buildLogPath = path.join(logsDir, 'build.log');
+
+    try {
+      const requestedPort = application.port || this.getDefaultPort(application.type);
+      const availablePort = await this.findAvailablePort(requestedPort);
+      if (availablePort !== requestedPort) {
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { port: availablePort },
+        });
+        application.port = availablePort as any;
+      }
+
+      await fs.writeFile(buildLogPath, `[${new Date().toISOString()}] NATIVE BUILD STARTED` + NL);
+
+      const steps: string[] = [];
+      const has = (f: string) => fs.access(path.join(sourcesDir, f)).then(() => true).catch(() => false);
+
+      if (await has('package.json')) steps.push('npm install --no-audit --no-fund');
+      if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
+      if (application.buildCommand) steps.push(application.buildCommand);
+
+      for (const step of steps) {
+        await fs.appendFile(buildLogPath, NL + `$ ${step}` + NL);
+        const { stdout, stderr } = await execAsync(step, { cwd: sourcesDir, timeout: 900000 });
+        await fs.appendFile(buildLogPath, stdout + (stderr ? NL + stderr : '') + NL);
+      }
+
+      await fs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] NATIVE BUILD COMPLETED` + NL);
+      return { success: true };
+    } catch (error: any) {
+      const message = error.stderr || error.message || String(error);
+      await fs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] NATIVE BUILD FAILED:` + NL + message + NL);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
    * Build Docker image for the application
    */
   async runDockerCompose(appDir: string, application: Application, deployment: Deployment): Promise<BuildResult> {
@@ -537,6 +610,13 @@ build
    */
   async stopApplication(containerName?: string): Promise<boolean> {
     try {
+      if (containerName && NATIVE_RUNTIME) {
+        const application = await this.appWithOrg(containerName);
+        if (!application) return false;
+        await systemd.stopApplication(application);
+        return true;
+      }
+
       if (containerName) {
         await execAsync(`docker stop ${containerName}`);
         await execAsync(`docker rm ${containerName}`);
@@ -554,15 +634,17 @@ build
    */
   async startDockerCompose(domain: string): Promise<boolean> {
     try {
-      const application = await prisma.application.findFirst({
-        where: { domain },
-      });
+      const application = await this.appWithOrg(domain);
 
       if (!application) {
         throw new Error('Application not found for domain');
       }
 
-      const appDir = this.getAppDir(application.id);
+      if (NATIVE_RUNTIME) {
+        return systemd.startApplication(application);
+      }
+
+      const appDir = await this.getAppDir(application.id);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
 
@@ -651,7 +733,7 @@ build
       const status = await this.getDockerApplicationStatus(containerName);
       return status === 'RUNNING';
     } catch (error) {
-      const appDir = path.join(this.baseDir, domain);
+      const appDir = await this.getAppDirByDomain(domain);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
       const errorTimestamp = new Date().toISOString();
@@ -670,7 +752,7 @@ build
       }
 
       const domain = application.domain;
-      const appDir = this.getAppDir(application.id);
+      const appDir = await this.getAppDir(application.id);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
 
@@ -678,6 +760,14 @@ build
 
       const startTimestamp = new Date().toISOString();
       await fs.appendFile(deployLogPath, `[${startTimestamp}] RELEASE STARTED: ${release.id}\n`);
+
+      if (NATIVE_RUNTIME) {
+        // A native release is the sources tree already on disk — there is no
+        // image to pick, so this is a unit reinstall and restart.
+        const withOrg = await this.appWithOrg(domain);
+        if (!withOrg) return false;
+        return systemd.startApplication(withOrg);
+      }
 
       const containerName = domain;
 
@@ -729,7 +819,7 @@ build
       return status === 'RUNNING';
     } catch (error) {
       const domain = application.domain;
-      const appDir = this.getAppDir(application.id);
+      const appDir = await this.getAppDir(application.id);
       const logsDir = path.join(appDir, 'logs');
       const deployLogPath = path.join(logsDir, 'deploy.log');
       const errorTimestamp = new Date().toISOString();
@@ -792,6 +882,13 @@ build
    */
   async restartApplication(containerName?: string): Promise<boolean> {
     try {
+      if (containerName && NATIVE_RUNTIME) {
+        const application = await this.appWithOrg(containerName);
+        if (!application) return false;
+        await systemd.restartApplication(application);
+        return true;
+      }
+
       if (containerName) {
         await execAsync(`docker restart ${containerName}`);
         return true;
@@ -808,6 +905,11 @@ build
    */
   async getApplicationLogs(containerName: string, lines: number = 100): Promise<string> {
     try {
+      if (NATIVE_RUNTIME) {
+        // The unit appends to <appDir>/logs/out.log — no container to query.
+        return this.getApplicationLogsFromFiles(containerName, 'out', lines);
+      }
+
       const { stdout } = await execAsync(`docker logs --tail ${lines} ${containerName}`);
       return stdout;
     } catch (error) {
@@ -1035,7 +1137,9 @@ build
         }
       }
 
-      const buildResult = await this.runDockerCompose(appDir, application, deployment);
+      const buildResult = NATIVE_RUNTIME
+        ? await this.runNativeBuild(appDir, application, deployment)
+        : await this.runDockerCompose(appDir, application, deployment);
 
       // Get build logs
       let buildLogs = '';
@@ -1220,6 +1324,12 @@ build
         return 'ERROR';
       }
 
+      if (NATIVE_RUNTIME) {
+        const application = await this.appWithOrg(domain);
+        if (!application) return 'ERROR';
+        return systemd.getStatus(application);
+      }
+
       return await this.getDockerApplicationStatus(domain);
     } catch (error) {
       return 'ERROR';
@@ -1275,7 +1385,7 @@ build
         return false;
       }
 
-      const appDir = this.getAppDir(deployment.applicationId);
+      const appDir = await this.getAppDir(deployment.applicationId);
       const logsDir = path.join(appDir, 'logs');
       const buildLogPath = path.join(logsDir, 'build.log');
       const deployLogPath = path.join(logsDir, 'deploy.log');
@@ -1314,7 +1424,7 @@ build
         return 'Deployment not found';
       }
 
-      const appDir = this.getAppDir(deployment.applicationId);
+      const appDir = await this.getAppDir(deployment.applicationId);
       const logsDir = path.join(appDir, 'logs');
 
       let logFile = '';
@@ -1352,7 +1462,7 @@ build
         return 'No domain provided';
       }
 
-      const appDir = this.getAppDir(domain);
+      const appDir = await this.getAppDirByDomain(domain);
       const logsDir = path.join(appDir, 'logs');
 
       let logFile = '';
@@ -1393,7 +1503,7 @@ build
         return { exists: false, path: '' };
       }
 
-      const appDir = this.getAppDir(domain);
+      const appDir = await this.getAppDirByDomain(domain);
       const logsDir = path.join(appDir, 'logs');
       const buildLogPath = path.join(logsDir, 'build.log');
 
@@ -1429,7 +1539,7 @@ build
         return false;
       }
 
-      const appDir = this.getAppDir(domain);
+      const appDir = await this.getAppDirByDomain(domain);
       const logsDir = path.join(appDir, 'logs');
 
       // Ensure logs directory exists

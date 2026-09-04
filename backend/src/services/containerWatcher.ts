@@ -1,21 +1,18 @@
 import { exec, spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import { PrismaClient, Application } from '@prisma/client';
 
 const execAsync = promisify(exec);
 
 export class ContainerWatcher {
   private prisma: PrismaClient;
-  private baseDir: string;
   private isWatching: boolean = false;
   private watchInterval: NodeJS.Timeout | null = null;
   private eventsProcess: ChildProcessWithoutNullStreams | null = null;
 
   constructor() {
     this.prisma = new PrismaClient();
-    this.baseDir = process.env.APPS_DIR || path.join(process.cwd(), 'apps_dir');
   }
 
   /**

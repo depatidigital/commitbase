@@ -8,6 +8,7 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
+import { provisionOrg, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 
 const router = Router();
 
@@ -148,6 +149,21 @@ router.post(
       const clash = await prisma.organization.findUnique({ where: { slug } });
       if (clash) {
         return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
+      }
+
+      // Provision the OS user before the row exists: an org with no home is an
+      // org whose apps fail to deploy, and the script is idempotent so a
+      // leftover user from a failed create costs nothing.
+      if (OS_ISOLATION_ENABLED) {
+        try {
+          await provisionOrg(slug);
+        } catch (err) {
+          console.error(`Failed to provision OS user for org "${slug}":`, err);
+          return res.status(500).json({
+            success: false,
+            error: 'Could not provision isolated OS user for this organization',
+          } as ApiResponse);
+        }
       }
 
       const organization = await prisma.organization.create({

@@ -14,7 +14,9 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx src/scripts/seed.ts",
     "db:backfill-orgs": "tsx src/scripts/backfillOrganizations.ts",
-    "cron:run": "tsx src/scripts/runCronJob.ts"
+    "cron:run": "tsx src/scripts/runCronJob.ts",
+    "provision:orgs": "tsx src/scripts/provisionOrgUsers.ts",
+    "check:app-paths": "tsx src/scripts/checkAppPaths.ts"
   },
   "keywords": [
     "api",

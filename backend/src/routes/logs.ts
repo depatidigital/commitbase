@@ -7,6 +7,7 @@ import { DeploymentService } from '../services/deployment';
 import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { appDirFor } from '../lib/appPaths';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -117,6 +118,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
         id: appId,
         ...(await orgScope(req)),
       },
+      include: { organization: { select: { slug: true } } },
     });
 
     if (!application) {
@@ -146,7 +148,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
 
     if (logType === 'build') {
       // For build logs, monitor file changes
-      const appDir = path.join(process.env.APPS_DIR || './apps_dir', application.domain);
+      const appDir = appDirFor(application.id, (application as any).organization?.slug ?? null);
       const logsDir = path.join(appDir, 'logs');
       const logFile = path.join(logsDir, 'build.log');
 

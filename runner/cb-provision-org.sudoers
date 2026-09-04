@@ -1,0 +1,9 @@
+# Install as /etc/sudoers.d/commitbase (mode 0440, root:root).
+# Validate before reloading:  visudo -cf /etc/sudoers.d/commitbase
+#
+# The backend may run exactly these two root commands, without a password.
+# Both scripts validate their own arguments — a sudoers entry cannot.
+commitbase ALL=(root) NOPASSWD: /usr/local/bin/cb-provision-org
+commitbase ALL=(root) NOPASSWD: /usr/local/bin/cb-app-unit
+Defaults!/usr/local/bin/cb-provision-org !requiretty
+Defaults!/usr/local/bin/cb-app-unit      !requiretty
