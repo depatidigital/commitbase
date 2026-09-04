@@ -4,7 +4,7 @@ Every organization gets its own Linux user, home directory, disk quota, cgroup
 slice and PHP-FPM pool. One tenant's processes cannot read another tenant's
 files, and one tenant cannot eat the whole VPS.
 
-Docker is not used by this path — apps run as systemd units.
+Docker is not used at all — apps run as systemd units.
 
 ## What an organization owns
 
@@ -44,7 +44,6 @@ Disk quotas need the filesystem holding `/home` mounted with `usrquota` and
 ```bash
 # backend/.env
 ORG_OS_ISOLATION="true"
-APP_RUNTIME="systemd"
 ```
 
 Then provision every existing organization and move the app directories out of
@@ -144,16 +143,12 @@ Static sites also get no unit; they are served from R2 through Caddy.
   cannot constrain them.
 - Units run with `NoNewPrivileges=true`, `ProtectSystem=strict`,
   `PrivateTmp=true` and a writable path list of exactly one directory.
-- **Still open:** the Docker code path in `services/deployment.ts` builds
-  `docker run` as a shell string with env var values interpolated
-  (`-e ${key}=${value}`). That is a command-injection hole for anyone who can
-  set an env var. It does not affect `APP_RUNTIME="systemd"`, which writes
-  env vars into `run.sh` with single-quote escaping, but it should be converted
-  to `execFile` before the Docker path is used again.
+- Env vars reach the app through `run.sh`, written with single-quote escaping,
+  never through a shell string assembled at run time.
 
 ## Rollback
 
-Set `APP_RUNTIME="docker"` and `ORG_OS_ISOLATION="false"`, then move the app
-directories back to `APPS_DIR`. The OS users and slices are inert once nothing
-references them; remove one with `userdel -r cb-<slug>` plus its slice and pool
-files.
+There is no second runtime to fall back to. Set `ORG_OS_ISOLATION="false"` only
+to stop provisioning new organizations — running apps keep their units. The OS
+users and slices are inert once nothing references them; remove one with
+`userdel -r cb-<slug>` plus its slice and pool files.

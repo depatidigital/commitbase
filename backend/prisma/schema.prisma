@@ -112,7 +112,7 @@ model Application {
   deploymentCount Int @default(0)
 
   // Server inventory — filled by the app sync (pm2 + Caddy site files)
-  runtime      String?   // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for docker-managed
+  runtime      String?   // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for apps we deploy
   processName  String?   // pm2 process name, when the runtime is PM2
   rootPath     String?   // document root / working directory on the server
   configPath   String?   // /etc/caddy/sites/<name>.caddy
@@ -178,7 +178,7 @@ model Release {
   id            String        @id @default(cuid())
   applicationId String
   application   Application   @relation("ApplicationReleases", fields: [applicationId], references: [id], onDelete: Cascade)
-  imageTag      String
+  imageTag      String?  // legacy: image reference from the removed Docker runtime
   commitSha     String?
   createdAt     DateTime      @default(now())
   status        ReleaseStatus @default(PENDING)

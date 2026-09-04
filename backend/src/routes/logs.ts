@@ -162,12 +162,9 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
           });
 
           stream.on('data', (chunk: Buffer) => {
-            const lines = chunk.toString().split('
-').filter(line => line.trim());
+            const lines = chunk.toString().split('\n').filter(line => line.trim());
             lines.forEach(line => {
-              res.write(`data: ${JSON.stringify({ type: 'log', message: line })}
-
-`);
+              res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
             });
           });
 
@@ -175,9 +172,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
         }
       } catch (error) {
         // Log file doesn't exist or other error
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}
-
-`);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}\n\n`);
       }
     }, 1000);
 

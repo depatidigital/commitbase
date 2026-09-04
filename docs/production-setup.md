@@ -129,7 +129,6 @@ Write `/opt/commitbase/app/backend/.env`, owned `commitbase:commitbase`, mode
 | Variable | Default | Notes |
 |---|---|---|
 | `ORG_OS_ISOLATION` | `false` | Set `true` in production |
-| `APP_RUNTIME` | `docker` | Set `systemd` to run apps as their org's OS user |
 | `CB_HOME_ROOT` | `/home` | |
 | `ORG_PROVISION_SCRIPT` | `/usr/local/bin/cb-provision-org` | |
 | `APP_UNIT_SCRIPT` | `/usr/local/bin/cb-app-unit` | |
@@ -218,8 +217,7 @@ quotacheck -cum /home
 quotaon -v /home
 ```
 
-Set `ORG_OS_ISOLATION="true"` and `APP_RUNTIME="systemd"` in the backend env,
-then provision:
+Set `ORG_OS_ISOLATION="true"` in the backend env, then provision:
 
 ```bash
 cd /opt/commitbase/app/backend
@@ -400,10 +398,6 @@ are independent of the backend process.
 Real and unfixed. Decide whether they block your launch.
 
 - `GitAccount.accessToken` and `Application.envVars` are stored in plaintext.
-- The Docker code path builds `docker run` as a shell string with tenant-supplied
-  env values interpolated — a command-injection hole. It is unused under
-  `APP_RUNTIME="systemd"`, but do not switch back to Docker before it is
-  converted to `execFile`.
 - Uploaded tenant content is served from the platform's own domains rather than
   a separate content domain, so uploaded HTML/JS shares an origin with the panel.
   See multi-user-domain-access.md §6.

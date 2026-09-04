@@ -374,7 +374,6 @@ pm2 monit
 - **Auto-scaling**: Automatic scaling based on load
 - **Rollback Support**: Quick rollback to previous deployments
 - **Blue-Green Deployments**: Zero-downtime deployments
-- **Docker Support**: Container-based deployments
 - **SSL/TLS**: Automatic SSL certificate management
 
 ### Caddy Integration
