@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
-import { ContainerWatcher } from './services/containerWatcher';
+import * as appStatusWatcher from './services/appStatusWatcher';
 import { startCronJobs } from './services/cron';
 
 config();
@@ -48,7 +48,6 @@ import deploymentsRoutes from './routes/deployments';
 import logsRoutes from './routes/logs';
 import metricsRoutes from './routes/metrics';
 import domainsRoutes from './routes/domains';
-import templatesRoutes from './routes/templates';
 import rdashRoutes from './routes/rdash';
 import cloudflareRoutes from './routes/cloudflare';
 import gitRoutes from './routes/git';
@@ -100,13 +99,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Container watcher status endpoint
-app.get('/health/containers', (req, res) => {
-  const containerWatcher = new ContainerWatcher();
-  const status = containerWatcher.getWatcherStatus();
+// Application status watcher endpoint
+app.get('/health/apps', (req, res) => {
   res.json({
     status: 'OK',
-    containerWatcher: status,
+    appStatusWatcher: appStatusWatcher.getWatcherStatus(),
     timestamp: new Date().toISOString()
   });
 });
@@ -119,7 +116,6 @@ app.use('/api/deployments', deploymentsRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/domains', domainsRoutes);
-app.use('/api/templates', templatesRoutes);
 // Admin-only: shared infra + provider credentials, never tenant-scoped
 // Integration credentials are platform-owner only
 app.use('/api/rdash', authenticateToken, requireRole(['SUPERADMIN']), rdashRoutes);
@@ -179,10 +175,9 @@ app.listen(PORT, async () => {
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   
-  // Start container watcher
-  const containerWatcher = new ContainerWatcher();
-  await containerWatcher.startWatching();
-  console.log('🔍 Container watcher started');
+  // Start application status watcher
+  await appStatusWatcher.startWatching();
+  console.log('🔍 Application status watcher started');
 
   startCronJobs();
 }); 

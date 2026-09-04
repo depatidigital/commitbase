@@ -146,62 +146,45 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
       return;
     }
 
-    if (logType === 'build') {
-      // For build logs, monitor file changes
-      const appDir = appDirFor(application.id, (application as any).organization?.slug ?? null);
-      const logsDir = path.join(appDir, 'logs');
-      const logFile = path.join(logsDir, 'build.log');
+    // Both build logs and the unit's stdout are files on disk — tail whichever
+    // the client asked for.
+    const appDir = appDirFor(application.id, (application as any).organization?.slug ?? null);
+    const logFile = path.join(appDir, 'logs', logType === 'build' ? 'build.log' : 'out.log');
 
-      // Monitor log file for changes
-      let lastSize = 0;
-      const interval = setInterval(async () => {
-        try {
-          const stats = await fs.stat(logFile);
-          if (stats.size > lastSize) {
-            const stream = require('fs').createReadStream(logFile, {
-              start: lastSize,
-              end: stats.size,
+    let lastSize = 0;
+    const interval = setInterval(async () => {
+      try {
+        const stats = await fs.stat(logFile);
+        if (stats.size > lastSize) {
+          const stream = require('fs').createReadStream(logFile, {
+            start: lastSize,
+            end: stats.size,
+          });
+
+          stream.on('data', (chunk: Buffer) => {
+            const lines = chunk.toString().split('
+').filter(line => line.trim());
+            lines.forEach(line => {
+              res.write(`data: ${JSON.stringify({ type: 'log', message: line })}
+
+`);
             });
+          });
 
-            stream.on('data', (chunk: Buffer) => {
-              const lines = chunk.toString().split('\n').filter(line => line.trim());
-              lines.forEach(line => {
-                res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
-              });
-            });
-
-            lastSize = stats.size;
-          }
-        } catch (error) {
-          // Log file doesn't exist or other error
-          res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}\n\n`);
+          lastSize = stats.size;
         }
-      }, 1000);
+      } catch (error) {
+        // Log file doesn't exist or other error
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}
 
-      // Clean up on client disconnect
-      req.on('close', () => {
-        clearInterval(interval);
-      });
-    } else {
-      const { exec } = require('child_process');
-      const dockerLogsProcess = exec(`docker logs -f --tail=100 ${application.domain}`);
+`);
+      }
+    }, 1000);
 
-      dockerLogsProcess.stdout?.on('data', (data: Buffer) => {
-        const lines = data.toString().split('\n').filter(line => line.trim());
-        lines.forEach(line => {
-          res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
-        });
-      });
-
-      dockerLogsProcess.stderr?.on('data', (data: Buffer) => {
-        res.write(`data: ${JSON.stringify({ type: 'error', message: data.toString() })}\n\n`);
-      });
-
-      // Clean up on client disconnect
-      req.on('close', () => {
-        dockerLogsProcess.kill();
-      });
-    }
+    // Clean up on client disconnect
+    req.on('close', () => {
+      clearInterval(interval);
+    });
 
     return;
 
@@ -372,42 +355,6 @@ router.get('/system', authenticateToken, async (req: AuthenticatedRequest, res: 
   } catch (error) {
     console.error('Error fetching system logs:', error);
     return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    } as ApiResponse);
-  }
-});
-
-// Get Docker container status and logs
-router.get('/docker/status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const containers = await deploymentService.listDockerContainers();
-    
-    // Filter containers for current user's applications
-    const userApplications = await prisma.application.findMany({
-      where: {
-        ...(await orgScope(req)),
-      },
-      select: {
-        id: true,
-        name: true,
-        domain: true,
-      },
-    });
-
-    const userDomains = userApplications.map(app => app.domain);
-    const userContainers = containers.filter((container: any) => 
-      userDomains.some(domain => container.Names.includes(domain))
-    );
-
-    res.json({
-      success: true,
-      data: userContainers,
-      message: 'Docker container status retrieved successfully',
-    } as ApiResponse);
-  } catch (error) {
-    console.error('Error fetching Docker container status:', error);
-    res.status(500).json({
       success: false,
       error: 'Internal server error',
     } as ApiResponse);

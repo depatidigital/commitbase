@@ -5,7 +5,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { orgScope, resolveOwnedDomain } from '../lib/scope';
-import { DeploymentService, getDockerContainerName } from '../services/deployment';
+import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
 import { configureCaddyForStaticApplication } from '../services/caddyService';
@@ -19,9 +19,9 @@ const router = Router();
 const deploymentService = new DeploymentService();
 
 /**
- * Apps discovered by the server sync are owned by pm2, not by our Docker
+ * Apps discovered by the server sync are owned by pm2, not by our systemd
  * deployer, so start/stop/restart route to pm2 for them. Returns null when the
- * app is not pm2-managed and the caller should fall through to Docker.
+ * app is not pm2-managed and the caller should fall through to systemd.
  */
 async function handlePm2Action(
   application: { id: string; runtime: string | null; processName: string | null },
@@ -597,8 +597,8 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
       data: { status: 'DEPLOYING' },
     });
 
-    // Start existing container without redeploying
-    const started = await deploymentService.startDockerCompose(application.domain);
+    // Start the existing unit without redeploying
+    const started = await deploymentService.startApplication(application.domain);
 
     if (started) {
       await prisma.application.update({
@@ -777,9 +777,7 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
       } as ApiResponse);
     }
 
-    // Stop PM2 process
-    const containerName = getDockerContainerName(application);
-    const stopped = await deploymentService.stopApplication(containerName);
+    const stopped = await deploymentService.stopApplication(application.domain);
 
     if (stopped) {
       await prisma.application.update({
@@ -848,9 +846,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
         error: 'Application is not running',
       } as ApiResponse);
     }
-    // Restart PM2 process
-    const containerName = getDockerContainerName(application);
-    const restarted = await deploymentService.restartApplication(containerName);
+    const restarted = await deploymentService.restartApplication(application.domain);
 
     if (restarted) {
       await prisma.application.update({
@@ -985,8 +981,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       data: { activeReleaseId: release.id },
     });
 
-    const containerName = getDockerContainerName(application);
-    await deploymentService.stopApplication(containerName);
+    await deploymentService.stopApplication(application.domain);
 
     const started = await deploymentService.startRelease(application, release);
 
@@ -1001,7 +996,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
     if (!started) {
       return res.status(500).json({
         success: false,
-        error: 'Failed to start container for selected release',
+        error: 'Failed to start the selected release',
       } as ApiResponse);
     }
 

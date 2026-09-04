@@ -5,7 +5,7 @@ import { appDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
 import { appUnit, OS_ISOLATION_ENABLED } from './orgProvisionService';
 
 /**
- * Native (non-Docker) application runtime.
+ * Application runtime.
  *
  * Each app runs as a systemd unit under its organization's OS user, inside
  * that organization's cgroup slice, so a runaway tenant is capped on CPU and

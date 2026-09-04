@@ -289,7 +289,7 @@ export async function syncServerApps(userId: string): Promise<AppSyncResult> {
 }
 
 /**
- * Control a pm2-managed app discovered by the sync. Docker-deployed apps keep
+ * Control a pm2-managed app discovered by the sync. Apps we deploy ourselves keep
  * going through DeploymentService — this only covers processes pm2 owns.
  */
 export async function controlPm2Process(
