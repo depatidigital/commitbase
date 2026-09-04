@@ -60,6 +60,46 @@ npm run check:app-paths               # path-layout self-check
 New organizations are provisioned automatically at `POST /api/organizations` —
 the OS user is created before the row, so an org can never exist without a home.
 
+## When provisioning runs
+
+| Trigger | What happens |
+|---|---|
+| `POST /api/organizations` (an org is created) | The OS user is provisioned **before** the row is written. If provisioning fails the request returns 500 and no organization is created — an org can never exist without a home |
+| First-ever registration (`POST /api/auth/register`) | The bootstrap `default` organization is provisioned too, but a failure is logged and ignored so the very first login cannot be locked out. Re-run it from `/admin` |
+| `POST /api/admin/organizations/:id/provision` | Manual re-run. This is the **Provision / Re-provision** button on `/admin` → Organizations |
+| `npm run provision:orgs` | Bulk run over every organization, plus the move of app directories out of the old flat `apps_dir` |
+
+The script is idempotent, so a re-run is also how you repair file ownership
+after a manual edit and how you apply changed resource limits.
+
+## Admin UI
+
+`/admin` has three tabs:
+
+- **Domains** — ownership assignment, as before.
+- **Organizations** — every org with its isolation state, and the button that
+  triggers provisioning. States: *Provisioned*, *No resource limits* (home
+  exists but the cgroup slice is missing), *Not provisioned*, *Disabled*
+  (`ORG_OS_ISOLATION` is off — the button is inert and a banner says why).
+- **Provisioning log** — every run, newest first, with the script's own output,
+  what triggered it (`org-create`, `bootstrap`, `admin`) and who clicked.
+
+Status is read without sudo: the backend stats `/home/cb-<slug>` and
+`/etc/systemd/system/cb-<slug>.slice`, so listing the page has no side effects.
+
+Endpoints behind it, all `ADMIN` only:
+
+```
+GET  /api/admin/organizations                  # orgs + provisioning state
+GET  /api/admin/organizations/:id/provision    # state for one org
+POST /api/admin/organizations/:id/provision    # run it; optional { diskQuota, cpuQuota, memoryMax }
+GET  /api/admin/provision-logs                 # ?organizationId= to scope
+```
+
+Runs are written to the existing `Log` model with
+`metadata.scope = "provisioning"` — no new table, and they show up in whatever
+log tooling already reads that table.
+
 ## Resource limits
 
 Set per install in the backend env, applied per organization:

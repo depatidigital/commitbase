@@ -17,14 +17,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ShieldCheck } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, ShieldCheck, TerminalSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import {
   AdminDomain,
+  AdminOrganization,
+  ProvisionLog,
   assignDomain,
   getAdminDomains,
+  getAdminOrganizations,
+  getProvisionLogs,
+  provisionOrganization,
   unassignDomain,
 } from "@/lib/admin";
 import { getOrganizations } from "@/lib/organizations";
@@ -35,6 +44,8 @@ export default function Admin() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const query = useTableQuery();
+  const orgQuery = useTableQuery();
+  const logQuery = useTableQuery(20);
 
   // moving a domain moves every application under it between tenants — confirm first
   const [pendingAssign, setPendingAssign] = useState<{
@@ -44,6 +55,10 @@ export default function Admin() {
     organizationId: string;
     organizationName: string;
   } | null>(null);
+
+  // re-running provisioning is idempotent but touches a live tenant — confirm too
+  const [pendingProvision, setPendingProvision] =
+    useState<AdminOrganization | null>(null);
 
   const onError = (error: Error) =>
     toast({
@@ -61,6 +76,16 @@ export default function Admin() {
   const { data, isFetching } = useQuery({
     queryKey: ["admin", "domains", query.params],
     queryFn: () => getAdminDomains(query.params),
+  });
+
+  const { data: orgData, isFetching: orgsFetching } = useQuery({
+    queryKey: ["admin", "organizations", orgQuery.params],
+    queryFn: () => getAdminOrganizations(orgQuery.params),
+  });
+
+  const { data: logData, isFetching: logsFetching } = useQuery({
+    queryKey: ["admin", "provision-logs", logQuery.params],
+    queryFn: () => getProvisionLogs(logQuery.params),
   });
 
   const assignMutation = useMutation({
@@ -88,6 +113,29 @@ export default function Admin() {
       onError(error);
     },
   });
+
+  const provisionMutation = useMutation({
+    mutationFn: (organizationId: string) => provisionOrganization(organizationId),
+    onSuccess: (_result, organizationId) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "provision-logs"] });
+      const org = orgData?.data.find((o) => o.id === organizationId);
+      setPendingProvision(null);
+      toast({
+        title: "Provisioned",
+        description: org
+          ? `cb-${org.slug} now has its own OS user, home and cgroup slice.`
+          : "OS user provisioned.",
+      });
+    },
+    onError: (error: Error) => {
+      setPendingProvision(null);
+      onError(error);
+    },
+  });
+
+  // Any row tells us whether the server has isolation switched on at all.
+  const isolationEnabled = orgData?.data[0]?.provisioning?.enabled ?? true;
 
   const columns: Column<AdminDomain>[] = [
     {
@@ -130,22 +178,185 @@ export default function Admin() {
     },
   ];
 
+  const orgColumns: Column<AdminOrganization>[] = [
+    {
+      header: "Organization",
+      className: "w-[30%]",
+      cell: (o) => (
+        <div className="min-w-0">
+          <span className="block truncate font-medium">{o.name}</span>
+          <span className="block truncate font-mono text-xs text-muted-foreground">
+            {o.provisioning?.osUser ?? `cb-${o.slug}`}
+          </span>
+        </div>
+      ),
+    },
+    {
+      header: "Isolation",
+      className: "w-40",
+      cell: (o) => {
+        const p = o.provisioning;
+        if (!p) return <Badge variant="outline">Unknown</Badge>;
+        if (!p.enabled) return <Badge variant="outline">Disabled</Badge>;
+        if (!p.provisioned) return <Badge variant="destructive">Not provisioned</Badge>;
+        if (!p.sliceInstalled) return <Badge variant="secondary">No resource limits</Badge>;
+        return <Badge>Provisioned</Badge>;
+      },
+    },
+    {
+      header: "Home",
+      className: "w-[25%]",
+      cell: (o) => (
+        <span className="block truncate font-mono text-xs text-muted-foreground">
+          {o.provisioning?.home ?? "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Apps",
+      className: "w-20",
+      cell: (o) => o._count.applications,
+    },
+    {
+      header: "",
+      className: "w-32 text-right",
+      cell: (o) => (
+        <Button
+          size="sm"
+          variant={o.provisioning?.provisioned ? "outline" : "default"}
+          disabled={!isolationEnabled || provisionMutation.isPending}
+          onClick={() => setPendingProvision(o)}
+        >
+          {provisionMutation.isPending &&
+          provisionMutation.variables === o.id ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : o.provisioning?.provisioned ? (
+            "Re-provision"
+          ) : (
+            "Provision"
+          )}
+        </Button>
+      ),
+    },
+  ];
+
+  const levelVariant = (level: ProvisionLog["level"]) =>
+    level === "ERROR" || level === "FATAL"
+      ? ("destructive" as const)
+      : level === "WARN"
+        ? ("secondary" as const)
+        : ("outline" as const);
+
+  const logColumns: Column<ProvisionLog>[] = [
+    {
+      header: "When",
+      className: "w-44",
+      cell: (l) => (
+        <span className="text-xs text-muted-foreground">
+          {new Date(l.timestamp).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      header: "Level",
+      className: "w-24",
+      cell: (l) => <Badge variant={levelVariant(l.level)}>{l.level}</Badge>,
+    },
+    {
+      header: "Message",
+      cell: (l) => (
+        <div className="min-w-0">
+          <span className="block truncate">{l.message}</span>
+          {typeof l.metadata?.output === "string" && (
+            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs text-muted-foreground">
+              {l.metadata.output}
+            </pre>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: "Trigger",
+      className: "w-28",
+      cell: (l) => (
+        <span className="text-xs text-muted-foreground">
+          {String(l.metadata?.trigger ?? "—")}
+        </span>
+      ),
+    },
+    {
+      header: "By",
+      className: "w-48",
+      cell: (l) => (
+        <span className="block truncate text-xs text-muted-foreground">
+          {l.user?.email ?? "—"}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <PageLayout
       icon={ShieldCheck}
       title="Platform administration"
-      description="Which organization owns which domain."
+      description="Domain ownership and per-organization OS isolation."
     >
-      <DataTable
-        columns={columns}
-        rows={data?.data ?? []}
-        rowKey={(d) => d.id}
-        query={query}
-        pagination={data?.pagination}
-        isLoading={isFetching}
-        searchPlaceholder="Search domain…"
-        empty="No domains yet."
-      />
+      <Tabs defaultValue="domains" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="domains">Domains</TabsTrigger>
+          <TabsTrigger value="organizations">Organizations</TabsTrigger>
+          <TabsTrigger value="logs">Provisioning log</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="domains">
+          <DataTable
+            columns={columns}
+            rows={data?.data ?? []}
+            rowKey={(d) => d.id}
+            query={query}
+            pagination={data?.pagination}
+            isLoading={isFetching}
+            searchPlaceholder="Search domain…"
+            empty="No domains yet."
+          />
+        </TabsContent>
+
+        <TabsContent value="organizations" className="space-y-4">
+          {!isolationEnabled && (
+            <Alert>
+              <TerminalSquare className="h-4 w-4" />
+              <AlertDescription>
+                OS isolation is switched off on this server. Set{" "}
+                <code className="font-mono">ORG_OS_ISOLATION=true</code> in the
+                backend environment and restart it before provisioning.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <DataTable
+            columns={orgColumns}
+            rows={orgData?.data ?? []}
+            rowKey={(o) => o.id}
+            query={orgQuery}
+            pagination={orgData?.pagination}
+            isLoading={orgsFetching}
+            searchPlaceholder="Search organization…"
+            empty="No organizations yet."
+          />
+        </TabsContent>
+
+        <TabsContent value="logs">
+          <DataTable
+            columns={logColumns}
+            rows={logData?.data ?? []}
+            rowKey={(l) => l.id}
+            query={logQuery}
+            pagination={logData?.pagination}
+            isLoading={logsFetching}
+            empty="Nothing provisioned yet."
+          />
+        </TabsContent>
+      </Tabs>
 
       <AlertDialog
         open={!!pendingAssign}
@@ -180,6 +391,42 @@ export default function Admin() {
               }
             >
               Move domain
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!pendingProvision}
+        onOpenChange={(open) => !open && setPendingProvision(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingProvision?.provisioning?.provisioned
+                ? "Re-run provisioning?"
+                : "Provision this organization?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingProvision && (
+                <>
+                  Creates the OS user{" "}
+                  <strong>cb-{pendingProvision.slug}</strong>, its home, disk
+                  quota, cgroup slice and PHP-FPM pool. Re-running also repairs
+                  file ownership and re-applies the resource limits — it does
+                  not restart running applications.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                pendingProvision && provisionMutation.mutate(pendingProvision.id)
+              }
+            >
+              Provision
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

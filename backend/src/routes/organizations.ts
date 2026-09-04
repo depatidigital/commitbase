@@ -8,7 +8,7 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
-import { provisionOrg, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
+import { provisionOrgLogged, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 
 const router = Router();
 
@@ -156,7 +156,7 @@ router.post(
       // leftover user from a failed create costs nothing.
       if (OS_ISOLATION_ENABLED) {
         try {
-          await provisionOrg(slug);
+          await provisionOrgLogged(slug, req.user!.userId, { trigger: 'org-create' });
         } catch (err) {
           console.error(`Failed to provision OS user for org "${slug}":`, err);
           return res.status(500).json({

@@ -1,6 +1,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { ORG_SLUG_RE, APP_ID_RE, orgHome } from '../lib/appPaths';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { prisma } from '../lib/prisma';
+import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor } from '../lib/appPaths';
 
 const execFileAsync = promisify(execFile);
 
@@ -72,4 +75,88 @@ export async function appUnit(action: AppUnitAction, slug: string, applicationId
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
   return sudo(APP_UNIT_SCRIPT, [action, slug, applicationId]);
+}
+
+
+/**
+ * Provisioning is recorded in the existing Log model so an admin can see what
+ * happened without shell access. metadata.scope = 'provisioning' is what the
+ * admin log endpoint filters on.
+ */
+async function logProvision(
+  level: 'INFO' | 'WARN' | 'ERROR',
+  message: string,
+  userId: string,
+  metadata: Record<string, unknown>
+) {
+  try {
+    await prisma.log.create({
+      data: { level, message, userId, metadata: { scope: 'provisioning', ...metadata } as any },
+    });
+  } catch (err) {
+    // A logging failure must never take down a provisioning run.
+    console.error('Failed to write provisioning log:', err);
+  }
+}
+
+export interface ProvisionStatus {
+  enabled: boolean;
+  slug: string;
+  osUser: string;
+  home: string;
+  /** true once the OS user's home exists and is reachable by the backend */
+  provisioned: boolean;
+  /** true once the cgroup slice unit has been written */
+  sliceInstalled: boolean;
+  appCount: number;
+}
+
+/** Read-only check — no sudo, no side effects. Safe to call on every page load. */
+export async function getProvisionStatus(slug: string): Promise<ProvisionStatus> {
+  assertSlug(slug);
+  const home = orgHome(slug);
+  const exists = (p: string) => fs.access(p).then(() => true).catch(() => false);
+
+  const [provisioned, sliceInstalled, apps] = await Promise.all([
+    exists(home),
+    exists(path.join('/etc/systemd/system', `cb-${slug}.slice`)),
+    fs.readdir(orgAppsDir(slug)).catch(() => [] as string[]),
+  ]);
+
+  return {
+    enabled: OS_ISOLATION_ENABLED,
+    slug,
+    osUser: osUserFor(slug),
+    home,
+    provisioned,
+    sliceInstalled,
+    appCount: apps.length,
+  };
+}
+
+/**
+ * provisionOrg plus an audit trail. Use this from anything an admin triggers;
+ * the bare provisionOrg stays for scripts that have no user to attribute to.
+ */
+export async function provisionOrgLogged(
+  slug: string,
+  userId: string,
+  opts: { diskQuota?: string; cpuQuota?: string; memoryMax?: string; organizationId?: string; trigger?: string } = {}
+): Promise<ProvisionResult> {
+  const base = { organizationId: opts.organizationId ?? null, slug, trigger: opts.trigger ?? 'manual' };
+
+  if (!OS_ISOLATION_ENABLED) {
+    await logProvision('WARN', `Provisioning skipped for "${slug}" — ORG_OS_ISOLATION is off`, userId, base);
+    return { provisioned: false, reason: 'ORG_OS_ISOLATION is not enabled' };
+  }
+
+  try {
+    const result = await provisionOrg(slug, opts);
+    await logProvision('INFO', `Provisioned OS user cb-${slug}`, userId, { ...base, output: result.output });
+    return result;
+  } catch (err: any) {
+    const message = err?.stderr || err?.message || String(err);
+    await logProvision('ERROR', `Provisioning failed for "${slug}": ${message}`, userId, base);
+    throw err;
+  }
 }

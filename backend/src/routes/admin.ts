@@ -6,6 +6,11 @@ import { ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { paging, paginated, contains } from '../lib/paging';
+import {
+  provisionOrgLogged,
+  getProvisionStatus,
+  OS_ISOLATION_ENABLED,
+} from '../services/orgProvisionService';
 
 // Mounted at /api/admin behind authenticateToken + requireRole(['ADMIN']) in index.ts.
 const router = Router();
@@ -203,6 +208,126 @@ router.delete('/domains/:id/assign', async (req: AuthenticatedRequest, res: Resp
     return res.json({ success: true, data: updated, message: 'Domain unassigned' } as ApiResponse);
   } catch (error) {
     console.error('Error unassigning domain:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+
+
+// --- Organization provisioning ----------------------------------------------
+// Provisioning normally runs automatically when an organization is created.
+// These endpoints exist for the cases where that is not enough: isolation was
+// switched on after the fact, the box was rebuilt, or a run failed.
+
+// Organizations with their OS-isolation state
+router.get('/organizations', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { page, limit, skip, search } = paging(req);
+    const where = search ? { OR: [{ name: contains(search) }, { slug: contains(search) }] } : {};
+
+    const [organizations, total] = await Promise.all([
+      prisma.organization.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { members: true, domains: true, applications: true } } },
+      }),
+      prisma.organization.count({ where }),
+    ]);
+
+    const withStatus = await Promise.all(
+      organizations.map(async (org) => ({
+        ...org,
+        provisioning: await getProvisionStatus(org.slug).catch(() => null),
+      }))
+    );
+
+    return res.json(paginated(withStatus, total, page, limit));
+  } catch (error) {
+    console.error('Error listing organizations:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// Provisioning state for one organization
+router.get('/organizations/:id/provision', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const org = await prisma.organization.findUnique({ where: { id: req.params.id as string } });
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+    }
+    return res.json({ success: true, data: await getProvisionStatus(org.slug) } as ApiResponse);
+  } catch (error) {
+    console.error('Error reading provisioning status:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// Run (or re-run) provisioning. The script is idempotent, so this doubles as
+// "repair ownership" and "apply new resource limits".
+router.post('/organizations/:id/provision', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!OS_ISOLATION_ENABLED) {
+      return res.status(400).json({
+        success: false,
+        error: 'ORG_OS_ISOLATION is disabled on this server',
+      } as ApiResponse);
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: req.params.id as string } });
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+    }
+
+    const { diskQuota, cpuQuota, memoryMax } = req.body || {};
+    const result = await provisionOrgLogged(org.slug, req.user!.userId, {
+      diskQuota,
+      cpuQuota,
+      memoryMax,
+      organizationId: org.id,
+      trigger: 'admin',
+    });
+
+    return res.json({
+      success: true,
+      data: { ...result, status: await getProvisionStatus(org.slug) },
+      message: `Provisioned ${result.osUser ?? org.slug}`,
+    } as ApiResponse);
+  } catch (error: any) {
+    const message = error?.stderr || error?.message || String(error);
+    console.error('Provisioning failed:', message);
+    return res.status(500).json({ success: false, error: message } as ApiResponse);
+  }
+});
+
+// Provisioning log, newest first. Optional ?organizationId= to scope it.
+router.get('/provision-logs', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { page, limit, skip } = paging(req);
+    const organizationId = req.query.organizationId as string | undefined;
+
+    const where = {
+      AND: [
+        { metadata: { path: ['scope'], equals: 'provisioning' } },
+        ...(organizationId ? [{ metadata: { path: ['organizationId'], equals: organizationId } }] : []),
+      ],
+    } as any;
+
+    const [logs, total] = await Promise.all([
+      prisma.log.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { timestamp: 'desc' },
+        include: { user: { select: { id: true, email: true, name: true } } },
+      }),
+      prisma.log.count({ where }),
+    ]);
+
+    return res.json(paginated(logs, total, page, limit));
+  } catch (error) {
+    console.error('Error reading provisioning logs:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

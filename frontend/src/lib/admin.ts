@@ -116,3 +116,58 @@ export const unassignDomain = async (domainId: string) =>
     await apiRequest(`/admin/domains/${domainId}/assign`, { method: 'DELETE' }),
     'Failed to unassign domain'
   );
+
+
+// --- Organization OS provisioning -------------------------------------------
+
+export interface ProvisionStatus {
+  /** false when ORG_OS_ISOLATION is off on the server — nothing can be provisioned */
+  enabled: boolean;
+  slug: string;
+  osUser: string;
+  home: string;
+  provisioned: boolean;
+  sliceInstalled: boolean;
+  appCount: number;
+}
+
+export interface AdminOrganization extends OrgSummary {
+  createdAt: string;
+  _count: { members: number; domains: number; applications: number };
+  provisioning: ProvisionStatus | null;
+}
+
+export interface ProvisionLog {
+  id: string;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
+  message: string;
+  timestamp: string;
+  metadata: Record<string, unknown> | null;
+  user: { id: string; email: string; name: string | null } | null;
+}
+
+export const getAdminOrganizations = async (
+  params: ListParams
+): Promise<Paginated<AdminOrganization>> =>
+  unwrap(
+    await apiRequest<Paginated<AdminOrganization>>(`/admin/organizations${listQuery(params)}`),
+    'Failed to fetch organizations'
+  );
+
+export const provisionOrganization = async (
+  organizationId: string,
+  limits?: { diskQuota?: string; cpuQuota?: string; memoryMax?: string }
+) =>
+  unwrap(
+    await apiRequest(`/admin/organizations/${organizationId}/provision`, {
+      method: 'POST',
+      body: JSON.stringify(limits ?? {}),
+    }),
+    'Failed to provision organization'
+  );
+
+export const getProvisionLogs = async (params: ListParams): Promise<Paginated<ProvisionLog>> =>
+  unwrap(
+    await apiRequest<Paginated<ProvisionLog>>(`/admin/provision-logs${listQuery(params)}`),
+    'Failed to fetch provisioning logs'
+  );
