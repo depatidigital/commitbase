@@ -34,6 +34,9 @@ import { useDomains } from "@/hooks/useDomains";
 import { PageLayout } from "@/components/PageLayout";
 import {
   CreateApplicationData,
+  DetectedProject,
+  detectProject,
+  readDetectFiles,
   uploadApplicationSource,
 } from "@/lib/applications";
 import { useGitProjects } from "@/hooks/useGitProjects";
@@ -87,6 +90,9 @@ export default function AddApp() {
   const [step, setStep] = useState(1);
   const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [detected, setDetected] = useState<DetectedProject | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectError, setDetectError] = useState("");
   const [selectedGithubAccountId, setSelectedGithubAccountId] = useState("");
   const [selectedGitlabAccountId, setSelectedGitlabAccountId] = useState("");
   const [selectedGithubRepoId, setSelectedGithubRepoId] = useState("");
@@ -104,6 +110,56 @@ export default function AddApp() {
       }
     }
   }, [formData.name, formData.subdomain]);
+
+  // Auto-detect the framework from the source (Vercel-style) and prefill the
+  // build settings. Everything stays editable.
+  useEffect(() => {
+    const isGit = sourceMode === "git";
+    const canDetect = isGit
+      ? !!formData.repository.trim()
+      : uploadFiles.length > 0;
+    if (!canDetect) {
+      setDetected(null);
+      setDetectError("");
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setDetecting(true);
+      setDetectError("");
+      try {
+        const result = isGit
+          ? await detectProject({
+              repository: formData.repository.trim(),
+              branch: formData.branch || "main",
+            })
+          : await detectProject({ files: await readDetectFiles(uploadFiles) });
+        if (cancelled) return;
+        setDetected(result);
+        setFormData((prev) => ({
+          ...prev,
+          type:
+            result.type === "PYTHON" ? "NODEJS" : result.type,
+          buildCommand: result.buildCommand || "",
+          startCommand: result.startCommand || "",
+        }));
+      } catch (error) {
+        if (!cancelled)
+          setDetectError(
+            error instanceof Error ? error.message : "Detection failed",
+          );
+      } finally {
+        if (!cancelled) setDetecting(false);
+      }
+    }, isGit ? 800 : 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMode, formData.repository, formData.branch, uploadFiles]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,7 +235,7 @@ export default function AddApp() {
     {
       value: "NODEJS",
       label: "Node.js",
-      description: "Node app built and run in a container.",
+      description: "Node app built and run as a service on the server.",
       icon: Server,
     },
   ];
@@ -1121,7 +1177,52 @@ export default function AddApp() {
             </Card>
 
             {/* Uploaded sources deploy as-is, so there is nothing to build */}
-            {sourceMode === "git" && (
+            {(detecting || detected || detectError) && (
+              <Card className="bg-gradient-card border-border/50 shadow-elegant">
+                <CardContent className="pt-6">
+                  {detecting ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                      Inspecting the project…
+                    </p>
+                  ) : detectError ? (
+                    <p className="flex items-center gap-2 text-sm text-destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      {detectError} — fill the build settings by hand.
+                    </p>
+                  ) : detected ? (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-2 text-sm font-medium">
+                        <CheckCircle className="h-4 w-4 text-primary" />
+                        Detected: {detected.label}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{detected.packageManager}</Badge>
+                        {detected.nodeVersion && (
+                          <Badge variant="outline">Node {detected.nodeVersion}</Badge>
+                        )}
+                        <Badge variant="outline">{detected.type}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Install: <code>{detected.installCommand}</code>
+                        {detected.buildCommand && (
+                          <> · Build: <code>{detected.buildCommand}</code></>
+                        )}
+                        {detected.startCommand && (
+                          <> · Start: <code>{detected.startCommand}</code></>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        App type and commands below were filled from this. Change
+                        them if the guess is wrong.
+                      </p>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            )}
+
+            {!(sourceMode === "upload" && formData.type === "STATIC") && (
               <Card className="bg-gradient-card border-border/50 shadow-elegant">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -1162,11 +1263,17 @@ export default function AddApp() {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="port">Port</Label>
+                          <Label htmlFor="port">
+                            Port{" "}
+                            <span className="text-xs text-muted-foreground">
+                              (assigned automatically — set only if the app
+                              ignores $PORT)
+                            </span>
+                          </Label>
                           <Input
                             id="port"
                             type="number"
-                            placeholder="3000"
+                            placeholder="auto"
                             value={formData.port}
                             onChange={(e) =>
                               handleInputChange("port", e.target.value)

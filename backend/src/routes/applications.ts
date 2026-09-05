@@ -8,7 +8,10 @@ import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
-import { configureCaddyForStaticApplication } from '../services/caddyService';
+import { configureCaddyForStaticApplication, removeCaddySite } from '../services/caddyService';
+import * as systemd from '../services/systemdService';
+import { resolveAppDir } from '../lib/appPaths';
+import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { requireRole } from '../middleware/auth';
 import multer from 'multer';
@@ -78,6 +81,35 @@ router.post('/sync', authenticateToken, requireRole(['SUPERADMIN']), async (req:
 });
 
 // Get all applications for the authenticated user
+// Framework detection for the "new app" form. Either the files the browser
+// already read (upload flow) or a repository URL (git flow — shallow clone of
+// the detection files only).
+router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { repository, branch, files } = req.body || {};
+
+    if (files && typeof files === 'object') {
+      const input: DetectInput = {};
+      for (const name of DETECT_FILES) {
+        if (typeof files[name] === 'string') input[name] = String(files[name]).slice(0, 256 * 1024);
+      }
+      return res.json({ success: true, data: detectFromFiles(input) } as ApiResponse);
+    }
+
+    if (typeof repository === 'string' && repository.trim()) {
+      const detected = await detectFromRepo(repository.trim(), String(branch || 'main').trim() || 'main');
+      return res.json({ success: true, data: detected } as ApiResponse);
+    }
+
+    return res.status(400).json({ success: false, error: 'Send files or a repository' } as ApiResponse);
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      error: `Could not inspect the project: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    } as ApiResponse);
+  }
+});
+
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search, organizationId } = paging(req);
@@ -516,6 +548,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
         id,
         ...(await orgScope(req)),
       },
+      include: { organization: { select: { slug: true } } },
     });
 
     if (!application) {
@@ -525,10 +558,14 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
 
-    // Stop the application if it's running
-    if (application.status === 'RUNNING') {
-      // TODO: Implement proper process management
-      console.log(`Stopping application: ${application.name}`);
+    // Tear down what the deploy created: the unit, the site config, the files.
+    // Inventory-imported apps (runtime set) are not ours to remove from the box.
+    if (!application.runtime) {
+      await systemd.removeApplication(application).catch((error) => {
+        console.error(`Failed to remove unit for ${application.domain}:`, error);
+      });
+      await removeCaddySite(application.domain).catch(() => {});
+      await fs.rm(await resolveAppDir(application.id), { recursive: true, force: true }).catch(() => {});
     }
 
     // Delete application

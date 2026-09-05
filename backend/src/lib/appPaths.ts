@@ -44,6 +44,18 @@ export function appDirFor(applicationId: string, orgSlug?: string | null): strin
 
 export const sourcesDirFor = (appDir: string) => path.join(appDir, 'sources');
 export const logsDirFor = (appDir: string) => path.join(appDir, 'logs');
+/**
+ * Runtime apps build into an immutable copy per deploy and run from the
+ * `current` symlink, so a build never touches the tree that is serving:
+ *
+ *   apps/<id>/sources              git checkout or upload — the input
+ *   apps/<id>/releases/<stamp>     copy of sources, installed and built
+ *   apps/<id>/current -> releases/<stamp>
+ *   apps/<id>/shared/next-cache    .next/cache, linked into every release
+ */
+export const releasesDirFor = (appDir: string) => path.join(appDir, 'releases');
+export const currentDirFor = (appDir: string) => path.join(appDir, 'current');
+export const sharedDirFor = (appDir: string) => path.join(appDir, 'shared');
 
 export async function orgSlugForApp(applicationId: string): Promise<string | null> {
   const app = await prisma.application.findUnique({

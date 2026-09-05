@@ -186,6 +186,7 @@ model Release {
   ports         Json?
   health        String?
   logsRef       String?
+  path          String?       // releases/<stamp> directory this release was built into
 
   @@map("releases")
 

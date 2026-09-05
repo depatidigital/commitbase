@@ -121,6 +121,53 @@ export const createApplication = async (data: CreateApplicationData): Promise<Ap
   throw new Error(response.error || 'Failed to create application');
 };
 
+export interface DetectedProject {
+  type: 'NODEJS' | 'STATIC' | 'PHP' | 'PYTHON';
+  framework: string | null;
+  label: string;
+  packageManager: string;
+  installCommand: string;
+  buildCommand: string | null;
+  startCommand: string | null;
+  outputDir: string | null;
+  port: number | null;
+  nodeVersion: string | null;
+}
+
+/** Files the backend reads to recognise a project. Must match DETECT_FILES there. */
+export const DETECT_FILES = [
+  'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock',
+  '.nvmrc', '.node-version', 'next.config.js', 'next.config.mjs', 'next.config.ts',
+  'requirements.txt', 'composer.json', 'index.php', 'index.html',
+];
+
+/** Detect from a git URL, or from the files the browser already holds. */
+export const detectProject = async (
+  input: { repository: string; branch?: string } | { files: Record<string, string> }
+): Promise<DetectedProject> => {
+  const response = await apiRequest<DetectedProject>('/applications/detect', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || 'Could not inspect the project');
+};
+
+/** Pull the detection files out of a picked folder (root level only). */
+export const readDetectFiles = async (files: File[]): Promise<Record<string, string>> => {
+  const out: Record<string, string> = {};
+  for (const file of files) {
+    const rel = ((file as any).webkitRelativePath as string) || file.name;
+    const parts = rel.split('/');
+    // folder picks are "<folder>/<name>"; single files are just "<name>"
+    const name = parts.length === 2 ? parts[1] : parts.length === 1 ? parts[0] : null;
+    if (!name || !DETECT_FILES.includes(name)) continue;
+    // lockfiles: presence is all that matters
+    out[name] = /lock/.test(name) ? '' : await file.slice(0, 256 * 1024).text();
+  }
+  return out;
+};
+
 /**
  * Ship a picked file or folder as the app's sources. FormData, so it cannot go
  * through apiRequest — that one forces a JSON content type.

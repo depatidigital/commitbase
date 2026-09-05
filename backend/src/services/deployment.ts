@@ -7,8 +7,18 @@ import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication } from './caddyService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
-import { resolveAppDir, resolveAppDirByDomain } from '../lib/appPaths';
+import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
+import { detectProject } from '../lib/projectDetect';
 import * as systemd from './systemdService';
+import * as http from 'http';
+import * as net from 'net';
+
+// Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
+// it on localhost. Apps must listen on $PORT — the health check enforces it.
+const PORT_POOL_START = Number(process.env.APP_PORT_POOL_START || 20000);
+const PORT_POOL_END = Number(process.env.APP_PORT_POOL_END || 29999);
+const HEALTH_TIMEOUT_MS = Number(process.env.APP_HEALTH_TIMEOUT_MS || 60000);
+const KEEP_RELEASES = 3;
 
 const execAsync = promisify(exec);
 
@@ -23,6 +33,7 @@ export interface DeploymentConfig {
 export interface BuildResult {
   success: boolean;
   error?: string;
+  releaseDir?: string;
 }
 
 export interface StartResult {
@@ -112,95 +123,154 @@ export class DeploymentService {
     }
   }
 
-  /**
-   * Find an available port starting from the requested port
-   */
-  private async findAvailablePort(requestedPort: number): Promise<number> {
-    const net = require('net');
-
-    const isPortAvailable = (port: number): Promise<boolean> => {
-      return new Promise((resolve) => {
-        const server = net.createServer();
-        server.listen(port, () => {
-          server.once('close', () => {
-            resolve(true);
-          });
-          server.close();
-        });
-        server.on('error', () => {
-          resolve(false);
-        });
-      });
-    };
-
-    if (await isPortAvailable(requestedPort)) {
-      return requestedPort;
-    }
-
-    let port = requestedPort + 1;
-    const maxAttempts = 100; // Prevent infinite loop
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (await isPortAvailable(port)) {
-        console.log(`Port ${requestedPort} is busy, using port ${port} instead`);
-        return port;
-      }
-      port++;
-    }
-
-    throw new Error(`No available ports found starting from ${requestedPort}`);
+  private isPortFree(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const server = net.createServer();
+      server.once('error', () => resolve(false));
+      server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)));
+    });
   }
 
   /**
-   * Get default port for application type
+   * Give the app a port from the pool, once. Taken ports come from the DB
+   * (including imported inventory) and the socket check catches anything else
+   * on the box. A port already assigned is kept — the running release holds
+   * it, which is not a conflict.
    */
+  private async allocatePort(application: Application): Promise<number> {
+    if (application.port) return application.port;
+
+    const rows = await prisma.application.findMany({
+      where: { port: { not: null } },
+      select: { port: true },
+    });
+    const taken = new Set(rows.map((r) => r.port as number));
+
+    for (let port = PORT_POOL_START; port <= PORT_POOL_END; port++) {
+      if (taken.has(port)) continue;
+      if (!(await this.isPortFree(port))) continue;
+      await prisma.application.update({ where: { id: application.id }, data: { port } });
+      application.port = port as any;
+      return port;
+    }
+    throw new Error(`No free port left in ${PORT_POOL_START}-${PORT_POOL_END}`);
+  }
+
   private getDefaultPort(type: string): number {
     return systemd.defaultPort(type);
   }
 
+  /** Poll until something answers HTTP on the port. Any response counts — the app is up. */
+  private waitForHealthy(port: number, timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    const probe = () =>
+      new Promise<boolean>((resolve) => {
+        const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 3000 }, (res) => {
+          res.resume();
+          resolve(true);
+        });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+      });
+    return new Promise((resolve) => {
+      const tick = async () => {
+        if (await probe()) return resolve(true);
+        if (Date.now() > deadline) return resolve(false);
+        setTimeout(tick, 1000);
+      };
+      tick();
+    });
+  }
+
+  /** Point `current` at a release. Symlink + rename, so the switch is atomic. */
+  private async activateRelease(appDir: string, releaseDir: string): Promise<string | null> {
+    const current = currentDirFor(appDir);
+    const previous = await fs.readlink(current).catch(() => null);
+    const tmp = current + '.tmp';
+    await fs.rm(tmp, { force: true });
+    await fs.symlink(releaseDir, tmp);
+    await fs.rename(tmp, current);
+    return previous;
+  }
+
+  private async pruneReleases(appDir: string): Promise<void> {
+    const dir = releasesDirFor(appDir);
+    const keep = await fs.readlink(currentDirFor(appDir)).catch(() => null);
+    const names = (await fs.readdir(dir).catch(() => [] as string[])).sort();
+    for (const name of names.slice(0, Math.max(0, names.length - KEEP_RELEASES))) {
+      const full = path.join(dir, name);
+      if (full === keep) continue;
+      await fs.rm(full, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   /**
-   * Build in place: dependencies plus the app's own build command, run in the
-   * sources tree. The tree is handed to the tenant user by cb-app-unit install,
-   * which runs at start.
+   * Build a fresh release: copy sources/ into releases/<stamp>, install and
+   * build there. The tree that is serving is never touched, and rollback is a
+   * symlink away. The tree is handed to the tenant user by cb-app-unit install.
    */
-  async runBuild(appDir: string, application: Application, deployment: Deployment): Promise<BuildResult> {
+  async runBuild(
+    appDir: string,
+    application: Application,
+    deployment: Deployment,
+    envVars: Record<string, string> = {}
+  ): Promise<BuildResult> {
     const sourcesDir = path.join(appDir, 'sources');
     const logsDir = path.join(appDir, 'logs');
     await fs.mkdir(logsDir, { recursive: true });
     const buildLogPath = path.join(logsDir, 'build.log');
+    const log = (line: string) => fs.appendFile(buildLogPath, line + NL);
 
     try {
-      const requestedPort = application.port || this.getDefaultPort(application.type);
-      const availablePort = await this.findAvailablePort(requestedPort);
-      if (availablePort !== requestedPort) {
-        await prisma.application.update({
-          where: { id: application.id },
-          data: { port: availablePort },
-        });
-        application.port = availablePort as any;
-      }
+      await this.allocatePort(application);
 
       await fs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
 
-      const steps: string[] = [];
-      const has = (f: string) => fs.access(path.join(sourcesDir, f)).then(() => true).catch(() => false);
+      const detected = await detectProject(sourcesDir);
+      await log(`Detected: ${detected.label} (${detected.packageManager})`);
 
-      if (await has('package.json')) steps.push('npm install --no-audit --no-fund');
-      if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
-      if (application.buildCommand) steps.push(application.buildCommand);
+      const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+      const releaseDir = path.join(releasesDirFor(appDir), stamp);
+      await fs.mkdir(releaseDir, { recursive: true });
+      // ponytail: full copy per release, tar excludes the junk. Hardlink node_modules from the previous release if installs get slow.
+      await execAsync(
+        `tar -C "${sourcesDir}" --exclude=./node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "${releaseDir}" -xf -`,
+        { timeout: 300000 }
+      );
 
-      for (const step of steps) {
-        await fs.appendFile(buildLogPath, NL + `$ ${step}` + NL);
-        const { stdout, stderr } = await execAsync(step, { cwd: sourcesDir, timeout: 900000 });
-        await fs.appendFile(buildLogPath, stdout + (stderr ? NL + stderr : '') + NL);
+      if (detected.framework === 'nextjs') {
+        // Next's build cache survives across releases — big win on rebuilds.
+        const cache = path.join(sharedDirFor(appDir), 'next-cache');
+        await fs.mkdir(cache, { recursive: true });
+        await fs.mkdir(path.join(releaseDir, '.next'), { recursive: true });
+        await fs.symlink(cache, path.join(releaseDir, '.next', 'cache'));
       }
 
-      await fs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] BUILD COMPLETED` + NL);
+      const has = (f: string) => fs.access(path.join(releaseDir, f)).then(() => true).catch(() => false);
+      const steps: string[] = [];
+      if (await has('package.json')) steps.push(detected.installCommand);
+      if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
+      const buildCommand = application.buildCommand || detected.buildCommand;
+      if (buildCommand) steps.push(buildCommand);
+
+      // NEXT_PUBLIC_* and friends are baked in at build time, so the app's env
+      // must be present here. NODE_ENV stays unset: production would skip the
+      // devDependencies most build tools live in.
+      const env = { ...process.env, ...envVars, PORT: String(application.port), CI: '1', NEXT_TELEMETRY_DISABLED: '1' };
+      delete (env as any).NODE_ENV;
+
+      for (const step of steps) {
+        await log(NL + `$ ${step}`);
+        const { stdout, stderr } = await execAsync(step, { cwd: releaseDir, timeout: 900000, env, maxBuffer: 64 * 1024 * 1024 });
+        await log(stdout + (stderr ? NL + stderr : ''));
+      }
+
+      await log(NL + `[${new Date().toISOString()}] BUILD COMPLETED`);
       await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
-      return { success: true };
+      return { success: true, releaseDir };
     } catch (error: any) {
       const message = error.stderr || error.message || String(error);
-      await fs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message + NL);
+      await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message);
       await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
       return { success: false, error: message };
     }
@@ -223,7 +293,19 @@ export class DeploymentService {
 
       await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] DEPLOYMENT STARTED` + NL);
 
-      const started = await systemd.startApplication(application);
+      let started = await systemd.startApplication(application);
+
+      if (started && systemd.needsUnit(application.type)) {
+        const port = application.port || this.getDefaultPort(application.type);
+        await fs.appendFile(deployLogPath, `Waiting for the app to answer on 127.0.0.1:${port}` + NL);
+        started = await this.waitForHealthy(port);
+        if (!started) {
+          await fs.appendFile(
+            deployLogPath,
+            `Nothing answered on port ${port} within ${HEALTH_TIMEOUT_MS / 1000}s. The app must listen on $PORT (${port}). Check logs/error.log.` + NL
+          );
+        }
+      }
 
       await fs.appendFile(
         deployLogPath,
@@ -257,6 +339,12 @@ export class DeploymentService {
     const deployLogPath = path.join(appDir, 'logs', 'deploy.log');
     await fs.mkdir(path.join(appDir, 'logs'), { recursive: true });
     await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] RELEASE STARTED: ${release.id}` + NL);
+
+    if (release.path) {
+      const exists = await fs.stat(release.path).then((st) => st.isDirectory()).catch(() => false);
+      if (!exists) throw new Error(`Release directory is gone: ${release.path}`);
+      await this.activateRelease(appDir, release.path);
+    }
 
     return this.startApplication(application.domain);
   }
@@ -496,7 +584,7 @@ export class DeploymentService {
         }
       }
 
-      const buildResult = await this.runBuild(appDir, application, deployment);
+      const buildResult = await this.runBuild(appDir, application, deployment, envVars);
 
       // Get build logs
       let buildLogs = '';
@@ -534,7 +622,16 @@ export class DeploymentService {
         },
       });
 
-      const startResult = await this.startApplication(application.domain);
+      const previousRelease = await this.activateRelease(appDir, buildResult.releaseDir!);
+      let startResult = await this.startApplication(application.domain);
+
+      if (!startResult && previousRelease) {
+        // Put the last good release back so the site stays up.
+        await fs.appendFile(deployLogPath, `Rolling back to ${previousRelease}` + NL);
+        await this.activateRelease(appDir, previousRelease);
+        await this.startApplication(application.domain).catch(() => false);
+        await fs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
+      }
 
       let deployLogs = '';
       try {
@@ -581,10 +678,13 @@ export class DeploymentService {
           commitSha: commitSha ?? null,
           status: 'READY',
           ports: { port },
-          health: 'UNKNOWN',
+          health: 'HEALTHY',
           logsRef: logsDir,
+          path: buildResult.releaseDir ?? null,
         },
       });
+
+      await this.pruneReleases(appDir).catch(() => {});
 
       await prisma.application.update({
         where: { id: application.id },

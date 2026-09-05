@@ -1,7 +1,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Application } from '@prisma/client';
-import { appDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
+import { appDirFor, sourcesDirFor, logsDirFor, currentDirFor } from '../lib/appPaths';
+import { detectProject } from '../lib/projectDetect';
 import { appUnit, OS_ISOLATION_ENABLED } from './orgProvisionService';
 
 /**
@@ -53,8 +54,19 @@ function shellQuote(value: string): string {
 export async function writeRunScript(application: Application, appDir: string): Promise<string> {
   const runPath = path.join(appDir, 'run.sh');
   const port = application.port || defaultPort(application.type);
-  const startCommand =
-    application.startCommand || DEFAULT_START_COMMANDS[application.type] || 'npm start';
+
+  // Run from the built release when there is one; apps deployed before the
+  // releases layout existed still run from sources/.
+  const currentDir = currentDirFor(appDir);
+  const runDir = (await fs.stat(currentDir).then((s) => s.isDirectory()).catch(() => false))
+    ? currentDir
+    : sourcesDirFor(appDir);
+
+  let startCommand: string | null = application.startCommand;
+  if (!startCommand && application.type === 'NODEJS') {
+    startCommand = (await detectProject(runDir)).startCommand;
+  }
+  startCommand = startCommand || DEFAULT_START_COMMANDS[application.type] || 'npm start';
 
   const envVars = (application.envVars || {}) as Record<string, string>;
   const exports = Object.entries(envVars)
@@ -71,7 +83,7 @@ export async function writeRunScript(application: Application, appDir: string): 
     `export HOST=127.0.0.1`,
     ...exports,
     '',
-    `cd ${shellQuote(sourcesDirFor(appDir))}`,
+    `cd ${shellQuote(runDir)}`,
     `exec ${startCommand}`,
     '',
   ].join('\n');

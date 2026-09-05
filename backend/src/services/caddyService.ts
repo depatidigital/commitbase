@@ -164,7 +164,8 @@ function buildRoute(domain: string, target: Target): any {
   return route;
 }
 
-async function upsertRoute(domain: string, target: Target): Promise<void> {
+/** Rewrite the route list for one hostname: drop what is there, add `target` if given. */
+async function setRoute(domain: string, target: Target | null): Promise<void> {
   const existing = await fetchCaddyConfig();
   if (existing === null) {
     return;
@@ -188,8 +189,7 @@ async function upsertRoute(domain: string, target: Target): Promise<void> {
     return !hosts.includes(domain);
   });
 
-  const newRoute = buildRoute(domain, target);
-  filteredRoutes.push(newRoute);
+  if (target) filteredRoutes.push(buildRoute(domain, target));
   server.routes = filteredRoutes;
   servers[serverName] = server;
   config.apps.http.servers = servers;
@@ -208,7 +208,7 @@ export async function configureCaddyForStaticApplication(
 
   // R2-backed sites are proxied; older ones still redirect to their S3 URL
   if (bucketOrigin) {
-    await upsertRoute(domain, {
+    await setRoute(domain, {
       type: 'bucket',
       origin: bucketOrigin,
     });
@@ -220,7 +220,7 @@ export async function configureCaddyForStaticApplication(
     return;
   }
 
-  await upsertRoute(domain, {
+  await setRoute(domain, {
     type: 'static',
     redirectUrl,
   });
@@ -235,9 +235,16 @@ export async function configureCaddyForRuntimeApplication(domain: string, hostPo
     return;
   }
 
-  await upsertRoute(domain, {
+  await setRoute(domain, {
     type: 'runtime',
     upstreamPort: hostPort,
   });
 }
 
+/** Drop the hostname's route when the application is deleted. */
+export async function removeCaddySite(domain: string): Promise<void> {
+  if (!CADDY_API_URL) {
+    return;
+  }
+  await setRoute(domain, null);
+}

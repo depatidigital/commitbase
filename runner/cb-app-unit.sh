@@ -57,7 +57,8 @@ Type=simple
 User=$OS_USER
 Group=$OS_USER
 Slice=cb-$SLUG.slice
-WorkingDirectory=$APP_DIR/sources
+# run.sh cd's into current/ (or sources/ for pre-release apps).
+WorkingDirectory=$APP_DIR
 EnvironmentFile=-$APP_DIR/.env.runtime
 ExecStart=/bin/bash $APP_DIR/run.sh
 Restart=always

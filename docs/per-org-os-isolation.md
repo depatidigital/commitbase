@@ -10,7 +10,10 @@ Docker is not used at all — apps run as systemd units.
 
 ```
 /home/cb-<slug>                          cb-<slug>:commitbase  2770
-/home/cb-<slug>/apps/<applicationId>/sources
+/home/cb-<slug>/apps/<applicationId>/sources               git checkout or upload (input)
+/home/cb-<slug>/apps/<applicationId>/releases/<stamp>      copy of sources, installed + built
+/home/cb-<slug>/apps/<applicationId>/current -> releases/<stamp>
+/home/cb-<slug>/apps/<applicationId>/shared/next-cache     .next/cache shared across releases
 /home/cb-<slug>/apps/<applicationId>/logs/{out,error,build,deploy}.log
 /home/cb-<slug>/apps/<applicationId>/run.sh          generated per deploy
 /etc/systemd/system/cb-<slug>.slice                  CPU + memory ceiling
@@ -152,3 +155,30 @@ There is no second runtime to fall back to. Set `ORG_OS_ISOLATION="false"` only
 to stop provisioning new organizations — running apps keep their units. The OS
 users and slices are inert once nothing references them; remove one with
 `userdel -r cb-<slug>` plus its slice and pool files.
+
+## Deploy flow for runtime apps (Node, Next.js, …)
+
+1. `sources/` is synced (git) or replaced (upload).
+2. The framework is detected from `package.json`, the lockfile and
+   `next.config.*` (`backend/src/lib/projectDetect.ts`). Empty build/start
+   commands fall back to the detected ones.
+3. A new `releases/<stamp>` is copied from `sources/` (without `node_modules`,
+   `.next`, `.git`) and installed + built there, with the app's env vars
+   present so `NEXT_PUBLIC_*` bakes in. The running release is never touched.
+4. `current` is switched to the new release (atomic rename) and the unit
+   restarted. The deploy waits for an HTTP answer on `127.0.0.1:$PORT`.
+5. No answer within `APP_HEALTH_TIMEOUT_MS` → `current` goes back to the
+   previous release, it is restarted, and the deployment is marked FAILED.
+6. The last 3 releases are kept; "start release" on `/applications/:id`
+   switches `current` to any of them.
+
+Ports come from a pool (`APP_PORT_POOL_START`..`APP_PORT_POOL_END`, default
+20000-29999), one per app for life, bound to localhost and proxied by Caddy.
+Apps must listen on `$PORT`; the health check is what enforces it.
+
+After pulling this change, reinstall the runner script — the unit's
+`WorkingDirectory` changed:
+
+```bash
+sudo install -m 0755 runner/cb-app-unit.sh /usr/local/bin/cb-app-unit
+```
