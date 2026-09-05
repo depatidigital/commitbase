@@ -1,5 +1,7 @@
 import assert from 'assert';
-import { detectFromFiles } from './projectDetect';
+import { detectFromFiles, nvmPreamble } from './projectDetect';
+
+const NL = String.fromCharCode(10);
 
 // npx tsx src/lib/projectDetect.check.ts
 
@@ -56,5 +58,13 @@ const html = detectFromFiles({ 'index.html': '<html>' });
 assert.strictEqual(html.type, 'STATIC');
 
 assert.strictEqual(detectFromFiles({ 'package.json': '{not json' }).framework, 'node');
+
+const pre = nvmPreamble('20.11', true).join(NL);
+assert.ok(pre.includes("nvm install '20.11'"));
+assert.ok(pre.includes("nvm use '20.11'"));
+assert.ok(!nvmPreamble('20.11', false).join(NL).includes('nvm install'));
+assert.ok(nvmPreamble('>=18', true).join(NL).includes('nvm use default'));
+assert.ok(nvmPreamble(null, false).join(NL).includes('nvm use default'));
+assert.ok(nvmPreamble('lts/*', false).join(NL).includes("nvm use 'lts/*'"));
 
 console.log('projectDetect: ok');

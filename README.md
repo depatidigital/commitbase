@@ -11,7 +11,7 @@ CommitBase is an application management platform with a frontend and backend arc
 
 ### Prerequisites
 
-- Node.js (v16 or higher)
+- Node.js (current LTS, 22 or newer)
 - Yarn
 - PM2 (installed globally or through the project dependencies)
 

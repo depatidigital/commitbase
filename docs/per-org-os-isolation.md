@@ -116,12 +116,38 @@ Set per install in the backend env, applied per organization:
 The slice is org-wide, not per app: all of one tenant's apps share the ceiling,
 so a tenant cannot buy more CPU by splitting one app into five.
 
-To change limits for a single org, re-run the script with explicit arguments —
-it is idempotent:
+### Different limits per organization
+
+Every limit is per OS user / per slice, so each org can have its own. What
+exists today:
+
+| Layer | Per-org values | Notes |
+|---|---|---|
+| OS (`cb-provision-org`) | yes | Arguments `<slug> <disk> <cpu> <memory>` |
+| API | yes | `POST /api/admin/organizations/:id/provision` with `{ diskQuota, cpuQuota, memoryMax }` in the body |
+| Admin UI | **no** | The *Re-provision* button sends no body, so it applies the env defaults |
+| Database | **no** | Nothing is stored on `Organization`; a later `provision:orgs` run puts every org back on the env defaults |
+
+Until the UI and the columns exist, set a custom limit through the API:
+
+```bash
+curl -X POST https://panel.example.com/api/admin/organizations/<orgId>/provision   -H "Authorization: Bearer <admin-token>" -H "Content-Type: application/json"   -d '{"diskQuota":"50G","cpuQuota":"100%","memoryMax":"2G"}'
+```
+
+or on the box, which is the same script:
 
 ```bash
 sudo cb-provision-org acme 50G 100% 2G
 ```
+
+Formats: disk `20G` / `500M`, CPU `50%` (`200%` = two cores), memory `1G`.
+Both paths are idempotent and take effect immediately — the slice is updated
+live and quota with `setquota`, no app restart needed.
+
+Keep a note of which orgs have custom values: clicking *Re-provision* in
+`/admin` or running `npm run provision:orgs` resets them to the env defaults.
+Making the values stick (three nullable columns on `Organization`, read at
+provisioning time, editable in the Re-provision dialog) is the pending piece.
 
 ## PHP
 
@@ -186,6 +212,11 @@ users and slices are inert once nothing references them; remove one with
    previous release, it is restarted, and the deployment is marked FAILED.
 6. The last 3 releases are kept; "start release" on `/applications/:id`
    switches `current` to any of them.
+
+Node version: if the app has `.nvmrc`, `.node-version` or `engines.node` with
+a concrete version, `build.sh` runs `nvm install` for it and `run.sh` selects
+it — both read the system-wide nvm in `NVM_DIR` (`/opt/nvm`). No pin, or no
+nvm on the box, means the default `node` on PATH.
 
 Ports come from a pool (`APP_PORT_POOL_START`..`APP_PORT_POOL_END`, default
 20000-29999), one per app for life, bound to localhost and proxied by Caddy.

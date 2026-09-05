@@ -270,3 +270,39 @@ export async function detectFromRepo(repository: string, branch = 'main'): Promi
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+/**
+ * Bash lines that put the right Node on PATH, for the generated run.sh and
+ * build.sh. Sources the system-wide nvm (NVM_DIR, default /opt/nvm) when it is
+ * there and falls back to whatever `node` is on PATH when it is not — so a
+ * box without nvm still works, on its single Node.
+ *
+ * Only an exact version (`20`, `20.11`, `v22.4.1`) or an nvm alias
+ * (`lts/*`, `lts/iron`) is honoured. Ranges such as `>=18` from engines.node
+ * are ignored: nvm cannot install a range, and the default Node is the
+ * sensible answer for them anyway.
+ *
+ * `install` is for build.sh, which may fetch a missing version as the backend
+ * user. run.sh runs as the tenant and only selects.
+ */
+export function nvmPreamble(version: string | null, install: boolean): string[] {
+  const pinned = version && /^(v?\d+(\.\d+){0,2}|lts\/[a-z*]+)$/.test(version) ? version.replace(/^v/, '') : null;
+  const dir = (process.env.NVM_DIR || '/opt/nvm').replace(/'/g, '');
+  const lines = [
+    `export NVM_DIR='${dir}'`,
+    // nvm.sh is not clean under `set -u`; relax it for the sourcing only.
+    'if [ -s "$NVM_DIR/nvm.sh" ]; then',
+    '  set +u',
+    '  . "$NVM_DIR/nvm.sh"',
+  ];
+  if (pinned) {
+    if (install) {
+      lines.push(`  nvm install '${pinned}' >/dev/null 2>&1 || echo "nvm: could not install node ${pinned}, using default" >&2`);
+    }
+    lines.push(`  nvm use '${pinned}' >/dev/null 2>&1 || nvm use default >/dev/null 2>&1 || true`);
+  } else {
+    lines.push('  nvm use default >/dev/null 2>&1 || true');
+  }
+  lines.push('  set -u', 'fi');
+  return lines;
+}
