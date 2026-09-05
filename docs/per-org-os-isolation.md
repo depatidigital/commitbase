@@ -136,6 +136,20 @@ proc_terminate, pcntl_exec, dl, symlink, link
 `symlink` and `link` are on that list deliberately — without them a tenant can
 link a file outside `open_basedir` and read it through the link.
 
+A PHP deploy builds a release like a Node app (`composer install`, then the
+asset build if there is a `package.json`), writes the platform env vars into
+the release's `.env` (Laravel convention; repo keys are kept unless
+overridden), hands the tree to the tenant with `cb-app-unit chown`, and points
+Caddy at `current/<docroot>` — `public/` for Laravel and Symfony, the root
+otherwise — with `*.php` going to the org's FPM socket.
+
+Caddy has to reach both the socket (`0660 cb-<slug>:commitbase`) and the
+tenant's files (`2770`), so the `caddy` user must be in the backend's group:
+
+```bash
+sudo usermod -aG commitbase caddy && sudo systemctl restart caddy
+```
+
 Static sites also get no unit; they are served from R2 through Caddy.
 
 ## Security notes

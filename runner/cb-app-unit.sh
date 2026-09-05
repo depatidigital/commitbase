@@ -7,6 +7,7 @@
 #
 #   cb-app-unit install <org-slug> <app-id>
 #   cb-app-unit start|stop|restart|remove|status <org-slug> <app-id>
+#   cb-app-unit chown <org-slug> <app-id>     ownership only — PHP apps have no unit
 #
 # The unit runs "/bin/bash <app-dir>/run.sh". The backend writes run.sh and
 # .env.runtime into the app directory — nothing from the database is ever
@@ -21,7 +22,7 @@ APP_ID="${3-}"
 CB_GROUP="${CB_GROUP:-commitbase}"
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
-[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
+[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-app-unit: must run as root" >&2; exit 2; }
@@ -34,18 +35,26 @@ UNIT_PATH="/etc/systemd/system/$UNIT"
 
 id -u "$OS_USER" >/dev/null 2>&1 || { echo "cb-app-unit: org not provisioned: $OS_USER" >&2; exit 3; }
 
-case "$ACTION" in
-  install)
-    [ -d "$APP_DIR" ] || { echo "cb-app-unit: app directory missing: $APP_DIR" >&2; exit 3; }
-    [ -f "$APP_DIR/run.sh" ] || { echo "cb-app-unit: $APP_DIR/run.sh missing — the backend writes it" >&2; exit 3; }
+hand_to_tenant() {
+  [ -d "$APP_DIR" ] || { echo "cb-app-unit: app directory missing: $APP_DIR" >&2; exit 3; }
+  mkdir -p "$APP_DIR/logs"
+  # The backend builds into this tree as its own user; hand it to the tenant
+  # so the app can write at runtime, keeping the backend's group access.
+  # Re-run after every deploy — new files land owned by the backend.
+  chown -R "$OS_USER:$CB_GROUP" "$APP_DIR"
+  chmod -R g+rwX "$APP_DIR"
+  find "$APP_DIR" -type d -exec chmod g+s {} +
+}
 
-    mkdir -p "$APP_DIR/logs"
-    # The backend builds into this tree as its own user; hand it to the tenant
-    # so the app can write at runtime, keeping the backend's group access.
-    # Re-run install after every deploy — new files land owned by the backend.
-    chown -R "$OS_USER:$CB_GROUP" "$APP_DIR"
-    chmod -R g+rwX "$APP_DIR"
-    find "$APP_DIR" -type d -exec chmod g+s {} +
+case "$ACTION" in
+  chown)
+    hand_to_tenant
+    echo "chowned $APP_DIR"
+    ;;
+
+  install)
+    [ -f "$APP_DIR/run.sh" ] || { echo "cb-app-unit: $APP_DIR/run.sh missing — the backend writes it" >&2; exit 3; }
+    hand_to_tenant
 
     cat > "$UNIT_PATH" <<UNIT_EOF
 [Unit]

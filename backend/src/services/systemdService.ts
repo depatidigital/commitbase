@@ -93,7 +93,7 @@ export async function writeRunScript(application: Application, appDir: string): 
   return runPath;
 }
 
-interface AppWithOrg extends Application {
+export interface AppWithOrg extends Application {
   organization?: { slug: string } | null;
 }
 

@@ -38,6 +38,19 @@ assert.strictEqual(express.startCommand, 'node index.js');
 
 const php = detectFromFiles({ 'index.php': '<?php' });
 assert.strictEqual(php.type, 'PHP');
+assert.strictEqual(php.installCommand, '');
+assert.strictEqual(php.outputDir, '.');
+
+const laravel = detectFromFiles({
+  'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }),
+  'package.json': JSON.stringify({ devDependencies: { vite: '5' }, scripts: { build: 'vite build' } }),
+  'package-lock.json': '',
+});
+assert.strictEqual(laravel.type, 'PHP');
+assert.strictEqual(laravel.framework, 'laravel');
+assert.strictEqual(laravel.outputDir, 'public');
+assert.ok(laravel.installCommand.startsWith('composer install'));
+assert.strictEqual(laravel.buildCommand, 'npm ci --no-audit --no-fund && npm run build');
 
 const html = detectFromFiles({ 'index.html': '<html>' });
 assert.strictEqual(html.type, 'STATIC');

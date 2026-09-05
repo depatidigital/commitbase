@@ -68,7 +68,7 @@ export async function provisionOrg(
   return { provisioned: true, osUser: `cb-${slug}`, home: orgHome(slug), output };
 }
 
-export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status';
+export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown';
 
 export async function appUnit(action: AppUnitAction, slug: string, applicationId: string): Promise<string> {
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');

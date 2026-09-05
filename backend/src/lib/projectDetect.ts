@@ -23,7 +23,7 @@ export interface DetectedProject {
   installCommand: string;
   buildCommand: string | null;
   startCommand: string | null;
-  outputDir: string | null; // static sites only
+  outputDir: string | null; // static sites: build output; PHP: document root
   port: number | null;
   nodeVersion: string | null;
 }
@@ -101,10 +101,42 @@ function startScript(pm: PackageManager): string {
 export function detectFromFiles(files: DetectInput): DetectedProject {
   const nodeVersion = (files['.nvmrc'] || files['.node-version'] || '').trim().replace(/^v/, '') || null;
 
-  if (files['package.json'] === undefined) {
-    if (files['composer.json'] !== undefined || files['index.php'] !== undefined) {
-      return base({ type: 'PHP', framework: 'php', label: 'PHP' });
+  // PHP first: Laravel ships a package.json for its assets, which must not
+  // make it look like a Node app.
+  if (files['composer.json'] !== undefined || files['index.php'] !== undefined) {
+    let composer: any = {};
+    try {
+      composer = JSON.parse(files['composer.json'] || '{}');
+    } catch {
+      composer = {};
     }
+    const require = { ...(composer.require || {}), ...(composer['require-dev'] || {}) };
+    const laravel = 'laravel/framework' in require;
+    const symfony = 'symfony/framework-bundle' in require;
+
+    let pkg: any = {};
+    try {
+      pkg = JSON.parse(files['package.json'] || '{}');
+    } catch {
+      pkg = {};
+    }
+    const pm = packageManagerOf(files, pkg);
+    const assets = pkg.scripts?.build ? `${installCommandOf(pm, files)} && ${runScript(pm, 'build')}` : null;
+
+    return base({
+      type: 'PHP',
+      framework: laravel ? 'laravel' : symfony ? 'symfony' : 'php',
+      label: laravel ? 'Laravel' : symfony ? 'Symfony' : 'PHP',
+      packageManager: pm,
+      installCommand:
+        files['composer.json'] !== undefined ? 'composer install --no-dev --optimize-autoloader --no-interaction --no-progress' : '',
+      buildCommand: assets,
+      outputDir: laravel || symfony ? 'public' : '.',
+      nodeVersion,
+    });
+  }
+
+  if (files['package.json'] === undefined) {
     if (files['requirements.txt'] !== undefined) {
       return base({ type: 'PYTHON', framework: 'python', label: 'Python', startCommand: 'python app.py', port: 8000 });
     }

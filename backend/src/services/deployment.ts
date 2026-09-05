@@ -5,7 +5,9 @@ import * as path from 'path';
 import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
-import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication } from './caddyService';
+import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication } from './caddyService';
+import { appUnit } from './orgProvisionService';
+import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
 import { detectProject } from '../lib/projectDetect';
@@ -34,6 +36,7 @@ export interface BuildResult {
   success: boolean;
   error?: string;
   releaseDir?: string;
+  docroot?: string; // PHP: document root relative to the release
 }
 
 export interface StartResult {
@@ -222,7 +225,7 @@ export class DeploymentService {
     const log = (line: string) => fs.appendFile(buildLogPath, line + NL);
 
     try {
-      await this.allocatePort(application);
+      if (systemd.needsUnit(application.type)) await this.allocatePort(application);
 
       await fs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
 
@@ -248,7 +251,32 @@ export class DeploymentService {
 
       const has = (f: string) => fs.access(path.join(releaseDir, f)).then(() => true).catch(() => false);
       const steps: string[] = [];
-      if (await has('package.json')) steps.push(detected.installCommand);
+
+      if (detected.type === 'PHP') {
+        if (detected.installCommand) {
+          if (await this.reuseInstalled(appDir, releaseDir, 'composer.lock', 'vendor')) {
+            await log('vendor: composer.lock unchanged, hardlinked from the previous release');
+          } else {
+            steps.push(detected.installCommand);
+          }
+        }
+        // Laravel and friends read .env from the app root. The platform's env
+        // vars win over whatever the repository shipped.
+        const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+        if (entries.length > 0) {
+          const shipped = await fs.readFile(path.join(releaseDir, '.env'), 'utf-8').catch(() => '');
+          const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([k]) => line.startsWith(k + '=')));
+          const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
+          await fs.writeFile(path.join(releaseDir, '.env'), [...kept, ...own].join(NL) + NL);
+        }
+      } else if (await has('package.json')) {
+        const lock = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock', bun: 'bun.lock' }[detected.packageManager];
+        if (lock && (await this.reuseInstalled(appDir, releaseDir, lock, 'node_modules'))) {
+          await log('node_modules: lockfile unchanged, hardlinked from the previous release');
+        } else {
+          steps.push(detected.installCommand);
+        }
+      }
       if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
       const buildCommand = application.buildCommand || detected.buildCommand;
       if (buildCommand) steps.push(buildCommand);
@@ -267,13 +295,62 @@ export class DeploymentService {
 
       await log(NL + `[${new Date().toISOString()}] BUILD COMPLETED`);
       await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
-      return { success: true, releaseDir };
+      return { success: true, releaseDir, docroot: detected.outputDir || '.' };
     } catch (error: any) {
       const message = error.stderr || error.message || String(error);
       await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message);
       await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
       return { success: false, error: message };
     }
+  }
+
+  /**
+   * Same lockfile as the release that is live → hardlink its node_modules (or
+   * vendor/) and skip the install. Saves the disk of a full copy and most of
+   * the build time. Hardlinks are safe here: both releases belong to the same
+   * tenant user.
+   */
+  private async reuseInstalled(appDir: string, releaseDir: string, lock: string, dir: string): Promise<boolean> {
+    const previous = await fs.readlink(currentDirFor(appDir)).catch(() => null);
+    if (!previous) return false;
+    const [a, b] = await Promise.all([
+      fs.readFile(path.join(previous, lock)).catch(() => null),
+      fs.readFile(path.join(releaseDir, lock)).catch(() => null),
+    ]);
+    if (!a || !b || !a.equals(b)) return false;
+    const prevDir = path.join(previous, dir);
+    if (!(await fs.stat(prevDir).then((s) => s.isDirectory()).catch(() => false))) return false;
+    // ponytail: cp -al, GNU coreutils. Fall back to a real install if it fails.
+    return execAsync(`cp -al "${prevDir}" "${path.join(releaseDir, dir)}"`, { timeout: 300000 })
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  /**
+   * PHP apps have no unit: the org's PHP-FPM pool serves them. Publishing is
+   * handing the tree to the tenant user and pointing Caddy at the docroot.
+   */
+  private async publishPhp(application: AppWithOrg, appDir: string, docroot: string): Promise<boolean> {
+    const slug = application.organization?.slug;
+    if (!slug) throw new Error('PHP apps need an organization (the FPM pool is per org)');
+
+    const deployLogPath = path.join(appDir, 'logs', 'deploy.log');
+    await appUnit('chown', slug, application.id);
+
+    const socketDir = process.env.PHP_FPM_SOCKET_DIR || '/run/php';
+    const sockets = (await fs.readdir(socketDir).catch(() => [] as string[])).filter((n) =>
+      new RegExp(`^php[0-9.]+-fpm-cb-${slug}\\.sock$`).test(n)
+    );
+    if (sockets.length === 0) {
+      await fs.appendFile(deployLogPath, `No PHP-FPM pool socket for this organization in ${socketDir}. Re-provision the organization with PHP-FPM installed.` + NL);
+      return false;
+    }
+    const socket = path.join(socketDir, sockets.sort().reverse()[0] as string);
+    const root = path.join(currentDirFor(appDir), docroot);
+
+    await configureCaddyForPhpApplication(application.domain, root, socket);
+    await fs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
+    return true;
   }
 
   /**
@@ -623,7 +700,10 @@ export class DeploymentService {
       });
 
       const previousRelease = await this.activateRelease(appDir, buildResult.releaseDir!);
-      let startResult = await this.startApplication(application.domain);
+      let startResult =
+        application.type === 'PHP'
+          ? await this.publishPhp((await this.appWithOrg(application.domain))!, appDir, buildResult.docroot || '.')
+          : await this.startApplication(application.domain);
 
       if (!startResult && previousRelease) {
         // Put the last good release back so the site stays up.
@@ -691,9 +771,11 @@ export class DeploymentService {
         data: { activeReleaseId: release.id },
       });
 
-      try {
-        await configureCaddyForRuntimeApplication(application.domain, port);
-      } catch {
+      if (application.type !== 'PHP') {
+        try {
+          await configureCaddyForRuntimeApplication(application.domain, port);
+        } catch {
+        }
       }
 
       return {

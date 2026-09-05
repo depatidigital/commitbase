@@ -19,7 +19,14 @@ type BucketTarget = {
   origin: string;
 };
 
-type Target = RuntimeTarget | StaticTarget | BucketTarget;
+// PHP: file_server over the docroot, *.php handed to the org's FPM pool.
+type PhpTarget = {
+  type: 'php';
+  root: string;
+  socket: string;
+};
+
+type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget;
 
 async function fetchCaddyConfig(): Promise<any | null> {
   if (!CADDY_API_URL) {
@@ -101,7 +108,47 @@ function ensureHttpServer(config: any): any {
   return updatedConfig;
 }
 
+// JSON form of the Caddyfile `php_fastcgi` directive plus `file_server`.
+function buildPhpRoute(domain: string, target: PhpTarget): any {
+  return {
+    match: [{ host: [domain] }],
+    handle: [
+      {
+        handler: 'subroute',
+        routes: [
+          { handle: [{ handler: 'vars', root: target.root }] },
+          {
+            match: [
+              {
+                file: {
+                  try_files: ['{http.request.uri.path}', '{http.request.uri.path}/index.php', 'index.php'],
+                  split_path: ['.php'],
+                },
+              },
+            ],
+            handle: [{ handler: 'rewrite', uri: '{http.matchers.file.relative}' }],
+          },
+          {
+            match: [{ path: ['*.php'] }],
+            handle: [
+              {
+                handler: 'reverse_proxy',
+                transport: { protocol: 'fastcgi', root: target.root, split_path: ['.php'] },
+                upstreams: [{ dial: `unix/${target.socket}` }],
+              },
+            ],
+          },
+          { handle: [{ handler: 'file_server' }] },
+        ],
+      },
+    ],
+    terminal: true,
+  };
+}
+
 function buildRoute(domain: string, target: Target): any {
+  if (target.type === 'php') return buildPhpRoute(domain, target);
+
   const route: any = {
     match: [
       {
@@ -239,6 +286,13 @@ export async function configureCaddyForRuntimeApplication(domain: string, hostPo
     type: 'runtime',
     upstreamPort: hostPort,
   });
+}
+
+export async function configureCaddyForPhpApplication(domain: string, root: string, socket: string): Promise<void> {
+  if (!CADDY_API_URL) {
+    return;
+  }
+  await setRoute(domain, { type: 'php', root, socket });
 }
 
 /** Drop the hostname's route when the application is deleted. */
