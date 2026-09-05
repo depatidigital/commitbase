@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication } from './caddyService';
 import { appUnit, appBuild, OS_ISOLATION_ENABLED } from './orgProvisionService';
-import { orgSlugForApp } from '../lib/appPaths';
+import { orgSlugForApp, appDirFor } from '../lib/appPaths';
 import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
@@ -414,6 +414,41 @@ export class DeploymentService {
     await configureCaddyForPhpApplication(application.domain, root, socket);
     await fs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
     return true;
+  }
+
+  /**
+   * Push every running app's route into Caddy again. Routes live in Caddy's
+   * memory; a `caddy reload` from the Caddyfile drops them. Called at backend
+   * start, so "restart commitbase" is the recovery.
+   */
+  async reapplyCaddyRoutes(): Promise<{ applied: number; failed: number }> {
+    if (!process.env.CADDY_API_URL) return { applied: 0, failed: 0 };
+    const apps = await prisma.application.findMany({
+      where: { status: 'RUNNING', runtime: null },
+      include: { organization: { select: { slug: true } } },
+    });
+    let applied = 0;
+    let failed = 0;
+    for (const app of apps) {
+      try {
+        const appDir = appDirFor(app.id, app.organization?.slug ?? null);
+        if (app.type === 'STATIC') {
+          await configureCaddyForStaticApplication(app.id, app.domain, app.staticOrigin);
+        } else if (app.type === 'PHP') {
+          const detected = await detectProject(currentDirFor(appDir));
+          if (!(await this.publishPhp(app, appDir, detected.outputDir || '.'))) throw new Error('no FPM socket');
+        } else if (app.port) {
+          await configureCaddyForRuntimeApplication(app.domain, app.port);
+        } else {
+          continue;
+        }
+        applied += 1;
+      } catch (error: any) {
+        failed += 1;
+        console.error(`Caddy route for ${app.domain} not re-applied: ${error?.message || error}`);
+      }
+    }
+    return { applied, failed };
   }
 
   /**

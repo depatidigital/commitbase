@@ -7,6 +7,40 @@ platform deploys.
 Target: Ubuntu 22.04/24.04 or Debian 12. Commands assume root unless a step
 says otherwise.
 
+## Quick install
+
+`install.sh` at the repo root does steps 1–10 below in one go, idempotently.
+DNS for the panel hostname must already point at the box.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/depatidigital/commitbase/main/install.sh   | sudo PANEL_DOMAIN=panel.example.com ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<strong>' bash
+```
+
+Knobs, all optional: `WITH_PHP=1` (PHP tenants), `WITH_NVM=1` (per-app Node
+versions), `NODE_MAJOR=24`, `ACME_EMAIL`, `SERVER_IP`, `REPO`, `BRANCH`.
+
+What it will not touch on a re-run: an existing `backend/.env`, a Caddyfile
+that already serves the panel, an existing database password. Re-running is
+also the upgrade path (step 13). It skips disk quotas (Appendix A, needs a
+reboot on a live box) and the Cloudflare/R2/SMTP settings, which are done in
+the panel or in `.env` afterwards.
+
+An existing `commitbase` database owned by another role is handed over
+automatically (step 3 explains what that does).
+
+**Caddy already running other sites**: the script appends the panel block and
+the `import /etc/caddy/sites/*.caddy` line to your Caddyfile and reloads (not
+restarts) Caddy. Nothing already in the file is changed; a timestamped backup
+sits next to it. One thing to know from then on: tenant sites are added
+through Caddy's admin API, in memory. A later `systemctl reload caddy` or
+`caddy reload` re-reads the Caddyfile and drops them until each app is
+redeployed or restarted from the panel. Keep hand edits to your own sites in
+the Caddyfile, and after reloading, restart the affected apps from the panel
+(or restart `commitbase.service`, which re-applies them — see step 9).
+
+The rest of this document is the same procedure by hand, for reading what the
+script does or for boxes that differ from the assumptions.
+
 ## Who runs what
 
 Five Linux users are involved. Nothing that serves traffic runs as root.
@@ -183,10 +217,15 @@ Old rows and data are untouched — this changes ownership only.
 
 **Run as:** `commitbase` — the first line below switches you into that user. Do not build as root: the service could not overwrite root-owned files on the next upgrade.
 
+The repository is public, so a plain HTTPS clone works with no credentials.
+(Should it go private later: give the `commitbase` user a read-only deploy key
+— `ssh-keygen` as that user, add the public key under the repo's *Settings →
+Deploy keys* — and clone the `git@github.com:` URL instead.)
+
 ```bash
 sudo -u commitbase -H bash
 cd /opt/commitbase
-git clone <your-repo-url> app
+git clone https://github.com/depatidigital/commitbase.git app
 cd app
 
 # backend
@@ -466,6 +505,15 @@ systemctl reload caddy
 
 Set `CADDY_API_URL="http://127.0.0.1:2019"` in the backend env and restart it.
 Without that variable the panel silently never configures tenant sites.
+
+Tenant routes are added through the admin API and live in Caddy's memory.
+Anything that makes Caddy re-read the Caddyfile — `systemctl reload caddy`,
+`caddy reload`, a restart — drops them. The backend pushes every running app's
+route again on start, so the fix is always:
+
+```bash
+systemctl restart commitbase     # log line: "Caddy routes re-applied: N ok"
+```
 
 ---
 

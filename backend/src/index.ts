@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
 import * as appStatusWatcher from './services/appStatusWatcher';
 import { startCronJobs } from './services/cron';
+import { DeploymentService } from './services/deployment';
 
 config();
 
@@ -171,6 +172,13 @@ app.use('*', (req, res) => {
 
 app.listen(PORT, async () => {
   await ensureCaddyReady();
+  // Caddy keeps tenant routes in memory; a reload from the Caddyfile loses them.
+  new DeploymentService()
+    .reapplyCaddyRoutes()
+    .then(({ applied, failed }) => {
+      if (applied || failed) console.log(`🔁 Caddy routes re-applied: ${applied} ok, ${failed} failed`);
+    })
+    .catch((err) => console.error('Caddy route re-apply failed:', err));
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);

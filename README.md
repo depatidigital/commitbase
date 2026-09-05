@@ -7,6 +7,15 @@ CommitBase is an application management platform with a frontend and backend arc
 - `frontend/`: React-based frontend application
 - `backend/`: Node.js Express backend API
 
+## Production install
+
+One command on a fresh or existing Ubuntu/Debian VPS, see
+[docs/production-setup.md](docs/production-setup.md):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/depatidigital/commitbase/main/install.sh   | sudo PANEL_DOMAIN=panel.example.com bash
+```
+
 ## Getting Started
 
 ### Prerequisites
