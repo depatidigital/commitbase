@@ -32,6 +32,7 @@ build and read logs.
 sudo install -m 0755 runner/cb-provision-org.sh /usr/local/bin/cb-provision-org
 sudo install -m 0755 runner/cb-app-unit.sh      /usr/local/bin/cb-app-unit
 sudo install -m 0440 runner/cb-provision-org.sudoers /etc/sudoers.d/commitbase
+sudo install -m 0644 runner/commitbase.logrotate     /etc/logrotate.d/commitbase
 sudo visudo -cf /etc/sudoers.d/commitbase
 ```
 

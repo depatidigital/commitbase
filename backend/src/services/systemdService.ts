@@ -128,7 +128,10 @@ export async function stopApplication(application: AppWithOrg): Promise<void> {
 
 export async function restartApplication(application: AppWithOrg): Promise<void> {
   if (!needsUnit(application.type)) return;
-  await appUnit('restart', slugOf(application), application.id);
+  const slug = slugOf(application);
+  // Env vars live in run.sh — rewrite it so an edit takes effect on restart.
+  await writeRunScript(application, appDirFor(application.id, slug));
+  await appUnit('restart', slug, application.id);
 }
 
 export async function removeApplication(application: AppWithOrg): Promise<void> {

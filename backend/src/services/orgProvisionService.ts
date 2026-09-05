@@ -70,11 +70,31 @@ export async function provisionOrg(
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown';
 
+const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
+const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
+
 export async function appUnit(action: AppUnitAction, slug: string, applicationId: string): Promise<string> {
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
   return sudo(APP_UNIT_SCRIPT, [action, slug, applicationId]);
+}
+
+/**
+ * Run <app-dir>/build.sh inside the build cgroup (memory-capped, low CPU/IO
+ * weight). Resolves with the combined output; rejects with it attached when
+ * the script fails. Fifteen minutes, same as the in-process build used to get.
+ */
+export async function appBuild(slug: string, applicationId: string): Promise<string> {
+  if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
+  assertSlug(slug);
+  if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
+  const { stdout, stderr } = await execFileAsync(
+    'sudo',
+    ['-n', APP_UNIT_SCRIPT, 'build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
+    { timeout: 900_000, maxBuffer: 64 * 1024 * 1024 }
+  );
+  return stdout + (stderr ? '\n' + stderr : '');
 }
 
 

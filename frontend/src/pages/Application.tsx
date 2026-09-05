@@ -15,6 +15,7 @@ import {
   Cpu,
   Play,
   Square,
+  Upload,
   RotateCcw,
   Trash2,
   Search,
@@ -283,27 +284,46 @@ export default function Application() {
       cell: (app) => (
         <div className="flex items-center space-x-2">
           {app.status === "RUNNING" ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleStop(app.id, app.name)}
-                  aria-label="Stop application"
-                  disabled={stopApp.isPending}
-                  className="h-8 w-8 p-0"
-                >
-                  {stopApp.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Square className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Stop App</p>
-              </TooltipContent>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleStop(app.id, app.name)}
+                    aria-label="Stop application"
+                    disabled={stopApp.isPending}
+                    className="h-8 w-8 p-0"
+                  >
+                    {stopApp.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Stop App</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleStart(app.id, app.name)}
+                    aria-label="Redeploy application"
+                    disabled={startApp.isPending}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Redeploy (no downtime)</p>
+                </TooltipContent>
+              </Tooltip>
+            </>
           ) : hasBeenDeployed(app) ? (
             // Show both Start and Redeploy buttons for previously deployed apps
             <div className="flex items-center space-x-1">
@@ -405,7 +425,7 @@ export default function Application() {
                 size="sm"
                 onClick={() => handleDelete(app.id, app.name)}
                 aria-label="Delete application"
-                disabled={deleteApp.isPending || app.status === "RUNNING"}
+                disabled={deleteApp.isPending}
                 className="h-8 w-8 p-0 text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deleteApp.isPending ? (

@@ -318,26 +318,47 @@ export default function ApplicationDetail() {
             
             {/* Application Action Buttons */}
             {application.status === 'RUNNING' ? (
-              // Running application - Show Stop button
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    onClick={handleStop}
-                    disabled={stopApp.isPending}
-                  >
-                    {stopApp.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Square className="h-4 w-4 mr-2" />
-                    )}
-                    Stop
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Stop the running application</p>
-                </TooltipContent>
-              </Tooltip>
+              // Running application - Stop, or redeploy without downtime
+              <div className="flex items-center space-x-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      onClick={handleStop}
+                      disabled={stopApp.isPending}
+                    >
+                      {stopApp.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Square className="h-4 w-4 mr-2" />
+                      )}
+                      Stop
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Stop the running application</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      onClick={handleStart}
+                      disabled={startApp.isPending}
+                    >
+                      {startApp.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                      )}
+                      Redeploy
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Build the latest code and switch over once it answers. The current release keeps serving meanwhile.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             ) : hasBeenDeployed(application) ? (
               // Previously deployed but not running - Show both Start and Redeploy & Start
               <div className="flex items-center space-x-2">
@@ -431,7 +452,6 @@ export default function ApplicationDetail() {
                 <Button
                   variant="outline"
                   className="text-destructive hover:text-destructive"
-                  disabled={application.status === 'RUNNING'}
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete

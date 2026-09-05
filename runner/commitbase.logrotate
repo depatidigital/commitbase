@@ -1,0 +1,13 @@
+# Install as /etc/logrotate.d/commitbase.
+# App stdout/stderr are appended by systemd; copytruncate keeps the open fd valid.
+/home/cb-*/apps/*/logs/out.log /home/cb-*/apps/*/logs/error.log /home/cb-*/logs/php-error.log {
+    daily
+    rotate 7
+    maxsize 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root root
+}

@@ -40,8 +40,14 @@ apt install -y nodejs
 apt install -y caddy
 
 # Optional: only if you will host PHP tenants
-apt install -y php8.3-fpm php8.3-cli php8.3-mysql php8.3-xml php8.3-mbstring
+apt install -y php8.3-fpm php8.3-cli php8.3-mysql php8.3-xml php8.3-mbstring composer
+
+# Optional: only if tenants ship pnpm / yarn / bun lockfiles
+corepack enable
 ```
+
+`tar` and `cp` from coreutils are used by the deployer (release copies,
+hardlinked `node_modules`); both are already on any Debian/Ubuntu install.
 
 ---
 
@@ -138,6 +144,17 @@ Write `/opt/commitbase/app/backend/.env`, owned `commitbase:commitbase`, mode
 
 See [per-org-os-isolation.md](per-org-os-isolation.md) for the full model.
 
+### Deploys and builds
+
+| Variable | Default | Notes |
+|---|---|---|
+| `APP_PORT_POOL_START` / `APP_PORT_POOL_END` | `20000` / `29999` | Runtime apps get one port each for life, bound to localhost, proxied by Caddy. Apps must listen on `$PORT` |
+| `APP_HEALTH_TIMEOUT_MS` | `60000` | How long a deploy waits for the new release to answer before rolling back |
+| `BUILD_MEMORY_MAX` | `2G` | Memory ceiling for one build (`next build` wants 1–2 GB). Builds run in `cb-build.slice`, outside the org slices |
+| `BUILD_CPU_WEIGHT` | `50` | CPU and IO weight of builds; 100 is a normal process, so 50 yields to serving apps |
+| `BUILD_CONCURRENCY` | `1` | Builds running at once. Raise only with the RAM to back it |
+| `PHP_FPM_SOCKET_DIR` | `/run/php` | Where the per-org FPM sockets live |
+
 ### Optional
 
 | Variable | Purpose |
@@ -204,7 +221,12 @@ cd /opt/commitbase/app
 install -m 0755 runner/cb-provision-org.sh /usr/local/bin/cb-provision-org
 install -m 0755 runner/cb-app-unit.sh      /usr/local/bin/cb-app-unit
 install -m 0440 runner/cb-provision-org.sudoers /etc/sudoers.d/commitbase
+install -m 0644 runner/commitbase.logrotate     /etc/logrotate.d/commitbase
 visudo -cf /etc/sudoers.d/commitbase        # must print "parsed OK"
+
+# Caddy serves PHP tenants' files and talks to their FPM sockets, both of which
+# are group-only. Skip if you will never host PHP.
+usermod -aG commitbase caddy && systemctl restart caddy
 ```
 
 Turn on quotas for `/home` (skip if `/home` is not a separate mount and you
@@ -338,9 +360,13 @@ Verify with `ss -tlnp | grep -E '3001|5432|2019'` — every line should show
 3. A second `POST /api/auth/register` returns 403.
 4. Create an organization in `/admin` — then `id cb-<slug>` resolves and
    `/home/cb-<slug>` exists with mode `drwxrws---`.
-5. Assign a domain to it, deploy an app, then check
-   `systemctl status cb-<slug>-<appId>.service` and
-   `systemctl status cb-<slug>.slice`.
+5. Assign a domain to it, deploy a Node app, then check
+   `systemctl status cb-<slug>-<appId>.service`, `systemctl status cb-<slug>.slice`
+   and `ls -la /home/cb-<slug>/apps/<appId>` — `current` must be a symlink into
+   `releases/`, and `logs/deploy.log` must end with *DEPLOYMENT COMPLETED*.
+   Click **Redeploy** while it runs: the site must keep answering throughout.
+   For PHP, `curl -I https://<tenant-domain>` must come back from PHP-FPM
+   (`X-Powered-By` or a Laravel session cookie).
 6. The cross-tenant check, the one that actually matters:
    `sudo -u cb-other ls /home/cb-<slug>` must fail with *Permission denied*.
 
@@ -373,7 +399,15 @@ sudo -u commitbase -H bash -c '
   cd backend && npm ci && npx prisma generate && npx prisma db push && npm run build &&
   cd ../frontend && npm ci && npm run build'
 systemctl restart commitbase
+
+# The runner scripts are not picked up by git pull — reinstall them every upgrade.
+cd /opt/commitbase/app
+install -m 0755 runner/cb-provision-org.sh /usr/local/bin/cb-provision-org
+install -m 0755 runner/cb-app-unit.sh      /usr/local/bin/cb-app-unit
 ```
+
+Apps deployed before the release layout existed keep running from `sources/`
+until their next deploy, which moves them to `releases/` + `current`.
 
 Tenant apps keep running across a control-plane restart — their systemd units
 are independent of the backend process.
@@ -388,6 +422,12 @@ are independent of the backend process.
 | Tenant sites get no TLS, or never appear | `CADDY_API_URL` unset, or the admin endpoint is not on `127.0.0.1:2019` |
 | `warning: quota not applied` during provisioning | `/home` is not mounted with `usrquota`, or `quotaon` was never run |
 | App deploys but will not start | `journalctl -u cb-<slug>-<appId>` and `/home/cb-<slug>/apps/<appId>/logs/error.log` |
+| Deploy fails with *Nothing answered on port N* | The app is not listening on `$PORT`. Next: `next start -p $PORT`; Express: `app.listen(process.env.PORT)`. Or set the port the app hardcodes in its settings. The previous release was put back |
+| Build dies with *Killed* / exit 137 | Hit `BUILD_MEMORY_MAX`. Raise it, or add `NODE_OPTIONS=--max-old-space-size=1536` to the app env |
+| *A deployment is already in progress* (409) | One deploy per app at a time; another is running or queued behind `BUILD_CONCURRENCY` |
+| PHP deploy fails with *No PHP-FPM pool socket* | PHP-FPM was installed after the org was provisioned. Re-provision the org from `/admin` |
+| PHP site returns 502 | `caddy` is not in group `commitbase`, or the FPM pool is not running (`systemctl status php8.3-fpm`) |
+| Laravel shows *No application encryption key* | Only if `APP_KEY` was deleted from the app env — it is generated on the first deploy. Redeploy |
 | PHP tenant hits *open_basedir restriction* | Expected — that is the isolation boundary. Widen the pool's `open_basedir` only with a reason |
 | Everyone logged out after a deploy | `JWT_SECRET` changed, or the env file is not being read |
 

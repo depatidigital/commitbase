@@ -700,10 +700,12 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       } as ApiResponse);
     }
 
-    if (application.status === 'RUNNING') {
-      return res.status(400).json({
+    // A running app can be redeployed — the new release builds beside it and
+    // takes over only once it answers. Two deploys at once is the thing to stop.
+    if (application.status === 'DEPLOYING' || application.status === 'BUILDING' || deploymentService.isDeploying(id)) {
+      return res.status(409).json({
         success: false,
-        error: 'Application is already running',
+        error: 'A deployment is already in progress',
       } as ApiResponse);
     }
 
@@ -741,7 +743,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       await prisma.application.update({
         where: { id },
         data: {
-          status: result.success ? 'RUNNING' : 'ERROR',
+          status: result.success || result.rolledBack ? 'RUNNING' : 'ERROR',
           lastDeployment: new Date(),
         },
       });
