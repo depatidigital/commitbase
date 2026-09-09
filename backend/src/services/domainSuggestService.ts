@@ -30,6 +30,8 @@ const label = (domain: string, extensions: string[]): string | null => {
 export async function suggestDomains(options: {
   keyword: string;
   extensions: string[];
+  /** What the site is for, in the user's own words. Steers the whole list. */
+  context?: string;
   exclude?: string[];
   count?: number;
 }): Promise<string[]> {
@@ -40,8 +42,11 @@ export async function suggestDomains(options: {
   const exclude = options.exclude ?? [];
   const count = options.count ?? 8;
 
+  const context = (options.context ?? '').trim().slice(0, 400);
+
   const prompt = [
     `Suggest ${count} domain names for a business or project about "${keyword}".`,
+    context ? `What it is: ${context}` : '',
     '',
     `Use only these extensions: ${extensions.map((ext) => `.${ext}`).join(', ')}.`,
     'Rules:',
@@ -50,6 +55,9 @@ export async function suggestDomains(options: {
     '- Vary the extension across the list; do not put every idea on one.',
     '- Indonesian or English wording, matching the language of the keyword.',
     '- Do not repeat the keyword verbatim on every name; offer real alternatives.',
+    context
+      ? '- The names must fit the description above, not just the keyword. Draw on the words, audience and industry it describes.'
+      : '',
     exclude.length > 0 ? `- Do not suggest any of these: ${exclude.join(', ')}.` : '',
     '',
     'Reply as JSON: {"domains": ["example.com", "example.id"]}',

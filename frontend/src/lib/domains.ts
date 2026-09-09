@@ -407,14 +407,17 @@ export const getSearchTlds = async (
 
 /**
  * AI-proposed names for a keyword. Same row shape as a search, so they render
- * and get checked through the same path. `exclude` asks for a fresh batch,
+ * and get checked through the same path. `context` describes what the site is
+ * for, which is what makes the names fit; `exclude` asks for a fresh batch,
  * skipping names already on screen.
  */
 export const suggestDomains = async (
   q: string,
+  context = "",
   exclude: string[] = [],
 ): Promise<DomainOffer[]> => {
   const params = new URLSearchParams({ q });
+  if (context.trim()) params.set("context", context.trim());
   if (exclude.length > 0) params.set("exclude", exclude.join(","));
 
   const response = await apiRequest<DomainOffer[]>(

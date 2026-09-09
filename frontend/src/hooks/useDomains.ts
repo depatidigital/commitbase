@@ -554,7 +554,7 @@ export const useDomainSearch = () => {
    * guesses into a list worth showing. Names already seen are excluded so each
    * round is fresh rather than the same ideas again.
    */
-  const suggest = async (q: string) => {
+  const suggest = async (q: string, context = "") => {
     const run = ++runId.current;
     setSuggesting(true);
     setShowingAll(true);
@@ -569,7 +569,7 @@ export const useDomainSearch = () => {
         round < SUGGEST_ROUNDS && free < SUGGEST_TARGET;
         round++
       ) {
-        const rows = await suggestDomains(q, seen);
+        const rows = await suggestDomains(q, context, seen);
         if (runId.current !== run) return;
         if (rows.length === 0) break;
 

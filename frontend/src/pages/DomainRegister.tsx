@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { useDomainSearch, useRegisterDomain } from "@/hooks/useDomains";
 import type { DomainOffer } from "@/lib/domains";
 import { APP_NAME } from "@/lib/branding";
@@ -37,6 +38,7 @@ const DomainRegister = () => {
   const navigate = useNavigate();
   const [organizationId, setOrganizationId] = useState("");
   const [term, setTerm] = useState("");
+  const [context, setContext] = useState("");
   const [selected, setSelected] = useState<DomainOffer | null>(null);
   const [years, setYears] = useState(1);
 
@@ -56,7 +58,7 @@ const DomainRegister = () => {
   const runSuggest = async () => {
     if (!term.trim()) return;
     setSelected(null);
-    await suggest(term.trim());
+    await suggest(term.trim(), context);
   };
 
   const showAll = async () => {
@@ -130,6 +132,27 @@ const DomainRegister = () => {
               Availability comes from the domain registry. Suggestions are AI
               ideas — every one is still checked against the registry.
             </p>
+
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="domain-context" className="text-sm">
+                What is it for?{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional, guides the suggestions)
+                </span>
+              </Label>
+              <Textarea
+                id="domain-context"
+                rows={2}
+                maxLength={400}
+                placeholder="Platform layanan administrasi untuk pemerintah desa di Indonesia — warga urus surat online."
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Describe the audience and what it does. Names are drawn from
+                this, not just the keyword.
+              </p>
+            </div>
           </form>
 
           {offers && offers.length === 0 && !busy && (

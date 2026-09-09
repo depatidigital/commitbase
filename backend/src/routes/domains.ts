@@ -231,6 +231,7 @@ router.get('/search/suggest', authenticateToken, requireRole(['ADMIN']), async (
 
     const names = await suggestDomains({
       keyword,
+      context: String(req.query.context ?? '').trim().slice(0, 400),
       extensions: extensions.length > 0 ? extensions : SEARCH_TLDS,
       exclude,
     });
