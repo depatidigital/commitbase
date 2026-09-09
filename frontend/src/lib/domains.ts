@@ -376,6 +376,8 @@ export type DomainOffer = {
    */
   periods: Record<number, number>;
   renewalPeriods: Record<number, number>;
+  /** proposed by the AI rather than typed by the user */
+  suggested?: boolean;
   /** true = free, false = taken, null = no registry answer, undefined = still checking */
   available?: boolean | null;
   registrar?: string | null;
@@ -401,6 +403,29 @@ export const getSearchTlds = async (
   }
 
   throw new Error(response.error || "Domain search failed");
+};
+
+/**
+ * AI-proposed names for a keyword. Same row shape as a search, so they render
+ * and get checked through the same path. `exclude` asks for a fresh batch,
+ * skipping names already on screen.
+ */
+export const suggestDomains = async (
+  q: string,
+  exclude: string[] = [],
+): Promise<DomainOffer[]> => {
+  const params = new URLSearchParams({ q });
+  if (exclude.length > 0) params.set("exclude", exclude.join(","));
+
+  const response = await apiRequest<DomainOffer[]>(
+    `/domains/search/suggest?${params.toString()}`,
+  );
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || "Could not get suggestions");
 };
 
 export type DomainCheck = {

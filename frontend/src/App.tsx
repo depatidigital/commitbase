@@ -10,6 +10,7 @@ import ApplicationDetail from "./pages/ApplicationDetail";
 import AddApp from "./pages/AddApp";
 import Database from "./pages/Database";
 import Domains from "./pages/Domains";
+import DomainRegister from "./pages/DomainRegister";
 import Logs from "./pages/Logs";
 import Settings from "./pages/Settings";
 import RdashOverview from "./pages/RdashOverview";
@@ -22,7 +23,12 @@ import OrganizationDetail from "./pages/OrganizationDetail";
 import Users from "./pages/Users";
 import AcceptInvite from "./pages/AcceptInvite";
 import ChangePassword from "./pages/ChangePassword";
-import { isAdmin, isSuperAdmin, isAuthenticated, mustChangePassword } from "@/lib/auth";
+import {
+  isAdmin,
+  isSuperAdmin,
+  isAuthenticated,
+  mustChangePassword,
+} from "@/lib/auth";
 
 import { APP_NAME } from "@/lib/branding";
 
@@ -90,14 +96,71 @@ const App = () => (
             <Route path="add-app" element={<AddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
+            <Route
+              path="domains/register"
+              element={
+                <AdminRoute>
+                  <DomainRegister />
+                </AdminRoute>
+              }
+            />
             <Route path="domains/:id" element={<Domains />} />
-            <Route path="team" element={<UserRoute><Team /></UserRoute>} />
-            <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
-            <Route path="organizations" element={<AdminRoute><Organizations /></AdminRoute>} />
-            <Route path="organizations/:id" element={<AdminRoute><OrganizationDetail /></AdminRoute>} />
-            <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
-            <Route path="integrations/rdash" element={<SuperAdminRoute><RdashOverview /></SuperAdminRoute>} />
-            <Route path="integrations/cloudflare" element={<SuperAdminRoute><RdashOverview /></SuperAdminRoute>} />
+            <Route
+              path="team"
+              element={
+                <UserRoute>
+                  <Team />
+                </UserRoute>
+              }
+            />
+            <Route
+              path="admin"
+              element={
+                <AdminRoute>
+                  <Admin />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="organizations"
+              element={
+                <AdminRoute>
+                  <Organizations />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="organizations/:id"
+              element={
+                <AdminRoute>
+                  <OrganizationDetail />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="users"
+              element={
+                <AdminRoute>
+                  <Users />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="integrations/rdash"
+              element={
+                <SuperAdminRoute>
+                  <RdashOverview />
+                </SuperAdminRoute>
+              }
+            />
+            <Route
+              path="integrations/cloudflare"
+              element={
+                <SuperAdminRoute>
+                  <RdashOverview />
+                </SuperAdminRoute>
+              }
+            />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

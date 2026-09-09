@@ -26,6 +26,7 @@ import {
   importRegistrarDns,
   getSearchTlds,
   checkDomain,
+  suggestDomains,
   registerDomain,
   DomainOffer,
 } from "@/lib/domains";
@@ -471,13 +472,54 @@ export const useDomainRegistration = (id: string | null) => {
  */
 const CHECK_POOL = 3;
 
+/** How many free names the AI loop aims for, and how many batches it may ask for. */
+const SUGGEST_TARGET = 5;
+const SUGGEST_ROUNDS = 3;
+
 export const useDomainSearch = () => {
   const { toast } = useToast();
   const [offers, setOffers] = useState<DomainOffer[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   // bumped on every new search and on reset, so answers from an abandoned
   // search cannot land in the list the user is now looking at
   const runId = useRef(0);
+
+  const patch = (domain: string, fields: Partial<DomainOffer>) =>
+    setOffers((prev) =>
+      prev
+        ? prev.map((row) =>
+            row.domain === domain ? { ...row, ...fields } : row,
+          )
+        : prev,
+    );
+
+  /**
+   * Check every row a few at a time, patching each as its answer lands.
+   * Returns how many came back free, which is what the AI loop needs to know.
+   */
+  const resolveAvailability = async (rows: DomainOffer[], run: number) => {
+    const queue = [...rows];
+    let free = 0;
+
+    const worker = async () => {
+      for (let row = queue.shift(); row; row = queue.shift()) {
+        try {
+          const result = await checkDomain(row.domain);
+          if (runId.current !== run) return;
+          if (result.available === true && !result.owned) free++;
+          patch(row.domain, result);
+        } catch {
+          if (runId.current !== run) return;
+          // our own request failed — say so rather than blaming the registry
+          patch(row.domain, { available: null, checkFailed: true });
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: CHECK_POOL }, worker));
+    return free;
+  };
 
   const search = async (q: string, all = false) => {
     const run = ++runId.current;
@@ -489,32 +531,7 @@ export const useDomainSearch = () => {
       const rows = await getSearchTlds(q, all);
       if (runId.current !== run) return;
       setOffers(rows);
-
-      const patch = (domain: string, fields: Partial<DomainOffer>) =>
-        setOffers((prev) =>
-          prev
-            ? prev.map((row) =>
-                row.domain === domain ? { ...row, ...fields } : row,
-              )
-            : prev,
-        );
-
-      const queue = [...rows];
-      const worker = async () => {
-        for (let row = queue.shift(); row; row = queue.shift()) {
-          try {
-            const result = await checkDomain(row.domain);
-            if (runId.current !== run) return;
-            patch(row.domain, result);
-          } catch {
-            if (runId.current !== run) return;
-            // our own request failed — say so rather than blaming the registry
-            patch(row.domain, { available: null, checkFailed: true });
-          }
-        }
-      };
-
-      await Promise.all(Array.from({ length: CHECK_POOL }, worker));
+      await resolveAvailability(rows, run);
     } catch (error: any) {
       if (runId.current !== run) return;
       setOffers(null);
@@ -531,14 +548,66 @@ export const useDomainSearch = () => {
   // whether the last search was already showing every extension
   const [showingAll, setShowingAll] = useState(false);
 
+  /**
+   * Ask the AI for names, check them, and keep asking while too few come back
+   * free — the model cannot know what is taken, so this loop is what turns its
+   * guesses into a list worth showing. Names already seen are excluded so each
+   * round is fresh rather than the same ideas again.
+   */
+  const suggest = async (q: string) => {
+    const run = ++runId.current;
+    setSuggesting(true);
+    setShowingAll(true);
+    setOffers([]);
+
+    const seen: string[] = [];
+    let free = 0;
+
+    try {
+      for (
+        let round = 0;
+        round < SUGGEST_ROUNDS && free < SUGGEST_TARGET;
+        round++
+      ) {
+        const rows = await suggestDomains(q, seen);
+        if (runId.current !== run) return;
+        if (rows.length === 0) break;
+
+        seen.push(...rows.map((row) => row.domain));
+        setOffers((prev) => [...(prev ?? []), ...rows]);
+
+        free += await resolveAvailability(rows, run);
+        if (runId.current !== run) return;
+      }
+    } catch (error: any) {
+      if (runId.current !== run) return;
+      toast({
+        title: "Suggestions unavailable",
+        description: error?.message || "Could not get domain ideas.",
+        variant: "destructive",
+      });
+    } finally {
+      if (runId.current === run) setSuggesting(false);
+    }
+  };
+
   const reset = () => {
     runId.current++;
     setOffers(null);
     setSearching(false);
+    setSuggesting(false);
     setShowingAll(false);
   };
 
-  return { offers, searching, showingAll, search, reset };
+  return {
+    offers,
+    searching,
+    suggesting,
+    showingAll,
+    search,
+    suggest,
+    reset,
+  };
 };
 
 export const useRegisterDomain = () => {

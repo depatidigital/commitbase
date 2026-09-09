@@ -45,8 +45,6 @@ import {
   useDeleteDomain,
   useVerifyDomain,
   useCreateDomain,
-  useDomainSearch,
-  useRegisterDomain,
   useDomainDnsZone,
   useSyncDomains,
   useBulkAssignDomains,
@@ -68,7 +66,6 @@ import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { isAdmin } from "@/lib/auth";
 import { Domain } from "@/types/domain";
-import type { DomainOffer } from "@/lib/domains";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,7 +90,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -209,13 +205,9 @@ export default function Domains() {
     domainName: string;
   } | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [addMode, setAddMode] = useState<"existing" | "register">("existing");
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainOrgId, setNewDomainOrgId] = useState("");
   // register flow: search the registrar, pick an offer, buy it
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedOffer, setSelectedOffer] = useState<DomainOffer | null>(null);
-  const [years, setYears] = useState(1);
   const [listFilter, setListFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState(ANY);
   const [expiryFilter, setExpiryFilter] = useState(ANY);
@@ -262,14 +254,6 @@ export default function Domains() {
   const deleteDomain = useDeleteDomain();
   const verifyDomain = useVerifyDomain();
   const createDomain = useCreateDomain();
-  const {
-    offers,
-    searching,
-    showingAll,
-    search,
-    reset: resetSearch,
-  } = useDomainSearch();
-  const registerDomain = useRegisterDomain();
   const syncDomains = useSyncDomains();
   const bulkAssign = useBulkAssignDomains();
   const enableCloudflare = useEnableCloudflare();
@@ -627,11 +611,6 @@ export default function Domains() {
     setAddDialogOpen(false);
     setNewDomainName("");
     setNewDomainOrgId("");
-    setAddMode("existing");
-    setSearchTerm("");
-    resetSearch();
-    setSelectedOffer(null);
-    setYears(1);
   };
 
   // "Use existing domain" — we already own it, just connect it
@@ -646,68 +625,12 @@ export default function Domains() {
       await createDomain.mutateAsync({
         name: value,
         organizationId: newDomainOrgId,
-        customConfig: {
-          mode: addMode,
-        },
+        customConfig: { mode: "existing" },
       });
 
       resetAddDialog();
     } catch {}
   };
-
-  const handleSearchDomain = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const value = searchTerm.trim();
-    if (!value) return;
-
-    setSelectedOffer(null);
-    await search(value);
-  };
-
-  // re-run the same search across every extension the registrar sells
-  const handleShowAllTlds = async () => {
-    const value = searchTerm.trim();
-    if (!value) return;
-
-    setSelectedOffer(null);
-    await search(value, true);
-  };
-
-  // "Register new domain" — this spends registrar balance
-  const handleRegisterDomain = async () => {
-    if (!selectedOffer || !newDomainOrgId) return;
-
-    try {
-      await registerDomain.mutateAsync({
-        name: selectedOffer.domain,
-        organizationId: newDomainOrgId,
-        years,
-      });
-
-      resetAddDialog();
-    } catch {}
-  };
-
-  /** Periods the registrar sells this extension for, cheapest first. */
-  const periodOptions = (offer: DomainOffer): number[] => {
-    const periods = Object.keys(offer.periods)
-      .map(Number)
-      .filter((n) => Number.isFinite(n) && n > 0)
-      .sort((a, b) => a - b);
-
-    // an extension with no price list can still be registered — the registrar
-    // quotes it at purchase time, so offer a plain one-year default
-    return periods.length > 0 ? periods : [1];
-  };
-
-  const money = (amount: number | null, currency: string) =>
-    amount === null
-      ? "Price on request"
-      : new Intl.NumberFormat("id-ID", {
-          style: "currency",
-          currency,
-          maximumFractionDigits: 0,
-        }).format(amount);
 
   const executeAction = async () => {
     if (!confirmAction) return;
@@ -1720,24 +1643,24 @@ export default function Domains() {
                         onClick={() => setAddDialogOpen(true)}
                       >
                         <Plus className="h-4 w-4 mr-2" />
-                        Add Domain
+                        Connect domain
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate("/domains/register")}
+                      >
+                        <Globe className="h-4 w-4 mr-2" />
+                        Register domain
                       </Button>
                       <DialogContent className="max-w-lg">
                         <DialogHeader>
-                          <DialogTitle>Add Domain</DialogTitle>
+                          <DialogTitle>Connect a domain</DialogTitle>
                           <DialogDescription>
-                            Connect an existing domain or register a new one
-                            through your registrar.
+                            Connect a domain you already own. To buy a new one,
+                            use Register domain.
                           </DialogDescription>
                         </DialogHeader>
-                        <form
-                          onSubmit={
-                            addMode === "register"
-                              ? handleSearchDomain
-                              : handleAddDomain
-                          }
-                          className="space-y-6"
-                        >
+                        <form onSubmit={handleAddDomain} className="space-y-6">
                           <div className="space-y-2">
                             <Label className="text-sm">
                               Owning organization
@@ -1768,295 +1691,43 @@ export default function Domains() {
                             </>
                           ) : (
                             <>
-                              <div className="space-y-3">
-                                <Label className="text-sm">Domain type</Label>
-                                <RadioGroup
-                                  className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                                  value={addMode}
-                                  onValueChange={(value) => {
-                                    setAddMode(
-                                      value as "existing" | "register",
-                                    );
-                                    resetSearch();
-                                    setSelectedOffer(null);
-                                  }}
-                                >
-                                  <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
-                                    <RadioGroupItem
-                                      value="existing"
-                                      id="domain-mode-existing"
-                                    />
-                                    <div className="space-y-1">
-                                      <Label htmlFor="domain-mode-existing">
-                                        Use existing domain
-                                      </Label>
-                                      <p className="text-xs text-muted-foreground">
-                                        Use a domain you already own and connect
-                                        it to Cloudflare automatically.
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                                    <RadioGroupItem
-                                      value="register"
-                                      id="domain-mode-register"
-                                    />
-                                    <div className="space-y-1">
-                                      <Label htmlFor="domain-mode-register">
-                                        Register new domain
-                                      </Label>
-                                      <p className="text-xs text-muted-foreground">
-                                        Search for an available domain and
-                                        register it through the registrar.
-                                      </p>
-                                    </div>
-                                  </div>
-                                </RadioGroup>
+                              <div className="space-y-2">
+                                <Label htmlFor="new-domain-name">
+                                  Domain name
+                                </Label>
+                                <Input
+                                  id="new-domain-name"
+                                  placeholder="example.com"
+                                  value={newDomainName}
+                                  onChange={(e) =>
+                                    setNewDomainName(e.target.value)
+                                  }
+                                />
                               </div>
 
-                              {addMode === "existing" ? (
-                                <>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="new-domain-name">
-                                      Domain name
-                                    </Label>
-                                    <Input
-                                      id="new-domain-name"
-                                      placeholder="example.com"
-                                      value={newDomainName}
-                                      onChange={(e) =>
-                                        setNewDomainName(e.target.value)
-                                      }
-                                    />
-                                  </div>
-
-                                  <div className="flex items-center justify-end space-x-3 pt-2">
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      onClick={resetAddDialog}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button
-                                      type="submit"
-                                      className="bg-gradient-primary"
-                                      disabled={
-                                        createDomain.isPending ||
-                                        !newDomainName.trim() ||
-                                        !newDomainOrgId
-                                      }
-                                    >
-                                      {createDomain.isPending && (
-                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                      )}
-                                      Save domain
-                                    </Button>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="domain-search">
-                                      Search for a domain
-                                    </Label>
-                                    <div className="flex gap-2">
-                                      <Input
-                                        id="domain-search"
-                                        placeholder="mycompany or mycompany.com"
-                                        value={searchTerm}
-                                        onChange={(e) =>
-                                          setSearchTerm(e.target.value)
-                                        }
-                                      />
-                                      <Button
-                                        type="submit"
-                                        variant="secondary"
-                                        disabled={
-                                          searching || !searchTerm.trim()
-                                        }
-                                      >
-                                        {searching ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <Search className="h-4 w-4" />
-                                        )}
-                                        <span className="ml-2">Check</span>
-                                      </Button>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">
-                                      Availability comes from the domain
-                                      registry. Registration is billed to the{" "}
-                                      {APP_NAME} registrar account.
-                                    </p>
-                                  </div>
-
-                                  {offers && (
-                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                      {offers.map((offer) => {
-                                        const checking =
-                                          offer.available === undefined;
-                                        const registrable =
-                                          offer.available === true &&
-                                          !offer.owned;
-                                        const active =
-                                          selectedOffer?.domain ===
-                                          offer.domain;
-
-                                        return (
-                                          <button
-                                            key={offer.domain}
-                                            type="button"
-                                            disabled={!registrable}
-                                            onClick={() => {
-                                              setSelectedOffer(offer);
-                                              setYears(periodOptions(offer)[0]);
-                                            }}
-                                            className={`w-full flex items-center justify-between gap-3 rounded-md border p-3 text-left transition-colors ${
-                                              active
-                                                ? "border-primary bg-primary/5"
-                                                : "border-border/60 bg-muted/20"
-                                            } ${registrable ? "hover:border-primary/60" : "opacity-60 cursor-not-allowed"}`}
-                                          >
-                                            <div className="min-w-0">
-                                              <div className="font-medium truncate">
-                                                {offer.domain}
-                                              </div>
-                                              <div className="text-xs text-muted-foreground">
-                                                {checking ? (
-                                                  <span className="flex items-center gap-1.5">
-                                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                                    Checking availability…
-                                                  </span>
-                                                ) : offer.owned ? (
-                                                  `Already managed in ${APP_NAME}`
-                                                ) : offer.available === true ? (
-                                                  "Available"
-                                                ) : offer.available ===
-                                                  false ? (
-                                                  `Taken${offer.registrar ? ` — ${offer.registrar}` : ""}`
-                                                ) : offer.checkFailed ? (
-                                                  "Could not reach the availability check — search again"
-                                                ) : (
-                                                  "No registry answered — cannot register here"
-                                                )}
-                                              </div>
-                                            </div>
-                                            {(registrable || checking) && (
-                                              <div className="text-right shrink-0">
-                                                <div className="text-sm font-medium">
-                                                  {money(
-                                                    offer.periods[1] ?? null,
-                                                    offer.currency,
-                                                  )}
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                  for 1 year
-                                                </div>
-                                              </div>
-                                            )}
-                                          </button>
-                                        );
-                                      })}
-
-                                      {!showingAll && (
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="sm"
-                                          className="w-full"
-                                          disabled={searching}
-                                          onClick={handleShowAllTlds}
-                                        >
-                                          Show all extensions
-                                        </Button>
-                                      )}
-                                    </div>
+                              <div className="flex items-center justify-end space-x-3 pt-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={resetAddDialog}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="submit"
+                                  className="bg-gradient-primary"
+                                  disabled={
+                                    createDomain.isPending ||
+                                    !newDomainName.trim() ||
+                                    !newDomainOrgId
+                                  }
+                                >
+                                  {createDomain.isPending && (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                   )}
-
-                                  {selectedOffer && (
-                                    <div className="space-y-3 rounded-md border border-border/60 p-3">
-                                      <div className="flex items-center justify-between gap-3">
-                                        <Label
-                                          htmlFor="register-years"
-                                          className="text-sm"
-                                        >
-                                          Registration period
-                                        </Label>
-                                        <select
-                                          id="register-years"
-                                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                                          value={years}
-                                          onChange={(e) =>
-                                            setYears(Number(e.target.value))
-                                          }
-                                        >
-                                          {periodOptions(selectedOffer).map(
-                                            (n) => (
-                                              <option key={n} value={n}>
-                                                {n} year{n > 1 ? "s" : ""} —{" "}
-                                                {money(
-                                                  selectedOffer.periods[n] ??
-                                                    null,
-                                                  selectedOffer.currency,
-                                                )}
-                                              </option>
-                                            ),
-                                          )}
-                                        </select>
-                                      </div>
-                                      <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">
-                                          Total
-                                        </span>
-                                        <span className="font-medium">
-                                          {money(
-                                            selectedOffer.periods[years] ??
-                                              null,
-                                            selectedOffer.currency,
-                                          )}
-                                        </span>
-                                      </div>
-                                      <p className="text-xs text-muted-foreground">
-                                        Renews at{" "}
-                                        {money(
-                                          selectedOffer.renewalPeriods[1] ??
-                                            null,
-                                          selectedOffer.currency,
-                                        )}{" "}
-                                        for 1 year.
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-center justify-end space-x-3 pt-2">
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      onClick={resetAddDialog}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      className="bg-gradient-primary"
-                                      onClick={handleRegisterDomain}
-                                      disabled={
-                                        registerDomain.isPending ||
-                                        !selectedOffer ||
-                                        !newDomainOrgId
-                                      }
-                                    >
-                                      {registerDomain.isPending && (
-                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                      )}
-                                      {selectedOffer
-                                        ? `Register ${selectedOffer.domain}`
-                                        : "Register domain"}
-                                    </Button>
-                                  </div>
-                                </>
-                              )}
+                                  Save domain
+                                </Button>
+                              </div>
                             </>
                           )}
                         </form>

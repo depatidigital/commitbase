@@ -10,6 +10,7 @@ import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, lis
 import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, registerRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS } from '../services/rdashService';
 import { startDomainSync, getDomainSyncState } from '../services/domainSyncService';
 import { getDomainRegistration, getDomainExpiry, getDomainAvailability } from '../services/rdapService';
+import { suggestDomains } from '../services/domainSuggestService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
 const sortOrder = (sort: unknown, order: unknown): any => {
@@ -193,6 +194,69 @@ router.get('/search/tlds', authenticateToken, requireRole(['ADMIN']), async (req
   } catch (error) {
     console.error('Error listing search TLDs:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * AI-suggested names for a keyword, in the same shape as a normal search so
+ * the client renders and checks them through the exact same path.
+ *
+ * Availability is deliberately not resolved here: the model proposes, the
+ * registry decides. `exclude` lets the client ask for another batch without
+ * getting the names it has already seen — that is the loop.
+ */
+router.get('/search/suggest', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const keyword = String(req.query.q ?? '').trim().slice(0, 80);
+    if (!keyword) {
+      return res.status(400).json({ success: false, error: 'A keyword is required' } as ApiResponse);
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        success: false,
+        error: 'Domain suggestions need OPENAI_API_KEY to be set',
+      } as ApiResponse);
+    }
+
+    const pricing = await getRdashPricing();
+    const sellable = Object.keys(pricing);
+    const extensions = (sellable.length > 0 ? SEARCH_TLDS.filter((tld) => sellable.includes(tld)) : SEARCH_TLDS);
+
+    const exclude = String(req.query.exclude ?? '')
+      .split(',')
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 60);
+
+    const names = await suggestDomains({
+      keyword,
+      extensions: extensions.length > 0 ? extensions : SEARCH_TLDS,
+      exclude,
+    });
+
+    return res.json({
+      success: true,
+      data: names.map((domain) => {
+        const tld = domain.split('.').slice(1).join('.');
+        const price = pricing[tld];
+
+        return {
+          domain,
+          tld,
+          currency: price?.currency ?? 'IDR',
+          periods: price?.registration ?? {},
+          renewalPeriods: price?.renewal ?? {},
+          suggested: true,
+        };
+      }),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error suggesting domains:', error);
+    return res.status(502).json({
+      success: false,
+      error: `Could not get suggestions: ${String((error as Error)?.message ?? '').slice(0, 200)}`,
+    } as ApiResponse);
   }
 });
 
