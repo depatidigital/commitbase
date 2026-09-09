@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { resolveNs } from 'node:dns/promises';
 import { prisma } from '../lib/prisma';
 import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../types';
 import { validateRequest } from '../middleware/validation';
@@ -6,7 +7,7 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords, createDnsRecord, updateDnsRecord, deleteDnsRecord, getDefaultDnsTarget } from '../services/cloudflareService';
-import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, registerRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS, DomainOffer } from '../services/rdashService';
+import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, registerRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS } from '../services/rdashService';
 import { startDomainSync, getDomainSyncState } from '../services/domainSyncService';
 import { getDomainRegistration, getDomainExpiry, getDomainAvailability } from '../services/rdapService';
 
@@ -32,6 +33,33 @@ const sortOrder = (sort: unknown, order: unknown): any => {
 };
 
 const router = Router();
+
+/**
+ * Last-resort availability signal for TLDs with no RDAP service and no
+ * registrar answer: does the name resolve to nameservers?
+ *
+ * A name with NS records is registered — that is solid. NXDOMAIN is only
+ * strong evidence of the opposite (a registered domain can sit without
+ * delegation), but the registrar re-checks and refuses at purchase time, so a
+ * wrong "available" costs a failed registration, not a wrong charge.
+ */
+const hasNameservers = async (domain: string): Promise<boolean | null> => {
+  try {
+    const records = await resolveNs(domain);
+    return records.length > 0 ? false : null;
+  } catch (error: any) {
+    return error?.code === 'ENOTFOUND' || error?.code === 'NXDOMAIN' ? true : null;
+  }
+};
+
+
+/** "shop.example.com" and "example" both search for the label "example". */
+const searchLabel = (q: unknown): string | null => {
+  const raw = String(q ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const label = raw.split('.').filter(Boolean)[0] ?? '';
+  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label) ? label : null;
+};
+
 
 /** `?expiring=expired|30|60|90` — registration expiry windows for the domains list. */
 const expiryFilter = (value: unknown) => {
@@ -112,68 +140,94 @@ router.get('/platform-target', authenticateToken, async (_req: AuthenticatedRequ
  * A name we cannot get a definitive answer for is reported as unknown and the
  * UI refuses to register it — better than selling a name that turns out taken.
  */
-router.get('/search', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+/**
+ * The TLDs we offer and what they cost — no registry lookups, so it returns
+ * immediately and the UI can paint the whole result list (with prices) before
+ * a single availability answer is in.
+ */
+router.get('/search/tlds', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const raw = String(req.query.q ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    if (!raw) {
-      return res.status(400).json({ success: false, error: 'Search term is required' } as ApiResponse);
-    }
-
-    // "shop.example.com" searches for example.com; "example" searches every offered TLD
-    const parts = raw.split('.').filter(Boolean);
-    const label = parts[0] as string;
-
-    if (!/^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/.test(label)) {
+    const label = searchLabel(req.query.q);
+    if (!label) {
       return res.status(400).json({ success: false, error: 'Not a valid domain name' } as ApiResponse);
     }
 
-    const typedTld = parts.slice(1).join('.');
-    const tlds = [typedTld, ...SEARCH_TLDS].filter((tld, i, all) => tld && all.indexOf(tld) === i);
-
+    const typedTld = String(req.query.q ?? '').trim().toLowerCase().split('.').slice(1).join('.');
     const pricing = await getRdashPricing();
 
-    // Sequential on purpose: six parallel lookups trip the registries' burst
-    // limits and come back as timeouts, which the UI can only report as
-    // "no answer". A search is one deliberate button press — it can take a moment.
-    const offers: DomainOffer[] = [];
+    // What the account can actually sell, not a hardcoded wishlist. The list
+    // falls back to the defaults only when the price list could not be read.
+    const sellable = Object.keys(pricing);
+    const priceOf = (tld: string) => pricing[tld]?.registration[1] ?? Number.MAX_SAFE_INTEGER;
 
-    for (const tld of tlds) {
-      offers.push(await (async () => {
-        const domain = `${label}.${tld}`;
-        const { available: rdapAvailable, registration } = await getDomainAvailability(domain);
+    // ?all=1 opens the full catalogue. The default is the short list, because
+    // every row here becomes one availability lookup on the client.
+    const showAll = req.query.all === '1' || req.query.all === 'true';
+    const shortlist = SEARCH_TLDS.filter((tld) => sellable.includes(tld));
+    const offered = showAll || shortlist.length === 0 ? sellable : shortlist;
 
-        // RDAP is authoritative when it answers at all. Only fall back to the
-        // registrar for TLDs it has no service for.
-        const available = rdapAvailable ?? (await checkRdashAvailability(domain));
-
-        const price = pricing[tld] ?? null;
-
-        return {
-          domain,
-          tld,
-          available,
-          registrar: registration?.registrar ?? null,
-          price: price?.register ?? null,
-          renewPrice: price?.renew ?? null,
-          currency: price?.currency ?? 'IDR',
-        };
-      })());
-    }
-
-    // already ours? the UI needs to say so instead of offering it again
-    const owned = new Set(
-      (await prisma.domain.findMany({
-        where: { name: { in: offers.map((offer) => offer.domain) } },
-        select: { name: true },
-      })).map((domain) => domain.name)
+    // cheapest first, so the affordable options are the ones checked first
+    const ranked = [...(offered.length > 0 ? offered : SEARCH_TLDS)].sort(
+      (a, b) => priceOf(a) - priceOf(b),
     );
+
+    // whatever the user typed comes first, even if we cannot price it —
+    // "is this taken?" is a fair question to answer for any extension
+    const tlds = [typedTld, ...ranked].filter((tld, i, all) => tld && all.indexOf(tld) === i);
 
     return res.json({
       success: true,
-      data: offers.map((offer) => ({ ...offer, owned: owned.has(offer.domain) })),
+      data: tlds.map((tld) => {
+        const price = pricing[tld];
+
+        return {
+          domain: `${label}.${tld}`,
+          tld,
+          currency: price?.currency ?? 'IDR',
+          // periods the registrar sells this extension for, and the total each costs
+          periods: price?.registration ?? {},
+          renewalPeriods: price?.renewal ?? {},
+        };
+      }),
     } as ApiResponse);
   } catch (error) {
-    console.error('Error searching domains:', error);
+    console.error('Error listing search TLDs:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Availability of one name. One TLD per request so the client can render each
+ * answer the moment it lands instead of waiting on the slowest registry —
+ * the RDAP gate in rdapService keeps the fan-out from bursting the registries.
+ */
+router.get('/search/check', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const domain = String(req.query.domain ?? '').trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+$/.test(domain)) {
+      return res.status(400).json({ success: false, error: 'Not a valid domain name' } as ApiResponse);
+    }
+
+    const { available: rdapAvailable, registration } = await getDomainAvailability(domain);
+
+    // RDAP is authoritative when it answers at all. Only fall back for TLDs it
+    // has no service for: first the registrar, then DNS — a name with
+    // nameservers is registered, whoever we cannot ask about it.
+    const available =
+      rdapAvailable ?? (await checkRdashAvailability(domain)) ?? (await hasNameservers(domain));
+    const owned = await prisma.domain.findUnique({ where: { name: domain }, select: { id: true } });
+
+    return res.json({
+      success: true,
+      data: {
+        domain,
+        available,
+        registrar: registration?.registrar ?? null,
+        owned: Boolean(owned),
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error checking domain availability:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
@@ -193,6 +247,16 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
       return res.status(400).json({ success: false, error: 'Domain name and owning organization are required' } as ApiResponse);
     }
 
+    // RDASH prices whole periods, and only sells the ones it lists
+    const tld = domainName.split('.').slice(1).join('.');
+    const pricing = (await getRdashPricing())[tld];
+    if (pricing && !pricing.registration[years]) {
+      return res.status(400).json({
+        success: false,
+        error: `.${tld} is not sold for ${years} year${years > 1 ? 's' : ''}`,
+      } as ApiResponse);
+    }
+
     const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
     if (!organization) {
       return res.status(404).json({ success: false, error: 'Owning organization not found' } as ApiResponse);
@@ -202,14 +266,19 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
       return res.status(400).json({ success: false, error: 'Domain already exists' } as ApiResponse);
     }
 
-    const { available, registration } = await getDomainAvailability(domainName);
+    // same ladder the search uses, so a name shown as available is not
+    // refused here for a reason the user was never told about
+    const { available: rdapAvailable, registration } = await getDomainAvailability(domainName);
+    const available =
+      rdapAvailable ?? (await checkRdashAvailability(domainName)) ?? (await hasNameservers(domainName));
+
     if (available === false) {
       return res.status(409).json({
         success: false,
         error: `${domainName} is already registered${registration?.registrar ? ` at ${registration.registrar}` : ''}`,
       } as ApiResponse);
     }
-    if (available === null && (await checkRdashAvailability(domainName)) !== true) {
+    if (available === null) {
       return res.status(409).json({
         success: false,
         error: `Could not confirm ${domainName} is available — no registry answered`,
@@ -219,7 +288,7 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
     // The purchase. Everything after this point is bookkeeping for a domain we own.
     let receipt: any;
     try {
-      receipt = await registerRdashDomain({ domain: domainName, year: years });
+      receipt = await registerRdashDomain({ domain: domainName, period: years });
     } catch (error: any) {
       console.error('RDASH registration failed:', error?.message);
       return res.status(502).json({

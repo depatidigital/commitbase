@@ -29,3 +29,30 @@ for (const [input, expected] of cases) {
 }
 
 console.log(`ok - ${cases.length} price parse cases`);
+
+/* --- period maps: `GET /account/prices` quotes whole periods, mixing types --- */
+
+const periodMap = (value: unknown): Record<number, number> => {
+  const periods: Record<number, number> = {};
+  if (!value || typeof value !== 'object') return periods;
+
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const years = Number.parseInt(key, 10);
+    const price = num(raw);
+    if (Number.isFinite(years) && years > 0 && price !== null) periods[years] = price;
+  }
+  return periods;
+};
+
+// shape taken verbatim from a live /account/prices row (.co.id)
+assert.deepStrictEqual(periodMap({ '1': 270000, '2': 540000, '5': 1350000 }), {
+  1: 270000,
+  2: 540000,
+  5: 1350000,
+});
+// renewal values arrive as strings for some extensions
+assert.deepStrictEqual(periodMap({ '1': '275000', '2': '550000.00' }), { 1: 275000, 2: 550000 });
+assert.deepStrictEqual(periodMap({ '0': 100, bad: 5, '3': null }), {});
+assert.deepStrictEqual(periodMap(null), {});
+
+console.log('ok - 4 period map cases');

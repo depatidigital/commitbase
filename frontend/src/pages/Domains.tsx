@@ -214,7 +214,6 @@ export default function Domains() {
   const [newDomainOrgId, setNewDomainOrgId] = useState("");
   // register flow: search the registrar, pick an offer, buy it
   const [searchTerm, setSearchTerm] = useState("");
-  const [offers, setOffers] = useState<DomainOffer[] | null>(null);
   const [selectedOffer, setSelectedOffer] = useState<DomainOffer | null>(null);
   const [years, setYears] = useState(1);
   const [listFilter, setListFilter] = useState("all");
@@ -263,7 +262,13 @@ export default function Domains() {
   const deleteDomain = useDeleteDomain();
   const verifyDomain = useVerifyDomain();
   const createDomain = useCreateDomain();
-  const domainSearch = useDomainSearch();
+  const {
+    offers,
+    searching,
+    showingAll,
+    search,
+    reset: resetSearch,
+  } = useDomainSearch();
   const registerDomain = useRegisterDomain();
   const syncDomains = useSyncDomains();
   const bulkAssign = useBulkAssignDomains();
@@ -624,7 +629,7 @@ export default function Domains() {
     setNewDomainOrgId("");
     setAddMode("existing");
     setSearchTerm("");
-    setOffers(null);
+    resetSearch();
     setSelectedOffer(null);
     setYears(1);
   };
@@ -656,11 +661,16 @@ export default function Domains() {
     if (!value) return;
 
     setSelectedOffer(null);
-    try {
-      setOffers(await domainSearch.mutateAsync(value));
-    } catch {
-      setOffers(null);
-    }
+    await search(value);
+  };
+
+  // re-run the same search across every extension the registrar sells
+  const handleShowAllTlds = async () => {
+    const value = searchTerm.trim();
+    if (!value) return;
+
+    setSelectedOffer(null);
+    await search(value, true);
   };
 
   // "Register new domain" — this spends registrar balance
@@ -676,6 +686,18 @@ export default function Domains() {
 
       resetAddDialog();
     } catch {}
+  };
+
+  /** Periods the registrar sells this extension for, cheapest first. */
+  const periodOptions = (offer: DomainOffer): number[] => {
+    const periods = Object.keys(offer.periods)
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .sort((a, b) => a - b);
+
+    // an extension with no price list can still be registered — the registrar
+    // quotes it at purchase time, so offer a plain one-year default
+    return periods.length > 0 ? periods : [1];
   };
 
   const money = (amount: number | null, currency: string) =>
@@ -1755,7 +1777,7 @@ export default function Domains() {
                                     setAddMode(
                                       value as "existing" | "register",
                                     );
-                                    setOffers(null);
+                                    resetSearch();
                                     setSelectedOffer(null);
                                   }}
                                 >
@@ -1851,11 +1873,10 @@ export default function Domains() {
                                         type="submit"
                                         variant="secondary"
                                         disabled={
-                                          domainSearch.isPending ||
-                                          !searchTerm.trim()
+                                          searching || !searchTerm.trim()
                                         }
                                       >
-                                        {domainSearch.isPending ? (
+                                        {searching ? (
                                           <Loader2 className="h-4 w-4 animate-spin" />
                                         ) : (
                                           <Search className="h-4 w-4" />
@@ -1873,6 +1894,8 @@ export default function Domains() {
                                   {offers && (
                                     <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                       {offers.map((offer) => {
+                                        const checking =
+                                          offer.available === undefined;
                                         const registrable =
                                           offer.available === true &&
                                           !offer.owned;
@@ -1885,9 +1908,10 @@ export default function Domains() {
                                             key={offer.domain}
                                             type="button"
                                             disabled={!registrable}
-                                            onClick={() =>
-                                              setSelectedOffer(offer)
-                                            }
+                                            onClick={() => {
+                                              setSelectedOffer(offer);
+                                              setYears(periodOptions(offer)[0]);
+                                            }}
                                             className={`w-full flex items-center justify-between gap-3 rounded-md border p-3 text-left transition-colors ${
                                               active
                                                 ? "border-primary bg-primary/5"
@@ -1899,31 +1923,54 @@ export default function Domains() {
                                                 {offer.domain}
                                               </div>
                                               <div className="text-xs text-muted-foreground">
-                                                {offer.owned
-                                                  ? `Already managed in ${APP_NAME}`
-                                                  : offer.available === true
-                                                    ? "Available"
-                                                    : offer.available === false
-                                                      ? `Taken${offer.registrar ? ` — ${offer.registrar}` : ""}`
-                                                      : "Registry gave no answer — cannot register here"}
+                                                {checking ? (
+                                                  <span className="flex items-center gap-1.5">
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                    Checking availability…
+                                                  </span>
+                                                ) : offer.owned ? (
+                                                  `Already managed in ${APP_NAME}`
+                                                ) : offer.available === true ? (
+                                                  "Available"
+                                                ) : offer.available ===
+                                                  false ? (
+                                                  `Taken${offer.registrar ? ` — ${offer.registrar}` : ""}`
+                                                ) : offer.checkFailed ? (
+                                                  "Could not reach the availability check — search again"
+                                                ) : (
+                                                  "No registry answered — cannot register here"
+                                                )}
                                               </div>
                                             </div>
-                                            {registrable && (
+                                            {(registrable || checking) && (
                                               <div className="text-right shrink-0">
                                                 <div className="text-sm font-medium">
                                                   {money(
-                                                    offer.price,
+                                                    offer.periods[1] ?? null,
                                                     offer.currency,
                                                   )}
                                                 </div>
                                                 <div className="text-xs text-muted-foreground">
-                                                  per year
+                                                  for 1 year
                                                 </div>
                                               </div>
                                             )}
                                           </button>
                                         );
                                       })}
+
+                                      {!showingAll && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="w-full"
+                                          disabled={searching}
+                                          onClick={handleShowAllTlds}
+                                        >
+                                          Show all extensions
+                                        </Button>
+                                      )}
                                     </div>
                                   )}
 
@@ -1944,11 +1991,18 @@ export default function Domains() {
                                             setYears(Number(e.target.value))
                                           }
                                         >
-                                          {[1, 2, 3, 5, 10].map((n) => (
-                                            <option key={n} value={n}>
-                                              {n} year{n > 1 ? "s" : ""}
-                                            </option>
-                                          ))}
+                                          {periodOptions(selectedOffer).map(
+                                            (n) => (
+                                              <option key={n} value={n}>
+                                                {n} year{n > 1 ? "s" : ""} —{" "}
+                                                {money(
+                                                  selectedOffer.periods[n] ??
+                                                    null,
+                                                  selectedOffer.currency,
+                                                )}
+                                              </option>
+                                            ),
+                                          )}
                                         </select>
                                       </div>
                                       <div className="flex items-center justify-between text-sm">
@@ -1956,22 +2010,21 @@ export default function Domains() {
                                           Total
                                         </span>
                                         <span className="font-medium">
-                                          {selectedOffer.price === null
-                                            ? "Price on request"
-                                            : money(
-                                                selectedOffer.price * years,
-                                                selectedOffer.currency,
-                                              )}
+                                          {money(
+                                            selectedOffer.periods[years] ??
+                                              null,
+                                            selectedOffer.currency,
+                                          )}
                                         </span>
                                       </div>
                                       <p className="text-xs text-muted-foreground">
                                         Renews at{" "}
                                         {money(
-                                          selectedOffer.renewPrice ??
-                                            selectedOffer.price,
+                                          selectedOffer.renewalPeriods[1] ??
+                                            null,
                                           selectedOffer.currency,
                                         )}{" "}
-                                        per year.
+                                        for 1 year.
                                       </p>
                                     </div>
                                   )}

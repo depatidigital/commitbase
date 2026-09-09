@@ -1,42 +1,51 @@
-import apiRequest from './api';
-import { ListParams, listQuery } from './admin';
-import type { Paginated } from '@/components/DataTable';
-import { Domain, CreateDomainData, UpdateDomainData, DomainVerificationResult } from '@/types/domain';
+import apiRequest from "./api";
+import { ListParams, listQuery } from "./admin";
+import type { Paginated } from "@/components/DataTable";
+import {
+  Domain,
+  CreateDomainData,
+  UpdateDomainData,
+  DomainVerificationResult,
+} from "@/types/domain";
 
 // Get all domains
-export const getDomainsPage = async (params: ListParams): Promise<Paginated<Domain>> => {
-  const response = await apiRequest<Paginated<Domain>>(`/domains${listQuery(params)}`);
+export const getDomainsPage = async (
+  params: ListParams,
+): Promise<Paginated<Domain>> => {
+  const response = await apiRequest<Paginated<Domain>>(
+    `/domains${listQuery(params)}`,
+  );
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch domains');
+  throw new Error(response.error || "Failed to fetch domains");
 };
 
 export const getDomains = async (): Promise<Domain[]> => {
-  const response = await apiRequest<Domain[]>('/domains', {
-    method: 'GET',
+  const response = await apiRequest<Domain[]>("/domains", {
+    method: "GET",
   });
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch domains');
+  throw new Error(response.error || "Failed to fetch domains");
 };
 
 // Get a specific domain
 export const getDomain = async (id: string): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {
-    method: 'GET',
+    method: "GET",
   });
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch domain');
+  throw new Error(response.error || "Failed to fetch domain");
 };
 
 export type DomainDnsZone = {
@@ -47,32 +56,36 @@ export type DomainDnsZone = {
   } | null;
   records: any[];
   /** what "this platform" resolves to, so records pointing at us can be labelled */
-  platformTarget: { type: 'A' | 'CNAME'; content: string } | null;
+  platformTarget: { type: "A" | "CNAME"; content: string } | null;
   synced: boolean;
 };
 
 /** What "this platform" points at, for labelling records in the domains list. */
-export const getPlatformTarget = async (): Promise<DomainDnsZone['platformTarget']> => {
-  const response = await apiRequest<DomainDnsZone['platformTarget']>('/domains/platform-target');
-  return response.success ? response.data ?? null : null;
+export const getPlatformTarget = async (): Promise<
+  DomainDnsZone["platformTarget"]
+> => {
+  const response = await apiRequest<DomainDnsZone["platformTarget"]>(
+    "/domains/platform-target",
+  );
+  return response.success ? (response.data ?? null) : null;
 };
 
 export const getDomainDnsZone = async (id: string): Promise<DomainDnsZone> => {
   const response = await apiRequest<DomainDnsZone>(`/domains/${id}/dns-zone`, {
-    method: 'GET',
+    method: "GET",
   });
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch domain DNS zone');
+  throw new Error(response.error || "Failed to fetch domain DNS zone");
 };
 
 // Create a new domain
 export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
-  const response = await apiRequest<Domain>('/domains', {
-    method: 'POST',
+  const response = await apiRequest<Domain>("/domains", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 
@@ -80,7 +93,7 @@ export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to create domain');
+  throw new Error(response.error || "Failed to create domain");
 };
 
 export type DomainSyncResult = {
@@ -103,31 +116,33 @@ export type DomainSyncState = {
 
 // Starts the run and returns straight away — a sync takes minutes.
 export const startDomainSync = async (): Promise<DomainSyncState> => {
-  const response = await apiRequest<DomainSyncState>('/domains/sync', { method: 'POST' });
+  const response = await apiRequest<DomainSyncState>("/domains/sync", {
+    method: "POST",
+  });
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to start the domain sync');
+  throw new Error(response.error || "Failed to start the domain sync");
 };
 
 export const getDomainSyncStatus = async (): Promise<DomainSyncState> => {
-  const response = await apiRequest<DomainSyncState>('/domains/sync/status');
+  const response = await apiRequest<DomainSyncState>("/domains/sync/status");
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to read the sync status');
+  throw new Error(response.error || "Failed to read the sync status");
 };
 
 export const bulkAssignDomains = async (
   ids: string[],
-  organizationId: string | null
+  organizationId: string | null,
 ): Promise<number> => {
-  const response = await apiRequest<{ count: number }>('/domains/bulk-assign', {
-    method: 'PATCH',
+  const response = await apiRequest<{ count: number }>("/domains/bulk-assign", {
+    method: "PATCH",
     body: JSON.stringify({ ids, organizationId }),
   });
 
@@ -135,7 +150,7 @@ export const bulkAssignDomains = async (
     return response.data.count;
   }
 
-  throw new Error(response.error || 'Failed to assign domains');
+  throw new Error(response.error || "Failed to assign domains");
 };
 
 export type RdashDns = {
@@ -153,7 +168,7 @@ export const getRdashDns = async (id: string): Promise<RdashDns> => {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to read DNS from RDASH');
+  throw new Error(response.error || "Failed to read DNS from RDASH");
 };
 
 export type CloudflareEnableResult = {
@@ -164,23 +179,30 @@ export type CloudflareEnableResult = {
   zone: { id: string; name: string; nameServers: string[] };
 };
 
-export const enableCloudflare = async (id: string): Promise<CloudflareEnableResult> => {
-  const response = await apiRequest<CloudflareEnableResult>(`/domains/${id}/cloudflare/enable`, {
-    method: 'POST',
-  });
+export const enableCloudflare = async (
+  id: string,
+): Promise<CloudflareEnableResult> => {
+  const response = await apiRequest<CloudflareEnableResult>(
+    `/domains/${id}/cloudflare/enable`,
+    {
+      method: "POST",
+    },
+  );
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to enable Cloudflare');
+  throw new Error(response.error || "Failed to enable Cloudflare");
 };
 
 export const disableCloudflare = async (id: string): Promise<void> => {
-  const response = await apiRequest(`/domains/${id}/cloudflare/disable`, { method: 'POST' });
+  const response = await apiRequest(`/domains/${id}/cloudflare/disable`, {
+    method: "POST",
+  });
 
   if (!response.success) {
-    throw new Error(response.error || 'Failed to disable Cloudflare');
+    throw new Error(response.error || "Failed to disable Cloudflare");
   }
 };
 
@@ -193,56 +215,74 @@ export type DnsRecordInput = {
   proxied?: boolean;
 };
 
-export const createDnsRecord = async (domainId: string, record: DnsRecordInput): Promise<any> => {
+export const createDnsRecord = async (
+  domainId: string,
+  record: DnsRecordInput,
+): Promise<any> => {
   const response = await apiRequest<any>(`/domains/${domainId}/dns-records`, {
-    method: 'POST',
+    method: "POST",
     body: JSON.stringify(record),
   });
 
   if (response.success) return response.data;
-  throw new Error(response.error || 'Failed to create the DNS record');
+  throw new Error(response.error || "Failed to create the DNS record");
 };
 
 export const updateDnsRecord = async (
   domainId: string,
   recordId: string,
-  record: DnsRecordInput
+  record: DnsRecordInput,
 ): Promise<any> => {
-  const response = await apiRequest<any>(`/domains/${domainId}/dns-records/${recordId}`, {
-    method: 'PUT',
-    body: JSON.stringify(record),
-  });
+  const response = await apiRequest<any>(
+    `/domains/${domainId}/dns-records/${recordId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(record),
+    },
+  );
 
   if (response.success) return response.data;
-  throw new Error(response.error || 'Failed to update the DNS record');
+  throw new Error(response.error || "Failed to update the DNS record");
 };
 
-export const deleteDnsRecord = async (domainId: string, recordId: string): Promise<void> => {
-  const response = await apiRequest(`/domains/${domainId}/dns-records/${recordId}`, {
-    method: 'DELETE',
-  });
+export const deleteDnsRecord = async (
+  domainId: string,
+  recordId: string,
+): Promise<void> => {
+  const response = await apiRequest(
+    `/domains/${domainId}/dns-records/${recordId}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   if (!response.success) {
-    throw new Error(response.error || 'Failed to delete the DNS record');
+    throw new Error(response.error || "Failed to delete the DNS record");
   }
 };
 
 export const importRegistrarDns = async (
-  domainId: string
+  domainId: string,
 ): Promise<{ imported: number; skipped: number; failed: string[] }> => {
-  const response = await apiRequest<{ imported: number; skipped: number; failed: string[] }>(
-    `/domains/${domainId}/dns-records/import`,
-    { method: 'POST' }
-  );
+  const response = await apiRequest<{
+    imported: number;
+    skipped: number;
+    failed: string[];
+  }>(`/domains/${domainId}/dns-records/import`, { method: "POST" });
 
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || 'Failed to import the registrar DNS records');
+  throw new Error(
+    response.error || "Failed to import the registrar DNS records",
+  );
 };
 
 // Update a domain
-export const updateDomain = async (id: string, data: UpdateDomainData): Promise<Domain> => {
+export const updateDomain = async (
+  id: string,
+  data: UpdateDomainData,
+): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {
-    method: 'PUT',
+    method: "PUT",
     body: JSON.stringify(data),
   });
 
@@ -250,45 +290,50 @@ export const updateDomain = async (id: string, data: UpdateDomainData): Promise<
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to update domain');
+  throw new Error(response.error || "Failed to update domain");
 };
 
 // Delete a domain
 export const deleteDomain = async (id: string): Promise<void> => {
   const response = await apiRequest(`/domains/${id}`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
 
   if (!response.success) {
-    throw new Error(response.error || 'Failed to delete domain');
+    throw new Error(response.error || "Failed to delete domain");
   }
 };
 
 // Verify domain DNS
-export const verifyDomain = async (id: string): Promise<DomainVerificationResult> => {
-  const response = await apiRequest<DomainVerificationResult>(`/domains/${id}/verify`, {
-    method: 'POST',
-  });
+export const verifyDomain = async (
+  id: string,
+): Promise<DomainVerificationResult> => {
+  const response = await apiRequest<DomainVerificationResult>(
+    `/domains/${id}/verify`,
+    {
+      method: "POST",
+    },
+  );
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to verify domain');
+  throw new Error(response.error || "Failed to verify domain");
 };
 
 // Renew a domain registration at the registrar (RDASH only)
 export const renewDomain = async (id: string, years = 1): Promise<string> => {
   const response = await apiRequest(`/domains/${id}/renew`, {
-    method: 'POST',
+    method: "POST",
     body: JSON.stringify({ years }),
   });
 
   if (!response.success) {
-    throw new Error(response.error || 'Failed to renew domain');
+    throw new Error(response.error || "Failed to renew domain");
   }
 
-  return response.message || 'Renewal submitted.';
+  return response.message || "Renewal submitted.";
 };
 
 export type DomainRegistration = {
@@ -304,14 +349,14 @@ export type DomainRegistration = {
 
 // Registry record (RDAP). null means the TLD publishes nothing we can read.
 export const getDomainRegistration = async (
-  id: string
+  id: string,
 ): Promise<DomainRegistration | null> => {
   const response = await apiRequest<DomainRegistration | null>(
-    `/domains/${id}/registration`
+    `/domains/${id}/registration`,
   );
 
   if (!response.success) {
-    throw new Error(response.error || 'Failed to look up the registration');
+    throw new Error(response.error || "Failed to look up the registration");
   }
 
   return response.data ?? null;
@@ -319,26 +364,63 @@ export const getDomainRegistration = async (
 
 /* ---------------- Register a new domain: search, then buy ---------------- */
 
+/** A row in the search results. Price is known up front; availability streams in. */
 export type DomainOffer = {
   domain: string;
   tld: string;
-  /** true = free, false = taken, null = registry gave no answer (not registrable here) */
-  available: boolean | null;
-  registrar: string | null;
-  price: number | null;
-  renewPrice: number | null;
   currency: string;
-  owned: boolean;
+  /**
+   * Registration periods the registrar sells, as years -> total price for that
+   * whole period. Not a yearly rate: three years is `periods[3]`, which is not
+   * always `periods[1] * 3`. Empty when the extension has no price.
+   */
+  periods: Record<number, number>;
+  renewalPeriods: Record<number, number>;
+  /** true = free, false = taken, null = no registry answer, undefined = still checking */
+  available?: boolean | null;
+  registrar?: string | null;
+  owned?: boolean;
+  /** the check request itself failed — distinct from the registry not answering */
+  checkFailed?: boolean;
 };
 
-export const searchDomains = async (q: string): Promise<DomainOffer[]> => {
-  const response = await apiRequest<DomainOffer[]>(`/domains/search?q=${encodeURIComponent(q)}`);
+/**
+ * The TLDs on offer and their prices — no registry lookups, returns at once.
+ * `all` opens the full catalogue instead of the short list.
+ */
+export const getSearchTlds = async (
+  q: string,
+  all = false,
+): Promise<DomainOffer[]> => {
+  const response = await apiRequest<DomainOffer[]>(
+    `/domains/search/tlds?q=${encodeURIComponent(q)}${all ? "&all=1" : ""}`,
+  );
 
   if (response.success && response.data) {
     return response.data;
   }
 
-  throw new Error(response.error || 'Domain search failed');
+  throw new Error(response.error || "Domain search failed");
+};
+
+export type DomainCheck = {
+  domain: string;
+  available: boolean | null;
+  registrar: string | null;
+  owned: boolean;
+};
+
+/** Availability of one name. Slow (it asks the registry) — call one per row. */
+export const checkDomain = async (domain: string): Promise<DomainCheck> => {
+  const response = await apiRequest<DomainCheck>(
+    `/domains/search/check?domain=${encodeURIComponent(domain)}`,
+  );
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || "Availability check failed");
 };
 
 export const registerDomain = async (data: {
@@ -346,8 +428,8 @@ export const registerDomain = async (data: {
   organizationId: string;
   years: number;
 }): Promise<Domain> => {
-  const response = await apiRequest<Domain>('/domains/register', {
-    method: 'POST',
+  const response = await apiRequest<Domain>("/domains/register", {
+    method: "POST",
     body: JSON.stringify(data),
   });
 
@@ -355,5 +437,5 @@ export const registerDomain = async (data: {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to register domain');
+  throw new Error(response.error || "Failed to register domain");
 };

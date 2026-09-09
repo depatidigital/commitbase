@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useToast } from '@/hooks/use-toast';
-import { 
-  getDomains, 
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import {
+  getDomains,
   getDomainsPage,
-  getDomain, 
+  getDomain,
   getDomainDnsZone,
   getPlatformTarget,
-  createDomain, 
-  updateDomain, 
-  deleteDomain, 
-  verifyDomain, 
+  createDomain,
+  updateDomain,
+  deleteDomain,
+  verifyDomain,
   startDomainSync,
   getDomainSyncStatus,
   bulkAssignDomains,
@@ -24,17 +24,19 @@ import {
   deleteDnsRecord,
   DnsRecordInput,
   importRegistrarDns,
-  searchDomains,
-  registerDomain
-} from '@/lib/domains';
-import { isAdmin } from '@/lib/auth';
-import { CreateDomainData, UpdateDomainData } from '@/types/domain';
-import { ListParams } from '@/lib/admin';
+  getSearchTlds,
+  checkDomain,
+  registerDomain,
+  DomainOffer,
+} from "@/lib/domains";
+import { isAdmin } from "@/lib/auth";
+import { CreateDomainData, UpdateDomainData } from "@/types/domain";
+import { ListParams } from "@/lib/admin";
 
 // Paged + searchable list for the domains table
 export const useDomainsPage = (params: ListParams) => {
   return useQuery({
-    queryKey: ['domains', 'page', params],
+    queryKey: ["domains", "page", params],
     queryFn: () => getDomainsPage(params),
   });
 };
@@ -42,7 +44,7 @@ export const useDomainsPage = (params: ListParams) => {
 // Get all domains
 export const useDomains = () => {
   return useQuery({
-    queryKey: ['domains'],
+    queryKey: ["domains"],
     queryFn: getDomains,
   });
 };
@@ -50,7 +52,7 @@ export const useDomains = () => {
 // Get a specific domain
 export const useDomain = (id: string) => {
   return useQuery({
-    queryKey: ['domains', id],
+    queryKey: ["domains", id],
     queryFn: () => getDomain(id),
     enabled: !!id,
   });
@@ -58,7 +60,7 @@ export const useDomain = (id: string) => {
 
 export const useDomainDnsZone = (id: string | null) => {
   return useQuery({
-    queryKey: ['domains', id, 'dns-zone'],
+    queryKey: ["domains", id, "dns-zone"],
     queryFn: () => getDomainDnsZone(id as string),
     enabled: !!id,
   });
@@ -66,7 +68,7 @@ export const useDomainDnsZone = (id: string | null) => {
 
 export const usePlatformTarget = () => {
   return useQuery({
-    queryKey: ['domains', 'platform-target'],
+    queryKey: ["domains", "platform-target"],
     queryFn: getPlatformTarget,
     staleTime: 5 * 60 * 1000,
   });
@@ -80,17 +82,17 @@ export const useCreateDomain = () => {
   return useMutation({
     mutationFn: (data: CreateDomainData) => createDomain(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: 'Domain Created',
-        description: 'Domain has been created successfully.',
+        title: "Domain Created",
+        description: "Domain has been created successfully.",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to create domain.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to create domain.",
+        variant: "destructive",
       });
     },
   });
@@ -107,7 +109,7 @@ export const useSyncDomains = () => {
   const reported = useRef<string | null>(null);
 
   const status = useQuery({
-    queryKey: ['domains', 'sync-status'],
+    queryKey: ["domains", "sync-status"],
     queryFn: getDomainSyncStatus,
     // the endpoint is admin-only, so do not even ask as a member
     enabled: isAdmin(),
@@ -127,13 +129,13 @@ export const useSyncDomains = () => {
 
     reported.current = state.finishedAt;
     setPolling(false);
-    queryClient.invalidateQueries({ queryKey: ['domains'] });
+    queryClient.invalidateQueries({ queryKey: ["domains"] });
 
     if (state.error) {
       toast({
-        title: 'Sync failed',
+        title: "Sync failed",
         description: state.error,
-        variant: 'destructive',
+        variant: "destructive",
       });
       return;
     }
@@ -141,13 +143,13 @@ export const useSyncDomains = () => {
     const result = state.result;
     if (!result) return;
 
-    const failed = result.errors ? Object.values(result.errors).join(' ') : '';
+    const failed = result.errors ? Object.values(result.errors).join(" ") : "";
     toast({
-      title: failed ? 'Sync finished with errors' : 'Sync complete',
+      title: failed ? "Sync finished with errors" : "Sync complete",
       description:
         `${result.total} domains — ${result.created} added, ${result.updated} updated ` +
         `(${result.rdashOnly} registrar-only, ${result.cfOnly} Cloudflare-only). ${failed}`.trim(),
-      variant: failed ? 'destructive' : undefined,
+      variant: failed ? "destructive" : undefined,
     });
   }, [status.data, polling, queryClient, toast]);
 
@@ -156,15 +158,16 @@ export const useSyncDomains = () => {
     onSuccess: () => {
       setPolling(true);
       toast({
-        title: 'Sync started',
-        description: 'Running in the background — the list updates when it finishes.',
+        title: "Sync started",
+        description:
+          "Running in the background — the list updates when it finishes.",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to start the domain sync.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to start the domain sync.",
+        variant: "destructive",
       });
     },
   });
@@ -182,20 +185,25 @@ export const useBulkAssignDomains = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: ({ ids, organizationId }: { ids: string[]; organizationId: string | null }) =>
-      bulkAssignDomains(ids, organizationId),
+    mutationFn: ({
+      ids,
+      organizationId,
+    }: {
+      ids: string[];
+      organizationId: string | null;
+    }) => bulkAssignDomains(ids, organizationId),
     onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: 'Domains Assigned',
+        title: "Domains Assigned",
         description: `${count} domain(s) updated.`,
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to assign domains.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to assign domains.",
+        variant: "destructive",
       });
     },
   });
@@ -204,7 +212,7 @@ export const useBulkAssignDomains = () => {
 // DNS the registrar still holds — only meaningful for RDASH domains
 export const useRdashDns = (id: string | null, enabled: boolean) => {
   return useQuery({
-    queryKey: ['domains', id, 'rdash-dns'],
+    queryKey: ["domains", id, "rdash-dns"],
     queryFn: () => getRdashDns(id as string),
     enabled: !!id && enabled,
   });
@@ -217,18 +225,20 @@ export const useEnableCloudflare = () => {
   return useMutation({
     mutationFn: (id: string) => enableCloudflare(id),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: data.warnings.length ? 'Cloudflare enabled with warnings' : 'Cloudflare enabled',
-        description: [...data.steps, ...data.warnings].join(' · '),
-        variant: data.warnings.length ? 'destructive' : undefined,
+        title: data.warnings.length
+          ? "Cloudflare enabled with warnings"
+          : "Cloudflare enabled",
+        description: [...data.steps, ...data.warnings].join(" · "),
+        variant: data.warnings.length ? "destructive" : undefined,
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to enable Cloudflare.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to enable Cloudflare.",
+        variant: "destructive",
       });
     },
   });
@@ -241,28 +251,28 @@ export const useDisableCloudflare = () => {
   return useMutation({
     mutationFn: (id: string) => disableCloudflare(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: 'Cloudflare detached',
+        title: "Cloudflare detached",
         description:
-          'The zone still exists in Cloudflare. Repoint the nameservers at your registrar before deleting it.',
+          "The zone still exists in Cloudflare. Repoint the nameservers at your registrar before deleting it.",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to disable Cloudflare.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to disable Cloudflare.",
+        variant: "destructive",
       });
     },
   });
 };
 
 // Subdomain / DNS record writes — all refresh the zone view they came from
-const useDnsRecordMutation = <TArgs,>(
+const useDnsRecordMutation = <TArgs>(
   domainId: string,
   fn: (args: TArgs) => Promise<unknown>,
-  successTitle: string
+  successTitle: string,
 ) => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -270,14 +280,16 @@ const useDnsRecordMutation = <TArgs,>(
   return useMutation({
     mutationFn: fn,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['domains', domainId, 'dns-zone'] });
+      queryClient.invalidateQueries({
+        queryKey: ["domains", domainId, "dns-zone"],
+      });
       toast({ title: successTitle });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: "Error",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
     },
   });
@@ -287,21 +299,21 @@ export const useCreateDnsRecord = (domainId: string) =>
   useDnsRecordMutation<DnsRecordInput>(
     domainId,
     (record) => createDnsRecord(domainId, record),
-    'DNS record created'
+    "DNS record created",
   );
 
 export const useUpdateDnsRecord = (domainId: string) =>
   useDnsRecordMutation<{ recordId: string; record: DnsRecordInput }>(
     domainId,
     ({ recordId, record }) => updateDnsRecord(domainId, recordId, record),
-    'DNS record updated'
+    "DNS record updated",
   );
 
 export const useDeleteDnsRecord = (domainId: string) =>
   useDnsRecordMutation<string>(
     domainId,
     (recordId) => deleteDnsRecord(domainId, recordId),
-    'DNS record deleted'
+    "DNS record deleted",
   );
 
 export const useImportRegistrarDns = (domainId: string) => {
@@ -311,16 +323,23 @@ export const useImportRegistrarDns = (domainId: string) => {
   return useMutation({
     mutationFn: () => importRegistrarDns(domainId),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['domains', domainId, 'dns-zone'] });
+      queryClient.invalidateQueries({
+        queryKey: ["domains", domainId, "dns-zone"],
+      });
       toast({
-        title: data.imported === 0 ? 'Nothing to import' : 'Registrar DNS imported',
+        title:
+          data.imported === 0 ? "Nothing to import" : "Registrar DNS imported",
         description:
           (data as any).note ||
           `${data.imported} record(s) copied, ${data.skipped} already present.`,
       });
     },
     onError: (error: Error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 };
@@ -331,21 +350,21 @@ export const useUpdateDomain = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateDomainData }) => 
+    mutationFn: ({ id, data }: { id: string; data: UpdateDomainData }) =>
       updateDomain(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
-      queryClient.invalidateQueries({ queryKey: ['domains', id] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
+      queryClient.invalidateQueries({ queryKey: ["domains", id] });
       toast({
-        title: 'Domain Updated',
-        description: 'Domain has been updated successfully.',
+        title: "Domain Updated",
+        description: "Domain has been updated successfully.",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to update domain.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to update domain.",
+        variant: "destructive",
       });
     },
   });
@@ -359,17 +378,17 @@ export const useDeleteDomain = () => {
   return useMutation({
     mutationFn: (id: string) => deleteDomain(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: 'Domain Deleted',
-        description: 'Domain has been deleted successfully.',
+        title: "Domain Deleted",
+        description: "Domain has been deleted successfully.",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete domain.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to delete domain.",
+        variant: "destructive",
       });
     },
   });
@@ -383,25 +402,26 @@ export const useVerifyDomain = () => {
   return useMutation({
     mutationFn: (id: string) => verifyDomain(id),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       if (data.verified) {
         toast({
-          title: 'Domain Verified',
-          description: 'Domain DNS has been verified successfully.',
+          title: "Domain Verified",
+          description: "Domain DNS has been verified successfully.",
         });
       } else {
         toast({
-          title: 'Verification Failed',
-          description: 'Domain DNS verification failed. Please check your DNS settings.',
-          variant: 'destructive',
+          title: "Verification Failed",
+          description:
+            "Domain DNS verification failed. Please check your DNS settings.",
+          variant: "destructive",
         });
       }
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to verify domain.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to verify domain.",
+        variant: "destructive",
       });
     },
   });
@@ -413,16 +433,17 @@ export const useRenewDomain = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: ({ id, years }: { id: string; years?: number }) => renewDomain(id, years),
+    mutationFn: ({ id, years }: { id: string; years?: number }) =>
+      renewDomain(id, years),
     onSuccess: (message) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
-      toast({ title: 'Renewal submitted', description: message });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
+      toast({ title: "Renewal submitted", description: message });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to renew domain.',
-        variant: 'destructive',
+        title: "Error",
+        description: error.message || "Failed to renew domain.",
+        variant: "destructive",
       });
     },
   });
@@ -431,7 +452,7 @@ export const useRenewDomain = () => {
 // Registry lookup — slow-ish and rarely changes, so cache it for the session
 export const useDomainRegistration = (id: string | null) => {
   return useQuery({
-    queryKey: ['domains', id, 'registration'],
+    queryKey: ["domains", id, "registration"],
     queryFn: () => getDomainRegistration(id as string),
     enabled: !!id,
     staleTime: 60 * 60 * 1000,
@@ -439,23 +460,85 @@ export const useDomainRegistration = (id: string | null) => {
 };
 
 /**
- * Domain search for the register flow. Manual — `refetch`/`mutate` on the
- * search button, never on every keystroke: each search is a fan-out of RDAP
- * lookups at the registry.
+ * Domain search for the register flow.
+ *
+ * Two phases so the dialog is never a blank spinner: the TLD list (with
+ * prices) comes back immediately and paints every row, then availability is
+ * checked one request per row and each row fills in as its answer lands.
+ *
+ * A few checks run at once here; the backend's own RDAP gate is what actually
+ * protects the registries, so this pool only needs to keep the browser tidy.
  */
+const CHECK_POOL = 3;
+
 export const useDomainSearch = () => {
   const { toast } = useToast();
+  const [offers, setOffers] = useState<DomainOffer[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  // bumped on every new search and on reset, so answers from an abandoned
+  // search cannot land in the list the user is now looking at
+  const runId = useRef(0);
 
-  return useMutation({
-    mutationFn: (q: string) => searchDomains(q),
-    onError: (error: Error) => {
+  const search = async (q: string, all = false) => {
+    const run = ++runId.current;
+    setSearching(true);
+    setShowingAll(all);
+    setOffers(null);
+
+    try {
+      const rows = await getSearchTlds(q, all);
+      if (runId.current !== run) return;
+      setOffers(rows);
+
+      const patch = (domain: string, fields: Partial<DomainOffer>) =>
+        setOffers((prev) =>
+          prev
+            ? prev.map((row) =>
+                row.domain === domain ? { ...row, ...fields } : row,
+              )
+            : prev,
+        );
+
+      const queue = [...rows];
+      const worker = async () => {
+        for (let row = queue.shift(); row; row = queue.shift()) {
+          try {
+            const result = await checkDomain(row.domain);
+            if (runId.current !== run) return;
+            patch(row.domain, result);
+          } catch {
+            if (runId.current !== run) return;
+            // our own request failed — say so rather than blaming the registry
+            patch(row.domain, { available: null, checkFailed: true });
+          }
+        }
+      };
+
+      await Promise.all(Array.from({ length: CHECK_POOL }, worker));
+    } catch (error: any) {
+      if (runId.current !== run) return;
+      setOffers(null);
       toast({
-        title: 'Search failed',
-        description: error.message || 'Could not check that domain.',
-        variant: 'destructive',
+        title: "Search failed",
+        description: error?.message || "Could not check that domain.",
+        variant: "destructive",
       });
-    },
-  });
+    } finally {
+      if (runId.current === run) setSearching(false);
+    }
+  };
+
+  // whether the last search was already showing every extension
+  const [showingAll, setShowingAll] = useState(false);
+
+  const reset = () => {
+    runId.current++;
+    setOffers(null);
+    setSearching(false);
+    setShowingAll(false);
+  };
+
+  return { offers, searching, showingAll, search, reset };
 };
 
 export const useRegisterDomain = () => {
@@ -465,17 +548,17 @@ export const useRegisterDomain = () => {
   return useMutation({
     mutationFn: registerDomain,
     onSuccess: (domain) => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: 'Domain registered',
+        title: "Domain registered",
         description: `${domain.name} is registered and pointed at our nameservers.`,
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Registration failed',
-        description: error.message || 'The registrar refused the registration.',
-        variant: 'destructive',
+        title: "Registration failed",
+        description: error.message || "The registrar refused the registration.",
+        variant: "destructive",
       });
     },
   });

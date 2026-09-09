@@ -72,7 +72,7 @@ type RdapLookup =
   | { outcome: 'unregistered'; data: null }
   | { outcome: 'unknown'; data: null };
 
-async function lookupRdap(name: string, attempt = 0): Promise<RdapLookup> {
+async function lookupRdapUncapped(name: string, attempt = 0): Promise<RdapLookup> {
   const domain = String(name || '').trim().toLowerCase();
   // RDAP answers for registrable names only — a host label like www.x.com 404s
   if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return { outcome: 'unknown', data: null };
@@ -83,7 +83,7 @@ async function lookupRdap(name: string, attempt = 0): Promise<RdapLookup> {
   const retry = async (): Promise<RdapLookup> => {
     if (attempt >= 1) return { outcome: 'unknown', data: null };
     await new Promise((resolve) => setTimeout(resolve, 750));
-    return lookupRdap(domain, attempt + 1);
+    return lookupRdapUncapped(domain, attempt + 1);
   };
 
   try {
@@ -110,6 +110,29 @@ async function lookupRdap(name: string, attempt = 0): Promise<RdapLookup> {
   } catch {
     // timeouts, DNS, malformed JSON — RDAP is best-effort, never fail the caller
     return retry();
+  }
+}
+
+/**
+ * Registries throttle bursts, so every RDAP lookup in this process queues
+ * through one small gate. Callers can fan out freely — six browser requests
+ * for six TLDs still hit the registry two at a time.
+ *
+ * The gate wraps the retrying worker from the outside: a retry must not try to
+ * take a second slot, or two waiting lookups would hold both slots forever.
+ */
+const MAX_INFLIGHT = 2;
+let inflight = 0;
+const waiting: (() => void)[] = [];
+
+async function lookupRdap(name: string): Promise<RdapLookup> {
+  if (inflight >= MAX_INFLIGHT) await new Promise<void>((resolve) => waiting.push(resolve));
+  inflight++;
+  try {
+    return await lookupRdapUncapped(name);
+  } finally {
+    inflight--;
+    waiting.shift()?.();
   }
 }
 

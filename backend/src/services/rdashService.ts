@@ -1,5 +1,5 @@
 import { getCloudflareNameservers } from './cloudflareService';
-import { getRdashConfigFromDb } from './integrationConfigService';
+import { getRdashConfigFromDb, getIntegrationConfigValue } from './integrationConfigService';
 
 interface RdashConfig {
   baseUrl: string;
@@ -34,14 +34,6 @@ export async function getRdashNameservers(): Promise<string[]> {
   }
 
   return [];
-}
-
-function getDomainRegisterPath(): string {
-  return '/domains/register';
-}
-
-function getDomainUpdateNameserversPath(): string {
-  return '/domains/nameservers';
 }
 
 export async function rdashRequest<T = any>(
@@ -163,15 +155,34 @@ export async function getRdashBalance(): Promise<number | string | null> {
   }
 }
 
-export async function registerRdashDomain(payload: any): Promise<any> {
-  const body = { ...payload };
-  const nameservers = await getRdashNameservers();
-
-  if ((!body.nameservers || !Array.isArray(body.nameservers) || body.nameservers.length === 0) && nameservers.length > 0) {
-    body.nameservers = nameservers;
+/**
+ * Buy a domain. `POST /domains`, form-encoded, with `nameserver[0..4]` —
+ * not `/domains/register`, and not JSON.
+ *
+ * `customer_id` is required by the API: registrations are billed to a customer
+ * and the WHOIS contact is created from it when no contact is named.
+ */
+export async function registerRdashDomain(payload: {
+  domain: string;
+  period: number;
+  customerId?: number | null;
+  nameservers?: string[];
+}): Promise<any> {
+  const customerId = payload.customerId ?? (await getRdashCustomerId());
+  if (!customerId) {
+    throw new Error('No RDASH customer to bill the registration to');
   }
 
-  return rdashRequest('POST', getDomainRegisterPath(), body);
+  const requested = payload.nameservers?.filter((ns) => ns && ns.trim()) ?? [];
+  const nameservers = requested.length > 0 ? requested : await getRdashNameservers();
+
+  const form = new URLSearchParams();
+  form.append('name', payload.domain.trim().toLowerCase());
+  form.append('period', String(payload.period));
+  form.append('customer_id', String(customerId));
+  nameservers.slice(0, 5).forEach((ns, i) => form.append(`nameserver[${i}]`, ns.trim()));
+
+  return rdashRequest('POST', '/domains', form);
 }
 
 /**
@@ -294,30 +305,32 @@ export async function renewRdashDomain(domain: string, years = 1): Promise<any> 
 
 /* ------------------------------------------------------------------ *
  * Domain search: availability + price, for the "register new domain" flow
+ *
+ * Shapes below follow the RDASH OpenAPI spec at https://api.rdash.id/swagger/v1
  * ------------------------------------------------------------------ */
 
-/** TLDs offered when the user types a bare word with no dot. */
-export const SEARCH_TLDS = ['com', 'id', 'co.id', 'net', 'org', 'my.id'];
-
-export type DomainOffer = {
-  domain: string;
-  tld: string;
-  /** true = free to register, false = taken, null = registry gave no answer */
-  available: boolean | null;
-  /** who holds it, when taken */
-  registrar: string | null;
-  /** register price for one year, in `currency`. null when the registrar has no price for this TLD */
-  price: number | null;
-  renewPrice: number | null;
-  currency: string;
-};
+/**
+ * Shown by default. The account sells ~50 extensions and every row costs one
+ * availability lookup, so a search offers these and hides the rest behind an
+ * explicit "show all" — the full list is still sold, just not checked upfront.
+ *
+ * Also the fallback list when the price list cannot be read at all.
+ */
+export const SEARCH_TLDS = ['com', 'id', 'co.id', 'my.id', 'net', 'org', 'web.id', 'biz.id'];
 
 /**
- * RDASH price list, keyed by TLD without the leading dot.
- * Shape varies by account, so every plausible field name is probed rather
- * than pinned — a missing price degrades to "price on request", never a throw.
+ * `GET /account/prices` prices a whole period at a time — `registration["3"]`
+ * is the total for three years, not a yearly rate to multiply. Keeping the map
+ * means we quote what the registrar will actually charge, including the
+ * per-extension discounts that break a naive price x years.
  */
-export type TldPrice = { register: number | null; renew: number | null; currency: string };
+export type TldPrice = {
+  extension: string;
+  currency: string;
+  /** period in years -> total price for that period */
+  registration: Record<number, number>;
+  renewal: Record<number, number>;
+};
 
 /** Parse a price that may arrive as a number or as formatted text ("Rp 150.000"). */
 export const parsePrice = (value: unknown): number | null => {
@@ -331,44 +344,50 @@ export const parsePrice = (value: unknown): number | null => {
   return null;
 };
 
-const pick = (row: any, keys: string[]): number | null => {
-  for (const key of keys) {
-    const value = parsePrice(row?.[key]);
-    if (value !== null) return value;
-  }
-  return null;
-};
+/** `{"1": 100000, "2": "200000.00"}` -> `{1: 100000, 2: 200000}` */
+const periodMap = (value: unknown): Record<number, number> => {
+  const periods: Record<number, number> = {};
+  if (!value || typeof value !== 'object') return periods;
 
-/** Unwrap the `{success, data: {...}}` / `{data: {data: [...]}}` envelopes RDASH uses. */
-const unwrap = (payload: any): any[] => {
-  let node = payload;
-  for (let i = 0; i < 4 && node && !Array.isArray(node); i++) {
-    node = node.data ?? node.results ?? node.items ?? node.tlds ?? node.pricing ?? null;
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const years = Number.parseInt(key, 10);
+    const price = parsePrice(raw);
+    if (Number.isFinite(years) && years > 0 && price !== null) periods[years] = price;
   }
-  return Array.isArray(node) ? node : [];
+  return periods;
 };
 
 let priceCache: { at: number; prices: Record<string, TldPrice> } | null = null;
 const PRICE_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * The reseller account's price list, keyed by extension without the leading
+ * dot. This doubles as the list of TLDs we can actually sell — an extension
+ * with no price is one the account cannot register.
+ */
 export async function getRdashPricing(): Promise<Record<string, TldPrice>> {
   if (priceCache && Date.now() - priceCache.at < PRICE_TTL_MS) return priceCache.prices;
 
   const prices: Record<string, TldPrice> = {};
 
   try {
-    const rows = unwrap(await rdashRequest('GET', '/domains/pricing'));
+    let lastPage = 1;
 
-    for (const row of rows) {
-      const rawTld = String(row?.tld ?? row?.extension ?? row?.name ?? row?.domain ?? '').trim();
-      const tld = rawTld.replace(/^\./, '').toLowerCase();
-      if (!tld) continue;
+    for (let page = 1; page <= lastPage && page <= 20; page++) {
+      const payload: any = await rdashRequest('GET', `/account/prices?page=${page}&limit=100`);
+      lastPage = Number(payload?.meta?.last_page) || 1;
 
-      prices[tld] = {
-        register: pick(row, ['register', 'registration', 'register_price', 'price', 'create', 'amount']),
-        renew: pick(row, ['renew', 'renewal', 'renew_price', 'renewal_price']),
-        currency: String(row?.currency ?? 'IDR').toUpperCase(),
-      };
+      for (const row of Array.isArray(payload?.data) ? payload.data : []) {
+        const extension = String(row?.domain_extension?.extension ?? '').trim().replace(/^\./, '').toLowerCase();
+        if (!extension) continue;
+
+        prices[extension] = {
+          extension,
+          currency: String(row?.currency ?? 'IDR').toUpperCase(),
+          registration: periodMap(row?.registration),
+          renewal: periodMap(row?.renewal),
+        };
+      }
     }
   } catch (error) {
     // no price list = "price on request", not a broken search
@@ -380,23 +399,61 @@ export async function getRdashPricing(): Promise<Record<string, TldPrice>> {
 }
 
 /**
- * RDASH's own availability check. Secondary to RDAP — used only to fill in
- * TLDs where RDAP has no service, and silently skipped when it errors.
+ * `GET /domains/availability` — the registrar's own check.
+ *
+ * `available` is an integer flag, not a boolean: `{ name, available: 0 | 1,
+ * message }`. The spec declares `data` as an array but the live API returns a
+ * bare object, so both are accepted.
+ *
+ * Repeated checks of the same name are rate limited upstream and come back as
+ * an error, which reads as "no answer" — RDAP is asked first for that reason.
  */
 export async function checkRdashAvailability(domain: string): Promise<boolean | null> {
   try {
-    const payload: any = await rdashRequest('GET', `/domains/check?domain=${encodeURIComponent(domain)}`);
-    const node = payload?.data ?? payload;
-    const value = node?.available ?? node?.is_available ?? node?.availability ?? node?.status;
+    const payload: any = await rdashRequest(
+      'GET',
+      `/domains/availability?domain=${encodeURIComponent(domain)}`,
+    );
 
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      if (['available', 'free', 'yes', 'true', '1'].includes(normalized)) return true;
-      if (['taken', 'registered', 'unavailable', 'no', 'false', '0'].includes(normalized)) return false;
+    const wanted = domain.trim().toLowerCase();
+    const rows: any[] = Array.isArray(payload?.data)
+      ? payload.data
+      : payload?.data
+        ? [payload.data]
+        : [];
+    const row =
+      rows.find((r) => String(r?.name ?? '').trim().toLowerCase() === wanted) ?? rows[0];
+
+    const flag = row?.available;
+    if (typeof flag === 'number') return flag === 1;
+    if (typeof flag === 'boolean') return flag;
+    if (typeof flag === 'string' && flag.trim()) {
+      const normalized = flag.trim().toLowerCase();
+      if (['1', 'true', 'available', 'yes'].includes(normalized)) return true;
+      if (['0', 'false', 'taken', 'registered', 'unavailable', 'no'].includes(normalized)) return false;
     }
     return null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Registrations are billed to a customer, and `customer_id` is required.
+ * The account's first customer is the intended default; set a `customerId`
+ * integration config value to bill somewhere else.
+ */
+export async function getRdashCustomerId(): Promise<number | null> {
+  const configured = await getIntegrationConfigValue('rdash', 'customerId');
+  if (configured && Number.isFinite(Number(configured))) return Number(configured);
+
+  try {
+    const payload: any = await rdashRequest('GET', '/customers?limit=1');
+    const id = Number(payload?.data?.[0]?.id);
+    if (Number.isFinite(id)) return id;
+  } catch (error) {
+    console.error('Could not resolve an RDASH customer:', (error as Error).message);
+  }
+
+  return null;
 }
