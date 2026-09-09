@@ -9,6 +9,13 @@ import { PageLayout } from "@/components/PageLayout";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDomainSearch, useRegisterDomain } from "@/hooks/useDomains";
 import type { DomainOffer } from "@/lib/domains";
 import { APP_NAME } from "@/lib/branding";
@@ -39,6 +46,7 @@ const DomainRegister = () => {
   const [organizationId, setOrganizationId] = useState("");
   const [term, setTerm] = useState("");
   const [context, setContext] = useState("");
+  const [contextOpen, setContextOpen] = useState(false);
   const [selected, setSelected] = useState<DomainOffer | null>(null);
   const [years, setYears] = useState(1);
 
@@ -57,6 +65,7 @@ const DomainRegister = () => {
 
   const runSuggest = async () => {
     if (!term.trim()) return;
+    setContextOpen(false);
     setSelected(null);
     await suggest(term.trim(), context);
   };
@@ -118,7 +127,7 @@ const DomainRegister = () => {
                 type="button"
                 variant="secondary"
                 disabled={busy || !term.trim()}
-                onClick={runSuggest}
+                onClick={() => setContextOpen(true)}
               >
                 {suggesting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -132,27 +141,6 @@ const DomainRegister = () => {
               Availability comes from the domain registry. Suggestions are AI
               ideas — every one is still checked against the registry.
             </p>
-
-            <div className="space-y-1.5 pt-1">
-              <Label htmlFor="domain-context" className="text-sm">
-                What is it for?{" "}
-                <span className="font-normal text-muted-foreground">
-                  (optional, guides the suggestions)
-                </span>
-              </Label>
-              <Textarea
-                id="domain-context"
-                rows={2}
-                maxLength={400}
-                placeholder="Platform layanan administrasi untuk pemerintah desa di Indonesia — warga urus surat online."
-                value={context}
-                onChange={(e) => setContext(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Describe the audience and what it does. Names are drawn from
-                this, not just the keyword.
-              </p>
-            </div>
           </form>
 
           {offers && offers.length === 0 && !busy && (
@@ -318,6 +306,53 @@ const DomainRegister = () => {
           </div>
         </div>
       </div>
+      <Dialog open={contextOpen} onOpenChange={setContextOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Suggest names for "{term.trim()}"</DialogTitle>
+            <DialogDescription>
+              Tell the AI what you are building. Names are drawn from this, not
+              just the keyword — and every one is still checked against the
+              registry.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="domain-context" className="text-sm">
+              What is it for?{" "}
+              <span className="font-normal text-muted-foreground">
+                (optional)
+              </span>
+            </Label>
+            <Textarea
+              id="domain-context"
+              rows={4}
+              maxLength={400}
+              autoFocus
+              placeholder="Platform layanan administrasi untuk pemerintah desa di Indonesia — warga urus surat online."
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+            />
+            <p className="text-right text-xs text-muted-foreground">
+              {context.length}/400
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setContextOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={runSuggest} disabled={busy}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Suggest names
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   );
 };
