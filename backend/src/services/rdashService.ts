@@ -291,3 +291,112 @@ export async function renewRdashDomain(domain: string, years = 1): Promise<any> 
 
   return rdashRequest('POST', `/domains/${rdashDomain.id}/renew`, form);
 }
+
+/* ------------------------------------------------------------------ *
+ * Domain search: availability + price, for the "register new domain" flow
+ * ------------------------------------------------------------------ */
+
+/** TLDs offered when the user types a bare word with no dot. */
+export const SEARCH_TLDS = ['com', 'id', 'co.id', 'net', 'org', 'my.id'];
+
+export type DomainOffer = {
+  domain: string;
+  tld: string;
+  /** true = free to register, false = taken, null = registry gave no answer */
+  available: boolean | null;
+  /** who holds it, when taken */
+  registrar: string | null;
+  /** register price for one year, in `currency`. null when the registrar has no price for this TLD */
+  price: number | null;
+  renewPrice: number | null;
+  currency: string;
+};
+
+/**
+ * RDASH price list, keyed by TLD without the leading dot.
+ * Shape varies by account, so every plausible field name is probed rather
+ * than pinned — a missing price degrades to "price on request", never a throw.
+ */
+export type TldPrice = { register: number | null; renew: number | null; currency: string };
+
+/** Parse a price that may arrive as a number or as formatted text ("Rp 150.000"). */
+export const parsePrice = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    // "Rp 150.000" / "150000.00" / "150,000"
+    const digits = value.replace(/[^0-9.,]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(/,/g, '');
+    const parsed = Number.parseFloat(digits);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const pick = (row: any, keys: string[]): number | null => {
+  for (const key of keys) {
+    const value = parsePrice(row?.[key]);
+    if (value !== null) return value;
+  }
+  return null;
+};
+
+/** Unwrap the `{success, data: {...}}` / `{data: {data: [...]}}` envelopes RDASH uses. */
+const unwrap = (payload: any): any[] => {
+  let node = payload;
+  for (let i = 0; i < 4 && node && !Array.isArray(node); i++) {
+    node = node.data ?? node.results ?? node.items ?? node.tlds ?? node.pricing ?? null;
+  }
+  return Array.isArray(node) ? node : [];
+};
+
+let priceCache: { at: number; prices: Record<string, TldPrice> } | null = null;
+const PRICE_TTL_MS = 60 * 60 * 1000;
+
+export async function getRdashPricing(): Promise<Record<string, TldPrice>> {
+  if (priceCache && Date.now() - priceCache.at < PRICE_TTL_MS) return priceCache.prices;
+
+  const prices: Record<string, TldPrice> = {};
+
+  try {
+    const rows = unwrap(await rdashRequest('GET', '/domains/pricing'));
+
+    for (const row of rows) {
+      const rawTld = String(row?.tld ?? row?.extension ?? row?.name ?? row?.domain ?? '').trim();
+      const tld = rawTld.replace(/^\./, '').toLowerCase();
+      if (!tld) continue;
+
+      prices[tld] = {
+        register: pick(row, ['register', 'registration', 'register_price', 'price', 'create', 'amount']),
+        renew: pick(row, ['renew', 'renewal', 'renew_price', 'renewal_price']),
+        currency: String(row?.currency ?? 'IDR').toUpperCase(),
+      };
+    }
+  } catch (error) {
+    // no price list = "price on request", not a broken search
+    console.error('RDASH pricing unavailable:', (error as Error).message);
+  }
+
+  priceCache = { at: Date.now(), prices };
+  return prices;
+}
+
+/**
+ * RDASH's own availability check. Secondary to RDAP — used only to fill in
+ * TLDs where RDAP has no service, and silently skipped when it errors.
+ */
+export async function checkRdashAvailability(domain: string): Promise<boolean | null> {
+  try {
+    const payload: any = await rdashRequest('GET', `/domains/check?domain=${encodeURIComponent(domain)}`);
+    const node = payload?.data ?? payload;
+    const value = node?.available ?? node?.is_available ?? node?.availability ?? node?.status;
+
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['available', 'free', 'yes', 'true', '1'].includes(normalized)) return true;
+      if (['taken', 'registered', 'unavailable', 'no', 'false', '0'].includes(normalized)) return false;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

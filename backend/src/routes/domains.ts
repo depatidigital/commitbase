@@ -6,9 +6,9 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords, createDnsRecord, updateDnsRecord, deleteDnsRecord, getDefaultDnsTarget } from '../services/cloudflareService';
-import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain } from '../services/rdashService';
+import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, registerRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS, DomainOffer } from '../services/rdashService';
 import { startDomainSync, getDomainSyncState } from '../services/domainSyncService';
-import { getDomainRegistration } from '../services/rdapService';
+import { getDomainRegistration, getDomainExpiry, getDomainAvailability } from '../services/rdapService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
 const sortOrder = (sort: unknown, order: unknown): any => {
@@ -99,6 +99,182 @@ router.get('/platform-target', authenticateToken, async (_req: AuthenticatedRequ
     return res.json({ success: true, data: await getDefaultDnsTarget() } as ApiResponse);
   } catch (error) {
     console.error('Error fetching platform DNS target:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Domain search for the "register new domain" flow — availability + price for
+ * the name typed and the same label on our offered TLDs.
+ *
+ * Availability comes from RDAP (registry truth, every TLD, no registrar
+ * account needed). RDASH's own check only fills gaps where RDAP is silent.
+ * A name we cannot get a definitive answer for is reported as unknown and the
+ * UI refuses to register it — better than selling a name that turns out taken.
+ */
+router.get('/search', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const raw = String(req.query.q ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (!raw) {
+      return res.status(400).json({ success: false, error: 'Search term is required' } as ApiResponse);
+    }
+
+    // "shop.example.com" searches for example.com; "example" searches every offered TLD
+    const parts = raw.split('.').filter(Boolean);
+    const label = parts[0] as string;
+
+    if (!/^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/.test(label)) {
+      return res.status(400).json({ success: false, error: 'Not a valid domain name' } as ApiResponse);
+    }
+
+    const typedTld = parts.slice(1).join('.');
+    const tlds = [typedTld, ...SEARCH_TLDS].filter((tld, i, all) => tld && all.indexOf(tld) === i);
+
+    const pricing = await getRdashPricing();
+
+    // Sequential on purpose: six parallel lookups trip the registries' burst
+    // limits and come back as timeouts, which the UI can only report as
+    // "no answer". A search is one deliberate button press — it can take a moment.
+    const offers: DomainOffer[] = [];
+
+    for (const tld of tlds) {
+      offers.push(await (async () => {
+        const domain = `${label}.${tld}`;
+        const { available: rdapAvailable, registration } = await getDomainAvailability(domain);
+
+        // RDAP is authoritative when it answers at all. Only fall back to the
+        // registrar for TLDs it has no service for.
+        const available = rdapAvailable ?? (await checkRdashAvailability(domain));
+
+        const price = pricing[tld] ?? null;
+
+        return {
+          domain,
+          tld,
+          available,
+          registrar: registration?.registrar ?? null,
+          price: price?.register ?? null,
+          renewPrice: price?.renew ?? null,
+          currency: price?.currency ?? 'IDR',
+        };
+      })());
+    }
+
+    // already ours? the UI needs to say so instead of offering it again
+    const owned = new Set(
+      (await prisma.domain.findMany({
+        where: { name: { in: offers.map((offer) => offer.domain) } },
+        select: { name: true },
+      })).map((domain) => domain.name)
+    );
+
+    return res.json({
+      success: true,
+      data: offers.map((offer) => ({ ...offer, owned: owned.has(offer.domain) })),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error searching domains:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Buy a domain through RDASH, then wire it up here. Spends registrar balance,
+ * so availability is re-checked server-side — the client's search result is a
+ * hint, never the authority.
+ */
+router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { name, organizationId } = req.body ?? {};
+    const years = Math.min(Math.max(parseInt(String(req.body?.years ?? 1), 10) || 1, 1), 10);
+    const domainName = String(name ?? '').trim().toLowerCase();
+
+    if (!domainName || !organizationId) {
+      return res.status(400).json({ success: false, error: 'Domain name and owning organization are required' } as ApiResponse);
+    }
+
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) {
+      return res.status(404).json({ success: false, error: 'Owning organization not found' } as ApiResponse);
+    }
+
+    if (await prisma.domain.findUnique({ where: { name: domainName } })) {
+      return res.status(400).json({ success: false, error: 'Domain already exists' } as ApiResponse);
+    }
+
+    const { available, registration } = await getDomainAvailability(domainName);
+    if (available === false) {
+      return res.status(409).json({
+        success: false,
+        error: `${domainName} is already registered${registration?.registrar ? ` at ${registration.registrar}` : ''}`,
+      } as ApiResponse);
+    }
+    if (available === null && (await checkRdashAvailability(domainName)) !== true) {
+      return res.status(409).json({
+        success: false,
+        error: `Could not confirm ${domainName} is available — no registry answered`,
+      } as ApiResponse);
+    }
+
+    // The purchase. Everything after this point is bookkeeping for a domain we own.
+    let receipt: any;
+    try {
+      receipt = await registerRdashDomain({ domain: domainName, year: years });
+    } catch (error: any) {
+      console.error('RDASH registration failed:', error?.message);
+      return res.status(502).json({
+        success: false,
+        error: `Registrar refused the registration: ${String(error?.message ?? '').slice(0, 300)}`,
+      } as ApiResponse);
+    }
+
+    const cloudflareZone = await getOrCreateCloudflareZone(domainName);
+    const dnsRecords: any = await syncDomainDns(domainName, cloudflareZone?.id);
+
+    // point the fresh domain at our nameservers — non-fatal, it can be redone by hand
+    if (cloudflareZone) {
+      try {
+        await updateRdashDomainNameservers(domainName, { nameservers: cloudflareZone.nameServers });
+      } catch (error: any) {
+        console.error(`Could not set nameservers for ${domainName}:`, error?.message);
+      }
+    }
+
+    const domain = await prisma.domain.create({
+      data: {
+        name: domainName,
+        status: cloudflareZone ? 'ACTIVE' : 'PENDING',
+        dnsRecords,
+        registrar: 'RDASH',
+        cfZoneId: cloudflareZone?.id ?? null,
+        expiresAt: (await getDomainExpiry(domainName)) ?? null,
+        lastSyncedAt: new Date(),
+        customConfig: {
+          mode: 'register',
+          years,
+          registeredAt: new Date().toISOString(),
+          ...(cloudflareZone && {
+            cloudflare: {
+              zoneId: cloudflareZone.id,
+              zoneName: cloudflareZone.name,
+              nameservers: cloudflareZone.nameServers,
+              synced: true,
+            },
+          }),
+          rdash: receipt ?? null,
+        },
+        organizationId,
+        userId: req.user!.userId,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: domain,
+      message: `${domainName} registered for ${years} year${years > 1 ? 's' : ''}`,
+    } as ApiResponse<Domain>);
+  } catch (error) {
+    console.error('Error registering domain:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

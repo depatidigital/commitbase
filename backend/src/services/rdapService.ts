@@ -59,10 +59,32 @@ function eventDate(data: RdapResponse, action: string): string | null {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
-async function fetchRdap(name: string): Promise<RdapResponse | null> {
+/**
+ * `registered` — the registry returned a record.
+ * `unregistered` — the registry answered 404: the name is free.
+ * `unknown` — nobody authoritative answered (no RDAP for the TLD, timeout, 5xx).
+ *
+ * The three are worth separating because a 404 is a real answer, and treating
+ * it as silence makes every free domain look unregistrable.
+ */
+type RdapLookup =
+  | { outcome: 'registered'; data: RdapResponse }
+  | { outcome: 'unregistered'; data: null }
+  | { outcome: 'unknown'; data: null };
+
+async function lookupRdap(name: string, attempt = 0): Promise<RdapLookup> {
   const domain = String(name || '').trim().toLowerCase();
   // RDAP answers for registrable names only — a host label like www.x.com 404s
-  if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return null;
+  if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return { outcome: 'unknown', data: null };
+
+  // Registries throttle bursts, and a throttled lookup is indistinguishable
+  // from "no RDAP service" to the caller — which shows a free domain as
+  // unregistrable. One retry turns most of those back into a real answer.
+  const retry = async (): Promise<RdapLookup> => {
+    if (attempt >= 1) return { outcome: 'unknown', data: null };
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    return lookupRdap(domain, attempt + 1);
+  };
 
   try {
     const res = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
@@ -70,14 +92,29 @@ async function fetchRdap(name: string): Promise<RdapResponse | null> {
       headers: { accept: 'application/rdap+json', 'user-agent': 'commitbase-domain-sync/1.0' },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    // 404 = not registered, or a TLD outside RDAP. Both mean "no answer".
-    if (!res.ok) return null;
 
-    return (await res.json()) as RdapResponse;
+    if (res.ok) return { outcome: 'registered', data: (await res.json()) as RdapResponse };
+
+    // rdap.org is a bootstrap: it redirects to the registry that owns the TLD.
+    // A 404 from the *registry* means the name is not registered. A 404 still
+    // at rdap.org means the TLD has no RDAP service at all — that is silence.
+    if (res.status === 404) {
+      const answeredByRegistry = !new URL(res.url).hostname.endsWith('rdap.org');
+      return answeredByRegistry
+        ? { outcome: 'unregistered', data: null }
+        : { outcome: 'unknown', data: null };
+    }
+
+    // 429 / 5xx are "ask again", not "no such service"
+    return retry();
   } catch {
     // timeouts, DNS, malformed JSON — RDAP is best-effort, never fail the caller
-    return null;
+    return retry();
   }
+}
+
+async function fetchRdap(name: string): Promise<RdapResponse | null> {
+  return (await lookupRdap(name)).data;
 }
 
 /**
@@ -86,8 +123,10 @@ async function fetchRdap(name: string): Promise<RdapResponse | null> {
  */
 export async function getDomainRegistration(name: string): Promise<DomainRegistration | null> {
   const data = await fetchRdap(name);
-  if (!data) return null;
+  return data ? toRegistration(name, data) : null;
+}
 
+function toRegistration(name: string, data: RdapResponse): DomainRegistration {
   const registrar = findRegistrar(data);
 
   return {
@@ -110,4 +149,19 @@ export async function getDomainExpiry(name: string): Promise<Date | null> {
   const data = await fetchRdap(name);
   const expiry = data ? eventDate(data, 'expiration') : null;
   return expiry ? new Date(expiry) : null;
+}
+
+/**
+ * Availability and, when taken, who holds it — from one registry round-trip.
+ * `available`: true = free, false = taken, null = no authoritative answer.
+ */
+export async function getDomainAvailability(
+  name: string,
+): Promise<{ available: boolean | null; registration: DomainRegistration | null }> {
+  const lookup = await lookupRdap(name);
+
+  if (lookup.outcome === 'unregistered') return { available: true, registration: null };
+  if (lookup.outcome === 'unknown') return { available: null, registration: null };
+
+  return { available: false, registration: toRegistration(name, lookup.data) };
 }

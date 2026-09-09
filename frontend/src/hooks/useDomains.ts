@@ -23,7 +23,9 @@ import {
   updateDnsRecord,
   deleteDnsRecord,
   DnsRecordInput,
-  importRegistrarDns
+  importRegistrarDns,
+  searchDomains,
+  registerDomain
 } from '@/lib/domains';
 import { isAdmin } from '@/lib/auth';
 import { CreateDomainData, UpdateDomainData } from '@/types/domain';
@@ -433,5 +435,48 @@ export const useDomainRegistration = (id: string | null) => {
     queryFn: () => getDomainRegistration(id as string),
     enabled: !!id,
     staleTime: 60 * 60 * 1000,
+  });
+};
+
+/**
+ * Domain search for the register flow. Manual — `refetch`/`mutate` on the
+ * search button, never on every keystroke: each search is a fan-out of RDAP
+ * lookups at the registry.
+ */
+export const useDomainSearch = () => {
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (q: string) => searchDomains(q),
+    onError: (error: Error) => {
+      toast({
+        title: 'Search failed',
+        description: error.message || 'Could not check that domain.',
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+export const useRegisterDomain = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: registerDomain,
+    onSuccess: (domain) => {
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({
+        title: 'Domain registered',
+        description: `${domain.name} is registered and pointed at our nameservers.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Registration failed',
+        description: error.message || 'The registrar refused the registration.',
+        variant: 'destructive',
+      });
+    },
   });
 };

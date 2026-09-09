@@ -45,6 +45,8 @@ import {
   useDeleteDomain,
   useVerifyDomain,
   useCreateDomain,
+  useDomainSearch,
+  useRegisterDomain,
   useDomainDnsZone,
   useSyncDomains,
   useBulkAssignDomains,
@@ -66,6 +68,7 @@ import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { isAdmin } from "@/lib/auth";
 import { Domain } from "@/types/domain";
+import type { DomainOffer } from "@/lib/domains";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,7 +112,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { APP_NAME } from '@/lib/branding';
+import { APP_NAME } from "@/lib/branding";
 
 // radix Select rejects an empty string value, so "no organization" needs a sentinel
 const UNASSIGNED = "__unassigned__";
@@ -132,10 +135,17 @@ type ExpiryTone = {
 
 /** How loudly to shout about a registration expiry date. */
 const expiryTone = (value: Date): ExpiryTone => {
-  const days = Math.ceil((value.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  const days = Math.ceil(
+    (value.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+  );
 
   if (days < 0) {
-    return { days, className: "text-destructive font-semibold", note: "expired", urgent: true };
+    return {
+      days,
+      className: "text-destructive font-semibold",
+      note: "expired",
+      urgent: true,
+    };
   }
   if (days === 0) {
     return {
@@ -154,10 +164,20 @@ const expiryTone = (value: Date): ExpiryTone => {
     };
   }
   if (days <= 30) {
-    return { days, className: "text-warning font-medium", note: `${days}d left`, urgent: true };
+    return {
+      days,
+      className: "text-warning font-medium",
+      note: `${days}d left`,
+      urgent: true,
+    };
   }
   if (days <= 60) {
-    return { days, className: "text-warning", note: `${days}d left`, urgent: false };
+    return {
+      days,
+      className: "text-warning",
+      note: `${days}d left`,
+      urgent: false,
+    };
   }
   return { days, className: "", note: "", urgent: false };
 };
@@ -192,6 +212,11 @@ export default function Domains() {
   const [addMode, setAddMode] = useState<"existing" | "register">("existing");
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainOrgId, setNewDomainOrgId] = useState("");
+  // register flow: search the registrar, pick an offer, buy it
+  const [searchTerm, setSearchTerm] = useState("");
+  const [offers, setOffers] = useState<DomainOffer[] | null>(null);
+  const [selectedOffer, setSelectedOffer] = useState<DomainOffer | null>(null);
+  const [years, setYears] = useState(1);
   const [listFilter, setListFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState(ANY);
   const [expiryFilter, setExpiryFilter] = useState(ANY);
@@ -202,7 +227,9 @@ export default function Domains() {
     name: string;
   } | null>(null);
   const [assignOrgId, setAssignOrgId] = useState(UNASSIGNED);
-  const [cloudflarePrompt, setCloudflarePrompt] = useState<"enable" | "disable" | null>(null);
+  const [cloudflarePrompt, setCloudflarePrompt] = useState<
+    "enable" | "disable" | null
+  >(null);
   // null = closed, {} = adding, {id} = editing that record
   const [recordForm, setRecordForm] = useState<{
     id?: string;
@@ -218,7 +245,11 @@ export default function Domains() {
   const { toast } = useToast();
 
   // API hooks
-  const { data: domainsData, isLoading, error } = useDomainsPage({
+  const {
+    data: domainsData,
+    isLoading,
+    error,
+  } = useDomainsPage({
     ...query.params,
     ...(listFilter !== "all" && { filter: listFilter }),
     ...(statusFilter !== ANY && { status: statusFilter }),
@@ -232,6 +263,8 @@ export default function Domains() {
   const deleteDomain = useDeleteDomain();
   const verifyDomain = useVerifyDomain();
   const createDomain = useCreateDomain();
+  const domainSearch = useDomainSearch();
+  const registerDomain = useRegisterDomain();
   const syncDomains = useSyncDomains();
   const bulkAssign = useBulkAssignDomains();
   const enableCloudflare = useEnableCloudflare();
@@ -252,7 +285,7 @@ export default function Domains() {
     useDomainRegistration(domainId);
   const { data: rdashDns, isLoading: rdashDnsLoading } = useRdashDns(
     domainId,
-    domainDetail?.registrar === "RDASH"
+    domainDetail?.registrar === "RDASH",
   );
 
   const domains = domainsData?.data ?? [];
@@ -260,7 +293,9 @@ export default function Domains() {
   // the list has no zone loaded, so it gets the platform target on its own
   const { data: listPlatformTarget } = usePlatformTarget();
   const platformTarget =
-    domainDnsZone?.platformTarget?.content ?? listPlatformTarget?.content ?? null;
+    domainDnsZone?.platformTarget?.content ??
+    listPlatformTarget?.content ??
+    null;
 
   /** Records pointing at our own server read better as "this platform" than as a bare IP. */
   const isPlatformTarget = (content: unknown) =>
@@ -275,7 +310,7 @@ export default function Domains() {
   const apexRecord = (domainDnsZone?.records ?? []).find(
     (record: any) =>
       record?.name === domainDetail?.name &&
-      ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase())
+      ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase()),
   );
 
   const subdomainRecords = (domainDnsZone?.records ?? [])
@@ -283,7 +318,7 @@ export default function Domains() {
       (record: any) =>
         typeof record?.name === "string" &&
         record.name !== domainDetail?.name &&
-        ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase())
+        ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase()),
     )
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
@@ -299,7 +334,7 @@ export default function Domains() {
 
   const toggleOne = (id: string) =>
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
   const domainColumns: Column<(typeof domains)[number]>[] = [
@@ -334,12 +369,12 @@ export default function Domains() {
         const sslLabel = secure
           ? "HTTPS active — valid certificate served"
           : domain.sslStatus === "PENDING"
-          ? "HTTPS pending — certificate not issued yet"
-          : domain.sslStatus === "EXPIRED"
-          ? "HTTPS expired — the certificate has lapsed"
-          : domain.sslStatus === "ERROR"
-          ? "HTTPS broken — the certificate is not trusted for this domain"
-          : "No HTTPS — nothing answered on port 443";
+            ? "HTTPS pending — certificate not issued yet"
+            : domain.sslStatus === "EXPIRED"
+              ? "HTTPS expired — the certificate has lapsed"
+              : domain.sslStatus === "ERROR"
+                ? "HTTPS broken — the certificate is not trusted for this domain"
+                : "No HTTPS — nothing answered on port 443";
         return (
           <div className="flex min-w-0 items-center space-x-2 font-medium">
             <Icon
@@ -367,10 +402,7 @@ export default function Domains() {
               </Badge>
             )}
             {!domain.cfZoneId && (
-              <Badge
-                variant="outline"
-                className="border-warning text-warning"
-              >
+              <Badge variant="outline" className="border-warning text-warning">
                 No zone
               </Badge>
             )}
@@ -579,9 +611,25 @@ export default function Domains() {
       });
       return;
     }
-    setConfirmAction({ type: "renew", domainId: domain.id, domainName: domain.name });
+    setConfirmAction({
+      type: "renew",
+      domainId: domain.id,
+      domainName: domain.name,
+    });
   };
 
+  const resetAddDialog = () => {
+    setAddDialogOpen(false);
+    setNewDomainName("");
+    setNewDomainOrgId("");
+    setAddMode("existing");
+    setSearchTerm("");
+    setOffers(null);
+    setSelectedOffer(null);
+    setYears(1);
+  };
+
+  // "Use existing domain" — we already own it, just connect it
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = newDomainName.trim();
@@ -598,12 +646,46 @@ export default function Domains() {
         },
       });
 
-      setAddDialogOpen(false);
-      setNewDomainName("");
-      setNewDomainOrgId("");
-      setAddMode("existing");
+      resetAddDialog();
     } catch {}
   };
+
+  const handleSearchDomain = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = searchTerm.trim();
+    if (!value) return;
+
+    setSelectedOffer(null);
+    try {
+      setOffers(await domainSearch.mutateAsync(value));
+    } catch {
+      setOffers(null);
+    }
+  };
+
+  // "Register new domain" — this spends registrar balance
+  const handleRegisterDomain = async () => {
+    if (!selectedOffer || !newDomainOrgId) return;
+
+    try {
+      await registerDomain.mutateAsync({
+        name: selectedOffer.domain,
+        organizationId: newDomainOrgId,
+        years,
+      });
+
+      resetAddDialog();
+    } catch {}
+  };
+
+  const money = (amount: number | null, currency: string) =>
+    amount === null
+      ? "Price on request"
+      : new Intl.NumberFormat("id-ID", {
+          style: "currency",
+          currency,
+          maximumFractionDigits: 0,
+        }).format(amount);
 
   const executeAction = async () => {
     if (!confirmAction) return;
@@ -701,7 +783,7 @@ export default function Domains() {
 
     if (status === "ACTIVE" && expiresAt) {
       const daysLeft = Math.ceil(
-        (new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+        (new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
       );
 
       if (daysLeft < 0) {
@@ -816,7 +898,9 @@ export default function Domains() {
                     </h1>
                     {domainDetail.expiresAt &&
                       (() => {
-                        const tone = expiryTone(new Date(domainDetail.expiresAt));
+                        const tone = expiryTone(
+                          new Date(domainDetail.expiresAt),
+                        );
                         if (!tone.urgent) return null;
                         return (
                           <Badge
@@ -834,7 +918,10 @@ export default function Domains() {
                           </Badge>
                         );
                       })()}
-                    {getStatusBadge(domainDetail.status, domainDetail.expiresAt)}
+                    {getStatusBadge(
+                      domainDetail.status,
+                      domainDetail.expiresAt,
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     Domain DNS zone and SSL configuration.
@@ -845,9 +932,7 @@ export default function Domains() {
                 {admin && needsRenewal(domainDetail) && (
                   <Button
                     size="sm"
-                    onClick={() =>
-                      handleRenew(domainDetail)
-                    }
+                    onClick={() => handleRenew(domainDetail)}
                     disabled={renewDomain.isPending}
                   >
                     <RotateCw className="h-4 w-4 mr-2" />
@@ -903,249 +988,253 @@ export default function Domains() {
                 <TabsTrigger value="subdomains">Subdomains</TabsTrigger>
                 <TabsTrigger value="dns">DNS</TabsTrigger>
                 <TabsTrigger value="registration">Registration</TabsTrigger>
-                {admin && (
-                  <TabsTrigger value="settings">Settings</TabsTrigger>
-                )}
+                {admin && <TabsTrigger value="settings">Settings</TabsTrigger>}
               </TabsList>
 
               <TabsContent value="overview" className="space-y-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Overview</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 pt-0">
-                    {/* what it is doing now */}
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Status</span>
-                      {getStatusBadge(domainDetail.status, domainDetail.expiresAt)}
-                    </div>
-                    <div className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-muted-foreground">Points to</span>
-                      {apexRecord ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Overview</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 pt-0">
+                      {/* what it is doing now */}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Status</span>
+                        {getStatusBadge(
+                          domainDetail.status,
+                          domainDetail.expiresAt,
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="text-muted-foreground">Points to</span>
+                        {apexRecord ? (
+                          <span className="flex items-center gap-2">
+                            {isPlatformTarget(apexRecord.content) ? (
+                              <Badge className="gap-1">
+                                <Cloud className="h-3.5 w-3.5" />
+                                This platform
+                              </Badge>
+                            ) : (
+                              <span className="font-mono text-xs">
+                                {apexRecord.type} → {apexRecord.content}
+                              </span>
+                            )}
+                            {admin && domainDetail.cfZoneId && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                aria-label="Edit where the domain points"
+                                onClick={() =>
+                                  setRecordForm({
+                                    id: apexRecord.id,
+                                    mode: "custom",
+                                    name: "",
+                                    type: apexRecord.type,
+                                    content: apexRecord.content,
+                                    ttl: String(apexRecord.ttl ?? 1),
+                                    proxied: !!apexRecord.proxied,
+                                  })
+                                }
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </span>
+                        ) : admin && domainDetail.cfZoneId ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7"
+                            onClick={() =>
+                              setRecordForm({
+                                name: "",
+                                mode: "auto",
+                                type: "A",
+                                content: "",
+                                ttl: "1",
+                                proxied: true,
+                              })
+                            }
+                          >
+                            Not set — point it somewhere
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground">Not set</span>
+                        )}
+                      </div>
+
+                      {/* who runs its DNS and certificate */}
+                      <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
+                        <span className="text-muted-foreground">DNS</span>
+                        {domainDetail.cfZoneId ? (
+                          <Badge variant="secondary">Cloudflare</Badge>
+                        ) : admin ? (
+                          <Button
+                            size="sm"
+                            className="h-7"
+                            onClick={() => setCloudflarePrompt("enable")}
+                            disabled={enableCloudflare.isPending}
+                          >
+                            {enableCloudflare.isPending && (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            )}
+                            Move to Cloudflare
+                          </Button>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="border-warning text-warning"
+                          >
+                            Not on Cloudflare
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">SSL</span>
                         <span className="flex items-center gap-2">
-                          {isPlatformTarget(apexRecord.content) ? (
-                            <Badge className="gap-1">
-                              <Cloud className="h-3.5 w-3.5" />
-                              This platform
-                            </Badge>
-                          ) : (
-                            <span className="font-mono text-xs">
-                              {apexRecord.type} → {apexRecord.content}
+                          {getSSLBadge(domainDetail.sslStatus)}
+                          {domainDetail.sslExpiry && (
+                            <span className="text-xs text-muted-foreground">
+                              until{" "}
+                              {formatDate(new Date(domainDetail.sslExpiry))}
                             </span>
                           )}
-                          {admin && domainDetail.cfZoneId && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              aria-label="Edit where the domain points"
-                              onClick={() =>
-                                setRecordForm({
-                                  id: apexRecord.id,
-                                  mode: "custom",
-                                  name: "",
-                                  type: apexRecord.type,
-                                  content: apexRecord.content,
-                                  ttl: String(apexRecord.ttl ?? 1),
-                                  proxied: !!apexRecord.proxied,
-                                })
-                              }
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
                         </span>
-                      ) : admin && domainDetail.cfZoneId ? (
+                      </div>
+
+                      {/* who owns it and for how long */}
+                      <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
+                        <span className="text-muted-foreground">Registrar</span>
+                        <span>
+                          {domainDetail.registrar === "RDASH"
+                            ? "Managed"
+                            : domainDetail.registrar === "EXTERNAL"
+                              ? "External"
+                              : "Unknown"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          Registration expiry
+                        </span>
+                        {domainDetail.expiresAt ? (
+                          (() => {
+                            const expiry = new Date(domainDetail.expiresAt);
+                            const tone = expiryTone(expiry);
+                            return (
+                              <span className={tone.className}>
+                                {tone.urgent && (
+                                  <AlertCircle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
+                                )}
+                                {formatDate(expiry)}
+                                {tone.note && (
+                                  <span className="ml-1 text-xs">
+                                    ({tone.note})
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span>-</span>
+                        )}
+                      </div>
+                      {(() => {
+                        const target =
+                          domainDetail.customConfig?.cloudflare?.target;
+                        const value =
+                          domainDetail.redirectTo || target?.content;
+                        if (!value) return null;
+
+                        return (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">
+                              {domainDetail.redirectTo
+                                ? "Redirect to"
+                                : "Points to"}
+                            </span>
+                            <span className="flex items-center gap-2 text-muted-foreground">
+                              <ExternalLink className="h-3 w-3" />
+                              {value}
+                              {!domainDetail.redirectTo && target?.type && (
+                                <span className="text-xs">({target.type})</span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                      <CardTitle className="text-base">Subdomains</CardTitle>
+                      {domainDetail.cfZoneId && (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7"
                           onClick={() =>
                             setRecordForm({
                               name: "",
                               mode: "auto",
-                              type: "A",
+                              type: "CNAME",
                               content: "",
                               ttl: "1",
                               proxied: true,
                             })
                           }
                         >
-                          Not set — point it somewhere
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add
                         </Button>
-                      ) : (
-                        <span className="text-muted-foreground">Not set</span>
                       )}
-                    </div>
-
-                    {/* who runs its DNS and certificate */}
-                    <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
-                      <span className="text-muted-foreground">DNS</span>
-                      {domainDetail.cfZoneId ? (
-                        <Badge variant="secondary">Cloudflare</Badge>
-                      ) : admin ? (
-                        <Button
-                          size="sm"
-                          className="h-7"
-                          onClick={() => setCloudflarePrompt("enable")}
-                          disabled={enableCloudflare.isPending}
-                        >
-                          {enableCloudflare.isPending && (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    </CardHeader>
+                    <CardContent>
+                      {!domainDetail.cfZoneId ? (
+                        <p className="text-sm text-muted-foreground">
+                          Move this domain to Cloudflare to manage subdomains.
+                        </p>
+                      ) : subdomainRecords.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          None yet.
+                        </p>
+                      ) : (
+                        <div className="space-y-1">
+                          {subdomainRecords.slice(0, 5).map((record: any) => (
+                            <div
+                              key={record.id}
+                              className="flex items-center justify-between gap-2 text-sm"
+                            >
+                              <span className="font-mono text-xs">
+                                {hostLabel(record.name)}
+                              </span>
+                              <span className="truncate font-mono text-xs text-muted-foreground">
+                                {isPlatformTarget(record.content) ? (
+                                  <Badge className="gap-1">
+                                    <Cloud className="h-3.5 w-3.5" />
+                                    This platform
+                                  </Badge>
+                                ) : (
+                                  <>
+                                    {record.type} → {record.content}
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                          {subdomainRecords.length > 5 && (
+                            <p className="pt-1 text-xs text-muted-foreground">
+                              +{subdomainRecords.length - 5} more in the
+                              Subdomains tab
+                            </p>
                           )}
-                          Move to Cloudflare
-                        </Button>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className="border-warning text-warning"
-                        >
-                          Not on Cloudflare
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">SSL</span>
-                      <span className="flex items-center gap-2">
-                        {getSSLBadge(domainDetail.sslStatus)}
-                        {domainDetail.sslExpiry && (
-                          <span className="text-xs text-muted-foreground">
-                            until {formatDate(new Date(domainDetail.sslExpiry))}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-
-                    {/* who owns it and for how long */}
-                    <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
-                      <span className="text-muted-foreground">Registrar</span>
-                      <span>
-                        {domainDetail.registrar === "RDASH"
-                          ? "Managed"
-                          : domainDetail.registrar === "EXTERNAL"
-                          ? "External"
-                          : "Unknown"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        Registration expiry
-                      </span>
-                      {domainDetail.expiresAt ? (
-                        (() => {
-                          const expiry = new Date(domainDetail.expiresAt);
-                          const tone = expiryTone(expiry);
-                          return (
-                            <span className={tone.className}>
-                              {tone.urgent && (
-                                <AlertCircle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
-                              )}
-                              {formatDate(expiry)}
-                              {tone.note && (
-                                <span className="ml-1 text-xs">
-                                  ({tone.note})
-                                </span>
-                              )}
-                            </span>
-                          );
-                        })()
-                      ) : (
-                        <span>-</span>
-                      )}
-                    </div>
-                    {(() => {
-                      const target =
-                        domainDetail.customConfig?.cloudflare?.target;
-                      const value = domainDetail.redirectTo || target?.content;
-                      if (!value) return null;
-
-                      return (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            {domainDetail.redirectTo ? "Redirect to" : "Points to"}
-                          </span>
-                          <span className="flex items-center gap-2 text-muted-foreground">
-                            <ExternalLink className="h-3 w-3" />
-                            {value}
-                            {!domainDetail.redirectTo && target?.type && (
-                              <span className="text-xs">({target.type})</span>
-                            )}
-                          </span>
                         </div>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                    <CardTitle className="text-base">Subdomains</CardTitle>
-                    {domainDetail.cfZoneId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setRecordForm({
-                            name: "",
-                            mode: "auto",
-                            type: "CNAME",
-                            content: "",
-                            ttl: "1",
-                            proxied: true,
-                          })
-                        }
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add
-                      </Button>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    {!domainDetail.cfZoneId ? (
-                      <p className="text-sm text-muted-foreground">
-                        Move this domain to Cloudflare to manage subdomains.
-                      </p>
-                    ) : subdomainRecords.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        None yet.
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {subdomainRecords.slice(0, 5).map((record: any) => (
-                          <div
-                            key={record.id}
-                            className="flex items-center justify-between gap-2 text-sm"
-                          >
-                            <span className="font-mono text-xs">
-                              {hostLabel(record.name)}
-                            </span>
-                            <span className="truncate font-mono text-xs text-muted-foreground">
-                              {isPlatformTarget(record.content) ? (
-                                <Badge className="gap-1">
-                                  <Cloud className="h-3.5 w-3.5" />
-                                  This platform
-                                </Badge>
-                              ) : (
-                                <>
-                                  {record.type} → {record.content}
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        ))}
-                        {subdomainRecords.length > 5 && (
-                          <p className="pt-1 text-xs text-muted-foreground">
-                            +{subdomainRecords.length - 5} more in the
-                            Subdomains tab
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
               </TabsContent>
 
               <TabsContent value="subdomains" className="space-y-4">
@@ -1281,7 +1370,9 @@ export default function Domains() {
                                       <DropdownMenuSeparator />
                                       <DropdownMenuItem
                                         className="text-destructive focus:text-destructive"
-                                        onClick={() => setRecordToDelete(record)}
+                                        onClick={() =>
+                                          setRecordToDelete(record)
+                                        }
                                       >
                                         <Trash2 className="mr-2 h-4 w-4" />
                                         Delete
@@ -1307,125 +1398,139 @@ export default function Domains() {
                       : "grid gap-4"
                   }
                 >
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">DNS Records</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {dnsZoneLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Loading DNS records...</span>
-                    </div>
-                  ) : domainDnsZone && domainDnsZone.records.length > 0 ? (
-                    <div className="rounded-md border border-border/60 bg-muted/20 max-h-96 overflow-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[80px]">Type</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Content</TableHead>
-                            <TableHead className="w-[80px] text-right">
-                              TTL
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {domainDnsZone.records.map((record: any) => (
-                            <TableRow key={record.id}>
-                              <TableCell className="font-mono text-xs">
-                                {record.type}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {record.name}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {record.content}
-                              </TableCell>
-                              <TableCell className="text-right text-xs">
-                                {record.ttl}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No DNS records found in Cloudflare for this domain.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-                {domainDetail.registrar === "RDASH" && (
                   <Card>
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Registrar DNS</CardTitle>
+                      <CardTitle className="text-base">DNS Records</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3 pt-0">
-                      {rdashDnsLoading ? (
-                        <div className="flex items-center text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Reading DNS
-                          from the registrar…
+                    <CardContent>
+                      {dnsZoneLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Loading DNS records...</span>
                         </div>
-                      ) : !rdashDns?.registered ? (
-                        <p className="text-sm text-muted-foreground">
-                          This domain was not found at the registrar.
-                        </p>
+                      ) : domainDnsZone && domainDnsZone.records.length > 0 ? (
+                        <div className="rounded-md border border-border/60 bg-muted/20 max-h-96 overflow-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[80px]">Type</TableHead>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Content</TableHead>
+                                <TableHead className="w-[80px] text-right">
+                                  TTL
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {domainDnsZone.records.map((record: any) => (
+                                <TableRow key={record.id}>
+                                  <TableCell className="font-mono text-xs">
+                                    {record.type}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs">
+                                    {record.name}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs">
+                                    {record.content}
+                                  </TableCell>
+                                  <TableCell className="text-right text-xs">
+                                    {record.ttl}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                       ) : (
-                        <>
-                          <div className="text-sm">
-                            <span className="text-muted-foreground">Nameservers: </span>
-                            <span className="font-mono text-xs">
-                              {rdashDns.nameservers.join(", ") || "-"}
-                            </span>
-                            {rdashDns.delegatedToCloudflare && (
-                              <Badge variant="secondary" className="ml-2">
-                                Delegated to Cloudflare
-                              </Badge>
-                            )}
-                          </div>
-                          {rdashDns.records.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                              The registrar holds no DNS records for this domain.
-                            </p>
-                          ) : (
-                            <div className="rounded-md border overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Type</TableHead>
-                                    <TableHead>Name</TableHead>
-                                    <TableHead>Content</TableHead>
-                                    <TableHead className="text-right">TTL</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {rdashDns.records.map((record: any, i: number) => (
-                                    <TableRow key={record.id ?? i}>
-                                      <TableCell className="font-mono text-xs">
-                                        {record.type ?? record.record_type ?? "-"}
-                                      </TableCell>
-                                      <TableCell className="font-mono text-xs">
-                                        {record.name ?? record.host ?? "@"}
-                                      </TableCell>
-                                      <TableCell className="font-mono text-xs">
-                                        {record.content ?? record.value ?? record.data ?? "-"}
-                                      </TableCell>
-                                      <TableCell className="text-right text-xs">
-                                        {record.ttl ?? "-"}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          )}
-                        </>
+                        <p className="text-sm text-muted-foreground">
+                          No DNS records found in Cloudflare for this domain.
+                        </p>
                       )}
                     </CardContent>
                   </Card>
-                )}
+                  {domainDetail.registrar === "RDASH" && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">
+                          Registrar DNS
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3 pt-0">
+                        {rdashDnsLoading ? (
+                          <div className="flex items-center text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                            Reading DNS from the registrar…
+                          </div>
+                        ) : !rdashDns?.registered ? (
+                          <p className="text-sm text-muted-foreground">
+                            This domain was not found at the registrar.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="text-sm">
+                              <span className="text-muted-foreground">
+                                Nameservers:{" "}
+                              </span>
+                              <span className="font-mono text-xs">
+                                {rdashDns.nameservers.join(", ") || "-"}
+                              </span>
+                              {rdashDns.delegatedToCloudflare && (
+                                <Badge variant="secondary" className="ml-2">
+                                  Delegated to Cloudflare
+                                </Badge>
+                              )}
+                            </div>
+                            {rdashDns.records.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">
+                                The registrar holds no DNS records for this
+                                domain.
+                              </p>
+                            ) : (
+                              <div className="rounded-md border overflow-x-auto">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Type</TableHead>
+                                      <TableHead>Name</TableHead>
+                                      <TableHead>Content</TableHead>
+                                      <TableHead className="text-right">
+                                        TTL
+                                      </TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {rdashDns.records.map(
+                                      (record: any, i: number) => (
+                                        <TableRow key={record.id ?? i}>
+                                          <TableCell className="font-mono text-xs">
+                                            {record.type ??
+                                              record.record_type ??
+                                              "-"}
+                                          </TableCell>
+                                          <TableCell className="font-mono text-xs">
+                                            {record.name ?? record.host ?? "@"}
+                                          </TableCell>
+                                          <TableCell className="font-mono text-xs">
+                                            {record.content ??
+                                              record.value ??
+                                              record.data ??
+                                              "-"}
+                                          </TableCell>
+                                          <TableCell className="text-right text-xs">
+                                            {record.ttl ?? "-"}
+                                          </TableCell>
+                                        </TableRow>
+                                      ),
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               </TabsContent>
 
@@ -1535,9 +1640,9 @@ export default function Domains() {
                           <span className="font-mono text-xs">
                             {domainDetail.cfZoneId}
                           </span>
-                          . Detaching only stops {APP_NAME} managing it — the zone
-                          stays in Cloudflare and the nameservers keep pointing
-                          there until you change them at the registrar.
+                          . Detaching only stops {APP_NAME} managing it — the
+                          zone stays in Cloudflare and the nameservers keep
+                          pointing there until you change them at the registrar.
                         </p>
                         <Button
                           variant="outline"
@@ -1570,124 +1675,340 @@ export default function Domains() {
               actions={
                 admin ? (
                   <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => syncDomains.mutate()}
-                    disabled={syncDomains.isPending}
-                  >
-                    {syncDomains.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                    )}
-                    {syncDomains.isPending ? "Syncing…" : "Sync domains"}
-                  </Button>
-                  <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
                     <Button
-                      className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
-                      onClick={() => setAddDialogOpen(true)}
+                      variant="outline"
+                      onClick={() => syncDomains.mutate()}
+                      disabled={syncDomains.isPending}
                     >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Domain
+                      {syncDomains.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                      )}
+                      {syncDomains.isPending ? "Syncing…" : "Sync domains"}
                     </Button>
-                    <DialogContent className="max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Add Domain</DialogTitle>
-                        <DialogDescription>
-                          Connect an existing domain or register a new one
-                          through your registrar.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleAddDomain} className="space-y-6">
-                        <div className="space-y-2">
-                          <Label className="text-sm">Owning organization</Label>
-                          <OrganizationCombobox
-                            value={newDomainOrgId || null}
-                            onChange={(id) => setNewDomainOrgId(id ?? "")}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Only this organization's members can create
-                            applications on it.
-                          </p>
-                        </div>
-                        <div className="space-y-3">
-                          <Label className="text-sm">Domain type</Label>
-                          <RadioGroup
-                            className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                            value={addMode}
-                            onValueChange={(value) =>
-                              setAddMode(value as "existing" | "register")
-                            }
-                          >
-                            <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
-                              <RadioGroupItem
-                                value="existing"
-                                id="domain-mode-existing"
-                              />
-                              <div className="space-y-1">
-                                <Label htmlFor="domain-mode-existing">
-                                  Use existing domain
-                                </Label>
-                                <p className="text-xs text-muted-foreground">
-                                  Use a domain you already own and connect it to
-                                  Cloudflare automatically.
-                                </p>
+                    <Dialog
+                      open={addDialogOpen}
+                      onOpenChange={(open) =>
+                        open ? setAddDialogOpen(true) : resetAddDialog()
+                      }
+                    >
+                      <Button
+                        className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300"
+                        onClick={() => setAddDialogOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Domain
+                      </Button>
+                      <DialogContent className="max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>Add Domain</DialogTitle>
+                          <DialogDescription>
+                            Connect an existing domain or register a new one
+                            through your registrar.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <form
+                          onSubmit={
+                            addMode === "register"
+                              ? handleSearchDomain
+                              : handleAddDomain
+                          }
+                          className="space-y-6"
+                        >
+                          <div className="space-y-2">
+                            <Label className="text-sm">
+                              Owning organization
+                            </Label>
+                            <OrganizationCombobox
+                              value={newDomainOrgId || null}
+                              onChange={(id) => setNewDomainOrgId(id ?? "")}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Only this organization's members can create
+                              applications on it.
+                            </p>
+                          </div>
+                          {!newDomainOrgId ? (
+                            <>
+                              <p className="rounded-md border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
+                                Choose the owning organization to continue.
+                              </p>
+                              <div className="flex items-center justify-end pt-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={resetAddDialog}
+                                >
+                                  Cancel
+                                </Button>
                               </div>
-                            </div>
-                            <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                              <RadioGroupItem
-                                value="register"
-                                id="domain-mode-register"
-                              />
-                              <div className="space-y-1">
-                                <Label htmlFor="domain-mode-register">
-                                  Register new domain
-                                </Label>
-                                <p className="text-xs text-muted-foreground">
-                                  Mark this domain as new. Registration is
-                                  handled externally or through the registrar.
-                                </p>
+                            </>
+                          ) : (
+                            <>
+                              <div className="space-y-3">
+                                <Label className="text-sm">Domain type</Label>
+                                <RadioGroup
+                                  className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                                  value={addMode}
+                                  onValueChange={(value) => {
+                                    setAddMode(
+                                      value as "existing" | "register",
+                                    );
+                                    setOffers(null);
+                                    setSelectedOffer(null);
+                                  }}
+                                >
+                                  <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/40 p-3">
+                                    <RadioGroupItem
+                                      value="existing"
+                                      id="domain-mode-existing"
+                                    />
+                                    <div className="space-y-1">
+                                      <Label htmlFor="domain-mode-existing">
+                                        Use existing domain
+                                      </Label>
+                                      <p className="text-xs text-muted-foreground">
+                                        Use a domain you already own and connect
+                                        it to Cloudflare automatically.
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-start space-x-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                                    <RadioGroupItem
+                                      value="register"
+                                      id="domain-mode-register"
+                                    />
+                                    <div className="space-y-1">
+                                      <Label htmlFor="domain-mode-register">
+                                        Register new domain
+                                      </Label>
+                                      <p className="text-xs text-muted-foreground">
+                                        Search for an available domain and
+                                        register it through the registrar.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </RadioGroup>
                               </div>
-                            </div>
-                          </RadioGroup>
-                        </div>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="new-domain-name">Domain name</Label>
-                          <Input
-                            id="new-domain-name"
-                            placeholder="example.com"
-                            value={newDomainName}
-                            onChange={(e) => setNewDomainName(e.target.value)}
-                          />
-                        </div>
+                              {addMode === "existing" ? (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="new-domain-name">
+                                      Domain name
+                                    </Label>
+                                    <Input
+                                      id="new-domain-name"
+                                      placeholder="example.com"
+                                      value={newDomainName}
+                                      onChange={(e) =>
+                                        setNewDomainName(e.target.value)
+                                      }
+                                    />
+                                  </div>
 
-                        <div className="flex items-center justify-end space-x-3 pt-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setAddDialogOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="submit"
-                            className="bg-gradient-primary"
-                            disabled={
-                              createDomain.isPending ||
-                              !newDomainName.trim() ||
-                              !newDomainOrgId
-                            }
-                          >
-                            {createDomain.isPending && (
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            )}
-                            Save domain
-                          </Button>
-                        </div>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
+                                  <div className="flex items-center justify-end space-x-3 pt-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      onClick={resetAddDialog}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      type="submit"
+                                      className="bg-gradient-primary"
+                                      disabled={
+                                        createDomain.isPending ||
+                                        !newDomainName.trim() ||
+                                        !newDomainOrgId
+                                      }
+                                    >
+                                      {createDomain.isPending && (
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      )}
+                                      Save domain
+                                    </Button>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="domain-search">
+                                      Search for a domain
+                                    </Label>
+                                    <div className="flex gap-2">
+                                      <Input
+                                        id="domain-search"
+                                        placeholder="mycompany or mycompany.com"
+                                        value={searchTerm}
+                                        onChange={(e) =>
+                                          setSearchTerm(e.target.value)
+                                        }
+                                      />
+                                      <Button
+                                        type="submit"
+                                        variant="secondary"
+                                        disabled={
+                                          domainSearch.isPending ||
+                                          !searchTerm.trim()
+                                        }
+                                      >
+                                        {domainSearch.isPending ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Search className="h-4 w-4" />
+                                        )}
+                                        <span className="ml-2">Check</span>
+                                      </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Availability comes from the domain
+                                      registry. Registration is billed to the{" "}
+                                      {APP_NAME} registrar account.
+                                    </p>
+                                  </div>
+
+                                  {offers && (
+                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                      {offers.map((offer) => {
+                                        const registrable =
+                                          offer.available === true &&
+                                          !offer.owned;
+                                        const active =
+                                          selectedOffer?.domain ===
+                                          offer.domain;
+
+                                        return (
+                                          <button
+                                            key={offer.domain}
+                                            type="button"
+                                            disabled={!registrable}
+                                            onClick={() =>
+                                              setSelectedOffer(offer)
+                                            }
+                                            className={`w-full flex items-center justify-between gap-3 rounded-md border p-3 text-left transition-colors ${
+                                              active
+                                                ? "border-primary bg-primary/5"
+                                                : "border-border/60 bg-muted/20"
+                                            } ${registrable ? "hover:border-primary/60" : "opacity-60 cursor-not-allowed"}`}
+                                          >
+                                            <div className="min-w-0">
+                                              <div className="font-medium truncate">
+                                                {offer.domain}
+                                              </div>
+                                              <div className="text-xs text-muted-foreground">
+                                                {offer.owned
+                                                  ? `Already managed in ${APP_NAME}`
+                                                  : offer.available === true
+                                                    ? "Available"
+                                                    : offer.available === false
+                                                      ? `Taken${offer.registrar ? ` — ${offer.registrar}` : ""}`
+                                                      : "Registry gave no answer — cannot register here"}
+                                              </div>
+                                            </div>
+                                            {registrable && (
+                                              <div className="text-right shrink-0">
+                                                <div className="text-sm font-medium">
+                                                  {money(
+                                                    offer.price,
+                                                    offer.currency,
+                                                  )}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                  per year
+                                                </div>
+                                              </div>
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {selectedOffer && (
+                                    <div className="space-y-3 rounded-md border border-border/60 p-3">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <Label
+                                          htmlFor="register-years"
+                                          className="text-sm"
+                                        >
+                                          Registration period
+                                        </Label>
+                                        <select
+                                          id="register-years"
+                                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                          value={years}
+                                          onChange={(e) =>
+                                            setYears(Number(e.target.value))
+                                          }
+                                        >
+                                          {[1, 2, 3, 5, 10].map((n) => (
+                                            <option key={n} value={n}>
+                                              {n} year{n > 1 ? "s" : ""}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div className="flex items-center justify-between text-sm">
+                                        <span className="text-muted-foreground">
+                                          Total
+                                        </span>
+                                        <span className="font-medium">
+                                          {selectedOffer.price === null
+                                            ? "Price on request"
+                                            : money(
+                                                selectedOffer.price * years,
+                                                selectedOffer.currency,
+                                              )}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">
+                                        Renews at{" "}
+                                        {money(
+                                          selectedOffer.renewPrice ??
+                                            selectedOffer.price,
+                                          selectedOffer.currency,
+                                        )}{" "}
+                                        per year.
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center justify-end space-x-3 pt-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      onClick={resetAddDialog}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      className="bg-gradient-primary"
+                                      onClick={handleRegisterDomain}
+                                      disabled={
+                                        registerDomain.isPending ||
+                                        !selectedOffer ||
+                                        !newDomainOrgId
+                                      }
+                                    >
+                                      {registerDomain.isPending && (
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      )}
+                                      {selectedOffer
+                                        ? `Register ${selectedOffer.domain}`
+                                        : "Register domain"}
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </form>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 ) : null
               }
@@ -1798,11 +2119,10 @@ export default function Domains() {
                     ? "No domains yet — add your first custom domain."
                     : "No domains are assigned to your organization yet. Ask an administrator to assign one."
                 }
-                />
+              />
             </PageLayout>
           </>
         )}
-
 
         {domainDetail && recordForm && (
           <Dialog
@@ -1815,8 +2135,8 @@ export default function Domains() {
                   {!recordForm.id
                     ? "Add subdomain"
                     : editingApex
-                    ? `Edit ${domainDetail.name}`
-                    : "Edit subdomain"}
+                      ? `Edit ${domainDetail.name}`
+                      : "Edit subdomain"}
                 </DialogTitle>
                 <DialogDescription>
                   Saved to Cloudflare straight away.
@@ -1841,7 +2161,9 @@ export default function Domains() {
                           // TTL and proxying are not worth a field each — automatic
                           // TTL and proxy-on are right for everything this page creates
                           ttl: 1,
-                          proxied: ["A", "AAAA", "CNAME"].includes(recordForm.type)
+                          proxied: ["A", "AAAA", "CNAME"].includes(
+                            recordForm.type,
+                          )
                             ? true
                             : undefined,
                         };
@@ -1950,7 +2272,8 @@ export default function Domains() {
                       updateDnsRecord.isPending
                     }
                   >
-                    {(createDnsRecord.isPending || updateDnsRecord.isPending) && (
+                    {(createDnsRecord.isPending ||
+                      updateDnsRecord.isPending) && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
                     {recordForm.id ? "Save" : "Add"}

@@ -316,3 +316,44 @@ export const getDomainRegistration = async (
 
   return response.data ?? null;
 };
+
+/* ---------------- Register a new domain: search, then buy ---------------- */
+
+export type DomainOffer = {
+  domain: string;
+  tld: string;
+  /** true = free, false = taken, null = registry gave no answer (not registrable here) */
+  available: boolean | null;
+  registrar: string | null;
+  price: number | null;
+  renewPrice: number | null;
+  currency: string;
+  owned: boolean;
+};
+
+export const searchDomains = async (q: string): Promise<DomainOffer[]> => {
+  const response = await apiRequest<DomainOffer[]>(`/domains/search?q=${encodeURIComponent(q)}`);
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Domain search failed');
+};
+
+export const registerDomain = async (data: {
+  name: string;
+  organizationId: string;
+  years: number;
+}): Promise<Domain> => {
+  const response = await apiRequest<Domain>('/domains/register', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to register domain');
+};
