@@ -489,3 +489,22 @@ export const registerDomain = async (data: {
 
   throw new Error(response.error || "Failed to register domain");
 };
+
+/**
+ * Point `*.domain` at the platform, so apps deployed under it need no DNS
+ * record of their own. Domains registered here get this automatically.
+ */
+export const setupWildcard = async (
+  id: string,
+): Promise<{ state: string; detail: string }> => {
+  const response = await apiRequest<{ state: string; detail: string }>(
+    `/domains/${id}/wildcard`,
+    { method: "POST" },
+  );
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || "Failed to create the wildcard record");
+};

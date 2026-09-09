@@ -8,6 +8,8 @@ export interface Organization {
   slug: string;
   createdAt: string;
   myRole: OrgRole | null;
+  /** The node this tenant's OS user, home and apps live on. null until placed. */
+  server: { id: string; name: string; status: string } | null;
   _count: { members: number; domains: number; applications: number };
 }
 

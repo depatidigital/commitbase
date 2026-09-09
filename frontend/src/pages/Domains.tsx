@@ -58,6 +58,7 @@ import {
   useRenewDomain,
   useDomainRegistration,
   usePlatformTarget,
+  useSetupWildcard,
 } from "@/hooks/useDomains";
 import { provisioningOf } from "@/lib/domains";
 import { useQuery } from "@tanstack/react-query";
@@ -259,6 +260,7 @@ export default function Domains() {
   const createDomain = useCreateDomain();
   const syncDomains = useSyncDomains();
   const bulkAssign = useBulkAssignDomains();
+  const setupWildcard = useSetupWildcard();
   const enableCloudflare = useEnableCloudflare();
   const disableCloudflare = useDisableCloudflare();
   const createDnsRecord = useCreateDnsRecord(domainId || "");
@@ -335,6 +337,10 @@ export default function Domains() {
     setSearchParams({}, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, dnsZoneLoading, domainDetail?.id]);
+
+  const wildcardRecord = (domainDnsZone?.records ?? []).find(
+    (record: any) => String(record?.name) === `*.${domainDetail?.name}`,
+  );
 
   const subdomainRecords = (domainDnsZone?.records ?? [])
     .filter(
@@ -1072,6 +1078,29 @@ export default function Domains() {
                           <span className="text-muted-foreground">Not set</span>
                         )}
                       </div>
+
+                      {/* one record that answers for every app under this domain */}
+                      {admin && domainDetail.cfZoneId && (
+                        <div className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-muted-foreground">
+                            Apps subdomain
+                          </span>
+                          {wildcardRecord ? (
+                            <Badge variant="secondary">*.{domainDetail.name}</Badge>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7"
+                              disabled={setupWildcard.isPending}
+                              onClick={() => setupWildcard.mutate(domainDetail.id)}
+                              title="Points *.domain at the platform, so apps deployed under it need no record of their own"
+                            >
+                              Point all subdomains here
+                            </Button>
+                          )}
+                        </div>
+                      )}
 
                       {/* who runs its DNS and certificate */}
                       <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">

@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog, HardDrive } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -89,6 +89,19 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+
+              {superadmin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/servers")}>
+                  <NavLink to="/servers" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
+                    <HardDrive className="h-4 w-4" />
+                    <span className={collapsed ? "sr-only" : undefined}>
+                      Servers
+                    </span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              )}
 
               {admin && (
               <SidebarMenuItem>

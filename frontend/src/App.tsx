@@ -21,6 +21,7 @@ import Admin from "./pages/Admin";
 import Organizations from "./pages/Organizations";
 import OrganizationDetail from "./pages/OrganizationDetail";
 import Users from "./pages/Users";
+import Servers from "./pages/Servers";
 import AcceptInvite from "./pages/AcceptInvite";
 import ChangePassword from "./pages/ChangePassword";
 import {
@@ -119,6 +120,14 @@ const App = () => (
                 <AdminRoute>
                   <Admin />
                 </AdminRoute>
+              }
+            />
+            <Route
+              path="servers"
+              element={
+                <SuperAdminRoute>
+                  <Servers />
+                </SuperAdminRoute>
               }
             />
             <Route

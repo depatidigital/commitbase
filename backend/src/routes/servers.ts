@@ -31,7 +31,7 @@ const SSH_KEY_DIR = path.resolve(
 );
 
 /** Reject anything outside SSH_KEY_DIR, including via `..`. */
-function keyPathError(sshKeyPath: string): string | null {
+export function keyPathError(sshKeyPath: string): string | null {
   const resolved = path.resolve(sshKeyPath);
   if (resolved !== SSH_KEY_DIR && !resolved.startsWith(SSH_KEY_DIR + path.sep)) {
     return `sshKeyPath must be inside ${SSH_KEY_DIR}`;

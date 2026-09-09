@@ -36,7 +36,7 @@ import { ArrowLeft, Loader2, Mail, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSuperAdmin } from "@/lib/auth";
 import { OrgRole } from "@/lib/admin";
 import {
   createInvite,
@@ -48,6 +48,7 @@ import {
   revokeInvite,
   updateMemberRole,
 } from "@/lib/organizations";
+import { getServers, setOrganizationServer } from "@/lib/servers";
 
 const ROLES: OrgRole[] = ["OWNER", "ADMIN", "MEMBER"];
 
@@ -56,6 +57,7 @@ export default function OrganizationDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const currentUser = getCurrentUser();
+  const superadmin = isSuperAdmin();
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "MEMBER" as OrgRole });
@@ -91,9 +93,30 @@ export default function OrganizationDetail() {
     enabled: !!id,
   });
 
+  // Only superadmins place orgs, so only they need the node list.
+  const { data: servers = [] } = useQuery({
+    queryKey: ["servers"],
+    queryFn: getServers,
+    enabled: superadmin,
+  });
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["organizations", id] });
   };
+
+  const [placement, setPlacement] = useState("");
+
+  const placeMutation = useMutation({
+    mutationFn: (serverId: string) => setOrganizationServer(id, serverId),
+    onSuccess: (updated) => {
+      refresh();
+      toast({ title: `Placed on ${updated.server?.name ?? "server"}` });
+    },
+    onError: (error: Error) => {
+      setPlacement("");
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
 
   const inviteMutation = useMutation({
     mutationFn: () => createInvite(id, form),
@@ -361,6 +384,52 @@ export default function OrganizationDetail() {
         </>
       }
     >
+      {superadmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Server placement</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {org.server ? (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">{org.server.name}</span>
+                <Badge variant={org.server.status === "ONLINE" ? "default" : "destructive"}>
+                  {org.server.status}
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Select
+                  value={placement}
+                  onValueChange={(v) => {
+                    setPlacement(v);
+                    placeMutation.mutate(v);
+                  }}
+                  disabled={placeMutation.isPending}
+                >
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="Choose a server…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {servers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} ({s.status})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {placeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {org.server
+                ? "Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files."
+                : "Provisioning and deploys refuse to run until this organization is placed on a node."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">

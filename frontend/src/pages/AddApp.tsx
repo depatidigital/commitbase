@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
+import { AppLaunchProgress } from "@/components/AppLaunchProgress";
 import { useDomains } from "@/hooks/useDomains";
 import { PageLayout } from "@/components/PageLayout";
 import {
@@ -38,6 +39,8 @@ import {
   detectProject,
   readDetectFiles,
   uploadApplicationSource,
+  startApplication,
+  type DnsOutcome,
 } from "@/lib/applications";
 import { useGitProjects } from "@/hooks/useGitProjects";
 import { useGitBranches } from "@/hooks/useGitBranches";
@@ -88,6 +91,15 @@ export default function AddApp() {
   );
   // 1 = what kind of app, 2 = where its code comes from, 3 = name and domain
   const [step, setStep] = useState(1);
+  // set once the app exists — the wizard turns into a progress view rather than
+  // dumping the user on the dashboard while the deploy is still running
+  const [launch, setLaunch] = useState<{
+    id: string;
+    domain: string;
+    dns?: DnsOutcome;
+    uploading: boolean;
+    uploadFailed: string | null;
+  } | null>(null);
   const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [detected, setDetected] = useState<DetectedProject | null>(null);
@@ -197,12 +209,46 @@ export default function AddApp() {
 
     try {
       const created = await createApp.mutateAsync(applicationData);
+      const needsUpload = sourceMode === "upload" && uploadFiles.length > 0;
 
-      if (sourceMode === "upload" && uploadFiles.length > 0) {
-        await uploadApplicationSource(created.id, uploadFiles);
+      setLaunch({
+        id: created.id,
+        domain: fullDomain,
+        dns: created.dns,
+        uploading: needsUpload,
+        uploadFailed: null,
+      });
+
+      if (needsUpload) {
+        try {
+          await uploadApplicationSource(created.id, uploadFiles);
+          setLaunch((prev) => (prev ? { ...prev, uploading: false } : prev));
+        } catch (error) {
+          setLaunch((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  uploading: false,
+                  uploadFailed:
+                    error instanceof Error ? error.message : "Upload failed",
+                }
+              : prev,
+          );
+          return;
+        }
       }
 
-      navigate("/");
+      // A static upload is already served from its bucket; everything else has
+      // to be built and started, which the wizard now kicks off itself.
+      if (formData.type !== "STATIC") {
+        await startApplication(created.id).catch((error: Error) =>
+          toast({
+            variant: "destructive",
+            title: "Deployment did not start",
+            description: error.message,
+          }),
+        );
+      }
     } catch (error) {
       // createApp reports its own failures; an upload failure would otherwise be silent
       if (error instanceof Error && error.message.includes("upload")) {
@@ -387,6 +433,26 @@ export default function AddApp() {
       });
     }
   };
+
+  // deploy fired: the wizard is done, the setup is not
+  if (launch) {
+    return (
+      <PageLayout
+        title="Deploying"
+        description={`${launch.domain} is being set up.`}
+        icon={Zap}
+        backTo="/"
+      >
+        <AppLaunchProgress
+          applicationId={launch.id}
+          domain={launch.domain}
+          dns={launch.dns}
+          uploading={launch.uploading}
+          uploadFailed={launch.uploadFailed}
+        />
+      </PageLayout>
+    );
+  }
 
   if (domainsLoading) {
     return (

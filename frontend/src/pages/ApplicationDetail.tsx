@@ -45,7 +45,7 @@ import {
   WifiOff
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication } from "@/hooks/useApplications";
+import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useQueryClient } from "@tanstack/react-query";
 import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/applications";
@@ -100,6 +100,9 @@ export default function ApplicationDetail() {
 
   // API hooks
   const { application, isLoading, error } = useApplicationStatus(id!);
+  // keeps polling until the hostname answers, then settles
+  const { data: hostname } = useApplicationHostname(id!, true);
+  const setupDns = useSetupApplicationDns();
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
@@ -553,6 +556,37 @@ export default function ApplicationDetail() {
                       >
                         <Copy className="h-3 w-3" />
                       </Button>
+                    </div>
+                    {/* whether the hostname actually answers — RUNNING only ever
+                        meant the process started */}
+                    <div className="flex items-center gap-2">
+                      {hostname?.live ? (
+                        <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
+                          <Wifi className="h-3 w-3" />
+                          reachable
+                        </Badge>
+                      ) : hostname ? (
+                        <>
+                          <Badge variant="outline" className="gap-1 border-warning text-warning">
+                            <WifiOff className="h-3 w-3" />
+                            {hostname.resolves ? "not serving yet" : "no DNS"}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {hostname.error}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7"
+                            disabled={setupDns.isPending}
+                            onClick={() =>
+                              setupDns.mutate({ id: application.id, force: true })
+                            }
+                          >
+                            Point it here
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </CardContent>

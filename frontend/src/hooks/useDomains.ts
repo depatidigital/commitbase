@@ -30,6 +30,7 @@ import {
   registerDomain,
   DomainOffer,
   isProvisioning,
+  setupWildcard,
 } from "@/lib/domains";
 import { isAdmin } from "@/lib/auth";
 import { CreateDomainData, UpdateDomainData } from "@/types/domain";
@@ -645,6 +646,28 @@ export const useRegisterDomain = () => {
       toast({
         title: "Registration failed",
         description: error.message || "The registrar refused the registration.",
+        variant: "destructive",
+      });
+    },
+  });
+};
+
+/** One wildcard record instead of one per app. */
+export const useSetupWildcard = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: setupWildcard,
+    onSuccess: (result, id) => {
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
+      queryClient.invalidateQueries({ queryKey: ["domains", id, "dns-zone"] });
+      toast({ title: "Wildcard record ready", description: result.detail });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not create the wildcard record",
+        description: error.message,
         variant: "destructive",
       });
     },
