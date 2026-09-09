@@ -2,6 +2,13 @@ import { prisma } from '../lib/prisma';
 import { listCloudflareZones, getZoneSslState, listCloudflareDnsRecords } from './cloudflareService';
 import { listRdashDomains } from './rdashService';
 import { getDomainExpiry } from './rdapService';
+
+/**
+ * How close to expiry a stored date has to be before the sync re-checks it
+ * with the registry. Renewals land near expiry, so a date further out than
+ * this has not moved — and re-asking would cost an RDAP call per domain.
+ */
+const EXPIRY_REFRESH_MS = 60 * 24 * 60 * 60 * 1000;
 import { getTlsCertificate } from './tlsService';
 
 export type DomainSyncResult = {
@@ -231,9 +238,16 @@ export async function syncDomains(ownerUserId: string): Promise<DomainSyncResult
     let expiresAt =
       parsedExpiry && Number.isFinite(parsedExpiry.getTime()) ? parsedExpiry : null;
 
-    // domains we do not buy through RDASH have no expiry — ask the registry directly.
-    // Only when we still have nothing stored, so a sync is not one RDAP call per domain.
-    if (!expiresAt && !existing?.expiresAt) {
+    // Domains we do not buy through RDASH have no expiry — ask the registry
+    // directly. Not on every sync (that would be one RDAP call per domain),
+    // but a stored date can go stale: a renewal pushes it a year out, and only
+    // the registry knows. Re-ask once the stored date is close enough to
+    // matter, which is also the only time it changes.
+    const storedExpiry = existing?.expiresAt?.getTime();
+    const expiryIsStale =
+      storedExpiry === undefined || storedExpiry - Date.now() < EXPIRY_REFRESH_MS;
+
+    if (!expiresAt && expiryIsStale) {
       expiresAt = await getDomainExpiry(name);
     }
 
