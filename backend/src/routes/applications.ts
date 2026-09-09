@@ -9,6 +9,7 @@ import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
 import { configureCaddyForStaticApplication, removeCaddySite } from '../services/caddyService';
+import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
 import * as systemd from '../services/systemdService';
 import { resolveAppDir } from '../lib/appPaths';
 import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
@@ -272,10 +273,20 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       },
     });
 
+    // Point the hostname at the platform now, so the app is reachable the
+    // moment it deploys. A hostname already pointing somewhere else is left
+    // alone and reported — the caller can retry with ?force=1.
+    const dns = await ensureAppHostname(application, { force: req.query.force === '1' }).catch(
+      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+    );
+
     return res.status(201).json({
       success: true,
-      data: application,
-      message: 'Application created successfully',
+      data: { ...application, dns },
+      message:
+        dns.state === 'conflict' || dns.state === 'unavailable'
+          ? `Application created, but DNS was not set up: ${dns.detail}`
+          : 'Application created successfully',
     } as ApiResponse<Application>);
   } catch (error) {
     console.error('Error creating application:', error);
@@ -375,6 +386,7 @@ router.post(
         });
 
         await configureCaddyForStaticApplication(application.id, application.domain, origin).catch(() => {});
+        await ensureAppHostname(application).catch(() => {});
 
         return res.json({
           success: true,
@@ -565,6 +577,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
         console.error(`Failed to remove unit for ${application.domain}:`, error);
       });
       await removeCaddySite(application.domain).catch(() => {});
+      await removeAppHostname(application);
       await fs.rm(await resolveAppDir(application.id), { recursive: true, force: true }).catch(() => {});
     }
 
@@ -723,6 +736,11 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       where: { id },
       data: { status: 'DEPLOYING' },
     });
+
+    // Heal the DNS record before the build runs — someone may have removed it,
+    // and a deploy that finishes into a hostname that does not resolve is worse
+    // than one that says so.
+    await ensureAppHostname(application).catch(() => {});
 
     // Start deployment in background
     deploymentService.deploy({
@@ -913,6 +931,57 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
 });
 
 // List releases for an application
+/**
+ * Is the hostname actually serving? Checked live rather than stored: DNS and
+ * certificates change without anything telling us, and a cached answer would
+ * be exactly the lie this is here to catch.
+ */
+router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    }
+
+    return res.json({ success: true, data: await checkAppHostname(application.domain) } as ApiResponse);
+  } catch (error) {
+    console.error('Error checking application hostname:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** Create or repoint the app's DNS record. `force` overwrites a conflicting one. */
+router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    }
+
+    const result = await ensureAppHostname(application, { force: req.body?.force === true });
+
+    return res.json({
+      success: result.state !== 'conflict' && result.state !== 'unavailable',
+      data: result,
+      ...(result.state === 'conflict' || result.state === 'unavailable'
+        ? { error: result.detail }
+        : { message: result.detail }),
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error setting application DNS:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not set up DNS for this hostname',
+    } as ApiResponse);
+  }
+});
+
 router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;

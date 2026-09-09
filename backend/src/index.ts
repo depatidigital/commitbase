@@ -54,6 +54,7 @@ import cloudflareRoutes from './routes/cloudflare';
 import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
 import organizationsRoutes from './routes/organizations';
+import serversRoutes from './routes/servers';
 import { authenticateToken, requireRole } from './middleware/auth';
 
 const app = express();
@@ -123,6 +124,7 @@ app.use('/api/rdash', authenticateToken, requireRole(['SUPERADMIN']), rdashRoute
 app.use('/api/cloudflare', authenticateToken, requireRole(['SUPERADMIN']), cloudflareRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
 app.use('/api/organizations', organizationsRoutes);
+app.use('/api/servers', serversRoutes);
 app.use('/api/git', gitRoutes);
 
 // Global error handler

@@ -3,6 +3,7 @@ import { getOrCreateCloudflareZone, syncDomainDns } from './cloudflareService';
 import { registerRdashDomain, updateRdashDomainNameservers } from './rdashService';
 import { getDomainExpiry } from './rdapService';
 import { refreshDomainSummary } from './domainSyncService';
+import { ensureWildcardRecord } from './appDnsService';
 
 /**
  * Buying a domain takes tens of seconds — the registrar order, the Cloudflare
@@ -141,6 +142,9 @@ export async function provisionDomain(domainId: string): Promise<void> {
           },
         },
       );
+      // A domain we bought is entirely ours: one wildcard means every app
+      // deployed under it resolves without a DNS call of its own.
+      if (zone) await ensureWildcardRecord(domainId).catch(() => {});
       await refreshDomainSummary(domainId);
       console.log(`✅ provision ${domain.name}: ready`);
     } catch (error: any) {

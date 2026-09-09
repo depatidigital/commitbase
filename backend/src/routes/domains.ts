@@ -11,6 +11,7 @@ import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomain
 import { startDomainSync, getDomainSyncState, refreshDomainSummary } from '../services/domainSyncService';
 import { getDomainRegistration, getDomainAvailability } from '../services/rdapService';
 import { provisionDomain } from '../services/domainProvisionService';
+import { ensureWildcardRecord } from '../services/appDnsService';
 import { suggestDomains } from '../services/domainSuggestService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
@@ -1070,6 +1071,37 @@ const loadDomainForDns = async (req: AuthenticatedRequest) => {
 
   return { domain, zoneId };
 };
+
+/**
+ * Point `*.domain` at the platform, so apps deployed under it need no record of
+ * their own. Created automatically for domains we register; this is the button
+ * for the ones that came in through a sync.
+ */
+router.post('/:id/wildcard', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const domain = await prisma.domain.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    const result = await ensureWildcardRecord(domain.id);
+
+    return res.json({
+      success: result.state !== 'unavailable',
+      data: result,
+      ...(result.state === 'unavailable' ? { error: result.detail } : { message: result.detail }),
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error creating wildcard record:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not create the wildcard record',
+    } as ApiResponse);
+  }
+});
 
 // Create a DNS record (a subdomain, in practice) in the domain's Cloudflare zone
 router.post('/:id/dns-records', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {

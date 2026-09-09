@@ -10,6 +10,8 @@ import {
   stopApplication, 
   restartApplication,
   syncServerApps,
+  getApplicationHostname,
+  setupApplicationDns,
   type Application,
   type CreateApplicationData,
   type UpdateApplicationData
@@ -128,6 +130,41 @@ export const useCreateApplication = () => {
     onError: (error: Error) => {
       toast({
         title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+/**
+ * Live reachability of the app's hostname. Polls while it is not serving yet —
+ * DNS propagation and the first certificate take a minute or two.
+ */
+export const useApplicationHostname = (id: string, poll = false) => {
+  return useQuery({
+    queryKey: ['applications', id, 'hostname'],
+    queryFn: () => getApplicationHostname(id),
+    enabled: !!id,
+    refetchInterval: (query) => (poll && !query.state.data?.live ? 5000 : false),
+  });
+};
+
+export const useSetupApplicationDns = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      setupApplicationDns(id, force ?? false),
+    onSuccess: (result, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['applications', id, 'hostname'] });
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+      toast({ title: 'DNS updated', description: result.detail });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'DNS not set up',
         description: error.message,
         variant: 'destructive',
       });

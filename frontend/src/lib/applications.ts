@@ -108,8 +108,10 @@ export const getApplication = async (id: string): Promise<Application> => {
 };
 
 // Create new application
-export const createApplication = async (data: CreateApplicationData): Promise<Application> => {
-  const response = await apiRequest<Application>('/applications', {
+export const createApplication = async (
+  data: CreateApplicationData,
+): Promise<Application & { dns?: DnsOutcome }> => {
+  const response = await apiRequest<Application & { dns?: DnsOutcome }>('/applications', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -119,6 +121,48 @@ export const createApplication = async (data: CreateApplicationData): Promise<Ap
   }
   
   throw new Error(response.error || 'Failed to create application');
+};
+
+/** Live reachability of an app's hostname — DNS, certificate, HTTP answer. */
+export interface HostnameHealth {
+  host: string;
+  resolves: boolean;
+  https: boolean;
+  httpStatus: number | null;
+  live: boolean;
+  error: string | null;
+}
+
+export const getApplicationHostname = async (id: string): Promise<HostnameHealth> => {
+  const response = await apiRequest<HostnameHealth>(`/applications/${id}/hostname`);
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to check the hostname');
+};
+
+export interface DnsOutcome {
+  state: 'created' | 'wildcard' | 'exists' | 'conflict' | 'unavailable';
+  detail: string;
+}
+
+/** Point the hostname at the platform. `force` overwrites a record aimed elsewhere. */
+export const setupApplicationDns = async (
+  id: string,
+  force = false,
+): Promise<DnsOutcome> => {
+  const response = await apiRequest<DnsOutcome>(`/applications/${id}/dns`, {
+    method: 'POST',
+    body: JSON.stringify({ force }),
+  });
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || 'Failed to set up DNS');
 };
 
 export interface DetectedProject {

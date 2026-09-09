@@ -35,6 +35,11 @@ const AddMemberSchema = z.object({
   role: z.enum(['OWNER', 'ADMIN', 'MEMBER']).optional(),
 });
 
+const PlacementSchema = z.object({
+  // null unplaces the org — provisioning then refuses until it is placed again
+  serverId: z.string().min(1).nullable(),
+});
+
 const INVITE_TTL_DAYS = 7;
 
 const slugify = (name: string) =>
@@ -112,7 +117,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const [organizations, total] = await Promise.all([
       prisma.organization.findMany({
         where: scoped,
-        include: { _count: { select: { members: true, domains: true, applications: true } } },
+        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } } },
         orderBy: { createdAt: 'desc' },
         ...(paged && { skip, take: limit }),
       }),
@@ -172,12 +177,66 @@ router.post(
           slug,
           members: { create: { userId: req.user!.userId, role: 'OWNER' } },
         },
-        include: { _count: { select: { members: true, domains: true, applications: true } } },
+        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } } },
       });
 
       return res.status(201).json({ success: true, data: organization, message: 'Organization created' } as ApiResponse);
     } catch (error) {
       console.error('Error creating organization:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
+
+/**
+ * Place an organization on a node.
+ *
+ * Placement is superadmin-only and one-way in practice: cb-provision-org has
+ * already created this org's OS user, home and cgroup slice on its current
+ * node, so moving the row does not move the files. Re-pointing a placed org is
+ * therefore refused — unplace it deliberately (or move the data first) rather
+ * than silently stranding every app the tenant already has.
+ */
+router.put(
+  '/:id/server',
+  authenticateToken,
+  requireRole(['SUPERADMIN']),
+  validateRequest(PlacementSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { serverId } = PlacementSchema.parse(req.body);
+
+      const org = await prisma.organization.findUnique({ where: { id }, select: { serverId: true } });
+      if (!org) return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+
+      if (serverId && org.serverId && org.serverId !== serverId) {
+        return res.status(400).json({
+          success: false,
+          error: 'This organization is already placed on another server. Its home and apps live there — migrate them first.',
+        } as ApiResponse);
+      }
+
+      if (serverId && !(await prisma.server.findUnique({ where: { id: serverId } }))) {
+        return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
+      }
+
+      const organization = await prisma.organization.update({
+        where: { id },
+        data: { serverId },
+        include: {
+          _count: { select: { members: true, domains: true, applications: true } },
+          server: { select: { id: true, name: true, status: true } },
+        },
+      });
+
+      return res.json({
+        success: true,
+        data: organization,
+        message: serverId ? 'Organization placed' : 'Organization unplaced',
+      } as ApiResponse);
+    } catch (error) {
+      console.error('Error placing organization:', error);
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
     }
   }
@@ -194,7 +253,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 
     const organization = await prisma.organization.findUnique({
       where: { id },
-      include: { _count: { select: { members: true, domains: true, applications: true } } },
+      include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } } },
     });
     if (!organization) {
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);

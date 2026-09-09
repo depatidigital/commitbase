@@ -573,7 +573,7 @@ export default function Domains() {
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={() => navigate(`/domains/${domain.id}`)}>
               <Eye className="mr-2 h-4 w-4" />
-              View details
+              Manage
             </DropdownMenuItem>
             {admin && domain.cfZoneId && (
               <DropdownMenuItem
