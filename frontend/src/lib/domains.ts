@@ -8,6 +8,28 @@ import {
   DomainVerificationResult,
 } from "@/types/domain";
 
+/**
+ * A registration in flight. Set by the backend while it orders the domain and
+ * wires up DNS; absent on every domain that is not mid-purchase.
+ */
+export type Provisioning = {
+  state: "QUEUED" | "REGISTERING" | "WIRING" | "DONE" | "FAILED";
+  step: string;
+  error?: string | null;
+  years: number;
+};
+
+export const provisioningOf = (domain: Domain): Provisioning | null => {
+  const p = domain.customConfig?.provisioning as Provisioning | undefined;
+  return p && p.state !== "DONE" ? p : null;
+};
+
+/** Still working — worth polling for. */
+export const isProvisioning = (domain: Domain) =>
+  ["QUEUED", "REGISTERING", "WIRING"].includes(
+    provisioningOf(domain)?.state ?? "",
+  );
+
 // Get all domains
 export const getDomainsPage = async (
   params: ListParams,

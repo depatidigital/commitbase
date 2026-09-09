@@ -2,6 +2,16 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Globe, Loader2, Search, Sparkles } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,6 +117,8 @@ const DomainRegister = () => {
   const [organizationId, setOrganizationId] = useState("");
   const [selected, setSelected] = useState<DomainOffer | null>(null);
   const [years, setYears] = useState(1);
+  // registering spends real money, so it never happens on a single click
+  const [confirming, setConfirming] = useState(false);
 
   const [term, setTerm] = useState("");
   const [idea, setIdea] = useState("");
@@ -139,6 +151,7 @@ const DomainRegister = () => {
 
   const register = async () => {
     if (!selected || !organizationId) return;
+    setConfirming(false);
 
     try {
       await registerDomain.mutateAsync({
@@ -370,7 +383,7 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
             <Button
               type="button"
               className="w-full bg-gradient-primary"
-              onClick={register}
+              onClick={() => setConfirming(true)}
               disabled={
                 registerDomain.isPending || !selected || !organizationId
               }
@@ -380,6 +393,50 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
               )}
               {selected ? `Register ${selected.domain}` : "Register domain"}
             </Button>
+            <AlertDialog open={confirming} onOpenChange={setConfirming}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Register {selected?.domain} for {years} year
+                    {years > 1 ? "s" : ""}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2">
+                      <p>
+                        This buys the domain from the registrar and charges the{" "}
+                        {APP_NAME} account{" "}
+                        <strong>
+                          {selected
+                            ? money(
+                                selected.periods[years] ?? null,
+                                selected.currency,
+                              )
+                            : ""}
+                        </strong>
+                        . Domain registrations cannot be refunded or cancelled.
+                      </p>
+                      <p>
+                        It renews at{" "}
+                        {selected
+                          ? money(
+                              selected.renewalPeriods[1] ?? null,
+                              selected.currency,
+                            )
+                          : ""}{" "}
+                        per year.
+                      </p>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={register}>
+                    Yes, register and pay
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
             {selected && !organizationId && (
               <p className="text-xs text-muted-foreground">
                 Choose an owning organization first.

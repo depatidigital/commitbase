@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
-import { syncDomains } from './domainSyncService';
+import { syncDomains, backfillExpiries } from './domainSyncService';
+import { provisionPending } from './domainProvisionService';
 import { pingAllServers } from './serverHealthService';
 
 /**
@@ -54,6 +55,21 @@ const jobs: Job[] = [
       const failed = r.errors ? ` (errors: ${Object.keys(r.errors).join(', ')})` : '';
       return `${r.total} domains, ${r.created} added, ${r.updated} updated${failed}`;
     },
+  },
+  {
+    name: 'domain-expiry',
+    // Domains with no expiry on record — a fresh registration the registrar has
+    // not listed yet, or a TLD RDAP stays quiet about. Daily, an hour after the
+    // full sync has had its go at them.
+    schedule: process.env.CRON_DOMAIN_EXPIRY || '0 4 * * *',
+    run: backfillExpiries,
+  },
+  {
+    name: 'domain-provision',
+    // Registrations are kicked off in-process the moment they are queued; this
+    // only catches what a restart or a failed DNS step left half-done.
+    schedule: process.env.CRON_DOMAIN_PROVISION || '* * * * *',
+    run: provisionPending,
   },
 ];
 

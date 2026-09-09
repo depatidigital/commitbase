@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { listCloudflareZones, getZoneSslState, listCloudflareDnsRecords } from './cloudflareService';
-import { listRdashDomains } from './rdashService';
+import { listRdashDomains, findRdashDomain } from './rdashService';
 import { getDomainExpiry } from './rdapService';
 
 /**
@@ -111,6 +111,115 @@ export function startDomainSync(ownerUserId: string): SyncState {
   return syncState;
 }
 
+/**
+ * What the domains list shows for a zone without loading it: how many
+ * subdomains resolve, and where the bare domain points. Kept next to the sync
+ * because both the nightly run and every DNS edit have to write the same shape.
+ */
+export async function zoneSummary(
+  name: string,
+  zoneId: string | null,
+): Promise<{ subdomains: number | null; target: { type: string; content: string; proxied: boolean } | null }> {
+  const dns = zoneId ? await listCloudflareDnsRecords(zoneId) : null;
+  if (!dns) return { subdomains: null, target: null };
+
+  // hostnames below the apex that actually resolve somewhere — what an admin
+  // means by "how many subdomains does this domain have"
+  const subdomains = new Set(
+    dns
+      .filter((r: any) => ['A', 'AAAA', 'CNAME'].includes(String(r?.type)))
+      .map((r: any) => String(r?.name || '').trim().toLowerCase())
+      .filter((host: string) => host.length > 0 && host !== name),
+  ).size;
+
+  // where the bare domain actually resolves — the apex record, CNAME first
+  // because that is the one that names another host rather than an address
+  const apex =
+    dns.find(
+      (r: any) => String(r?.name || '').trim().toLowerCase() === name && String(r?.type) === 'CNAME',
+    ) ??
+    dns.find(
+      (r: any) =>
+        String(r?.name || '').trim().toLowerCase() === name && ['A', 'AAAA'].includes(String(r?.type)),
+    ) ??
+    null;
+
+  return {
+    subdomains,
+    target: apex
+      ? { type: String(apex.type), content: String(apex.content || ''), proxied: !!apex.proxied }
+      : null,
+  };
+}
+
+/**
+ * Re-read one zone after a DNS edit, so the domains list stops showing what the
+ * last nightly sync happened to see.
+ */
+export async function refreshDomainSummary(domainId: string): Promise<void> {
+  try {
+    const domain = await prisma.domain.findUnique({ where: { id: domainId } });
+    if (!domain?.cfZoneId) return;
+
+    const config = (domain.customConfig as any) ?? {};
+    const { subdomains, target } = await zoneSummary(domain.name, domain.cfZoneId);
+
+    await prisma.domain.update({
+      where: { id: domainId },
+      data: {
+        customConfig: {
+          ...config,
+          cloudflare: {
+            ...(config.cloudflare ?? {}),
+            ...(subdomains !== null && { subdomains }),
+            target,
+          },
+        },
+      },
+    });
+  } catch (error: any) {
+    // cosmetic data — never fail the DNS edit that triggered it
+    console.error(`Could not refresh zone summary for ${domainId}:`, error?.message);
+  }
+}
+
+/** RDASH is not consistent about the field name, so try the ones it actually sends. */
+export function rdashExpiry(row: any): Date | null {
+  const raw = row?.expired_at ?? row?.expiryDate ?? row?.expire_date ?? row?.expiresAt ?? null;
+  const parsed = raw ? new Date(raw) : null;
+  return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+/**
+ * Fill in the expiry for domains that still have none — a freshly registered
+ * domain, or a TLD RDAP will not answer for (.id among them). Asks the
+ * registrar directly, which knows about every domain we bought, and falls back
+ * to the registry for the ones we did not.
+ */
+export async function backfillExpiries(): Promise<string> {
+  const domains = await prisma.domain.findMany({
+    where: { expiresAt: null },
+    select: { id: true, name: true, registrar: true },
+  });
+
+  let filled = 0;
+  for (const domain of domains) {
+    try {
+      const expiresAt =
+        (domain.registrar === 'RDASH' ? rdashExpiry(await findRdashDomain(domain.name)) : null) ??
+        (await getDomainExpiry(domain.name));
+
+      if (!expiresAt) continue;
+      await prisma.domain.update({ where: { id: domain.id }, data: { expiresAt } });
+      filled++;
+    } catch (error: any) {
+      console.error(`Could not read expiry for ${domain.name}:`, error?.message);
+    }
+  }
+
+  return `${filled}/${domains.length} expiry dates filled in`;
+}
+
 export async function syncDomains(ownerUserId: string): Promise<DomainSyncResult> {
   const [cfResult, rdashResult] = await Promise.allSettled([
     (async () => {
@@ -174,41 +283,7 @@ export async function syncDomains(ownerUserId: string): Promise<DomainSyncResult
 
     const cfZoneId = zone?.id ? String(zone.id) : null;
 
-    // hostnames below the apex that actually resolve somewhere — what an admin
-    // means by "how many subdomains does this domain have"
-    const dns = cfZoneId ? await listCloudflareDnsRecords(cfZoneId) : null;
-    const subdomains = dns
-      ? new Set(
-          dns
-            .filter((r: any) => ['A', 'AAAA', 'CNAME'].includes(String(r?.type)))
-            .map((r: any) => String(r?.name || '').trim().toLowerCase())
-            .filter((host: string) => host.length > 0 && host !== name),
-        ).size
-      : null;
-
-    // where the bare domain actually resolves — the apex record, CNAME first
-    // because that is the one that names another host rather than an address
-    const apex = dns
-      ? dns.find(
-          (r: any) =>
-            String(r?.name || '').trim().toLowerCase() === name &&
-            String(r?.type) === 'CNAME',
-        ) ??
-        dns.find(
-          (r: any) =>
-            String(r?.name || '').trim().toLowerCase() === name &&
-            ['A', 'AAAA'].includes(String(r?.type)),
-        ) ??
-        null
-      : null;
-
-    const target = apex
-      ? {
-          type: String(apex.type),
-          content: String(apex.content || ''),
-          proxied: !!apex.proxied,
-        }
-      : null;
+    const { subdomains, target } = await zoneSummary(name, cfZoneId);
 
     const cloudflare = zone
       ? {
@@ -231,12 +306,7 @@ export async function syncDomains(ownerUserId: string): Promise<DomainSyncResult
 
     const existing = await prisma.domain.findUnique({ where: { name } });
 
-    // RDASH is not consistent about the field name, so try the ones it actually sends
-    const rawExpiry =
-      rdash?.expired_at ?? rdash?.expiryDate ?? rdash?.expire_date ?? rdash?.expiresAt ?? null;
-    const parsedExpiry = rawExpiry ? new Date(rawExpiry) : null;
-    let expiresAt =
-      parsedExpiry && Number.isFinite(parsedExpiry.getTime()) ? parsedExpiry : null;
+    let expiresAt = rdashExpiry(rdash);
 
     // Domains we do not buy through RDASH have no expiry — ask the registry
     // directly. Not on every sync (that would be one RDAP call per domain),

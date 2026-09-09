@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -59,6 +59,7 @@ import {
   useDomainRegistration,
   usePlatformTarget,
 } from "@/hooks/useDomains";
+import { provisioningOf } from "@/lib/domains";
 import { useQuery } from "@tanstack/react-query";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -197,6 +198,8 @@ export default function Domains() {
   const navigate = useNavigate();
   const params = useParams();
   const domainId = params.id ?? null;
+  // ?destination=1 comes from the list's "Set up destination" action
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const query = useTableQuery();
   const [confirmAction, setConfirmAction] = useState<{
@@ -302,6 +305,37 @@ export default function Domains() {
       ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase()),
   );
 
+  /** Open the destination dialog on the apex record, adding one if there is none. */
+  const openDestinationForm = () =>
+    setRecordForm(
+      apexRecord
+        ? {
+            id: apexRecord.id,
+            mode: "custom",
+            name: "",
+            type: apexRecord.type,
+            content: apexRecord.content,
+            ttl: String(apexRecord.ttl ?? 1),
+            proxied: !!apexRecord.proxied,
+          }
+        : {
+            name: "",
+            mode: "auto",
+            type: "A",
+            content: "",
+            ttl: "1",
+            proxied: true,
+          },
+    );
+
+  // arriving from the list's "Set up destination" action: open it once the zone is in
+  useEffect(() => {
+    if (!searchParams.get("destination") || dnsZoneLoading || !domainDetail) return;
+    openDestinationForm();
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, dnsZoneLoading, domainDetail?.id]);
+
   const subdomainRecords = (domainDnsZone?.records ?? [])
     .filter(
       (record: any) =>
@@ -400,7 +434,7 @@ export default function Domains() {
       },
     },
     {
-      header: "Points to",
+      header: "Destination",
       className: "w-[14%]",
       cell: (domain) => {
         // a redirect set by hand wins; otherwise the apex DNS record found by sync
@@ -431,6 +465,17 @@ export default function Domains() {
                   <span className="truncate">{value}</span>
                 )}
               </span>
+            ) : admin && domain.cfZoneId ? (
+              // one click from the list to where the domain actually points
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => navigate(`/domains/${domain.id}?destination=1`)}
+              >
+                <Cloud className="mr-1 h-3 w-3" />
+                Set up destination
+              </Button>
             ) : (
               <span className="text-muted-foreground">-</span>
             )}
@@ -458,7 +503,24 @@ export default function Domains() {
     {
       header: "Status",
       className: "w-28",
-      cell: (domain) => getStatusBadge(domain.status, domain.expiresAt),
+      cell: (domain) => {
+        // a registration still running says more than the PENDING row behind it
+        const provisioning = provisioningOf(domain);
+        if (provisioning) {
+          return provisioning.state === "FAILED" ? (
+            <Badge variant="destructive" className="gap-1" title={provisioning.error ?? ""}>
+              <AlertCircle className="h-3.5 w-3.5" />
+              failed
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1" title={provisioning.step}>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              registering
+            </Badge>
+          );
+        }
+        return getStatusBadge(domain.status, domain.expiresAt);
+      },
     },
     {
       header: "Expires",
@@ -513,6 +575,14 @@ export default function Domains() {
               <Eye className="mr-2 h-4 w-4" />
               View details
             </DropdownMenuItem>
+            {admin && domain.cfZoneId && (
+              <DropdownMenuItem
+                onClick={() => navigate(`/domains/${domain.id}?destination=1`)}
+              >
+                <Cloud className="mr-2 h-4 w-4" />
+                Set up destination
+              </DropdownMenuItem>
+            )}
             {admin && (
               <DropdownMenuItem
                 onClick={() => {
@@ -952,7 +1022,7 @@ export default function Domains() {
                         )}
                       </div>
                       <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-muted-foreground">Points to</span>
+                        <span className="text-muted-foreground">Destination</span>
                         {apexRecord ? (
                           <span className="flex items-center gap-2">
                             {isPlatformTarget(apexRecord.content) ? (
@@ -970,7 +1040,7 @@ export default function Domains() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 w-6 p-0"
-                                aria-label="Edit where the domain points"
+                                aria-label="Edit the destination"
                                 onClick={() =>
                                   setRecordForm({
                                     id: apexRecord.id,
@@ -987,23 +1057,16 @@ export default function Domains() {
                               </Button>
                             )}
                           </span>
+                        ) : dnsZoneLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         ) : admin && domainDetail.cfZoneId ? (
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-7"
-                            onClick={() =>
-                              setRecordForm({
-                                name: "",
-                                mode: "auto",
-                                type: "A",
-                                content: "",
-                                ttl: "1",
-                                proxied: true,
-                              })
-                            }
+                            onClick={openDestinationForm}
                           >
-                            Not set — point it somewhere
+                            Set up destination
                           </Button>
                         ) : (
                           <span className="text-muted-foreground">Not set</span>
@@ -1098,7 +1161,7 @@ export default function Domains() {
                             <span className="text-muted-foreground">
                               {domainDetail.redirectTo
                                 ? "Redirect to"
-                                : "Points to"}
+                                : "Destination"}
                             </span>
                             <span className="flex items-center gap-2 text-muted-foreground">
                               <ExternalLink className="h-3 w-3" />
@@ -1923,7 +1986,7 @@ export default function Domains() {
                 )}
 
                 <div className="space-y-2">
-                  <Label>Points to</Label>
+                  <Label>Destination</Label>
                   <Select
                     value={recordForm.mode}
                     onValueChange={(value) =>

@@ -7,9 +7,10 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords, createDnsRecord, updateDnsRecord, deleteDnsRecord, getDefaultDnsTarget } from '../services/cloudflareService';
-import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, registerRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS } from '../services/rdashService';
-import { startDomainSync, getDomainSyncState } from '../services/domainSyncService';
-import { getDomainRegistration, getDomainExpiry, getDomainAvailability } from '../services/rdapService';
+import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS } from '../services/rdashService';
+import { startDomainSync, getDomainSyncState, refreshDomainSummary } from '../services/domainSyncService';
+import { getDomainRegistration, getDomainAvailability } from '../services/rdapService';
+import { provisionDomain } from '../services/domainProvisionService';
 import { suggestDomains } from '../services/domainSuggestService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
@@ -353,62 +354,38 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
       } as ApiResponse);
     }
 
-    // The purchase. Everything after this point is bookkeeping for a domain we own.
-    let receipt: any;
-    try {
-      receipt = await registerRdashDomain({ domain: domainName, period: years });
-    } catch (error: any) {
-      console.error('RDASH registration failed:', error?.message);
-      return res.status(502).json({
-        success: false,
-        error: `Registrar refused the registration: ${String(error?.message ?? '').slice(0, 300)}`,
-      } as ApiResponse);
-    }
-
-    const cloudflareZone = await getOrCreateCloudflareZone(domainName);
-    const dnsRecords: any = await syncDomainDns(domainName, cloudflareZone?.id);
-
-    // point the fresh domain at our nameservers — non-fatal, it can be redone by hand
-    if (cloudflareZone) {
-      try {
-        await updateRdashDomainNameservers(domainName, { nameservers: cloudflareZone.nameServers });
-      } catch (error: any) {
-        console.error(`Could not set nameservers for ${domainName}:`, error?.message);
-      }
-    }
-
+    // Queue the purchase instead of doing it here: ordering the domain,
+    // creating the zone and switching nameservers takes tens of seconds, and
+    // the admin should not have to sit on this screen for it. The row lands
+    // as PENDING and the domains list polls it until it is ready.
     const domain = await prisma.domain.create({
       data: {
         name: domainName,
-        status: cloudflareZone ? 'ACTIVE' : 'PENDING',
-        dnsRecords,
+        status: 'PENDING',
         registrar: 'RDASH',
-        cfZoneId: cloudflareZone?.id ?? null,
-        expiresAt: (await getDomainExpiry(domainName)) ?? null,
-        lastSyncedAt: new Date(),
         customConfig: {
           mode: 'register',
           years,
-          registeredAt: new Date().toISOString(),
-          ...(cloudflareZone && {
-            cloudflare: {
-              zoneId: cloudflareZone.id,
-              zoneName: cloudflareZone.name,
-              nameservers: cloudflareZone.nameServers,
-              synced: true,
-            },
-          }),
-          rdash: receipt ?? null,
+          provisioning: {
+            state: 'QUEUED',
+            step: 'Waiting to start',
+            years,
+            queuedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
         },
         organizationId,
         userId: req.user!.userId,
       },
     });
 
-    return res.status(201).json({
+    // start now, cron sweeps up anything this process never finished
+    void provisionDomain(domain.id);
+
+    return res.status(202).json({
       success: true,
       data: domain,
-      message: `${domainName} registered for ${years} year${years > 1 ? 's' : ''}`,
+      message: `Registering ${domainName} for ${years} year${years > 1 ? 's' : ''} — this runs in the background`,
     } as ApiResponse<Domain>);
   } catch (error) {
     console.error('Error registering domain:', error);
@@ -1110,6 +1087,8 @@ router.post('/:id/dns-records', authenticateToken, async (req: AuthenticatedRequ
     }
 
     const record = await createDnsRecord(loaded.zoneId!, parsed.record!);
+    // the list renders from this summary, so it has to move with the zone
+    await refreshDomainSummary(loaded.domain!.id);
 
     return res.status(201).json({
       success: true,
@@ -1144,6 +1123,7 @@ router.put('/:id/dns-records/:recordId', authenticateToken, async (req: Authenti
       req.params.recordId as string,
       parsed.record!,
     );
+    await refreshDomainSummary(loaded.domain!.id);
 
     return res.json({
       success: true,
@@ -1169,6 +1149,7 @@ router.delete('/:id/dns-records/:recordId', authenticateToken, async (req: Authe
     }
 
     await deleteDnsRecord(loaded.zoneId!, req.params.recordId as string);
+    await refreshDomainSummary(loaded.domain!.id);
 
     return res.json({ success: true, message: 'DNS record deleted' } as ApiResponse);
   } catch (error: any) {
@@ -1229,6 +1210,7 @@ router.post('/:id/dns-records/import', authenticateToken, async (req: Authentica
       loaded.zoneId!,
       toImportableRecords(records, domain.name),
     );
+    await refreshDomainSummary(domain.id);
 
     return res.json({
       success: true,

@@ -29,6 +29,7 @@ import {
   suggestDomains,
   registerDomain,
   DomainOffer,
+  isProvisioning,
 } from "@/lib/domains";
 import { isAdmin } from "@/lib/auth";
 import { CreateDomainData, UpdateDomainData } from "@/types/domain";
@@ -39,6 +40,9 @@ export const useDomainsPage = (params: ListParams) => {
   return useQuery({
     queryKey: ["domains", "page", params],
     queryFn: () => getDomainsPage(params),
+    // registrations finish in the background — poll while any row is mid-purchase
+    refetchInterval: (query) =>
+      query.state.data?.data.some(isProvisioning) ? 5000 : false,
   });
 };
 
@@ -633,8 +637,8 @@ export const useRegisterDomain = () => {
     onSuccess: (domain) => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: "Domain registered",
-        description: `${domain.name} is registered and pointed at our nameservers.`,
+        title: "Registration started",
+        description: `${domain.name} is being registered — follow it in the domains list.`,
       });
     },
     onError: (error: Error) => {
