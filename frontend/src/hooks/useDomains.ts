@@ -484,6 +484,8 @@ export const useDomainSearch = () => {
   // bumped on every new search and on reset, so answers from an abandoned
   // search cannot land in the list the user is now looking at
   const runId = useRef(0);
+  // names already proposed, so "load more" gets fresh ideas instead of repeats
+  const seen = useRef<string[]>([]);
 
   const patch = (domain: string, fields: Partial<DomainOffer>) =>
     setOffers((prev) =>
@@ -553,14 +555,20 @@ export const useDomainSearch = () => {
    * free — the model cannot know what is taken, so this loop is what turns its
    * guesses into a list worth showing. Names already seen are excluded so each
    * round is fresh rather than the same ideas again.
+   *
+   * `append` keeps what is on screen and adds to it, which is what "load more"
+   * needs; otherwise the list starts over.
    */
-  const suggest = async (q: string, context = "") => {
+  const runSuggest = async (q: string, context: string, append: boolean) => {
     const run = ++runId.current;
     setSuggesting(true);
     setShowingAll(true);
-    setOffers([]);
 
-    const seen: string[] = [];
+    if (!append) {
+      seen.current = [];
+      setOffers([]);
+    }
+
     let free = 0;
 
     try {
@@ -569,11 +577,11 @@ export const useDomainSearch = () => {
         round < SUGGEST_ROUNDS && free < SUGGEST_TARGET;
         round++
       ) {
-        const rows = await suggestDomains(q, context, seen);
+        const rows = await suggestDomains(q, context, seen.current);
         if (runId.current !== run) return;
         if (rows.length === 0) break;
 
-        seen.push(...rows.map((row) => row.domain));
+        seen.current = [...seen.current, ...rows.map((row) => row.domain)];
         setOffers((prev) => [...(prev ?? []), ...rows]);
 
         free += await resolveAvailability(rows, run);
@@ -591,8 +599,13 @@ export const useDomainSearch = () => {
     }
   };
 
+  const suggest = (q: string, context = "") => runSuggest(q, context, false);
+  const suggestMore = (q: string, context = "") =>
+    runSuggest(q, context, true);
+
   const reset = () => {
     runId.current++;
+    seen.current = [];
     setOffers(null);
     setSearching(false);
     setSuggesting(false);
@@ -606,6 +619,7 @@ export const useDomainSearch = () => {
     showingAll,
     search,
     suggest,
+    suggestMore,
     reset,
   };
 };
