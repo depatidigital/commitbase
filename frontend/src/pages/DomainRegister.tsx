@@ -242,16 +242,17 @@ const DomainRegister = () => {
 
               <div className="space-y-1.5">
                 <Label htmlFor="domain-context" className="text-sm">
-                  What is it for?{" "}
+                  Brief{" "}
                   <span className="font-normal text-muted-foreground">
-                    (optional)
+                    (optional) — describe it, or say how to build the names
                   </span>
                 </Label>
                 <Textarea
                   id="domain-context"
                   rows={3}
                   maxLength={400}
-                  placeholder="Platform layanan administrasi untuk pemerintah desa di Indonesia — warga urus surat online."
+                  placeholder={`Layanan administrasi untuk pemerintah desa di Indonesia.
+Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap Bahasa Indonesia".`}
                   value={context}
                   onChange={(e) => setContext(e.target.value)}
                 />
@@ -273,8 +274,9 @@ const DomainRegister = () => {
                 Suggest names
               </Button>
               <p className="text-xs text-muted-foreground">
-                Names are drawn from the description, not just the keyword — and
-                every one is checked against the registry.
+                The brief is followed over the default naming rules, so you can
+                ask for a specific style, length or wording. Every name is still
+                checked against the registry.
               </p>
             </form>
 

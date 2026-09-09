@@ -44,21 +44,34 @@ export async function suggestDomains(options: {
 
   const context = (options.context ?? '').trim().slice(0, 400);
 
+  /**
+   * The user's own words are instructions, not scene-setting: "ubah sinergi dg
+   * kata lain" is a directive about how to build the names. They therefore sit
+   * above the house rules and are allowed to override them — a fixed rule like
+   * "vary the wording" otherwise talks the model out of doing what was asked.
+   */
+  const system = [
+    'You name domains. You propose candidates only — you never claim a name is available.',
+    'The user brief outranks the naming guidelines: when they conflict, follow the brief.',
+    'Keep the language of the keyword. Indonesian words stay Indonesian — never translate',
+    'them to English unless the brief asks for it.',
+  ].join(' ');
+
   const prompt = [
-    `Suggest ${count} domain names for a business or project about "${keyword}".`,
-    context ? `What it is: ${context}` : '',
-    '',
+    `Suggest ${count} domain names. Keyword: "${keyword}".`,
+    context ? `\nBrief from the user (follow this exactly):\n${context}\n` : '',
     `Use only these extensions: ${extensions.map((ext) => `.${ext}`).join(', ')}.`,
-    'Rules:',
+    '',
+    'Guidelines (the brief wins if it says otherwise):',
     '- Short and memorable, ideally under 15 characters before the extension.',
     '- Lowercase letters, digits and hyphens only. No spaces, no unicode.',
     '- Vary the extension across the list; do not put every idea on one.',
-    '- Indonesian or English wording, matching the language of the keyword.',
-    '- Do not repeat the keyword verbatim on every name; offer real alternatives.',
-    context
-      ? '- The names must fit the description above, not just the keyword. Draw on the words, audience and industry it describes.'
+    '- The keyword may be a compound word. Treat its parts as meaningful and keep the',
+    '  parts that carry the meaning unless the brief says to replace them.',
+    '- Offer genuinely different names, not the keyword with a digit or filler word bolted on.',
+    exclude.length > 0
+      ? `- Already suggested, do not repeat: ${exclude.join(', ')}.`
       : '',
-    exclude.length > 0 ? `- Do not suggest any of these: ${exclude.join(', ')}.` : '',
     '',
     'Reply as JSON: {"domains": ["example.com", "example.id"]}',
   ]
@@ -73,7 +86,10 @@ export async function suggestDomains(options: {
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
       response_format: { type: 'json_object' },
       temperature: 1,
     }),
