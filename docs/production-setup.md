@@ -509,11 +509,36 @@ Without that variable the panel silently never configures tenant sites.
 Tenant routes are added through the admin API and live in Caddy's memory.
 Anything that makes Caddy re-read the Caddyfile — `systemctl reload caddy`,
 `caddy reload`, a restart — drops them. The backend pushes every running app's
-route again on start, so the fix is always:
+route again on start, and the `caddy-routes` cron job checks every five minutes
+that what should be live still is, re-applying anything that went missing. To
+force it by hand:
 
 ```bash
 systemctl restart commitbase     # log line: "Caddy routes re-applied: N ok"
+npm run cron:run caddy-routes    # or just the watchdog
 ```
+
+### Moving existing site files onto the API
+
+Sites that predate CommitBase still live as `.caddy` files imported by the
+Caddyfile, which means routes have two sources of truth. To put them all on the
+admin API:
+
+```bash
+# 1. dry run — reports what each site file would become, changes nothing
+curl -s -XPOST localhost:3001/api/applications/caddy/adopt   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}'
+
+# 2. push the routes
+curl -s -XPOST localhost:3001/api/applications/caddy/adopt   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"apply":true}'
+```
+
+Then remove the `import /etc/caddy/sites/*.caddy` line from the Caddyfile and
+`systemctl reload caddy` — the backend re-applies its own routes right after,
+and the watchdog covers anything it missed.
+
+**Keep the site files.** They are not loaded any more, but they are the only
+record of how each imported site is configured (a PHP site's FPM socket is
+written nowhere else), and the adopt run and the watchdog both read them.
 
 ---
 

@@ -12,6 +12,8 @@ import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
+import { gitAuthFor } from '../lib/gitCredentials';
+import { shellQuote } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
 import * as net from 'net';
@@ -129,9 +131,20 @@ export class DeploymentService {
   /**
    * Clone or pull the repository into sources directory
    */
-  async syncRepository(appDir: string, repository: string, branch: string = 'main'): Promise<string> {
+  async syncRepository(
+    appDir: string,
+    repository: string,
+    branch: string = 'main',
+    gitAccountId: string | null = null
+  ): Promise<string> {
     try {
       const sourcesDir = path.join(appDir, 'sources');
+
+      // Private repositories need the connected account's token. It travels in
+      // the environment and is read back by a one-shot credential helper, so it
+      // never lands in .git/config, in `ps`, or in this log.
+      const auth = await gitAuthFor(gitAccountId);
+      const env = { ...process.env, ...auth.env };
 
       // Check if directory is already a git repository
       const gitDir = path.join(sourcesDir, '.git');
@@ -140,11 +153,17 @@ export class DeploymentService {
       if (gitExists) {
         // Pull latest changes
         console.log(`Pulling latest changes for ${repository} on branch ${branch}`);
-        await execAsync(`cd "${sourcesDir}" && git fetch origin && git reset --hard origin/${branch}`);
+        await execAsync(
+          `cd "${sourcesDir}" && git ${auth.args} fetch origin && git reset --hard origin/${shellQuote(branch)}`,
+          { env }
+        );
       } else {
         // Clone the repository
         console.log(`Cloning repository ${repository} on branch ${branch}`);
-        await execAsync(`git clone -b ${branch} ${repository} "${sourcesDir}"`);
+        await execAsync(
+          `git ${auth.args} clone -b ${shellQuote(branch)} ${shellQuote(repository)} "${sourcesDir}"`,
+          { env }
+        );
       }
 
       return sourcesDir;
@@ -421,6 +440,15 @@ export class DeploymentService {
    * memory; a `caddy reload` from the Caddyfile drops them. Called at backend
    * start, so "restart commitbase" is the recovery.
    */
+  /** Hostnames that should have a route right now — what the watchdog compares against. */
+  async expectedCaddyHosts(): Promise<string[]> {
+    const apps = await prisma.application.findMany({
+      where: { status: 'RUNNING', runtime: null },
+      select: { domain: true },
+    });
+    return apps.map((app) => app.domain);
+  }
+
   async reapplyCaddyRoutes(): Promise<{ applied: number; failed: number }> {
     if (!process.env.CADDY_API_URL) return { applied: 0, failed: 0 };
     const apps = await prisma.application.findMany({
@@ -608,7 +636,7 @@ export class DeploymentService {
 
       if (application.repository) {
         const branch = application.branch || 'main';
-        await this.syncRepository(appDir, application.repository, branch);
+        await this.syncRepository(appDir, application.repository, branch, application.gitAccountId);
         try {
           const sourcesDir = path.join(appDir, 'sources');
           const { stdout: commitStdout } = await execAsync(`cd "${sourcesDir}" && git rev-parse HEAD`);

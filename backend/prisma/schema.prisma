@@ -174,7 +174,14 @@ model Application {
 
   userId String?
   user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-  
+
+  // Which connected git account clones this app's repository. Null for public
+  // repos and uploads. SetNull on delete: disconnecting an account must not
+  // take the applications with it, it only makes the next deploy ask for a
+  // reconnect.
+  gitAccountId String?
+  gitAccount   GitAccount? @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
+
   deployments Deployment[]
   logs        Log[]
   databases   Database[]
@@ -188,6 +195,7 @@ model Application {
 
   @@index([userId])
   @@index([domainId])
+  @@index([gitAccountId])
   @@index([organizationId])
   @@map("applications")
 }
@@ -345,11 +353,17 @@ model GitAccount {
   username    String
   displayName String
   accessToken String
+  /// GitLab access tokens expire (2h); GitHub OAuth App tokens do not. Both
+  /// columns stay null for GitHub.
+  refreshToken   String?
+  tokenExpiresAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  applications Application[]
 
   @@unique([userId, provider, externalId])
   @@map("git_accounts")

@@ -96,6 +96,8 @@ export const CreateApplicationSchema = z.object({
   domain: z.string().min(1, 'Domain is required'),
   type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA']),
   repository: z.string().optional(),
+  // Which connected GitHub/GitLab account clones a private repository
+  gitAccountId: z.string().optional(),
   branch: z.string().optional(),
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),
@@ -107,6 +109,7 @@ export const UpdateApplicationSchema = z.object({
   domain: z.string().min(1, 'Domain is required').optional(),
   type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA']).optional(),
   repository: z.string().optional(),
+  gitAccountId: z.string().nullable().optional(),
   branch: z.string().optional(),
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),

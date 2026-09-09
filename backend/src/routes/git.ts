@@ -555,7 +555,10 @@ router.get(
       url.searchParams.set('client_id', clientId);
       url.searchParams.set('redirect_uri', redirectUri);
       url.searchParams.set('response_type', 'code');
-      url.searchParams.set('scope', 'read_api');
+      // read_api drives the project/branch pickers; read_repository is what
+      // lets a deploy clone a private project over HTTPS. Accounts connected
+      // before read_repository was requested must reconnect.
+      url.searchParams.set('scope', 'read_api read_repository');
       url.searchParams.set('state', state);
 
       return res.json({
@@ -675,6 +678,13 @@ router.get(
       }
 
       const accessToken = String(tokenData.access_token);
+      // GitLab access tokens are short-lived (2h by default), so the refresh
+      // token is the difference between a deploy that works today and one that
+      // works next week. GitHub sends neither field and both stay null there.
+      const refreshToken = tokenData.refresh_token ? String(tokenData.refresh_token) : null;
+      const tokenExpiresAt = Number.isFinite(Number(tokenData.expires_in))
+        ? new Date(Date.now() + Number(tokenData.expires_in) * 1000)
+        : null;
 
       const apiBase =
         process.env.GITLAB_API_BASE || 'https://gitlab.com/api/v4';
@@ -735,11 +745,15 @@ router.get(
           username,
           displayName,
           accessToken,
+          refreshToken,
+          tokenExpiresAt,
         },
         update: {
           username,
           displayName,
           accessToken,
+          refreshToken,
+          tokenExpiresAt,
         },
       });
 

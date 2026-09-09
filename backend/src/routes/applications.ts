@@ -14,6 +14,7 @@ import * as systemd from '../services/systemdService';
 import { resolveAppDir } from '../lib/appPaths';
 import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
+import { adoptCaddySites, healCaddyRoutes } from '../services/caddyMigrationService';
 import { requireRole } from '../middleware/auth';
 import multer from 'multer';
 import path from 'path';
@@ -55,6 +56,26 @@ async function handlePm2Action(
   } as ApiResponse);
 }
 
+/**
+ * The git account may only be one the caller connected themselves. Without this
+ * check an application could be pointed at somebody else's OAuth token and
+ * deploy from their private repositories.
+ */
+async function assertOwnGitAccount(
+  gitAccountId: string | null | undefined,
+  userId: string,
+  res: Response
+): Promise<boolean> {
+  if (!gitAccountId) return true;
+
+  const account = await prisma.gitAccount.findFirst({ where: { id: gitAccountId, userId } });
+  if (!account) {
+    res.status(403).json({ success: false, error: 'Unknown git account' } as ApiResponse);
+    return false;
+  }
+  return true;
+}
+
 // Preview what is running on the server without touching the database
 router.get('/scan', authenticateToken, requireRole(['SUPERADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
   try {
@@ -85,6 +106,47 @@ router.post('/sync', authenticateToken, requireRole(['SUPERADMIN']), async (req:
 // Framework detection for the "new app" form. Either the files the browser
 // already read (upload flow) or a repository URL (git flow — shallow clone of
 // the detection files only).
+/**
+ * Move the file-based sites in /etc/caddy/sites onto the admin API, so routes
+ * have one source of truth. A dry run by default: pass `apply: true` to push.
+ *
+ * After applying, drop the `import /etc/caddy/sites/*.caddy` line from the
+ * Caddyfile — the files stay as the record each later run reads.
+ */
+router.post('/caddy/adopt', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await adoptCaddySites({ apply: req.body?.apply === true });
+
+    return res.json({
+      success: true,
+      data: result,
+      message:
+        req.body?.apply === true
+          ? `Adopted ${result.applied} route(s), ${result.skipped} skipped`
+          : `Dry run: ${result.sites.length} site(s) found, ${result.skipped} need attention`,
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error adopting Caddy sites:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the Caddy site files',
+    } as ApiResponse);
+  }
+});
+
+/** Compare live Caddy routes against what should be there, and heal the gaps. */
+router.post('/caddy/heal', authenticateToken, requireRole(['SUPERADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    return res.json({ success: true, message: await healCaddyRoutes() } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error healing Caddy routes:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not reach Caddy',
+    } as ApiResponse);
+  }
+});
+
 router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { repository, branch, files } = req.body || {};
@@ -231,8 +293,10 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create a new application
 router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body;
+    const { name, type, repository, branch, buildCommand, startCommand, port, envVars, gitAccountId } = req.body;
     const domain = String(req.body.domain || '').trim().toLowerCase();
+
+    if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
 
     // Check if domain already exists
     const existingApp = await prisma.application.findUnique({
@@ -262,6 +326,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         domain,
         type,
         repository,
+        gitAccountId,
         branch,
         buildCommand,
         startCommand,
@@ -442,7 +507,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     });
 
     const { id } = req.params || {};
-    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars } = req.body || {};
+    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars, gitAccountId } = req.body || {};
     console.log(req.body);
     if (!id) {
       return res.status(400).json({
@@ -465,6 +530,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         error: 'Application not found',
       } as ApiResponse);
     }
+
+    if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
 
     // Check if new domain conflicts with existing application
     let domainId: string | undefined;
@@ -505,6 +572,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         ...(organizationId !== undefined && { organizationId }),
         type,
         repository,
+        // undefined leaves it alone; null deliberately clears it
+        ...(gitAccountId !== undefined && { gitAccountId }),
         branch,
         buildCommand,
         startCommand,

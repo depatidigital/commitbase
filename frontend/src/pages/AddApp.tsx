@@ -200,6 +200,16 @@ export default function AddApp() {
       type: formData.type as CreateApplicationData["type"],
       repository:
         sourceMode === "git" ? formData.repository || undefined : undefined,
+      // Which connected account clones it — a private repo cannot be cloned
+      // without one, and a manually typed URL has no account behind it.
+      gitAccountId:
+        sourceMode === "git"
+          ? (repoSource === "github"
+              ? selectedGithubAccountId
+              : repoSource === "gitlab"
+                ? selectedGitlabAccountId
+                : "") || undefined
+          : undefined,
       branch: formData.branch,
       buildCommand: formData.buildCommand || undefined,
       startCommand: formData.startCommand || undefined,

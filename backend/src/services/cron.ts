@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
 import { syncDomains, backfillExpiries } from './domainSyncService';
 import { provisionPending } from './domainProvisionService';
+import { healCaddyRoutes } from './caddyMigrationService';
 import { pingAllServers } from './serverHealthService';
 
 /**
@@ -55,6 +56,14 @@ const jobs: Job[] = [
       const failed = r.errors ? ` (errors: ${Object.keys(r.errors).join(', ')})` : '';
       return `${r.total} domains, ${r.created} added, ${r.updated} updated${failed}`;
     },
+  },
+  {
+    name: 'caddy-routes',
+    // Caddy keeps the API config in memory. A reload from the Caddyfile drops
+    // every route the platform pushed, and nothing would notice until the
+    // backend restarted — so compare against what should be live, and heal.
+    schedule: process.env.CRON_CADDY_ROUTES || '*/5 * * * *',
+    run: healCaddyRoutes,
   },
   {
     name: 'domain-expiry',

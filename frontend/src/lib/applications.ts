@@ -7,6 +7,7 @@ export interface Application {
   type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA';
   status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'DEPLOYING' | 'BUILDING';
   repository?: string;
+  gitAccountId?: string | null;
   branch?: string;
   buildCommand?: string;
   startCommand?: string;
@@ -60,6 +61,8 @@ export interface CreateApplicationData {
   domain: string;
   type: Application['type'];
   repository?: string;
+  /** Connected GitHub/GitLab account that can clone a private repository. */
+  gitAccountId?: string;
   branch?: string;
   buildCommand?: string;
   startCommand?: string;
@@ -72,6 +75,8 @@ export interface UpdateApplicationData {
   domain?: string;
   type?: Application['type'];
   repository?: string;
+  /** null clears it, undefined leaves it alone. */
+  gitAccountId?: string | null;
   branch?: string;
   buildCommand?: string;
   startCommand?: string;

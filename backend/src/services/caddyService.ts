@@ -26,7 +26,14 @@ type PhpTarget = {
   socket: string;
 };
 
-type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget;
+// Files on this box, served straight from disk — what a file-based site block
+// with `root` + `file_server` did before it was adopted into the API.
+type FilesTarget = {
+  type: 'files';
+  root: string;
+};
+
+type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget;
 
 async function fetchCaddyConfig(): Promise<any | null> {
   if (!CADDY_API_URL) {
@@ -148,6 +155,22 @@ function buildPhpRoute(domain: string, target: PhpTarget): any {
 
 function buildRoute(domain: string, target: Target): any {
   if (target.type === 'php') return buildPhpRoute(domain, target);
+
+  if (target.type === 'files') {
+    return {
+      match: [{ host: [domain] }],
+      handle: [
+        {
+          handler: 'subroute',
+          routes: [
+            { handle: [{ handler: 'vars', root: target.root }] },
+            { handle: [{ handler: 'file_server' }] },
+          ],
+        },
+      ],
+      terminal: true,
+    };
+  }
 
   const route: any = {
     match: [
@@ -301,4 +324,32 @@ export async function removeCaddySite(domain: string): Promise<void> {
     return;
   }
   await setRoute(domain, null);
+}
+
+export async function configureCaddyForFiles(domain: string, root: string): Promise<void> {
+  if (!CADDY_API_URL || !root) {
+    return;
+  }
+  await setRoute(domain, { type: 'files', root });
+}
+
+/**
+ * Hostnames Caddy is currently serving. The config lives in memory, so this is
+ * the only way to know whether a reload has thrown the platform's routes away.
+ */
+export async function listCaddyRouteHosts(): Promise<string[] | null> {
+  const config = await fetchCaddyConfig();
+  if (config === null) return null;
+
+  const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
+
+  return [
+    ...new Set(
+      routes.flatMap((route: any) =>
+        (Array.isArray(route?.match) ? route.match : []).flatMap((m: any) =>
+          Array.isArray(m?.host) ? m.host.filter((h: any) => typeof h === 'string') : [],
+        ),
+      ),
+    ),
+  ];
 }

@@ -38,6 +38,9 @@ assert.strictEqual(sites[0]?.php, false);
 assert.deepStrictEqual(sites[1]?.domains, ['shop.example.com', 'www.shop.example.com']);
 assert.strictEqual(sites[1]?.php, true);
 assert.strictEqual(sites[1]?.rootPath, '/var/www/html/shop/public');
+// the FPM socket is only written down in the site file, so adoption needs it
+assert.strictEqual(sites[1]?.socket, '/run/php/php8.2-fpm.sock');
+assert.strictEqual(sites[0]?.socket, undefined);
 
 // the nested handle_errors block must not close the site early
 assert.strictEqual(sites[2]?.domains[0], 'static.example.com');

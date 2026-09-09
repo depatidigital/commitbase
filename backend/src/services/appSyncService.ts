@@ -91,6 +91,8 @@ export type CaddySite = {
   port?: number | undefined;
   rootPath?: string | undefined;
   php: boolean;
+  /** PHP sites: the FPM socket from `php_fastcgi unix/...` */
+  socket?: string | undefined;
   configPath: string;
 };
 
@@ -142,7 +144,13 @@ export function parseCaddyfile(content: string, configPath: string): CaddySite[]
     const root = line.match(/^root\s+(?:\*\s+)?(\S+)/);
     if (root?.[1]) current.rootPath = root[1];
 
-    if (line.startsWith('php_fastcgi')) current.php = true;
+    if (line.startsWith('php_fastcgi')) {
+      current.php = true;
+      // the FPM socket the site talks to — needed to rebuild this site as an
+      // API route, which is the only place it is written down
+      const socket = line.match(/unix\/+(\S+)/);
+      if (socket?.[1]) current.socket = `/${socket[1].replace(/^\/+/, '')}`;
+    }
   }
 
   return sites;
