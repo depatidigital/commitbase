@@ -36,20 +36,23 @@ const sortOrder = (sort: unknown, order: unknown): any => {
 const router = Router();
 
 /**
- * Last-resort availability signal for TLDs with no RDAP service and no
- * registrar answer: does the name resolve to nameservers?
+ * Last-resort signal for names neither RDAP nor the registrar answered for.
  *
- * A name with NS records is registered — that is solid. NXDOMAIN is only
- * strong evidence of the opposite (a registered domain can sit without
- * delegation), but the registrar re-checks and refuses at purchase time, so a
- * wrong "available" costs a failed registration, not a wrong charge.
+ * It can only ever prove a name is *taken*: NS records mean someone registered
+ * it. It deliberately never reports "available", because NXDOMAIN does not mean
+ * free — satudesa.id is registered to PT Jagat Informasi Solusi and resolves to
+ * nothing at all. Answering true there showed a taken domain as available and
+ * failed only at checkout.
+ *
+ * So: false when delegated, null otherwise. Never true.
  */
-const hasNameservers = async (domain: string): Promise<boolean | null> => {
+const looksRegistered = async (domain: string): Promise<false | null> => {
   try {
     const records = await resolveNs(domain);
     return records.length > 0 ? false : null;
-  } catch (error: any) {
-    return error?.code === 'ENOTFOUND' || error?.code === 'NXDOMAIN' ? true : null;
+  } catch {
+    // NXDOMAIN, SERVFAIL, timeout — none of them prove the name is free
+    return null;
   }
 };
 
@@ -279,7 +282,7 @@ router.get('/search/check', authenticateToken, requireRole(['ADMIN']), async (re
     // has no service for: first the registrar, then DNS — a name with
     // nameservers is registered, whoever we cannot ask about it.
     const available =
-      rdapAvailable ?? (await checkRdashAvailability(domain)) ?? (await hasNameservers(domain));
+      rdapAvailable ?? (await checkRdashAvailability(domain)) ?? (await looksRegistered(domain));
     const owned = await prisma.domain.findUnique({ where: { name: domain }, select: { id: true } });
 
     return res.json({
@@ -335,7 +338,7 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
     // refused here for a reason the user was never told about
     const { available: rdapAvailable, registration } = await getDomainAvailability(domainName);
     const available =
-      rdapAvailable ?? (await checkRdashAvailability(domainName)) ?? (await hasNameservers(domainName));
+      rdapAvailable ?? (await checkRdashAvailability(domainName)) ?? (await looksRegistered(domainName));
 
     if (available === false) {
       return res.status(409).json({

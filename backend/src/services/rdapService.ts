@@ -7,7 +7,9 @@
  * null is a normal answer, not an error.
  */
 
-const TIMEOUT_MS = 8000;
+// A registry that has not answered in this long is not going to. Failing fast
+// matters more than waiting it out: the ladder has a registrar check behind it.
+const TIMEOUT_MS = 4000;
 
 type RdapResponse = {
   ldhName?: string;
@@ -78,11 +80,16 @@ async function lookupRdapUncapped(name: string, attempt = 0): Promise<RdapLookup
   if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return { outcome: 'unknown', data: null };
 
   // Registries throttle bursts, and a throttled lookup is indistinguishable
-  // from "no RDAP service" to the caller — which shows a free domain as
-  // unregistrable. One retry turns most of those back into a real answer.
+  // from "no RDAP service" to the caller. That silence is expensive: it drops
+  // through to weaker signals that cannot tell a registered-but-undelegated
+  // name from a free one. Two retries, backing off, to get a real answer.
+  const backoff = [750];
+
   const retry = async (): Promise<RdapLookup> => {
-    if (attempt >= 1) return { outcome: 'unknown', data: null };
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    const wait = backoff[attempt];
+    if (wait === undefined) return { outcome: 'unknown', data: null };
+
+    await new Promise((resolve) => setTimeout(resolve, wait));
     return lookupRdapUncapped(domain, attempt + 1);
   };
 
@@ -121,15 +128,53 @@ async function lookupRdapUncapped(name: string, attempt = 0): Promise<RdapLookup
  * The gate wraps the retrying worker from the outside: a retry must not try to
  * take a second slot, or two waiting lookups would hold both slots forever.
  */
+/**
+ * Registries rate limit by IP over time, so the cheapest way to stay under the
+ * limit is to stop asking twice. Whether a name is registered does not change
+ * minute to minute, and a search flow asks about the same names repeatedly —
+ * retyping a query, loading more suggestions, registering what was just found.
+ *
+ * Failures are cached too, briefly. A registry that just timed out will time
+ * out again, and re-asking costs the caller the full timeout before it can
+ * fall through to the registrar check that would have answered immediately.
+ */
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const FAILURE_TTL_MS = 60 * 1000;
+const cache = new Map<string, { at: number; lookup: RdapLookup }>();
+
+const cached = (domain: string): RdapLookup | null => {
+  const hit = cache.get(domain);
+  if (!hit) return null;
+
+  const ttl = hit.lookup.outcome === 'unknown' ? FAILURE_TTL_MS : CACHE_TTL_MS;
+  if (Date.now() - hit.at > ttl) {
+    cache.delete(domain);
+    return null;
+  }
+  return hit.lookup;
+};
+
 const MAX_INFLIGHT = 2;
 let inflight = 0;
 const waiting: (() => void)[] = [];
 
 async function lookupRdap(name: string): Promise<RdapLookup> {
+  const domain = String(name || '').trim().toLowerCase();
+
+  const hit = cached(domain);
+  if (hit) return hit;
+
   if (inflight >= MAX_INFLIGHT) await new Promise<void>((resolve) => waiting.push(resolve));
   inflight++;
   try {
-    return await lookupRdapUncapped(name);
+    // another caller may have filled it while this one waited for a slot
+    const fresh = cached(domain);
+    if (fresh) return fresh;
+
+    const lookup = await lookupRdapUncapped(domain);
+    cache.set(domain, { at: Date.now(), lookup });
+
+    return lookup;
   } finally {
     inflight--;
     waiting.shift()?.();
