@@ -24,9 +24,15 @@ const LEGACY_APPS_DIR = process.env.APPS_DIR || path.join(process.cwd(), 'apps_d
 export const ORG_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 export const APP_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+/**
+ * Tenant paths are always on a Linux node, never on the machine the control
+ * plane happens to run on, so they are joined with path.posix. A Windows dev
+ * box would otherwise emit backslashes and every remote `test -e` would miss.
+ */
 export const osUserFor = (slug: string) => `cb-${slug}`;
-export const orgHome = (slug: string) => path.join(HOME_ROOT, osUserFor(slug));
-export const orgAppsDir = (slug: string) => path.join(orgHome(slug), 'apps');
+export const orgHome = (slug: string) => path.posix.join(HOME_ROOT, osUserFor(slug));
+export const orgAppsDir = (slug: string) => path.posix.join(orgHome(slug), 'apps');
+export const orgSlicePath = (slug: string) => path.posix.join('/etc/systemd/system', `cb-${slug}.slice`);
 
 /** Synchronous form, for callers that already loaded the organization. */
 export function appDirFor(applicationId: string, orgSlug?: string | null): string {
@@ -35,15 +41,15 @@ export function appDirFor(applicationId: string, orgSlug?: string | null): strin
   }
   // Only an absent organization falls back — an empty-string slug is a bug,
   // not a tenant-less app, and must not silently share the legacy directory.
-  if (orgSlug === null || orgSlug === undefined) return path.join(LEGACY_APPS_DIR, applicationId);
+  if (orgSlug === null || orgSlug === undefined) return path.posix.join(LEGACY_APPS_DIR, applicationId);
   if (!ORG_SLUG_RE.test(orgSlug)) {
     throw new Error(`Invalid organization slug: ${orgSlug}`);
   }
-  return path.join(orgAppsDir(orgSlug), applicationId);
+  return path.posix.join(orgAppsDir(orgSlug), applicationId);
 }
 
-export const sourcesDirFor = (appDir: string) => path.join(appDir, 'sources');
-export const logsDirFor = (appDir: string) => path.join(appDir, 'logs');
+export const sourcesDirFor = (appDir: string) => path.posix.join(appDir, 'sources');
+export const logsDirFor = (appDir: string) => path.posix.join(appDir, 'logs');
 /**
  * Runtime apps build into an immutable copy per deploy and run from the
  * `current` symlink, so a build never touches the tree that is serving:
@@ -53,9 +59,9 @@ export const logsDirFor = (appDir: string) => path.join(appDir, 'logs');
  *   apps/<id>/current -> releases/<stamp>
  *   apps/<id>/shared/next-cache    .next/cache, linked into every release
  */
-export const releasesDirFor = (appDir: string) => path.join(appDir, 'releases');
-export const currentDirFor = (appDir: string) => path.join(appDir, 'current');
-export const sharedDirFor = (appDir: string) => path.join(appDir, 'shared');
+export const releasesDirFor = (appDir: string) => path.posix.join(appDir, 'releases');
+export const currentDirFor = (appDir: string) => path.posix.join(appDir, 'current');
+export const sharedDirFor = (appDir: string) => path.posix.join(appDir, 'shared');
 
 export async function orgSlugForApp(applicationId: string): Promise<string | null> {
   const app = await prisma.application.findUnique({

@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
 import { syncDomains } from './domainSyncService';
+import { pingAllServers } from './serverHealthService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -31,6 +32,16 @@ async function systemUserId(): Promise<string | null> {
 }
 
 const jobs: Job[] = [
+  {
+    name: 'server-health',
+    // Every five minutes. Often enough that an admin looking at the servers
+    // list sees the truth, rare enough to be invisible against a deploy.
+    schedule: process.env.CRON_SERVER_HEALTH || '*/5 * * * *',
+    run: async () => {
+      const r = await pingAllServers();
+      return `${r.online}/${r.total} online${r.offline.length ? ` — offline: ${r.offline.join(', ')}` : ''}`;
+    },
+  },
   {
     name: 'domain-sync',
     // every day at 03:00 server time

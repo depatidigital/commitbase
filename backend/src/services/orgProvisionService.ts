@@ -1,17 +1,17 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { prisma } from '../lib/prisma';
-import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor } from '../lib/appPaths';
-
-const execFileAsync = promisify(execFile);
+import { exec, remoteExists, remoteReadDir, type SshTarget } from '../lib/runner';
+import { serverForOrg } from '../lib/servers';
+import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } from '../lib/appPaths';
 
 /**
  * Per-organization OS isolation.
  *
- * Every call goes through execFile with an argument array — never a shell
- * string — so nothing from the database can be interpreted as a shell
+ * Provisioning nodes are separate machines, so every call goes over SSH to the
+ * node the organization is placed on. The control plane's own VM is a Server
+ * row like any other — there is no local shortcut, so there is one code path.
+ *
+ * Arguments are still passed as an array, never as a shell string; runner.ts
+ * quotes each element, so nothing from the database can be read as a shell
  * metacharacter on the way to a root command. The scripts revalidate their own
  * arguments because the sudoers entry cannot.
  */
@@ -32,8 +32,8 @@ function assertSlug(slug: string) {
   if (!ORG_SLUG_RE.test(slug)) throw new Error(`Invalid organization slug: ${slug}`);
 }
 
-async function sudo(script: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('sudo', ['-n', script, ...args], { timeout: 60_000 });
+async function sudo(server: SshTarget, script: string, args: string[], timeout = 60_000): Promise<string> {
+  const { stdout } = await exec(server, ['sudo', '-n', script, ...args], { timeout });
   return stdout.trim();
 }
 
@@ -47,7 +47,8 @@ export interface ProvisionResult {
 
 /**
  * Create (or repair) the OS user, home, disk quota, cgroup slice and PHP-FPM
- * pool for one organization. Idempotent — safe to call on every org write.
+ * pool for one organization, on that organization's node. Idempotent — safe to
+ * call on every org write, and safe to retry after a dropped connection.
  */
 export async function provisionOrg(
   slug: string,
@@ -64,8 +65,9 @@ export async function provisionOrg(
   if (!CPU_RE.test(cpuQuota)) throw new Error(`Invalid CPU quota: ${cpuQuota}`);
   if (!QUOTA_RE.test(memoryMax)) throw new Error(`Invalid memory max: ${memoryMax}`);
 
-  const output = await sudo(PROVISION_SCRIPT, [slug, diskQuota, cpuQuota, memoryMax]);
-  return { provisioned: true, osUser: `cb-${slug}`, home: orgHome(slug), output };
+  const server = await serverForOrg(slug);
+  const output = await sudo(server, PROVISION_SCRIPT, [slug, diskQuota, cpuQuota, memoryMax]);
+  return { provisioned: true, osUser: osUserFor(slug), home: orgHome(slug), output };
 }
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown';
@@ -77,7 +79,7 @@ export async function appUnit(action: AppUnitAction, slug: string, applicationId
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
-  return sudo(APP_UNIT_SCRIPT, [action, slug, applicationId]);
+  return sudo(await serverForOrg(slug), APP_UNIT_SCRIPT, [action, slug, applicationId]);
 }
 
 /**
@@ -89,9 +91,11 @@ export async function appBuild(slug: string, applicationId: string): Promise<str
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
-  const { stdout, stderr } = await execFileAsync(
-    'sudo',
-    ['-n', APP_UNIT_SCRIPT, 'build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
+
+  const server = await serverForOrg(slug);
+  const { stdout, stderr } = await exec(
+    server,
+    ['sudo', '-n', APP_UNIT_SCRIPT, 'build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
     { timeout: 900_000, maxBuffer: 64 * 1024 * 1024 }
   );
   return stdout + (stderr ? '\n' + stderr : '');
@@ -124,34 +128,56 @@ export interface ProvisionStatus {
   slug: string;
   osUser: string;
   home: string;
-  /** true once the OS user's home exists and is reachable by the backend */
+  /** Name of the node this org is placed on, or null when it has none yet. */
+  server: string | null;
+  /** true once the OS user's home exists on the node */
   provisioned: boolean;
   /** true once the cgroup slice unit has been written */
   sliceInstalled: boolean;
   appCount: number;
+  /** Set when the node could not be reached at all — distinct from "not provisioned". */
+  unreachable?: string;
 }
 
-/** Read-only check — no sudo, no side effects. Safe to call on every page load. */
+/**
+ * Read-only check — no sudo, no side effects. Safe to call on every page load.
+ *
+ * These were local fs.access/readdir calls when there was one box. They are the
+ * same three questions asked over the same SSH channel, rather than a second
+ * transport (SFTP) to keep working.
+ */
 export async function getProvisionStatus(slug: string): Promise<ProvisionStatus> {
   assertSlug(slug);
   const home = orgHome(slug);
-  const exists = (p: string) => fs.access(p).then(() => true).catch(() => false);
-
-  const [provisioned, sliceInstalled, apps] = await Promise.all([
-    exists(home),
-    exists(path.join('/etc/systemd/system', `cb-${slug}.slice`)),
-    fs.readdir(orgAppsDir(slug)).catch(() => [] as string[]),
-  ]);
-
-  return {
+  const base = {
     enabled: OS_ISOLATION_ENABLED,
     slug,
     osUser: osUserFor(slug),
     home,
-    provisioned,
-    sliceInstalled,
-    appCount: apps.length,
+    provisioned: false,
+    sliceInstalled: false,
+    appCount: 0,
   };
+
+  const org = await prisma.organization.findUnique({
+    where: { slug },
+    select: { server: { select: { id: true, name: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true } } },
+  });
+  const server = org?.server ?? null;
+  if (!server) return { ...base, server: null };
+
+  try {
+    const [provisioned, sliceInstalled, apps] = await Promise.all([
+      remoteExists(server, home),
+      remoteExists(server, orgSlicePath(slug)),
+      remoteReadDir(server, orgAppsDir(slug)),
+    ]);
+    return { ...base, server: server.name, provisioned, sliceInstalled, appCount: apps.length };
+  } catch (err: any) {
+    // An unreachable node must not read as an unprovisioned org — that would
+    // invite an admin to "repair" a tenant that is perfectly fine.
+    return { ...base, server: server.name, unreachable: err?.message || String(err) };
+  }
 }
 
 /**

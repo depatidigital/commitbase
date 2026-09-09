@@ -40,12 +40,58 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Which provisioning node this org's OS user, home and apps live on.
+  // Nullable only until the backfill has run; treat a null as "not yet placed"
+  // and refuse to provision rather than guessing a node.
+  serverId  String?
+  server    Server?  @relation(fields: [serverId], references: [id])
+
   members      Membership[]
   domains      Domain[]
   applications Application[]
   invites      Invite[]
 
+  @@index([serverId])
   @@map("organizations")
+}
+
+/// A provisioning node. The control plane owns no boxes of its own — it reaches
+/// every node, including the VM it runs on, over SSH.
+/// 
+/// Every column here was a single-server environment variable before this
+/// model existed; they are per-box config, not per-install config. Settings
+/// that are genuinely the same on every node (home root, port pool, quota
+/// defaults) stay in the environment — a column per node would be one more
+/// thing to keep in sync for no gain.
+model Server {
+  id            String   @id @default(cuid())
+  name          String
+  /// SSH target - hostname or IP. The control plane's own VM is a row like any other.
+  hostname      String
+  sshUser       String   @default("commitbase")
+  sshPort       Int      @default(22)
+  /// Path to the private key ON THE CONTROL PLANE. Never key material in the database.
+  sshKeyPath    String
+  /// Public address for this node's apps. Becomes the Cloudflare A record target.
+  publicIp      String
+  /// Caddy admin API on this node. Each node runs its own Caddy.
+  caddyApiUrl   String   @default("")
+
+  /// ONLINE, OFFLINE or UNKNOWN, from the heartbeat. With more than one node,
+  /// "the panel cannot reach this box" is a state an admin has to be able to
+  /// see before a tenant reports it.
+  status        String    @default("UNKNOWN")
+  lastSeenAt    DateTime?
+  /// Why the last heartbeat failed. Kept so the failure is diagnosable from
+  /// the UI without shell access to either machine.
+  lastError     String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  organizations Organization[]
+
+  @@map("servers")
 }
 
 model Membership {

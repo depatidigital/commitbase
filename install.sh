@@ -11,7 +11,15 @@
 # that already serves the panel, an existing database password).
 #
 # Knobs (env vars):
-#   PANEL_DOMAIN    required   hostname of the panel, DNS already pointing here
+#   ROLE            panel|node   panel (default) runs the control plane; node is
+#                   a provisioning box that only runs tenant apps. A node gets
+#                   the two runner scripts, sudoers, logrotate and Caddy, and
+#                   nothing else: no backend, no frontend, no Postgres. The
+#                   control plane reaches it over SSH.
+#   PANEL_DOMAIN    required for ROLE=panel   hostname of the panel, DNS already pointing here
+#   PANEL_SSH_PUBKEY  required for ROLE=node  the panel's public key, printed at
+#                   the end of a ROLE=panel install. Authorizes the control
+#                   plane to run the provisioning scripts on this node.
 #   ACME_EMAIL      admin@<domain>   Let's Encrypt contact
 #   REPO / BRANCH   github.com/depatidigital/commitbase, main
 #   NODE_MAJOR      24
@@ -25,7 +33,9 @@
 
 set -euo pipefail
 
+ROLE="${ROLE:-panel}"
 PANEL_DOMAIN="${PANEL_DOMAIN:-}"
+PANEL_SSH_PUBKEY="${PANEL_SSH_PUBKEY:-}"
 ACME_EMAIL="${ACME_EMAIL:-admin@${PANEL_DOMAIN}}"
 REPO="${REPO:-https://github.com/depatidigital/commitbase.git}"
 BRANCH="${BRANCH:-main}"
@@ -48,16 +58,31 @@ note() { printf '    %s\n' "$*"; }
 die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo)"
-[ -n "$PANEL_DOMAIN" ] || die "PANEL_DOMAIN is required, e.g. PANEL_DOMAIN=panel.example.com"
-[[ "$PANEL_DOMAIN" =~ ^[a-z0-9.-]+$ ]] || die "PANEL_DOMAIN looks wrong: $PANEL_DOMAIN"
+case "$ROLE" in
+  panel)
+    [ -n "$PANEL_DOMAIN" ] || die "PANEL_DOMAIN is required, e.g. PANEL_DOMAIN=panel.example.com"
+    [[ "$PANEL_DOMAIN" =~ ^[a-z0-9.-]+$ ]] || die "PANEL_DOMAIN looks wrong: $PANEL_DOMAIN"
+    ;;
+  node)
+    # Without the key the control plane cannot reach this box, and a node it
+    # cannot reach is a node that does nothing. Fail now, not at provision time.
+    [ -n "$PANEL_SSH_PUBKEY" ] || die "ROLE=node needs PANEL_SSH_PUBKEY - the line printed at the end of the panel install"
+    [[ "$PANEL_SSH_PUBKEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9]+)[[:space:]] ]] \
+      || die "PANEL_SSH_PUBKEY does not look like an OpenSSH public key"
+    ;;
+  *) die "ROLE must be panel or node, got: $ROLE" ;;
+esac
 command -v apt-get >/dev/null || die "Debian/Ubuntu only"
 
 # ---------------------------------------------------------------- 1. packages
 say "System packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl git build-essential postgresql postgresql-contrib \
-  quota debian-keyring debian-archive-keyring apt-transport-https ca-certificates gnupg >/dev/null
+BASE_PKGS="curl git build-essential quota debian-keyring debian-archive-keyring apt-transport-https ca-certificates gnupg"
+# The database lives on the panel only. A node holds no state - it can be
+# rebuilt and every org re-provisioned from the rows the panel already has.
+[ "$ROLE" = panel ] && BASE_PKGS="$BASE_PKGS postgresql postgresql-contrib"
+apt-get install -y -qq $BASE_PKGS >/dev/null
 
 if ! command -v node >/dev/null || [ "$(node -v | sed 's/^v//' | cut -d. -f1)" -lt "$NODE_MAJOR" ]; then
   note "Node $NODE_MAJOR from NodeSource"
@@ -94,7 +119,44 @@ if [ "$WITH_NVM" = "1" ] && [ ! -s /opt/nvm/nvm.sh ]; then
   chmod -R a+rX "$NVM_DIR"; chown -R "$CB_USER:$CB_GROUP" "$NVM_DIR"
 fi
 
+# --------------------------------------------------------------- 2b. ssh keys
+# Provisioning runs over SSH on every box, including this one: the panel's own
+# VM is an ordinary Server row, so it authorizes its own key like any node. One
+# transport, one code path, nothing special about being local.
+say "SSH access for the control plane"
+SSH_DIR="$CB_HOME/.ssh"
+CB_KEY="$SSH_DIR/id_ed25519"
+install -d -m 0700 -o "$CB_USER" -g "$CB_GROUP" "$SSH_DIR"
+
+if [ "$ROLE" = panel ] && [ ! -f "$CB_KEY" ]; then
+  sudo -u "$CB_USER" ssh-keygen -q -t ed25519 -N '' -C 'commitbase-panel' -f "$CB_KEY"
+  note "generated $CB_KEY"
+fi
+
+# The panel authorizes itself; a node authorizes the panel it was given.
+if [ "$ROLE" = panel ]; then AUTHORIZE="$(cat "$CB_KEY.pub")"; else AUTHORIZE="$PANEL_SSH_PUBKEY"; fi
+
+AUTH_KEYS="$SSH_DIR/authorized_keys"
+touch "$AUTH_KEYS"
+# Match on the key body, not the whole line: re-running with a different
+# comment must not append a second copy of the same key.
+KEY_BODY="$(printf '%s' "$AUTHORIZE" | awk '{print $2}')"
+if [ -n "$KEY_BODY" ] && grep -qF "$KEY_BODY" "$AUTH_KEYS"; then
+  note "panel key already authorized"
+else
+  printf '%s\n' "$AUTHORIZE" >> "$AUTH_KEYS"
+  note "authorized the panel key"
+fi
+chown -R "$CB_USER:$CB_GROUP" "$SSH_DIR"
+chmod 0600 "$AUTH_KEYS"
+
+# A box with no sshd is unreachable in exactly the way that is hardest to
+# diagnose from the panel, so say so here rather than at provision time.
+systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/null 2>&1 ||
+  note "WARNING: could not start sshd - the control plane will not be able to reach this box"
+
 # ---------------------------------------------------------------- 3. database
+if [ "$ROLE" = panel ]; then
 say "Postgres"
 systemctl enable --now postgresql >/dev/null
 psql_root() { sudo -u postgres psql -v ON_ERROR_STOP=1 -qAt "$@"; }
@@ -126,7 +188,11 @@ else
   psql_root -c "CREATE DATABASE commitbase OWNER $CB_USER;"
 fi
 
+fi
+
 # -------------------------------------------------------------- 4. code+build
+# Both roles check the code out - a node uses it only as the source of the
+# four files section 7 installs, and re-running this script upgrades them.
 say "Code: $REPO ($BRANCH)"
 if [ -e "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
   die "$APP_DIR exists but is not a git checkout. Move it away (mv $APP_DIR $APP_DIR.old) and re-run; the installer clones fresh."
@@ -145,6 +211,8 @@ else
 fi
 
 # ------------------------------------------------------------------- 5. env
+# A node runs no backend, so it has no env file, no build and no schema.
+if [ "$ROLE" = panel ]; then
 say "Backend env"
 if [ -z "$SERVER_IP" ]; then
   SERVER_IP="$(curl -fsS4 --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}')"
@@ -202,6 +270,7 @@ sudo -u "$CB_USER" -H bash -c "
 
 say "Schema"
 sudo -u "$CB_USER" -H bash -c "cd '$APP_DIR/backend' && npx prisma db push --skip-generate >/dev/null"
+fi
 
 # --------------------------------------------------------- 7. isolation bits
 say "Runner scripts, sudoers, logrotate"
@@ -220,6 +289,7 @@ else
 fi
 
 # ---------------------------------------------------------------- 8. backend
+if [ "$ROLE" = panel ]; then
 say "commitbase.service"
 # Something else on the backend port (an old pm2 run, a dev server) would make
 # the new unit crash-loop. Refuse rather than fight it.
@@ -256,6 +326,7 @@ EOF
 systemctl daemon-reload
 systemctl enable commitbase >/dev/null 2>&1
 systemctl restart commitbase
+fi
 
 # ------------------------------------------------------------------ 9. caddy
 say "Caddy"
@@ -274,7 +345,27 @@ PANEL_BLOCK="$PANEL_DOMAIN {
     }
 }"
 
-if [ -f "$CADDYFILE" ] && grep -q "$PANEL_DOMAIN" "$CADDYFILE"; then
+if [ "$ROLE" = node ]; then
+  # A node runs its own Caddy because tenant PHP is served from a local FPM
+  # socket and a local docroot - neither can be reverse-proxied from the panel.
+  # It gets the admin API and the tenant import, and no panel vhost.
+  if [ -f "$CADDYFILE" ] && grep -q '/etc/caddy/sites/\*.caddy' "$CADDYFILE"; then
+    note "$CADDYFILE already imports the tenant sites - left untouched"
+  else
+    [ -f "$CADDYFILE" ] && cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%s)"
+    cat > "$CADDYFILE" <<EOF
+{
+    # Reached by the control plane over the SSH connection, never from the
+    # public internet. Keep it on loopback.
+    admin 127.0.0.1:2019
+    email $ACME_EMAIL
+}
+
+# Tenant sites are written here by the panel
+import /etc/caddy/sites/*.caddy
+EOF
+  fi
+elif [ -f "$CADDYFILE" ] && grep -q "$PANEL_DOMAIN" "$CADDYFILE"; then
   note "$CADDYFILE already serves $PANEL_DOMAIN — left untouched"
 elif [ -f "$CADDYFILE" ] && grep -qE '^[^#]*\{' "$CADDYFILE" && ! grep -qE '^\s*(# Caddyfile|:80 \{|:80\{)' "$CADDYFILE"; then
   # A Caddyfile with real sites in it: keep every byte, append ours.
@@ -330,6 +421,35 @@ fi
 
 # ----------------------------------------------------------------- 11. verify
 say "Verify"
+if [ "$ROLE" = node ]; then
+  # Everything the control plane will actually invoke, checked here so a broken
+  # node fails at install time rather than on someone's first deploy.
+  for f in /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit; do
+    [ -x "$f" ] || die "$f is missing or not executable"
+  done
+  sudo -n -u "$CB_USER" true 2>/dev/null || true
+  sudo -u "$CB_USER" sudo -n /usr/local/bin/cb-provision-org 2>&1 | grep -q 'invalid slug' \
+    || die "$CB_USER cannot run cb-provision-org via sudo - check /etc/sudoers.d/commitbase"
+  note "runner scripts installed and reachable via sudo"
+  systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
+
+  say "Done"
+  cat <<EOF
+    This box is a CommitBase node. It runs no backend and no database.
+
+    Add it in the panel with:
+      hostname   $(hostname -I | awk '{print $1}')
+      ssh user   $CB_USER
+      ssh key    the panel's /opt/commitbase/.ssh/id_ed25519
+      public ip  ${SERVER_IP:-$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}
+      caddy api  http://127.0.0.1:2019
+
+    Verify from the panel:  sudo -u $CB_USER ssh $CB_USER@<this-host> cb-provision-org
+    Re-run this script any time to upgrade the runner scripts.
+EOF
+  exit 0
+fi
+
 for i in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1; then break; fi
   sleep 1
@@ -360,4 +480,10 @@ cat <<EOF
       - Integrations page: Cloudflare token / zone
       - Disk quotas (optional, one reboot): docs/production-setup.md Appendix A
       - Re-run this script any time to upgrade: same command, same knobs
+
+    Seed this VM as the first node (it is an ordinary Server row):
+      cd $APP_DIR/backend && sudo -u $CB_USER npm run db:seed-server
+
+    Add another node - on that box, run this same script with:
+      ROLE=node PANEL_SSH_PUBKEY='$(cat "$CB_KEY.pub" 2>/dev/null)' ./install.sh
 EOF
