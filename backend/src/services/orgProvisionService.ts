@@ -161,7 +161,20 @@ export async function getProvisionStatus(slug: string): Promise<ProvisionStatus>
 
   const org = await prisma.organization.findUnique({
     where: { slug },
-    select: { server: { select: { id: true, name: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true } } },
+    select: {
+      server: {
+        select: {
+          id: true,
+          name: true,
+          hostname: true,
+          sshUser: true,
+          sshPort: true,
+          sshKeyPath: true,
+          authMethod: true,
+          sshPassword: true,
+        },
+      },
+    },
   });
   const server = org?.server ?? null;
   if (!server) return { ...base, server: null };

@@ -1,10 +1,16 @@
-import { exec } from 'child_process';
+import { exec as localExec } from 'child_process';
 import { promisify } from 'util';
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { prisma } from '../lib/prisma';
+import { exec, type SshTarget } from '../lib/runner';
+import { allServers } from '../lib/servers';
+import { getCaddyConfig } from './caddyService';
 
-const execAsync = promisify(exec);
+const execAsync = promisify(localExec);
+
+/** The panel's own hostname is a route like any other, and is not a tenant app. */
+const PANEL_HOST = (process.env.PANEL_HOST || process.env.FRONTEND_HOST || '').trim().toLowerCase();
 
 const CADDY_SITES_DIR = process.env.CADDY_SITES_DIR || '/etc/caddy/sites';
 const APPS_ROOT_DIR = process.env.APPS_ROOT_DIR || '/var/www/html';
@@ -58,10 +64,10 @@ function humanUptime(startedAt: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-/** `pm2 jlist` — an empty list when pm2 is missing, so a dev box just sees the Caddy side. */
-export async function listPm2Processes(): Promise<Pm2Process[]> {
+/** `pm2 jlist` on a node — an empty list when pm2 is missing, so a box without it just shows its Caddy side. */
+export async function listPm2Processes(node: SshTarget): Promise<Pm2Process[]> {
   try {
-    const { stdout } = await execAsync('pm2 jlist', { maxBuffer: 10 * 1024 * 1024 });
+    const { stdout } = await exec(node, ['pm2', 'jlist'], { maxBuffer: 10 * 1024 * 1024 });
     const raw = JSON.parse(stdout || '[]');
 
     return (Array.isArray(raw) ? raw : [])
@@ -156,6 +162,81 @@ export function parseCaddyfile(content: string, configPath: string): CaddySite[]
   return sites;
 }
 
+/**
+ * What one live Caddy route is, as an application.
+ *
+ * The site files this used to read are gone: routes live in Caddy's memory and
+ * the admin API is the only place they exist, so the JSON handler shape is what
+ * says whether a hostname is a PHP site, a static one or a proxied process.
+ * Pure — the self-check drives it with config JSON and no I/O.
+ */
+export function classifyRoute(route: any): {
+  type: 'NODEJS' | 'PHP' | 'STATIC';
+  port?: number | undefined;
+  rootPath?: string | undefined;
+  socket?: string | undefined;
+  origin?: string | undefined;
+} | null {
+  // handlers can be nested one subroute deep, which is how the PHP and bucket
+  // routes this platform writes are shaped
+  const handlers: any[] = [];
+  const walk = (list: any[]) => {
+    for (const handler of Array.isArray(list) ? list : []) {
+      handlers.push(handler);
+      if (handler?.handler === 'subroute') {
+        for (const nested of Array.isArray(handler.routes) ? handler.routes : []) walk(nested?.handle);
+      }
+    }
+  };
+  walk(route?.handle);
+
+  const proxy = handlers.find((handler) => handler?.handler === 'reverse_proxy');
+  const dial = String(proxy?.upstreams?.[0]?.dial ?? '');
+
+  if (proxy?.transport?.protocol === 'fastcgi') {
+    return {
+      type: 'PHP',
+      rootPath: proxy.transport.root ? String(proxy.transport.root) : undefined,
+      // Caddy writes `unix/` + an absolute path, so the prefix leaves a double slash
+      socket: dial.startsWith('unix/') ? dial.replace(/^unix\/+/, '/') : undefined,
+    };
+  }
+
+  if (proxy) {
+    // a bucket origin is proxied over TLS on 443; a local app is a loopback port
+    const localPort = dial.match(/^(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)$/);
+    if (localPort?.[1]) return { type: 'NODEJS', port: Number(localPort[1]) };
+
+    const host = dial.replace(/:\d+$/, '');
+    return { type: 'STATIC', origin: host || undefined };
+  }
+
+  const files = handlers.find((handler) => handler?.handler === 'file_server');
+  if (files) {
+    const vars = handlers.find((handler) => handler?.handler === 'vars' && handler?.root);
+    return { type: 'STATIC', rootPath: vars?.root ? String(vars.root) : undefined };
+  }
+
+  // redirects, ACME plumbing, anything else: not an application
+  return null;
+}
+
+/** Hostnames a route matches. */
+export function routeHosts(route: any): string[] {
+  return (Array.isArray(route?.match) ? route.match : []).flatMap((matcher: any) =>
+    Array.isArray(matcher?.host)
+      ? matcher.host.filter((host: any) => typeof host === 'string')
+      : [],
+  );
+}
+
+/** A hostname that is a route but never an application. */
+export function isNotAnApp(host: string): boolean {
+  const name = host.trim().toLowerCase();
+  // the wildcard is how every app under a domain resolves — it is not one itself
+  return !name || name.startsWith('*.') || (PANEL_HOST !== '' && name === PANEL_HOST);
+}
+
 export async function listCaddySites(): Promise<CaddySite[]> {
   let files: string[] = [];
   try {
@@ -178,54 +259,59 @@ export async function listCaddySites(): Promise<CaddySite[]> {
 }
 
 /**
- * What is actually running on the box: Caddy sites (PHP, static, proxy) joined
- * with the pm2 process behind each proxied port. pm2 processes with no Caddy
- * site are reported too, under a `<name>.pm2.local` placeholder host.
+ * What one node is actually serving: its live Caddy routes joined with the pm2
+ * process behind each proxied port. pm2 processes with no route are reported
+ * too, under a `<name>.pm2.local` placeholder host.
  */
-export async function scanServerApps(): Promise<DiscoveredApp[]> {
-  const [processes, sites] = await Promise.all([listPm2Processes(), listCaddySites()]);
+export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
+  const [processes, config] = await Promise.all([listPm2Processes(node), getCaddyConfig(node)]);
   const byPort = new Map<number, Pm2Process>();
   for (const process of processes) {
     if (process.port) byPort.set(process.port, process);
   }
 
+  const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
   const apps: DiscoveredApp[] = [];
   const claimed = new Set<string>();
+  const seen = new Set<string>();
 
-  for (const site of sites) {
-    const domain = site.domains[0];
-    if (!domain) continue;
-    const process = site.port ? byPort.get(site.port) : undefined;
-    if (process) claimed.add(process.name);
+  for (const route of routes) {
+    const target = classifyRoute(route);
+    if (!target) continue;
 
-    const runtime: Runtime = site.port
-      ? process
-        ? 'PM2'
-        : 'CADDY_PROXY'
-      : site.php
-        ? 'CADDY_PHP'
-        : 'CADDY_STATIC';
+    for (const host of routeHosts(route)) {
+      const domain = host.trim().toLowerCase();
+      if (isNotAnApp(domain) || seen.has(domain)) continue;
+      seen.add(domain);
 
-    apps.push({
-      name: process?.name || path.basename(site.configPath, '.caddy'),
-      domain,
-      runtime,
-      type: runtime === 'CADDY_PHP' ? 'PHP' : runtime === 'CADDY_STATIC' ? 'STATIC' : 'NODEJS',
-      status: process
-        ? process.status === 'online'
-          ? 'RUNNING'
-          : 'STOPPED'
-        : site.port
-          ? 'ERROR' // routed to a port nothing is listening on
-          : 'RUNNING',
-      port: site.port,
-      processName: process?.name,
-      rootPath: site.rootPath || (site.port ? undefined : path.join(APPS_ROOT_DIR, domain)),
-      configPath: site.configPath,
-      memory: process?.memory,
-      cpu: process?.cpu,
-      uptime: process?.uptime,
-    });
+      const process = target.port ? byPort.get(target.port) : undefined;
+      if (process) claimed.add(process.name);
+
+      const runtime: Runtime = target.port
+        ? process
+          ? 'PM2'
+          : 'CADDY_PROXY'
+        : target.type === 'PHP'
+          ? 'CADDY_PHP'
+          : 'CADDY_STATIC';
+
+      apps.push({
+        name: process?.name || domain,
+        domain,
+        runtime,
+        type: target.type,
+        status: process
+          ? process.status === 'online'
+            ? 'RUNNING'
+            : 'STOPPED'
+          : target.port
+            ? 'ERROR' // routed to a port nothing is listening on
+            : 'RUNNING',
+        port: target.port,
+        processName: process?.name,
+        rootPath: target.rootPath || (target.port ? undefined : path.join(APPS_ROOT_DIR, domain)),
+      });
+    }
   }
 
   for (const process of processes) {
@@ -249,13 +335,29 @@ export async function scanServerApps(): Promise<DiscoveredApp[]> {
   return apps;
 }
 
+/** Every node, so the inventory is the whole estate rather than one box. */
+export async function scanServerApps(): Promise<DiscoveredApp[]> {
+  const nodes = await allServers();
+  const apps: DiscoveredApp[] = [];
+
+  for (const node of nodes) {
+    try {
+      apps.push(...(await scanNode(node)));
+    } catch (error: any) {
+      console.error(`Could not scan ${node.hostname}:`, error?.message);
+    }
+  }
+
+  return apps;
+}
+
 /**
  * Reconcile the scan into the applications table, keyed on the domain. Synced
  * apps land unassigned (no organization) — a superadmin assigns them
  * afterwards, the same way domain sync works.
  */
-export async function syncServerApps(userId: string): Promise<AppSyncResult> {
-  const discovered = await scanServerApps();
+export async function syncServerApps(userId: string, node?: SshTarget): Promise<AppSyncResult> {
+  const discovered = node ? await scanNode(node) : await scanServerApps();
   const result: AppSyncResult = { discovered: discovered.length, created: 0, updated: 0, apps: [] };
   const errors: string[] = [];
 

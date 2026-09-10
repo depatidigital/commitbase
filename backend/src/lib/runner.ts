@@ -1,5 +1,6 @@
 import { Client, type ClientChannel, type SFTPWrapper } from 'ssh2';
 import * as fs from 'fs/promises';
+import { decrypt } from './secretBox';
 
 /**
  * Remote command execution.
@@ -21,7 +22,12 @@ export interface SshTarget {
   hostname: string;
   sshUser: string;
   sshPort: number;
-  sshKeyPath: string;
+  /** Path on the control plane. Used when authMethod is KEY (the default). */
+  sshKeyPath?: string | null;
+  /** "KEY" (default) or "PASSWORD". */
+  authMethod?: string | null;
+  /** Encrypted with secretBox. Used when authMethod is PASSWORD. */
+  sshPassword?: string | null;
 }
 
 export interface ExecResult {
@@ -80,12 +86,35 @@ export const buildCommand = (argv: string[]): string => argv.map(shellQuote).joi
 // commands back to back and an SSH handshake per command would dominate.
 const pool = new Map<string, Promise<Client>>();
 
+/**
+ * How to authenticate to a node: a private key read from the control plane's
+ * disk, or a password decrypted from its row.
+ *
+ * A key is the default and the better answer — it cannot be replayed by anyone
+ * who reads a database backup, and it works on a box with
+ * `PasswordAuthentication no`, which is most hardened boxes. The password path
+ * exists for the ones where putting a key in place is not an option.
+ */
+async function authFor(server: SshTarget): Promise<{ privateKey: Buffer } | { password: string }> {
+  if ((server.authMethod ?? 'KEY') === 'PASSWORD') {
+    if (!server.sshPassword) {
+      throw new Error(`Server ${server.hostname} is set to password auth but has no password stored`);
+    }
+    return { password: decrypt(server.sshPassword) };
+  }
+
+  if (!server.sshKeyPath) {
+    throw new Error(`Server ${server.hostname} has no SSH key path`);
+  }
+  return { privateKey: await fs.readFile(server.sshKeyPath) };
+}
+
 export function connect(server: SshTarget): Promise<Client> {
   const existing = pool.get(server.id);
   if (existing) return existing;
 
   const pending = (async () => {
-    const privateKey = await fs.readFile(server.sshKeyPath);
+    const credential = await authFor(server);
     return await new Promise<Client>((resolve, reject) => {
       const client = new Client();
       const drop = () => {
@@ -105,7 +134,7 @@ export function connect(server: SshTarget): Promise<Client> {
           host: server.hostname,
           port: server.sshPort,
           username: server.sshUser,
-          privateKey,
+          ...credential,
           readyTimeout: CONNECT_TIMEOUT_MS,
           keepaliveInterval: 15_000,
         });

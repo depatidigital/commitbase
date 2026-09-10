@@ -8,6 +8,8 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { paging, contains } from '../lib/paging';
 import { pingServer } from '../services/serverHealthService';
 import { snapshotNode } from '../services/caddySnapshotService';
+import { syncServerApps } from '../services/appSyncService';
+import { canEncrypt, encrypt } from '../lib/secretBox';
 
 const router = Router();
 
@@ -45,7 +47,9 @@ const ServerSchema = z.object({
   hostname: z.string().min(1).max(255),
   sshUser: z.string().min(1).max(32).regex(/^[a-z_][a-z0-9_-]*$/, 'invalid unix username'),
   sshPort: z.coerce.number().int().min(1).max(65535).default(22),
-  sshKeyPath: z.string().min(1),
+  authMethod: z.enum(['KEY', 'PASSWORD']).default('KEY'),
+  sshKeyPath: z.string().min(1).optional(),
+  sshPassword: z.string().min(1).max(512).optional(),
   publicIp: z.string().min(1).max(255),
   caddyApiUrl: z.string().max(255).default(''),
 });
@@ -53,6 +57,46 @@ const ServerSchema = z.object({
 const UpdateServerSchema = ServerSchema.partial();
 
 const withCounts = { _count: { select: { organizations: true } } } as const;
+
+/**
+ * The stored password is ciphertext, but it is still the credential for a shell
+ * on that box — it never goes out over the API, not even encrypted.
+ */
+function redact<T extends { sshPassword?: string | null }>(server: T) {
+  const { sshPassword, ...rest } = server;
+  return { ...rest, hasPassword: !!sshPassword };
+}
+
+/**
+ * A node needs exactly one working credential. Checked here rather than at
+ * connect time so a server cannot be saved in a state that only fails later,
+ * halfway through a deploy.
+ */
+function credentialError(
+  data: {
+    authMethod?: string | undefined;
+    sshKeyPath?: string | undefined;
+    sshPassword?: string | undefined;
+  },
+  existing?: { authMethod: string; sshKeyPath: string | null; sshPassword: string | null },
+): string | null {
+  const method = data.authMethod ?? existing?.authMethod ?? 'KEY';
+
+  if (method === 'PASSWORD') {
+    if (!data.sshPassword && !existing?.sshPassword) {
+      return 'A password is required when authMethod is PASSWORD';
+    }
+    if (data.sshPassword && !canEncrypt()) {
+      return 'CB_SECRET_KEY is not set, so an SSH password cannot be stored — set it or use key authentication';
+    }
+    return null;
+  }
+
+  if (!data.sshKeyPath && !existing?.sshKeyPath) {
+    return 'A key path is required when authMethod is KEY';
+  }
+  return null;
+}
 
 // List nodes. Unpaged for the org-placement picker, paged for the table.
 router.get('/', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
@@ -75,8 +119,8 @@ router.get('/', authenticateToken, requireRole(['SUPERADMIN']), async (req: Auth
     return res.json({
       success: true,
       data: paged
-        ? { data: servers, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } }
-        : servers,
+        ? { data: servers.map(redact), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } }
+        : servers.map(redact),
     } as ApiResponse);
   } catch (error) {
     console.error('Error listing servers:', error);
@@ -94,7 +138,7 @@ router.get('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req: A
       },
     });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
-    return res.json({ success: true, data: server } as ApiResponse);
+    return res.json({ success: true, data: redact(server) } as ApiResponse);
   } catch (error) {
     console.error('Error fetching server:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -111,10 +155,22 @@ router.post(
     try {
       const data = ServerSchema.parse(req.body);
 
-      const keyError = keyPathError(data.sshKeyPath);
-      if (keyError) return res.status(400).json({ success: false, error: keyError } as ApiResponse);
+      const credError = credentialError(data);
+      if (credError) return res.status(400).json({ success: false, error: credError } as ApiResponse);
 
-      const server = await prisma.server.create({ data, include: withCounts });
+      if (data.sshKeyPath) {
+        const keyError = keyPathError(data.sshKeyPath);
+        if (keyError) return res.status(400).json({ success: false, error: keyError } as ApiResponse);
+      }
+
+      // the password is encrypted on the way in and never stored as typed, and
+      // an omitted optional must be absent rather than an explicit undefined
+      const fields = Object.fromEntries(
+        Object.entries({ ...data, ...(data.sshPassword && { sshPassword: encrypt(data.sshPassword) }) })
+          .filter(([, value]) => value !== undefined),
+      ) as any;
+
+      const server = await prisma.server.create({ data: fields, include: withCounts });
       await pingServer(server).catch(() => {});
 
       // Take a copy of whatever Caddy is already serving on this box before
@@ -126,11 +182,21 @@ router.post(
       );
       console.log(`💾 Caddy config: ${snapshot}`);
 
+      // Then the inventory: whatever this box was already serving becomes
+      // application rows, unassigned until a superadmin gives them an owner.
+      const inventory = await syncServerApps(req.user!.userId, server).catch((error: any) => ({
+        discovered: 0,
+        created: 0,
+        updated: 0,
+        apps: [],
+        errors: [String(error?.message ?? 'scan failed')],
+      }));
+
       const fresh = await prisma.server.findUnique({ where: { id: server.id }, include: withCounts });
       return res.status(201).json({
         success: true,
-        data: fresh,
-        message: `Server registered — ${snapshot}`,
+        data: fresh ? redact(fresh) : null,
+        message: `Server registered — ${snapshot}, ${inventory.created} app(s) imported, ${inventory.updated} updated`,
       } as ApiResponse);
     } catch (error) {
       console.error('Error creating server:', error);
@@ -153,9 +219,19 @@ router.put(
         if (keyError) return res.status(400).json({ success: false, error: keyError } as ApiResponse);
       }
 
+      const current = await prisma.server.findUnique({
+        where: { id: req.params.id as string },
+        select: { authMethod: true, sshKeyPath: true, sshPassword: true },
+      });
+      if (!current) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+      const credError = credentialError(data, current);
+      if (credError) return res.status(400).json({ success: false, error: credError } as ApiResponse);
+
       // Drop the keys the caller omitted: under exactOptionalPropertyTypes an
       // explicit `undefined` is not the same as "leave this column alone".
       const patch = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+      if (typeof patch.sshPassword === 'string') patch.sshPassword = encrypt(patch.sshPassword);
 
       const server = await prisma.server.update({
         where: { id: req.params.id as string },
@@ -172,7 +248,7 @@ router.put(
 
       return res.json({
         success: true,
-        data: server,
+        data: redact(server),
         message: snapshot ? `Server updated — ${snapshot}` : 'Server updated',
       } as ApiResponse);
     } catch (error: any) {

@@ -70,8 +70,16 @@ model Server {
   hostname      String
   sshUser       String   @default("commitbase")
   sshPort       Int      @default(22)
-  /// Path to the private key ON THE CONTROL PLANE. Never key material in the database.
-  sshKeyPath    String
+  /// How the control plane authenticates to this node. A key is the default and
+  /// the one to prefer; PASSWORD exists for boxes where installing a key is not
+  /// an option (a managed VPS, a first connection before the key is in place).
+  authMethod    String   @default("KEY")
+  /// Path to the private key ON THE CONTROL PLANE. Never key material in the
+  /// database. Required when authMethod is KEY.
+  sshKeyPath    String?
+  /// AES-256-GCM ciphertext of the SSH password, never the password itself.
+  /// Required when authMethod is PASSWORD. Never leaves the backend.
+  sshPassword   String?
   /// Public address for this node's apps. Becomes the Cloudflare A record target.
   publicIp      String
   /// Deprecated: the Caddy admin API is unauthenticated, so it is never

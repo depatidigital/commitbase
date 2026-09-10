@@ -49,7 +49,15 @@ export async function serverForApplication(applicationId: string): Promise<SshTa
 /** Every node, for the jobs that have to visit all of them (route watchdog, snapshots). */
 export async function allServers(): Promise<SshTarget[]> {
   return prisma.server.findMany({
-    select: { id: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true },
+    select: {
+      id: true,
+      hostname: true,
+      sshUser: true,
+      sshPort: true,
+      sshKeyPath: true,
+      authMethod: true,
+      sshPassword: true,
+    },
     orderBy: { createdAt: 'asc' },
   });
 }

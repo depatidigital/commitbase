@@ -203,6 +203,15 @@ For an **additional** node later: generate nothing new. Append this same public
 key to that box's `~commitbase/.ssh/authorized_keys`, then register the node in
 the panel using its hostname. One key, every node.
 
+**Password authentication** is supported for boxes where installing a key is not
+an option: register the node with `authMethod: "PASSWORD"` and an `sshPassword`.
+The password is stored AES-256-GCM encrypted under `CB_SECRET_KEY` (32 bytes,
+`openssl rand -base64 32`) and never leaves the backend — the API returns only
+`hasPassword`. Set that key first or the write is refused rather than stored in
+the clear. Prefer keys where you can: a password can be replayed by anyone who
+reads a database backup, and it does not work at all on a box with
+`PasswordAuthentication no`, which is most hardened boxes.
+
 ---
 
 ## 3. Database

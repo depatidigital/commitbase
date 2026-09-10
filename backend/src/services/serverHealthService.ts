@@ -75,7 +75,16 @@ export interface PingAllResult {
 /** Check every node. Concurrent — one dead node must not delay the report on the others. */
 export async function pingAllServers(): Promise<PingAllResult> {
   const servers = await prisma.server.findMany({
-    select: { id: true, name: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true },
+    select: {
+      id: true,
+      name: true,
+      hostname: true,
+      sshUser: true,
+      sshPort: true,
+      sshKeyPath: true,
+      authMethod: true,
+      sshPassword: true,
+    },
   });
 
   const results = await Promise.all(servers.map(pingServer));

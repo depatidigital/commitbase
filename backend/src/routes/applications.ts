@@ -121,7 +121,15 @@ router.post('/caddy/adopt', authenticateToken, requireRole(['SUPERADMIN']), asyn
     const node = await prisma.server.findFirst({
       where: req.body?.serverId ? { id: String(req.body.serverId) } : {},
       orderBy: { createdAt: 'asc' },
-      select: { id: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true },
+      select: {
+      id: true,
+      hostname: true,
+      sshUser: true,
+      sshPort: true,
+      sshKeyPath: true,
+      authMethod: true,
+      sshPassword: true,
+    },
     });
 
     if (!node) {

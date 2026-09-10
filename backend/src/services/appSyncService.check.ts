@@ -2,7 +2,7 @@
  * Self-check for the Caddyfile parser: npx ts-node src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { parseCaddyfile } from './appSyncService';
+import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp } from './appSyncService';
 
 const sample = `
 # a comment
@@ -47,4 +47,82 @@ assert.strictEqual(sites[2]?.domains[0], 'static.example.com');
 assert.strictEqual(sites[2]?.php, false);
 assert.strictEqual(sites[2]?.port, undefined);
 
-console.log('appSyncService: parseCaddyfile OK');
+// --- live Caddy routes, which is where the inventory comes from now ---
+
+const runtimeRoute = {
+  match: [{ host: ['app.example.com'] }],
+  handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'localhost:20001' }] }],
+};
+
+const phpRoute = {
+  match: [{ host: ['shop.example.com'] }],
+  handle: [
+    {
+      handler: 'subroute',
+      routes: [
+        { handle: [{ handler: 'vars', root: '/home/acme/apps/shop/current/public' }] },
+        {
+          handle: [
+            {
+              handler: 'reverse_proxy',
+              transport: { protocol: 'fastcgi', root: '/home/acme/apps/shop/current/public' },
+              upstreams: [{ dial: 'unix//run/php/php8.3-fpm-acme.sock' }],
+            },
+          ],
+        },
+        { handle: [{ handler: 'file_server' }] },
+      ],
+    },
+  ],
+};
+
+const filesRoute = {
+  match: [{ host: ['static.example.com'] }],
+  handle: [
+    {
+      handler: 'subroute',
+      routes: [
+        { handle: [{ handler: 'vars', root: '/var/www/html/static' }] },
+        { handle: [{ handler: 'file_server' }] },
+      ],
+    },
+  ],
+};
+
+const bucketRoute = {
+  match: [{ host: ['site.example.com'] }],
+  handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'pub-abc.r2.dev:443' }] }],
+};
+
+const redirectRoute = {
+  match: [{ host: ['old.example.com'] }],
+  handle: [{ handler: 'redirect', location: 'https://new.example.com', status_code: 308 }],
+};
+
+assert.deepStrictEqual(classifyRoute(runtimeRoute), { type: 'NODEJS', port: 20001 });
+
+const php = classifyRoute(phpRoute);
+assert.strictEqual(php?.type, 'PHP');
+assert.strictEqual(php?.rootPath, '/home/acme/apps/shop/current/public');
+// the socket has to survive the unix/ prefix, or the route cannot be rebuilt
+assert.strictEqual(php?.socket, '/run/php/php8.3-fpm-acme.sock');
+
+assert.deepStrictEqual(classifyRoute(filesRoute), {
+  type: 'STATIC',
+  rootPath: '/var/www/html/static',
+});
+
+assert.strictEqual(classifyRoute(bucketRoute)?.type, 'STATIC');
+assert.strictEqual(classifyRoute(bucketRoute)?.origin, 'pub-abc.r2.dev');
+
+// a redirect is a route, not an application
+assert.strictEqual(classifyRoute(redirectRoute), null);
+
+assert.deepStrictEqual(routeHosts(phpRoute), ['shop.example.com']);
+
+// the wildcard is how apps under a domain resolve — importing it as an app would
+// create a row for a hostname nobody can visit
+assert.strictEqual(isNotAnApp('*.example.com'), true);
+assert.strictEqual(isNotAnApp('app.example.com'), false);
+
+console.log('appSyncService: parseCaddyfile + classifyRoute OK');
