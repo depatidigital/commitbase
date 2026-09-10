@@ -4,6 +4,7 @@ import { syncDomains, backfillExpiries } from './domainSyncService';
 import { provisionPending } from './domainProvisionService';
 import { healCaddyRoutes } from './caddySnapshotService';
 import { syncServerApps } from './appSyncService';
+import { pruneHeartbeats } from './heartbeatService';
 import { pingAllServers } from './serverHealthService';
 
 /**
@@ -72,6 +73,12 @@ const jobs: Job[] = [
       const failed = r.errors?.length ? ` (errors: ${r.errors.length})` : '';
       return `${r.discovered} site(s), ${r.created} added, ${r.updated} updated${failed}`;
     },
+  },
+  {
+    name: 'heartbeat-prune',
+    // Beats are written by every check; nothing asks about them past a month.
+    schedule: process.env.CRON_HEARTBEAT_PRUNE || '30 4 * * *',
+    run: async () => `${await pruneHeartbeats()} beat(s) pruned`,
   },
   {
     name: 'caddy-routes',

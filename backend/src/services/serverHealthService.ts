@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { recordBeat } from './heartbeatService';
 import { exec, RemoteExecError, type SshTarget } from '../lib/runner';
 
 /**
@@ -68,6 +69,8 @@ async function ensureSnapshot(server: SshTarget & { name: string }): Promise<voi
 }
 
 export async function pingServer(server: SshTarget & { name: string }): Promise<PingResult> {
+  const startedAt = Date.now();
+
   try {
     await exec(server, ['test', '-x', PROVISION_SCRIPT], { timeout: PING_TIMEOUT_MS });
     await prisma.server.update({
@@ -76,6 +79,12 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
     });
 
     void ensureSnapshot(server);
+    void recordBeat({
+      targetType: 'SERVER',
+      targetId: server.id,
+      ok: true,
+      responseMs: Date.now() - startedAt,
+    });
     return { id: server.id, name: server.name, status: 'ONLINE', provisioned: true };
   } catch (err: any) {
     // A RemoteExecError carrying an exit code means the command ran, so the
@@ -91,6 +100,13 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
       // Not provisioned by us, but reachable and quite possibly serving sites —
       // exactly the box whose Caddy config nothing else has a copy of.
       void ensureSnapshot(server);
+      // reachable is up: not being set up by us is a configuration state, not an outage
+      void recordBeat({
+        targetType: 'SERVER',
+        targetId: server.id,
+        ok: true,
+        responseMs: Date.now() - startedAt,
+      });
       return { id: server.id, name: server.name, status: 'ONLINE', provisioned: false, error: note };
     }
 
@@ -100,6 +116,13 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
     await prisma.server
       .update({ where: { id: server.id }, data: { status: 'OFFLINE', lastError: error } })
       .catch(() => {});
+    void recordBeat({
+      targetType: 'SERVER',
+      targetId: server.id,
+      ok: false,
+      responseMs: Date.now() - startedAt,
+      error,
+    });
     return { id: server.id, name: server.name, status: 'OFFLINE', provisioned: false, error };
   }
 }

@@ -478,6 +478,32 @@ enum SSLStatus {
 /// tenant route with it — including PHP sockets and document roots that are
 /// written down nowhere else — so the live config is snapshotted here and
 /// pushed back when routes go missing.
+/// One check result for one thing we watch — an application's hostname or a
+/// node's SSH reachability.
+///
+/// Every check the platform already runs answered a question and threw the
+/// answer away, so "is it up?" could be answered but "has it been flapping
+/// since Tuesday?" could not. These rows are that history, and they are what
+/// the heartbeat bars and uptime percentages are drawn from.
+model Heartbeat {
+  id         String   @id @default(cuid())
+  /// "APPLICATION" or "SERVER" — kept as a pair rather than two nullable
+  /// foreign keys so one index serves every kind of target.
+  targetType String
+  targetId   String
+  at         DateTime @default(now())
+  ok         Boolean
+  /// Round trip in milliseconds, when the check measured one.
+  responseMs Int?
+  /// HTTP status, or null for checks that are not HTTP.
+  httpStatus Int?
+  /// Why it failed, in the words of whatever did the checking.
+  error      String?
+
+  @@index([targetType, targetId, at])
+  @@map("heartbeats")
+}
+
 model CaddySnapshot {
   id        String   @id @default(cuid())
   /// The node this config belongs to. Each node runs its own Caddy, so a

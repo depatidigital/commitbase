@@ -187,8 +187,10 @@ export function DataTable<T>({
         </div>
       </div>
 
-      {/* ponytail: fixed viewport-relative cap, tune the offset if page chrome grows */}
-      <div className="rounded-md border bg-card overflow-hidden max-h-[calc(100vh-20rem)]">
+      {/* The page scrolls, not the table: a scroll area inside a scroll area
+          hides rows with no cue that they are there. The header stays put on
+          the page's own scroll instead. */}
+      <div className="rounded-md border bg-card">
         <Table className="table-fixed [&_td]:py-2.5 [&_th]:h-9 [&_th]:py-0">
           <TableHeader className="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_hsl(var(--border))]">
             <TableRow className="hover:bg-transparent">

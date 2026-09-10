@@ -11,6 +11,7 @@ import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
 import { configureCaddyForStaticApplication, removeCaddySite } from '../services/caddyService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
+import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { resolveAppDir } from '../lib/appPaths';
 import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
@@ -283,6 +284,39 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
 });
 
 // Get a specific application by ID
+/**
+ * Health for a set of applications: the recent beats, the day's uptime, and
+ * whether the failures are enough to call it down.
+ *
+ * Batched because the list renders one bar per row — a request per row would
+ * be 25 round trips for one screen.
+ */
+router.get('/health', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ids = String(req.query.ids ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+
+    if (ids.length === 0) return res.json({ success: true, data: {} } as ApiResponse);
+
+    // only applications the caller may see — the ids arrive from the client
+    const visible = await prisma.application.findMany({
+      where: { id: { in: ids }, ...(await orgScope(req)) },
+      select: { id: true },
+    });
+
+    return res.json({
+      success: true,
+      data: await healthFor('APPLICATION', visible.map((app) => app.id)),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error reading application health:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     console.log('Get application request:', {
