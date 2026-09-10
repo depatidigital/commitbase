@@ -3,11 +3,13 @@ import {
   configureCaddyForRuntimeApplication,
   configureCaddyForPhpApplication,
   configureCaddyForFiles,
-  listCaddyRouteHosts,
 } from './caddyService';
 
 /**
  * Moving the sites in /etc/caddy/sites from files to the admin API.
+ *
+ * Once an install has migrated, this finds nothing and does nothing —
+ * `caddySnapshotService` is what keeps API-only routes alive from then on.
  *
  * The platform's own apps have always been configured over the API; sites that
  * predate CommitBase still live in `.caddy` files imported by the Caddyfile.
@@ -115,41 +117,4 @@ export async function adoptCaddySites({ apply = false }: { apply?: boolean } = {
     applied: results.filter((site) => site.applied).length,
     skipped: results.filter((site) => !site.applied).length,
   };
-}
-
-/**
- * Caddy holds the API config in memory only: `systemctl reload caddy` re-reads
- * the Caddyfile and drops every route the platform pushed. The backend re-applies
- * at boot, but a reload while it is running would otherwise go unnoticed until
- * someone restarted it — so check, and heal what is missing.
- */
-export async function healCaddyRoutes(): Promise<string> {
-  if (!process.env.CADDY_API_URL) return 'skipped — CADDY_API_URL is not set';
-
-  const live = await listCaddyRouteHosts();
-  if (live === null) return 'skipped — Caddy did not answer';
-
-  // Deferred so the watchdog does not drag the deployment service into every
-  // module that imports this one.
-  const { DeploymentService } = await import('./deployment');
-  const deployment = new DeploymentService();
-
-  const expected = await deployment.expectedCaddyHosts();
-  const missing = expected.filter((host) => !live.includes(host));
-  const fileSites = (await listCaddySites()).flatMap((site) => site.domains);
-  const missingFiles = fileSites.filter((host) => !live.includes(host));
-
-  if (missing.length === 0 && missingFiles.length === 0) {
-    return `${live.length} routes live, nothing missing`;
-  }
-
-  const { applied, failed } = await deployment.reapplyCaddyRoutes();
-  const adopted = missingFiles.length > 0 ? (await adoptCaddySites({ apply: true })).applied : 0;
-
-  return `re-applied ${applied} route(s) (${failed} failed), re-adopted ${adopted} file site(s) — was missing ${[
-    ...missing,
-    ...missingFiles,
-  ]
-    .slice(0, 5)
-    .join(', ')}`;
 }

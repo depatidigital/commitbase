@@ -448,6 +448,21 @@ enum SSLStatus {
   ERROR
 }
 
+/// Caddy keeps its configuration in memory, and the site files that used to
+/// back it are gone. A reload from the Caddyfile would otherwise take every
+/// tenant route with it — including PHP sockets and document roots that are
+/// written down nowhere else — so the live config is snapshotted here and
+/// pushed back when routes go missing.
+model CaddySnapshot {
+  id        String   @id @default(cuid())
+  config    Json
+  hosts     String[]
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("caddy_snapshots")
+}
+
 enum LogLevel {
   DEBUG
   INFO

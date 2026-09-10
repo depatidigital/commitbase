@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
 import { syncDomains, backfillExpiries } from './domainSyncService';
 import { provisionPending } from './domainProvisionService';
-import { healCaddyRoutes } from './caddyMigrationService';
+import { healCaddyRoutes } from './caddySnapshotService';
 import { pingAllServers } from './serverHealthService';
 
 /**
@@ -59,9 +59,9 @@ const jobs: Job[] = [
   },
   {
     name: 'caddy-routes',
-    // Caddy keeps the API config in memory. A reload from the Caddyfile drops
-    // every route the platform pushed, and nothing would notice until the
-    // backend restarted — so compare against what should be live, and heal.
+    // Caddy keeps the API config in memory and there are no site files left to
+    // rebuild it from. Snapshot it while it is healthy, push the snapshot back
+    // when a reload has thrown the routes away.
     schedule: process.env.CRON_CADDY_ROUTES || '*/5 * * * *',
     run: healCaddyRoutes,
   },

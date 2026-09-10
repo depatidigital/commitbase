@@ -14,7 +14,8 @@ import * as systemd from '../services/systemdService';
 import { resolveAppDir } from '../lib/appPaths';
 import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
-import { adoptCaddySites, healCaddyRoutes } from '../services/caddyMigrationService';
+import { adoptCaddySites } from '../services/caddyMigrationService';
+import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
 import multer from 'multer';
 import path from 'path';
@@ -130,6 +131,40 @@ router.post('/caddy/adopt', authenticateToken, requireRole(['SUPERADMIN']), asyn
     return res.status(502).json({
       success: false,
       error: error?.message || 'Could not read the Caddy site files',
+    } as ApiResponse);
+  }
+});
+
+/** Store the live Caddy config now, rather than waiting for the watchdog tick. */
+router.post('/caddy/snapshot', authenticateToken, requireRole(['SUPERADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    return res.json({ success: true, message: await snapshotCaddyConfig() } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error snapshotting Caddy config:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the Caddy config',
+    } as ApiResponse);
+  }
+});
+
+/** Push the newest snapshot back — for a reload that took the routes with it. */
+router.post('/caddy/restore', authenticateToken, requireRole(['SUPERADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await restoreCaddyConfig();
+
+    return res.json({
+      success: result.restored,
+      data: result,
+      ...(result.restored
+        ? { message: `Restored ${result.hosts.length} route(s) from the last snapshot` }
+        : { error: 'No snapshot has been taken yet' }),
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error restoring Caddy config:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not restore the Caddy config',
     } as ApiResponse);
   }
 });

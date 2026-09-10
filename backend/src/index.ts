@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
 import * as appStatusWatcher from './services/appStatusWatcher';
 import { startCronJobs } from './services/cron';
+import { snapshotCaddyConfig } from './services/caddySnapshotService';
 import { DeploymentService } from './services/deployment';
 
 config();
@@ -177,8 +178,11 @@ app.listen(PORT, async () => {
   // Caddy keeps tenant routes in memory; a reload from the Caddyfile loses them.
   new DeploymentService()
     .reapplyCaddyRoutes()
-    .then(({ applied, failed }) => {
+    .then(async ({ applied, failed }) => {
       if (applied || failed) console.log(`🔁 Caddy routes re-applied: ${applied} ok, ${failed} failed`);
+      // there are no site files to rebuild from any more — keep a copy of what
+      // is live, so a reload cannot take the routes with it for good
+      console.log(`💾 Caddy config: ${await snapshotCaddyConfig()}`);
     })
     .catch((err) => console.error('Caddy route re-apply failed:', err));
   console.log(`🚀 Server running on port ${PORT}`);

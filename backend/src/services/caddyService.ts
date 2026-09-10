@@ -353,3 +353,28 @@ export async function listCaddyRouteHosts(): Promise<string[] | null> {
     ),
   ];
 }
+
+/** The whole live config, for snapshotting. Null when Caddy did not answer. */
+export async function getCaddyConfig(): Promise<any | null> {
+  return fetchCaddyConfig();
+}
+
+/** Push a whole config back — restoring a snapshot, and nothing else. */
+export async function replaceCaddyConfig(config: any): Promise<void> {
+  await putCaddyConfig(config);
+}
+
+/** Hostnames in a config object (live or snapshotted). */
+export function routeHostsOf(config: any): string[] {
+  const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
+
+  return [
+    ...new Set(
+      routes.flatMap((route: any) =>
+        (Array.isArray(route?.match) ? route.match : []).flatMap((m: any) =>
+          Array.isArray(m?.host) ? m.host.filter((h: any) => typeof h === 'string') : [],
+        ),
+      ),
+    ),
+  ];
+}

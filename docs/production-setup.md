@@ -518,27 +518,36 @@ systemctl restart commitbase     # log line: "Caddy routes re-applied: N ok"
 npm run cron:run caddy-routes    # or just the watchdog
 ```
 
-### Moving existing site files onto the API
+### Site files are gone — the config is the API
 
-Sites that predate CommitBase still live as `.caddy` files imported by the
-Caddyfile, which means routes have two sources of truth. To put them all on the
-admin API:
+Routes live only in Caddy's memory, and there are no `.caddy` files to rebuild
+them from. So the backend keeps a copy:
+
+* every boot, and every five minutes while the routes look healthy, the live
+  config is snapshotted into the `caddy_snapshots` table (last 10 kept);
+* when the `caddy-routes` watchdog finds routes missing — the signature of a
+  reload — it pushes the newest snapshot back, then re-applies the platform's
+  own routes on top, in case a port moved since.
+
+By hand:
 
 ```bash
-# 1. dry run — reports what each site file would become, changes nothing
-curl -s -XPOST localhost:3001/api/applications/caddy/adopt   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}'
-
-# 2. push the routes
-curl -s -XPOST localhost:3001/api/applications/caddy/adopt   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"apply":true}'
+npm run cron:run caddy-routes    # check and heal now
 ```
 
-Then remove the `import /etc/caddy/sites/*.caddy` line from the Caddyfile and
-`systemctl reload caddy` — the backend re-applies its own routes right after,
-and the watchdog covers anything it missed.
+```bash
+# or through the API, as a superadmin
+POST /api/applications/caddy/snapshot   # store the live config now
+POST /api/applications/caddy/restore    # push the newest snapshot back
+POST /api/applications/caddy/heal       # compare and fix
+```
 
-**Keep the site files.** They are not loaded any more, but they are the only
-record of how each imported site is configured (a PHP site's FPM socket is
-written nowhere else), and the adopt run and the watchdog both read them.
+`POST /api/applications/caddy/adopt` still exists for an install that has not
+migrated yet: it reads `/etc/caddy/sites/*.caddy` and pushes each site through
+the API (dry run unless `{"apply":true}`). On this box it finds nothing.
+
+**Take a snapshot before touching the Caddyfile.** A reload with an empty
+snapshot table has nothing to restore from.
 
 ---
 
