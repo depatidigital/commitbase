@@ -120,6 +120,37 @@ async function putCaddyConfig(server: SshTarget, config: any): Promise<void> {
   }
 }
 
+/**
+ * Which HTTP server block in the config holds the tenant routes.
+ *
+ * A box whose Caddy was set up from a Caddyfile has its sites under whatever
+ * name the adapter chose — `srv0`, usually — not under ours. Writing to a
+ * hardcoded `commitbase` block on such a node creates a second server that
+ * fights the first for :443, and reading from it finds nothing even though the
+ * box is serving dozens of sites.
+ */
+export function serverNameFor(config: any): string {
+  const servers = config?.apps?.http?.servers ?? {};
+  if (servers.commitbase) return 'commitbase';
+
+  // the block already bound to the web ports is the one already serving traffic
+  const existing = Object.entries(servers).find(([, server]: [string, any]) =>
+    (Array.isArray(server?.listen) ? server.listen : []).some((address: string) =>
+      /:(80|443)$/.test(String(address)),
+    ),
+  );
+
+  return existing?.[0] ?? 'commitbase';
+}
+
+/** Every route in the config, whatever server block it lives in. */
+export function allRoutesOf(config: any): any[] {
+  const servers = config?.apps?.http?.servers ?? {};
+  return Object.values(servers).flatMap((server: any) =>
+    Array.isArray(server?.routes) ? server.routes : [],
+  );
+}
+
 function ensureHttpServer(config: any): any {
   const updatedConfig = config || {};
 
@@ -136,7 +167,7 @@ function ensureHttpServer(config: any): any {
   }
 
   const servers = updatedConfig.apps.http.servers;
-  const serverName = 'commitbase';
+  const serverName = serverNameFor(updatedConfig);
 
   if (!servers[serverName]) {
     servers[serverName] = {
@@ -280,7 +311,7 @@ async function setRoute(node: SshTarget, domain: string, target: Target | null):
 
   const config = ensureHttpServer(existing);
   const servers = config.apps.http.servers;
-  const serverName = 'commitbase';
+  const serverName = serverNameFor(config);
   const server = servers[serverName];
 
   const routes: any[] = server.routes || [];
@@ -374,7 +405,7 @@ export async function listCaddyRouteHosts(node: SshTarget): Promise<string[] | n
   const config = await fetchCaddyConfig(node);
   if (config === null) return null;
 
-  const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
+  const routes = allRoutesOf(config);
 
   return [
     ...new Set(
@@ -399,7 +430,7 @@ export async function replaceCaddyConfig(node: SshTarget, config: any): Promise<
 
 /** Hostnames in a config object (live or snapshotted). */
 export function routeHostsOf(config: any): string[] {
-  const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
+  const routes = allRoutesOf(config);
 
   return [
     ...new Set(

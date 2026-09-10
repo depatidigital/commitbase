@@ -7,8 +7,10 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { pingServer } from '../services/serverHealthService';
+import { exec, RemoteExecError } from '../lib/runner';
 import { snapshotNode } from '../services/caddySnapshotService';
-import { syncServerApps } from '../services/appSyncService';
+import { syncServerApps, classifyRoute, routeHosts, isNotAnApp } from '../services/appSyncService';
+import { getCaddyConfig, allRoutesOf } from '../services/caddyService';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 
 const router = Router();
@@ -52,6 +54,12 @@ const ServerSchema = z.object({
   sshPassword: z.string().min(1).max(512).optional(),
   publicIp: z.string().min(1).max(255),
   caddyApiUrl: z.string().max(255).default(''),
+  // free-form labels, normalised so "Production" and "production " are one tag
+  tags: z
+    .array(z.string().trim().min(1).max(30))
+    .max(20)
+    .default([])
+    .transform((tags) => [...new Set(tags.map((tag) => tag.toLowerCase()))]),
 });
 
 const UpdateServerSchema = ServerSchema.partial();
@@ -102,9 +110,14 @@ function credentialError(
 router.get('/', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search, paged } = paging(req);
-    const where = search
-      ? { OR: [{ name: contains(search) }, { hostname: contains(search) }, { publicIp: contains(search) }] }
-      : {};
+    // ?tag=production narrows the list to one label; search still matches names
+    const tag = String(req.query.tag ?? '').trim().toLowerCase();
+    const where = {
+      ...(search && {
+        OR: [{ name: contains(search) }, { hostname: contains(search) }, { publicIp: contains(search) }],
+      }),
+      ...(tag && { tags: { has: tag } }),
+    };
 
     const [servers, total] = await Promise.all([
       prisma.server.findMany({
@@ -171,32 +184,44 @@ router.post(
       ) as any;
 
       const server = await prisma.server.create({ data: fields, include: withCounts });
-      await pingServer(server).catch(() => {});
+      const ping = await pingServer(server).catch(() => null);
 
       // Take a copy of whatever Caddy is already serving on this box before
       // anything touches it. Routes live in Caddy's memory with no files behind
       // them, so a node registered without a snapshot has a window where a
       // reload would lose every site it was already hosting.
-      const snapshot = await snapshotNode(server).catch(
-        (error: any) => `${server.hostname}: ${error?.message ?? 'snapshot failed'}`,
-      );
+      //
+      // Only once the node actually answers, though: snapshotting a box we
+      // cannot reach stores nothing and reports a failure the operator can do
+      // nothing about yet. An unreachable node is snapshotted by the next
+      // successful health check instead.
+      const reachable = ping?.status === 'ONLINE';
+      const snapshot = reachable
+        ? await snapshotNode(server).catch(
+            (error: any) => `${server.hostname}: ${error?.message ?? 'snapshot failed'}`,
+          )
+        : 'not reachable yet — Caddy will be snapshotted once it answers';
       console.log(`💾 Caddy config: ${snapshot}`);
 
       // Then the inventory: whatever this box was already serving becomes
       // application rows, unassigned until a superadmin gives them an owner.
-      const inventory = await syncServerApps(req.user!.userId, server).catch((error: any) => ({
-        discovered: 0,
-        created: 0,
-        updated: 0,
-        apps: [],
-        errors: [String(error?.message ?? 'scan failed')],
-      }));
+      const inventory = reachable
+        ? await syncServerApps(req.user!.userId, server).catch((error: any) => ({
+            discovered: 0,
+            created: 0,
+            updated: 0,
+            apps: [],
+            errors: [String(error?.message ?? 'scan failed')],
+          }))
+        : { discovered: 0, created: 0, updated: 0, apps: [], errors: [] };
 
       const fresh = await prisma.server.findUnique({ where: { id: server.id }, include: withCounts });
       return res.status(201).json({
         success: true,
         data: fresh ? redact(fresh) : null,
-        message: `Server registered — ${snapshot}, ${inventory.created} app(s) imported, ${inventory.updated} updated`,
+        message: reachable
+          ? `Server registered — ${snapshot}, ${inventory.created} app(s) imported, ${inventory.updated} updated`
+          : `Server registered, but it is not reachable yet: ${ping?.error ?? 'no answer'}`,
       } as ApiResponse);
     } catch (error) {
       console.error('Error creating server:', error);
@@ -261,6 +286,86 @@ router.put(
   }
 );
 
+/** What this node's Caddy is serving right now, typed as applications. */
+router.get('/:id/caddy/routes', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    const config = await getCaddyConfig(server);
+    if (config === null) {
+      return res.status(502).json({ success: false, error: 'Caddy on this node did not answer' } as ApiResponse);
+    }
+
+    // whatever server block the node keeps its sites in, not just ours
+    const routes = allRoutesOf(config);
+    const sites = routes.flatMap((route) => {
+      const target = classifyRoute(route);
+      return routeHosts(route).map((host) => ({
+        host,
+        // a route we cannot type is still worth showing — it is serving traffic
+        kind: target?.type ?? 'OTHER',
+        port: target?.port ?? null,
+        rootPath: target?.rootPath ?? null,
+        socket: target?.socket ?? null,
+        origin: target?.origin ?? null,
+        managed: !isNotAnApp(host),
+      }));
+    });
+
+    return res.json({ success: true, data: sites } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error reading Caddy routes:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the routes from this node',
+    } as ApiResponse);
+  }
+});
+
+/** Applications placed on this node, through their organization. */
+router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const apps = await prisma.application.findMany({
+      where: { organization: { serverId: req.params.id as string } },
+      select: {
+        id: true,
+        name: true,
+        domain: true,
+        type: true,
+        status: true,
+        port: true,
+        runtime: true,
+        lastDeployment: true,
+        organization: { select: { id: true, name: true, slug: true } },
+      },
+      orderBy: { domain: 'asc' },
+    });
+
+    return res.json({ success: true, data: apps } as ApiResponse);
+  } catch (error) {
+    console.error('Error listing server apps:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** Config backups taken from this node, newest first. */
+router.get('/:id/caddy/snapshots', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const snapshots = await prisma.caddySnapshot.findMany({
+      where: { serverId: req.params.id as string },
+      orderBy: { createdAt: 'desc' },
+      // the config itself can be megabytes — the list only needs its shape
+      select: { id: true, hosts: true, createdAt: true },
+    });
+
+    return res.json({ success: true, data: snapshots } as ApiResponse);
+  } catch (error) {
+    console.error('Error listing Caddy snapshots:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 /** Re-read this node's Caddy config into a snapshot, now. */
 router.post('/:id/caddy/snapshot', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -314,6 +419,78 @@ router.post('/:id/ping', authenticateToken, requireRole(['SUPERADMIN']), async (
     return res.json({ success: true, data: result, message: `Server is ${result.status}` } as ApiResponse);
   } catch (error) {
     console.error('Error pinging server:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Node logs.
+ *
+ * A fixed set of commands, never a command from the request. A superadmin can
+ * already SSH to the box, so this is not a privilege boundary — it is a
+ * blast-radius one: an endpoint that runs arbitrary remote strings is a remote
+ * shell that outlives whoever added it, and this one cannot become that.
+ */
+const LOG_SOURCES: Record<string, string[]> = {
+  system: [],
+  caddy: ['-u', 'caddy'],
+  // Debian calls the unit ssh, RHEL calls it sshd — ask for both, journalctl
+  // ignores a unit that does not exist.
+  ssh: ['-u', 'ssh', '-u', 'sshd'],
+  php: ['-u', 'php*-fpm.service'],
+  // Every app unit cb-app-unit.sh installs is cb-<slug>-<appId>.service
+  apps: ['-u', 'cb-*.service'],
+  // Priority error and worse, across every unit — the first place to look when
+  // a node misbehaves and you do not yet know which service is at fault.
+  errors: ['-p', 'err'],
+};
+
+const LogQuerySchema = z.object({
+  source: z.enum(['system', 'caddy', 'ssh', 'php', 'apps', 'errors']).default('system'),
+  lines: z.coerce.number().int().min(1).max(2000).default(200),
+});
+
+router.get('/:id/logs', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const parsed = LogQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: 'Unknown log source' } as ApiResponse);
+    }
+    const { source, lines } = parsed.data;
+
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    const argv = [
+      'journalctl',
+      '--no-pager',
+      '-o',
+      'short-iso',
+      '-n',
+      String(lines),
+      ...(LOG_SOURCES[source] as string[]),
+    ];
+
+    try {
+      const { stdout, stderr } = await exec(server, argv, { timeout: 20_000 });
+      return res.json({
+        success: true,
+        data: { source, lines, output: stdout || stderr || '(no output)' },
+      } as ApiResponse);
+    } catch (err: any) {
+      // journalctl exits non-zero when the SSH user may not read the journal.
+      // That is a node configuration answer, not a panel error, so it comes
+      // back as data with the fix in it rather than as a 500.
+      const detail = err instanceof RemoteExecError ? err.stderr || err.stdout || err.message : String(err?.message || err);
+      const hint = /permission|not seen|no journal|Operation not permitted/i.test(detail)
+        ? `
+
+${server.sshUser} may not read the system journal on this node. Fix with: usermod -aG systemd-journal ${server.sshUser}`
+        : '';
+      return res.json({ success: true, data: { source, lines, output: detail + hint } } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error reading server logs:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

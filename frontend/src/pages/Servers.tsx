@@ -3,6 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -22,15 +29,35 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { HardDrive, Loader2, Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
+import {
+  Eye,
+  HardDrive,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ScrollText,
+  Trash2,
+} from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import {
+  LogSource,
   Server,
   ServerInput,
   createServer,
   deleteServer,
+  getServerLogs,
   getServersPage,
   pingServer,
   updateServer,
@@ -41,9 +68,11 @@ const BLANK: ServerInput = {
   hostname: "",
   sshUser: "commitbase",
   sshPort: 22,
+  authMethod: "KEY",
   sshKeyPath: "",
+  sshPassword: "",
   publicIp: "",
-  caddyApiUrl: "",
+  tags: [],
 };
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
@@ -63,6 +92,7 @@ const ago = (iso: string | null) => {
 
 export default function Servers() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const query = useTableQuery();
 
@@ -71,10 +101,21 @@ export default function Servers() {
   const [editing, setEditing] = useState<Server | null>(null);
   const [form, setForm] = useState<ServerInput>(BLANK);
   const [confirmDelete, setConfirmDelete] = useState<Server | null>(null);
+  // set by clicking a tag in the table; "" is no filter
+  const [tagFilter, setTagFilter] = useState("");
+  // the node whose logs are open, or null
+  const [logsFor, setLogsFor] = useState<Server | null>(null);
+  const [logSource, setLogSource] = useState<LogSource>("system");
 
   const { data, isFetching } = useQuery({
-    queryKey: ["servers", "page", query.params],
-    queryFn: () => getServersPage(query.params),
+    queryKey: ["servers", "page", query.params, tagFilter],
+    queryFn: () => getServersPage(query.params, tagFilter),
+  });
+
+  const { data: logs, isFetching: logsLoading, refetch: refetchLogs } = useQuery({
+    queryKey: ["servers", logsFor?.id, "logs", logSource],
+    queryFn: () => getServerLogs(logsFor!.id, logSource),
+    enabled: !!logsFor,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["servers"] });
@@ -94,15 +135,29 @@ export default function Servers() {
       hostname: server.hostname,
       sshUser: server.sshUser,
       sshPort: server.sshPort,
-      sshKeyPath: server.sshKeyPath,
+      authMethod: server.authMethod,
+      sshKeyPath: server.sshKeyPath ?? "",
+      // never prefilled: the stored password does not come back from the API,
+      // and blank means "keep the one already saved"
+      sshPassword: "",
       publicIp: server.publicIp,
-      caddyApiUrl: server.caddyApiUrl,
+      tags: server.tags ?? [],
     });
     setOpen(true);
   };
 
   const saveMutation = useMutation({
-    mutationFn: () => (editing ? updateServer(editing.id, form) : createServer(form)),
+    mutationFn: () => {
+      // only send the credential the chosen method actually uses, and drop an
+      // empty password so an edit does not wipe the stored one
+      const payload: ServerInput = {
+        ...form,
+        ...(form.authMethod === "KEY"
+          ? { sshPassword: undefined }
+          : { sshKeyPath: undefined, sshPassword: form.sshPassword || undefined }),
+      };
+      return editing ? updateServer(editing.id, payload) : createServer(payload);
+    },
     onSuccess: (server) => {
       refresh();
       setOpen(false);
@@ -147,7 +202,9 @@ export default function Servers() {
       className: "w-[20%]",
       cell: (s) => (
         <div className="min-w-0">
-          <span className="block truncate font-medium">{s.name}</span>
+          <Link to={`/servers/${s.id}`} className="block truncate font-medium hover:underline">
+            {s.name}
+          </Link>
           <span className="block truncate text-xs text-muted-foreground">{s.publicIp}</span>
         </div>
       ),
@@ -156,17 +213,51 @@ export default function Servers() {
       header: "SSH",
       className: "w-[24%]",
       cell: (s) => (
-        <span className="block truncate text-muted-foreground">
-          {s.sshUser}@{s.hostname}:{s.sshPort}
-        </span>
+        <div className="min-w-0">
+          <span className="block truncate text-muted-foreground">
+            {s.sshUser}@{s.hostname}:{s.sshPort}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {s.authMethod === "PASSWORD" ? "password" : "key"}
+          </span>
+        </div>
       ),
     },
     {
+      header: "Tags",
+      className: "w-[18%]",
+      cell: (s) =>
+        s.tags?.length ? (
+          <div className="flex flex-wrap gap-1">
+            {s.tags.map((tag) => (
+              // clicking a tag filters the list to it — the point of tagging
+              <Badge
+                key={tag}
+                variant="outline"
+                className="cursor-pointer text-xs"
+                onClick={() => setTagFilter(tag === tagFilter ? "" : tag)}
+              >
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
       header: "Status",
-      className: "w-32",
+      className: "w-44",
       cell: (s) => (
         <div className="space-y-1">
           <Badge variant={STATUS_VARIANT[s.status] ?? "secondary"}>{s.status}</Badge>
+          {/* reachable but bare is a different problem from unreachable, and
+              has a completely different fix, so it gets its own badge */}
+          {s.status === "ONLINE" && !s.provisioned && (
+            <Badge variant="outline" className="text-xs">
+              not provisioned
+            </Badge>
+          )}
           <span className="block text-xs text-muted-foreground">{ago(s.lastSeenAt)}</span>
         </div>
       ),
@@ -186,36 +277,62 @@ export default function Servers() {
     },
     {
       header: "",
-      className: "w-40 text-right",
+      className: "w-16 text-right",
       cell: (s) => (
-        <div className="flex justify-end gap-1">
-          <Button
-            size="sm"
-            variant="outline"
-            title="Check now"
-            disabled={pingMutation.isPending}
-            onClick={() => pingMutation.mutate(s.id)}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" title="Edit" onClick={() => openEdit(s)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            title="Delete"
-            onClick={() => setConfirmDelete(s)}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Actions for ${s.name}`}>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => navigate(`/servers/${s.id}`)}>
+              <Eye className="mr-2 h-4 w-4" />
+              Manage
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={pingMutation.isPending}
+              onClick={() => pingMutation.mutate(s.id)}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Check now
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setLogSource("errors");
+                setLogsFor(s);
+              }}
+            >
+              <ScrollText className="mr-2 h-4 w-4" />
+              Logs
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openEdit(s)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => setConfirmDelete(s)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
 
   const incomplete =
-    !form.name.trim() || !form.hostname.trim() || !form.sshUser.trim() || !form.sshKeyPath.trim() || !form.publicIp.trim();
+    !form.name.trim() ||
+    !form.hostname.trim() ||
+    !form.sshUser.trim() ||
+    !form.publicIp.trim() ||
+    (form.authMethod === "KEY"
+      ? !form.sshKeyPath?.trim()
+      : // an edit can leave it blank to keep the stored password
+        !form.sshPassword?.trim() && !editing?.hasPassword);
 
   return (
     <PageLayout
@@ -228,6 +345,16 @@ export default function Servers() {
         </Button>
       }
     >
+      {tagFilter && (
+        <div className="mb-3 flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Filtered by tag</span>
+          <Badge variant="secondary">{tagFilter}</Badge>
+          <Button size="sm" variant="ghost" className="h-7" onClick={() => setTagFilter("")}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       <DataTable
         columns={columns}
         rows={data?.data ?? []}
@@ -250,8 +377,11 @@ export default function Servers() {
             <DialogHeader>
               <DialogTitle>{editing ? `Edit ${editing.name}` : "Register server"}</DialogTitle>
               <DialogDescription>
-                The control plane reaches this node over SSH. The key must already be
-                authorized for {form.sshUser || "the SSH user"} on the box.
+                The control plane reaches this node over SSH as{" "}
+                {form.sshUser || "the SSH user"}
+                {form.authMethod === "KEY"
+                  ? " — the key must already be authorized on the box."
+                  : " — the box must allow password authentication."}
               </DialogDescription>
             </DialogHeader>
 
@@ -307,27 +437,80 @@ export default function Servers() {
                 </div>
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="srv-key">SSH key path</Label>
+                <Label htmlFor="srv-auth">Authentication</Label>
+                <Select
+                  value={form.authMethod}
+                  onValueChange={(value) =>
+                    setForm({ ...form, authMethod: value as ServerInput["authMethod"] })
+                  }
+                >
+                  <SelectTrigger id="srv-auth">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="KEY">SSH key</SelectItem>
+                    <SelectItem value="PASSWORD">Password</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="srv-tags">Tags</Label>
                 <Input
-                  id="srv-key"
-                  placeholder="/home/commitbase/.ssh/id_ed25519"
-                  value={form.sshKeyPath}
-                  onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })}
+                  id="srv-tags"
+                  placeholder="production, jakarta, php8.3"
+                  value={form.tags.join(", ")}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      // split on save rather than per keystroke, so a half-typed
+                      // tag is not lost while the comma is still being reached
+                      tags: e.target.value
+                        .split(",")
+                        .map((tag) => tag.trim())
+                        .filter(Boolean),
+                    })
+                  }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Path on the control plane, inside the configured key directory. Key
-                  material is never stored in the database.
+                  Comma separated. Your own labels — used to group and filter nodes.
                 </p>
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="srv-caddy">Caddy admin API (optional)</Label>
-                <Input
-                  id="srv-caddy"
-                  placeholder="http://127.0.0.1:2019"
-                  value={form.caddyApiUrl}
-                  onChange={(e) => setForm({ ...form, caddyApiUrl: e.target.value })}
-                />
-              </div>
+
+              {form.authMethod === "KEY" ? (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="srv-key">SSH key path</Label>
+                  <Input
+                    id="srv-key"
+                    placeholder="/home/commitbase/.ssh/id_ed25519"
+                    value={form.sshKeyPath ?? ""}
+                    onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Path on the control plane, inside the configured key directory. Key
+                    material is never stored in the database.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="srv-password">SSH password</Label>
+                  <Input
+                    id="srv-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={
+                      editing?.hasPassword ? "Unchanged — type to replace" : "The node's SSH password"
+                    }
+                    value={form.sshPassword ?? ""}
+                    onChange={(e) => setForm({ ...form, sshPassword: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Encrypted before it is stored and never returned by the API. Prefer a
+                    key where you can: a password does not work on a box with
+                    <code className="mx-1">PasswordAuthentication no</code>.
+                  </p>
+                </div>
+              )}
             </div>
 
             <DialogFooter>
@@ -337,6 +520,53 @@ export default function Servers() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!logsFor} onOpenChange={(o) => !o && setLogsFor(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Logs — {logsFor?.name}</DialogTitle>
+            <DialogDescription>
+              Read over the same SSH connection the panel provisions with. Nothing is
+              stored on the control plane.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center gap-2">
+            <Select value={logSource} onValueChange={(v) => setLogSource(v as LogSource)}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="errors">Errors (all units)</SelectItem>
+                <SelectItem value="system">System journal</SelectItem>
+                <SelectItem value="caddy">Caddy</SelectItem>
+                <SelectItem value="ssh">SSH</SelectItem>
+                <SelectItem value="php">PHP-FPM</SelectItem>
+                <SelectItem value="apps">App units</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetchLogs()}
+              disabled={logsLoading}
+            >
+              {logsLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh
+            </Button>
+          </div>
+
+          {/* the journal is wide; it scrolls inside its own box rather than
+              stretching the dialog */}
+          <pre className="max-h-[55vh] overflow-auto rounded-md bg-muted p-3 text-xs leading-relaxed">
+            {logsLoading && !logs ? "Loading…" : logs?.output || "(no output)"}
+          </pre>
         </DialogContent>
       </Dialog>
 

@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import { exec, type SshTarget } from '../lib/runner';
+import { exec, RemoteExecError, type SshTarget } from '../lib/runner';
 
 /**
  * Node heartbeat.
@@ -11,8 +11,13 @@ import { exec, type SshTarget } from '../lib/runner';
  * The check is deliberately the thing the control plane actually needs, not a
  * ping: it asks whether the provisioning script is present and executable over
  * the same SSH channel provisioning uses. That covers the whole chain in one
- * round trip — network, sshd, key authorization, and a correctly installed
- * node — so a green status means the next provision will work.
+ * round trip — network, sshd, key authorization, and a correctly installed node.
+ *
+ * It reports those as two facts, not one. A node that answers `test -x` with
+ * exit 1 has already proved the hard half works: the network, sshd and the
+ * credential are all fine, and only the runner scripts are missing. Calling
+ * that OFFLINE sends an operator hunting a network fault that does not exist,
+ * and makes an unprovisioned box untestable.
  */
 
 const PROVISION_SCRIPT = process.env.ORG_PROVISION_SCRIPT || '/usr/local/bin/cb-provision-org';
@@ -24,6 +29,8 @@ export interface PingResult {
   id: string;
   name: string;
   status: ServerStatus;
+  /** Whether the runner scripts are installed. False on a reachable but bare box. */
+  provisioned: boolean;
   error?: string;
 }
 
@@ -46,22 +53,54 @@ function explainSshFailure(server: SshTarget, error: string): string {
   return `${error} — this node is the control plane's own box, which still has to authorise its key: check that ${server.sshKeyPath}.pub is in ~${server.sshUser}/.ssh/authorized_keys and that sshd accepts connections on ${server.hostname}`;
 }
 
+/**
+ * Snapshot a node's Caddy config the first time it is seen healthy. Cheap when
+ * one already exists: the snapshot skips a config that has not changed.
+ */
+async function ensureSnapshot(server: SshTarget & { name: string }): Promise<void> {
+  try {
+    const { snapshotNode } = await import('./caddySnapshotService');
+    const result = await snapshotNode(server);
+    if (!result.includes('unchanged')) console.log(`💾 Caddy config: ${result}`);
+  } catch (error: any) {
+    console.error(`Could not snapshot Caddy on ${server.hostname}:`, error?.message);
+  }
+}
+
 export async function pingServer(server: SshTarget & { name: string }): Promise<PingResult> {
   try {
     await exec(server, ['test', '-x', PROVISION_SCRIPT], { timeout: PING_TIMEOUT_MS });
     await prisma.server.update({
       where: { id: server.id },
-      data: { status: 'ONLINE', lastSeenAt: new Date(), lastError: null },
+      data: { status: 'ONLINE', provisioned: true, lastSeenAt: new Date(), lastError: null },
     });
-    return { id: server.id, name: server.name, status: 'ONLINE' };
+
+    void ensureSnapshot(server);
+    return { id: server.id, name: server.name, status: 'ONLINE', provisioned: true };
   } catch (err: any) {
+    // A RemoteExecError carrying an exit code means the command ran, so the
+    // node answered — it is up, just not set up.
+    if (err instanceof RemoteExecError && err.code !== null) {
+      const note = `Reachable, but ${PROVISION_SCRIPT} is not installed — run install.sh on this node before placing organizations on it`;
+      await prisma.server
+        .update({
+          where: { id: server.id },
+          data: { status: 'ONLINE', provisioned: false, lastSeenAt: new Date(), lastError: note },
+        })
+        .catch(() => {});
+      // Not provisioned by us, but reachable and quite possibly serving sites —
+      // exactly the box whose Caddy config nothing else has a copy of.
+      void ensureSnapshot(server);
+      return { id: server.id, name: server.name, status: 'ONLINE', provisioned: false, error: note };
+    }
+
     const error = explainSshFailure(server, String(err?.message || err)).slice(0, 500);
     // lastSeenAt is deliberately left alone: it means "last known good", and
     // how long a node has been down is the useful number.
     await prisma.server
       .update({ where: { id: server.id }, data: { status: 'OFFLINE', lastError: error } })
       .catch(() => {});
-    return { id: server.id, name: server.name, status: 'OFFLINE', error };
+    return { id: server.id, name: server.name, status: 'OFFLINE', provisioned: false, error };
   }
 }
 

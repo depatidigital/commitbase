@@ -82,6 +82,9 @@ model Server {
   sshPassword   String?
   /// Public address for this node's apps. Becomes the Cloudflare A record target.
   publicIp      String
+  /// Free-form labels — "production", "jakarta", "php8.3". Grouping a growing
+  /// fleet is the operator's own vocabulary, not something to model as columns.
+  tags          String[]
   /// Deprecated: the Caddy admin API is unauthenticated, so it is never
   /// addressed directly. Each node's is reached at its own 127.0.0.1:2019
   /// through the SSH connection above. Kept only so an existing row survives;
@@ -92,6 +95,10 @@ model Server {
   /// "the panel cannot reach this box" is a state an admin has to be able to
   /// see before a tenant reports it.
   status        String    @default("UNKNOWN")
+  /// Whether the runner scripts are installed on this node. Separate from
+  /// status on purpose: a box can be perfectly reachable and simply not set up
+  /// yet, and those two problems have completely different fixes.
+  provisioned   Boolean   @default(false)
   lastSeenAt    DateTime?
   /// Why the last heartbeat failed. Kept so the failure is diagnosable from
   /// the UI without shell access to either machine.

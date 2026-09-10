@@ -33,8 +33,12 @@ export async function snapshotNode(node: SshTarget): Promise<string> {
   const config = await getCaddyConfig(node);
   if (config === null) return `${node.hostname}: skipped — Caddy did not answer`;
 
+  // The whole config is the backup, not just the parts this platform wrote:
+  // TLS policies, other app blocks and sites nobody has imported yet all live
+  // here, and all of them are lost by the same reload. Only a config with
+  // nothing in it at all is worth skipping.
   const hosts = routeHostsOf(config);
-  if (hosts.length === 0) return `${node.hostname}: skipped — no routes to snapshot`;
+  if (Object.keys(config).length === 0) return `${node.hostname}: skipped — Caddy has no config`;
 
   const latest = await prisma.caddySnapshot.findFirst({
     where: { serverId: node.id },

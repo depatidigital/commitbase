@@ -5,7 +5,7 @@ import path from 'path';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
-import { getCaddyConfig } from './caddyService';
+import { getCaddyConfig, allRoutesOf } from './caddyService';
 
 const execAsync = promisify(localExec);
 
@@ -270,7 +270,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     if (process.port) byPort.set(process.port, process);
   }
 
-  const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
+  const routes = allRoutesOf(config);
   const apps: DiscoveredApp[] = [];
   const claimed = new Set<string>();
   const seen = new Set<string>();
