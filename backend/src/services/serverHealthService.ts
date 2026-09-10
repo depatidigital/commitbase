@@ -28,6 +28,24 @@ export interface PingResult {
 }
 
 /** Check one node and record the verdict. Never throws — an unreachable node is data, not an exception. */
+/** Loopback names — a node that is the box the control plane runs on. */
+const SELF_HOSTS = ['127.0.0.1', '::1', 'localhost'];
+
+/**
+ * The failure mode nobody guesses on the first try: the control plane reaches
+ * its own box over SSH like any other node, so that box has to authorise the
+ * control plane's own key. When it does not, the SSH error reads like a network
+ * problem, and there is no network involved.
+ */
+function explainSshFailure(server: SshTarget, error: string): string {
+  const isSelf = SELF_HOSTS.includes(server.hostname.trim().toLowerCase());
+  const refused = /connection|authentic|publickey|denied|refused|timed out|ECONNREFUSED/i.test(error);
+
+  if (!isSelf || !refused) return error;
+
+  return `${error} — this node is the control plane's own box, which still has to authorise its key: check that ${server.sshKeyPath}.pub is in ~${server.sshUser}/.ssh/authorized_keys and that sshd accepts connections on ${server.hostname}`;
+}
+
 export async function pingServer(server: SshTarget & { name: string }): Promise<PingResult> {
   try {
     await exec(server, ['test', '-x', PROVISION_SCRIPT], { timeout: PING_TIMEOUT_MS });
@@ -37,7 +55,7 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
     });
     return { id: server.id, name: server.name, status: 'ONLINE' };
   } catch (err: any) {
-    const error = String(err?.message || err).slice(0, 500);
+    const error = explainSshFailure(server, String(err?.message || err)).slice(0, 500);
     // lastSeenAt is deliberately left alone: it means "last known good", and
     // how long a node has been down is the useful number.
     await prisma.server

@@ -7,6 +7,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { pingServer } from '../services/serverHealthService';
+import { snapshotNode } from '../services/caddySnapshotService';
 
 const router = Router();
 
@@ -116,8 +117,21 @@ router.post(
       const server = await prisma.server.create({ data, include: withCounts });
       await pingServer(server).catch(() => {});
 
+      // Take a copy of whatever Caddy is already serving on this box before
+      // anything touches it. Routes live in Caddy's memory with no files behind
+      // them, so a node registered without a snapshot has a window where a
+      // reload would lose every site it was already hosting.
+      const snapshot = await snapshotNode(server).catch(
+        (error: any) => `${server.hostname}: ${error?.message ?? 'snapshot failed'}`,
+      );
+      console.log(`💾 Caddy config: ${snapshot}`);
+
       const fresh = await prisma.server.findUnique({ where: { id: server.id }, include: withCounts });
-      return res.status(201).json({ success: true, data: fresh, message: 'Server registered' } as ApiResponse);
+      return res.status(201).json({
+        success: true,
+        data: fresh,
+        message: `Server registered — ${snapshot}`,
+      } as ApiResponse);
     } catch (error) {
       console.error('Error creating server:', error);
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -148,7 +162,19 @@ router.put(
         data: patch,
         include: withCounts,
       });
-      return res.json({ success: true, data: server, message: 'Server updated' } as ApiResponse);
+
+      // A new hostname or key can mean a different box, or the first time this
+      // one was reachable at all — either way its Caddy is worth re-reading.
+      const snapshot =
+        patch.hostname || patch.sshKeyPath || patch.sshUser || patch.sshPort
+          ? await snapshotNode(server).catch((error: any) => `snapshot failed: ${error?.message}`)
+          : null;
+
+      return res.json({
+        success: true,
+        data: server,
+        message: snapshot ? `Server updated — ${snapshot}` : 'Server updated',
+      } as ApiResponse);
     } catch (error: any) {
       if (error?.code === 'P2025') {
         return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
@@ -158,6 +184,22 @@ router.put(
     }
   }
 );
+
+/** Re-read this node's Caddy config into a snapshot, now. */
+router.post('/:id/caddy/snapshot', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    return res.json({ success: true, message: await snapshotNode(server) } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error snapshotting Caddy config:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the Caddy config from this server',
+    } as ApiResponse);
+  }
+});
 
 /**
  * Delete a node. Refused while organizations still sit on it: their homes and

@@ -177,6 +177,34 @@ useradd --system --gid commitbase --create-home --home-dir /opt/commitbase \
 
 ---
 
+### The control plane's SSH key — including to itself
+
+Every provisioning node is reached over SSH, and **the box the control plane
+runs on is a node like any other**: there is no local shortcut, so this machine
+has to authorise its own key. Skip this and every deploy, every Caddy route and
+every provision on the primary node fails with what looks like a network error
+and is not.
+
+```bash
+sudo -u commitbase ssh-keygen -t ed25519 -N '' -f /opt/commitbase/.ssh/id_ed25519
+sudo -u commitbase sh -c 'cat /opt/commitbase/.ssh/id_ed25519.pub >> /opt/commitbase/.ssh/authorized_keys'
+chmod 700 /opt/commitbase/.ssh && chmod 600 /opt/commitbase/.ssh/authorized_keys
+
+# prove it works — and accept the host key while you are here, so the first
+# real connection is not the one that has to answer a prompt
+sudo -u commitbase ssh -o StrictHostKeyChecking=accept-new      -i /opt/commitbase/.ssh/id_ed25519 commitbase@127.0.0.1 true
+```
+
+Set `CB_SSH_KEY_PATH=/opt/commitbase/.ssh/id_ed25519` in the backend env — it is
+the default `sshKeyPath` for seeded nodes, and the directory every server row's
+key must sit inside.
+
+For an **additional** node later: generate nothing new. Append this same public
+key to that box's `~commitbase/.ssh/authorized_keys`, then register the node in
+the panel using its hostname. One key, every node.
+
+---
+
 ## 3. Database
 
 **Run as:** `root` — the commands switch to `postgres` themselves via `sudo -u postgres`.
@@ -364,6 +392,21 @@ curl -X POST http://127.0.0.1:3001/api/auth/register \
 ```
 
 Every later account arrives by invite (`/team`) or by admin creation (`/admin`).
+
+### Register this box as the first node
+
+Organizations are placed on a node, and nothing provisions or routes until this
+row exists. It reads the environment this install already has:
+
+```bash
+sudo -u commitbase -H bash -c 'cd /opt/commitbase/app/backend && npx tsx src/scripts/seedServer.ts --dry-run'
+sudo -u commitbase -H bash -c 'cd /opt/commitbase/app/backend && npx tsx src/scripts/seedServer.ts'
+```
+
+It creates a `Server` row for `127.0.0.1` (override with `SEED_SERVER_HOSTNAME`)
+and places every unplaced organization on it. Re-runnable. A node that comes up
+`OFFLINE` here means the self-authorised key from section 2 is missing — that is
+what this depends on.
 
 ---
 
@@ -646,6 +689,7 @@ are independent of the backend process.
 |---|---|
 | Org creation returns *Could not provision isolated OS user* | sudoers not installed, group `commitbase` missing, or the scripts are not in `/usr/local/bin`. Check `journalctl -u commitbase` |
 | Tenant sites get no TLS, or never appear | The node's SSH connection is failing, the admin endpoint is not on `127.0.0.1:2019`, or the org has no server assigned |
+| A node shows OFFLINE and its host is `127.0.0.1` | The control plane's own key is not in `~commitbase/.ssh/authorized_keys` on that box — see section 2. The panel says exactly this in the server's last error |
 | `warning: quota not applied` during provisioning | `/home` is not mounted with `usrquota`, or `quotaon` was never run |
 | App deploys but will not start | `journalctl -u cb-<slug>-<appId>` and `/home/cb-<slug>/apps/<appId>/logs/error.log` |
 | Deploy fails with *Nothing answered on port N* | The app is not listening on `$PORT`. Next: `next start -p $PORT`; Express: `app.listen(process.env.PORT)`. Or set the port the app hardcodes in its settings. The previous release was put back |
