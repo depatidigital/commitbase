@@ -323,6 +323,34 @@ router.get('/:id/caddy/routes', authenticateToken, requireRole(['SUPERADMIN']), 
   }
 });
 
+/**
+ * Turn this node's live Caddy routes into application rows.
+ *
+ * The routes are the truth about what the box serves; the rows are how the
+ * panel can manage it. Additive and re-runnable — an existing row is refreshed,
+ * never replaced, and nothing is deleted when a route disappears.
+ */
+router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    const result = await syncServerApps(req.user!.userId, server);
+
+    return res.json({
+      success: true,
+      data: result,
+      message: `${result.discovered} site(s) found — ${result.created} imported, ${result.updated} updated`,
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error syncing apps from server:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read this node',
+    } as ApiResponse);
+  }
+});
+
 /** Applications placed on this node, through their organization. */
 router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {

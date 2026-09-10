@@ -148,3 +148,12 @@ export const snapshotServerCaddy = async (id: string): Promise<string> => {
   if (res.success) return res.message || 'Snapshot taken';
   throw new Error(res.error || 'Failed to snapshot the Caddy config');
 };
+
+/** Turn this node's live Caddy routes into application rows. */
+export const syncServerApps = async (
+  id: string,
+): Promise<{ discovered: number; created: number; updated: number; errors?: string[] }> =>
+  unwrap(
+    await apiRequest(`/servers/${id}/sync-apps`, { method: 'POST' }),
+    'Failed to import sites from this server',
+  );

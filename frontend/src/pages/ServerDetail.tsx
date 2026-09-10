@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   Camera,
+  Check,
+  Download,
   Globe,
   HardDrive,
   Loader2,
@@ -32,6 +34,7 @@ import {
   getServerSnapshots,
   pingServer,
   snapshotServerCaddy,
+  syncServerApps,
 } from "@/lib/servers";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
@@ -116,6 +119,24 @@ const ServerDetail = () => {
     onError: (error: Error) =>
       toast({ title: "Snapshot failed", description: error.message, variant: "destructive" }),
   });
+
+  const importApps = useMutation({
+    mutationFn: () => syncServerApps(id),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["servers", id, "apps"] });
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      toast({
+        title: "Sites imported",
+        description: `${result.discovered} found — ${result.created} new, ${result.updated} updated`,
+      });
+    },
+    onError: (error: Error) =>
+      toast({ title: "Import failed", description: error.message, variant: "destructive" }),
+  });
+
+  // hosts that already have an application row, so the sites list can say which
+  // ones importing would actually add
+  const known = new Set((apps.data ?? []).map((app) => app.domain));
 
   if (isLoading || !server) {
     return (
@@ -224,7 +245,27 @@ const ServerDetail = () => {
         </TabsContent>
 
         {/* what Caddy is serving right now, read live over SSH */}
-        <TabsContent value="sites">
+        <TabsContent value="sites" className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Read live from this node's Caddy. Importing turns each site into an application
+              row — additive, and nothing is removed when a route disappears.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={importApps.isPending || !sites.data?.length}
+              onClick={() => importApps.mutate()}
+            >
+              {importApps.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Import as applications
+            </Button>
+          </div>
+
           <Card>
             <CardContent className="pt-6">
               {sites.isLoading ? (
@@ -244,9 +285,18 @@ const ServerDetail = () => {
                       <span className="flex min-w-0 items-center gap-2">
                         <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="truncate font-medium">{site.host}</span>
-                        {!site.managed && (
+                        {!site.managed ? (
                           <Badge variant="secondary" className="shrink-0">
                             infrastructure
+                          </Badge>
+                        ) : known.has(site.host) ? (
+                          <Badge variant="outline" className="shrink-0 gap-1">
+                            <Check className="h-3 w-3" />
+                            imported
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="shrink-0 border-warning text-warning">
+                            not imported
                           </Badge>
                         )}
                       </span>
