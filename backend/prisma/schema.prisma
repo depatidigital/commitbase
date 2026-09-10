@@ -108,6 +108,7 @@ model Server {
   updatedAt     DateTime @updatedAt
 
   organizations Organization[]
+  applications  Application[]
 
   @@map("servers")
 }
@@ -206,6 +207,12 @@ model Application {
   releases    Release[] @relation("ApplicationReleases")
   activeReleaseId String?
   activeRelease   Release? @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
+
+  // Which node this app actually runs on. Set by the server sync for apps
+  // discovered on a box; deploys still follow the organization's placement, so
+  // this is "where it was found", not "where it belongs".
+  serverId     String?
+  server       Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
   // Parent domain this app's hostname lives under (ownership boundary)
   domainId     String?

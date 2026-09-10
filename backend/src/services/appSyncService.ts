@@ -259,12 +259,46 @@ export async function listCaddySites(): Promise<CaddySite[]> {
 }
 
 /**
+ * Ports something is listening on, straight from the node.
+ *
+ * pm2's own port is only known when the process was started with a PORT in its
+ * environment, which most are not — so "no pm2 process on this port" says
+ * nothing about whether the site is up. Asking the kernel does: a port with a
+ * listener is being served, whoever started it.
+ *
+ * An empty set means the question could not be answered (no `ss`, no
+ * permission), and the caller treats that as "assume it is fine" rather than
+ * marking every proxied site broken.
+ */
+export async function listListeningPorts(node: SshTarget): Promise<Set<number>> {
+  try {
+    const { stdout } = await exec(node, ['ss', '-H', '-ltn'], { timeout: 10_000 });
+    const ports = new Set<number>();
+
+    for (const line of stdout.split(/\r?\n/)) {
+      // "LISTEN 0 511 127.0.0.1:5503 0.0.0.0:*" — the local address is the 4th column
+      const local = line.trim().split(/\s+/)[3];
+      const port = Number(String(local ?? '').split(':').pop());
+      if (Number.isFinite(port) && port > 0) ports.add(port);
+    }
+
+    return ports;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * What one node is actually serving: its live Caddy routes joined with the pm2
  * process behind each proxied port. pm2 processes with no route are reported
  * too, under a `<name>.pm2.local` placeholder host.
  */
 export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
-  const [processes, config] = await Promise.all([listPm2Processes(node), getCaddyConfig(node)]);
+  const [processes, config, listening] = await Promise.all([
+    listPm2Processes(node),
+    getCaddyConfig(node),
+    listListeningPorts(node),
+  ]);
   const byPort = new Map<number, Pm2Process>();
   for (const process of processes) {
     if (process.port) byPort.set(process.port, process);
@@ -300,12 +334,15 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
         domain,
         runtime,
         type: target.type,
+        // pm2 knows a process's state; the kernel knows whether the port is
+        // actually served. Only a port with no listener is an error — a process
+        // pm2 cannot match to a port is not evidence of anything.
         status: process
           ? process.status === 'online'
             ? 'RUNNING'
             : 'STOPPED'
-          : target.port
-            ? 'ERROR' // routed to a port nothing is listening on
+          : target.port && listening.size > 0 && !listening.has(target.port)
+            ? 'ERROR'
             : 'RUNNING',
         port: target.port,
         processName: process?.name,
@@ -357,12 +394,39 @@ export async function scanServerApps(): Promise<DiscoveredApp[]> {
  * afterwards, the same way domain sync works.
  */
 export async function syncServerApps(userId: string, node?: SshTarget): Promise<AppSyncResult> {
-  const discovered = node ? await scanNode(node) : await scanServerApps();
+  // Without a node, do every node one at a time rather than one flat scan: each
+  // row has to be stamped with the box it was found on, and a node that fails
+  // must not take the others down with it.
+  if (!node) {
+    const totals: AppSyncResult = { discovered: 0, created: 0, updated: 0, apps: [] };
+    const errors: string[] = [];
+
+    for (const server of await allServers()) {
+      try {
+        const result = await syncServerApps(userId, server);
+        totals.discovered += result.discovered;
+        totals.created += result.created;
+        totals.updated += result.updated;
+        totals.apps.push(...result.apps);
+        if (result.errors) errors.push(...result.errors);
+      } catch (error: any) {
+        errors.push(`${server.hostname}: ${error?.message ?? 'scan failed'}`);
+      }
+    }
+
+    if (errors.length) totals.errors = errors;
+    return totals;
+  }
+
+  const discovered = await scanNode(node);
   const result: AppSyncResult = { discovered: discovered.length, created: 0, updated: 0, apps: [] };
   const errors: string[] = [];
 
   for (const app of discovered) {
     const fields = {
+      // where it was found, so the node's page can list it before anyone has
+      // assigned it to an organization
+      serverId: node.id,
       runtime: app.runtime,
       processName: app.processName ?? null,
       rootPath: app.rootPath ?? null,

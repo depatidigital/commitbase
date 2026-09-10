@@ -354,8 +354,11 @@ router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), as
 /** Applications placed on this node, through their organization. */
 router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     const apps = await prisma.application.findMany({
-      where: { organization: { serverId: req.params.id as string } },
+      // discovered on this node, or owned by an organization placed on it —
+      // an imported app has no organization until a superadmin assigns one
+      where: { OR: [{ serverId: id }, { organization: { serverId: id } }] },
       select: {
         id: true,
         name: true,

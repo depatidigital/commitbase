@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { syncDomains, backfillExpiries } from './domainSyncService';
 import { provisionPending } from './domainProvisionService';
 import { healCaddyRoutes } from './caddySnapshotService';
+import { syncServerApps } from './appSyncService';
 import { pingAllServers } from './serverHealthService';
 
 /**
@@ -58,6 +59,21 @@ const jobs: Job[] = [
     },
   },
   {
+    name: 'app-inventory',
+    // Imported apps are not supervised by us, so the status watcher skips them —
+    // their pm2 state and listening ports are only as fresh as the last scan.
+    // Ten minutes: two cheap SSH commands per node, on a pooled connection.
+    schedule: process.env.CRON_APP_INVENTORY || '*/10 * * * *',
+    run: async () => {
+      const userId = await systemUserId();
+      if (!userId) return 'skipped — no admin account to own new rows';
+
+      const r = await syncServerApps(userId);
+      const failed = r.errors?.length ? ` (errors: ${r.errors.length})` : '';
+      return `${r.discovered} site(s), ${r.created} added, ${r.updated} updated${failed}`;
+    },
+  },
+  {
     name: 'caddy-routes',
     // Caddy keeps the API config in memory and there are no site files left to
     // rebuild it from. Snapshot it while it is healthy, push the snapshot back
@@ -102,6 +118,7 @@ async function runJob(job: Job) {
     running.delete(job.name);
   }
 }
+
 
 export function startCronJobs() {
   // CRON_ENABLED=false turns the scheduler off (local dev, one-off containers)

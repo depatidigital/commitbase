@@ -452,7 +452,9 @@ export class DeploymentService {
       where: {
         status: 'RUNNING',
         runtime: null,
-        ...(serverId && { organization: { serverId } }),
+        ...(serverId && {
+          OR: [{ serverId }, { organization: { serverId } }],
+        }),
       },
       select: { domain: true },
     });

@@ -589,7 +589,14 @@ By hand:
 
 ```bash
 npm run cron:run caddy-routes    # check and heal now
+npm run cron:run app-inventory   # re-read every node's sites and their status
 ```
+
+The `app-inventory` job (every ten minutes, `CRON_APP_INVENTORY`) rescans each
+node's live routes, pm2 processes and listening ports. Imported sites are not
+supervised by this platform, so the systemd status watcher skips them — this is
+what keeps their status honest, and it picks up sites added to a node outside
+the panel.
 
 ```bash
 # or through the API, as a superadmin
