@@ -8,6 +8,7 @@ import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication } from './caddyService';
 import { appUnit, appBuild, OS_ISOLATION_ENABLED } from './orgProvisionService';
 import { orgSlugForApp, appDirFor } from '../lib/appPaths';
+import { serverForApplication } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
@@ -430,7 +431,12 @@ export class DeploymentService {
     const socket = path.join(socketDir, sockets.sort().reverse()[0] as string);
     const root = path.join(currentDirFor(appDir), docroot);
 
-    await configureCaddyForPhpApplication(application.domain, root, socket);
+    await configureCaddyForPhpApplication(
+      await serverForApplication(application.id),
+      application.domain,
+      root,
+      socket,
+    );
     await fs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
     return true;
   }
@@ -441,16 +447,19 @@ export class DeploymentService {
    * start, so "restart commitbase" is the recovery.
    */
   /** Hostnames that should have a route right now — what the watchdog compares against. */
-  async expectedCaddyHosts(): Promise<string[]> {
+  async expectedCaddyHosts(serverId?: string): Promise<string[]> {
     const apps = await prisma.application.findMany({
-      where: { status: 'RUNNING', runtime: null },
+      where: {
+        status: 'RUNNING',
+        runtime: null,
+        ...(serverId && { organization: { serverId } }),
+      },
       select: { domain: true },
     });
     return apps.map((app) => app.domain);
   }
 
   async reapplyCaddyRoutes(): Promise<{ applied: number; failed: number }> {
-    if (!process.env.CADDY_API_URL) return { applied: 0, failed: 0 };
     const apps = await prisma.application.findMany({
       where: { status: 'RUNNING', runtime: null },
       include: { organization: { select: { slug: true } } },
@@ -460,13 +469,14 @@ export class DeploymentService {
     for (const app of apps) {
       try {
         const appDir = appDirFor(app.id, app.organization?.slug ?? null);
+        const node = await serverForApplication(app.id);
         if (app.type === 'STATIC') {
-          await configureCaddyForStaticApplication(app.id, app.domain, app.staticOrigin);
+          await configureCaddyForStaticApplication(node, app.id, app.domain, app.staticOrigin);
         } else if (app.type === 'PHP') {
           const detected = await detectProject(currentDirFor(appDir));
           if (!(await this.publishPhp(app, appDir, detected.outputDir || '.'))) throw new Error('no FPM socket');
         } else if (app.port) {
-          await configureCaddyForRuntimeApplication(app.domain, app.port);
+          await configureCaddyForRuntimeApplication(node, app.domain, app.port);
         } else {
           continue;
         }
@@ -678,6 +688,7 @@ export class DeploymentService {
 
           try {
             await configureCaddyForStaticApplication(
+              await serverForApplication(application.id),
               application.id,
               application.domain,
               (application as any).staticOrigin
@@ -762,6 +773,7 @@ export class DeploymentService {
 
           try {
             await configureCaddyForStaticApplication(
+              await serverForApplication(application.id),
               application.id,
               application.domain,
               (application as any).staticOrigin
@@ -913,7 +925,11 @@ export class DeploymentService {
 
       if (application.type !== 'PHP') {
         try {
-          await configureCaddyForRuntimeApplication(application.domain, port);
+          await configureCaddyForRuntimeApplication(
+            await serverForApplication(application.id),
+            application.domain,
+            port,
+          );
         } catch {
         }
       }

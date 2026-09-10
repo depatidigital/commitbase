@@ -1,4 +1,6 @@
 import { prisma } from '../lib/prisma';
+import { allServers } from '../lib/servers';
+import type { SshTarget } from '../lib/runner';
 import {
   getCaddyConfig,
   replaceCaddyConfig,
@@ -7,7 +9,7 @@ import {
 } from './caddyService';
 
 /**
- * Backup and restore for Caddy's live configuration.
+ * Backup and restore for each node's live Caddy configuration.
  *
  * Caddy holds the admin-API config in memory only, and the `.caddy` site files
  * that used to back it are gone — so a `systemctl reload caddy` reads the bare
@@ -15,34 +17,39 @@ import {
  * it from. A PHP site's FPM socket and document root in particular exist
  * nowhere else.
  *
- * So: snapshot the live config whenever it looks healthy, and push the last
- * good one back when routes go missing.
+ * So: snapshot each node's config while it looks healthy, and push the last
+ * good one back when routes go missing. Snapshots are per node — every box runs
+ * its own Caddy, and a config is only restorable onto the box it came from.
  *
- * ponytail: keeps the last KEEP snapshots and picks the newest. That is a
- * backup, not a history — add a "restore this one" action if an admin ever
- * needs to roll back to a specific point rather than the latest.
+ * ponytail: keeps the last KEEP snapshots per node and always picks the newest.
+ * That is a backup, not a history — add a "restore this one" action if an admin
+ * ever needs a specific point rather than the latest.
  */
 
 const KEEP = 10;
 
-/** Store the live config, if there is anything worth storing. */
-export async function snapshotCaddyConfig(): Promise<string> {
-  const config = await getCaddyConfig();
-  if (config === null) return 'skipped — Caddy did not answer';
+/** Store one node's live config, if there is anything worth storing. */
+export async function snapshotNode(node: SshTarget): Promise<string> {
+  const config = await getCaddyConfig(node);
+  if (config === null) return `${node.hostname}: skipped — Caddy did not answer`;
 
   const hosts = routeHostsOf(config);
-  if (hosts.length === 0) return 'skipped — no routes to snapshot';
+  if (hosts.length === 0) return `${node.hostname}: skipped — no routes to snapshot`;
 
-  const latest = await prisma.caddySnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
+  const latest = await prisma.caddySnapshot.findFirst({
+    where: { serverId: node.id },
+    orderBy: { createdAt: 'desc' },
+  });
 
   // nothing changed since the last one — a snapshot per tick would be noise
   if (latest && JSON.stringify(latest.config) === JSON.stringify(config)) {
-    return `unchanged — ${hosts.length} route(s)`;
+    return `${node.hostname}: unchanged, ${hosts.length} route(s)`;
   }
 
-  await prisma.caddySnapshot.create({ data: { config, hosts } });
+  await prisma.caddySnapshot.create({ data: { serverId: node.id, config, hosts } });
 
   const stale = await prisma.caddySnapshot.findMany({
+    where: { serverId: node.id },
     orderBy: { createdAt: 'desc' },
     skip: KEEP,
     select: { id: true },
@@ -51,47 +58,112 @@ export async function snapshotCaddyConfig(): Promise<string> {
     await prisma.caddySnapshot.deleteMany({ where: { id: { in: stale.map((row) => row.id) } } });
   }
 
-  return `snapshotted ${hosts.length} route(s)`;
+  return `${node.hostname}: snapshotted ${hosts.length} route(s)`;
 }
 
-/** Push the newest snapshot back into Caddy. */
-export async function restoreCaddyConfig(): Promise<{ restored: boolean; hosts: string[] }> {
-  const latest = await prisma.caddySnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
+/** Snapshot every node. */
+export async function snapshotCaddyConfig(): Promise<string> {
+  const nodes = await allServers();
+  if (nodes.length === 0) return 'skipped — no servers registered';
+
+  const lines: string[] = [];
+  for (const node of nodes) {
+    try {
+      lines.push(await snapshotNode(node));
+    } catch (error: any) {
+      lines.push(`${node.hostname}: ${error?.message ?? 'snapshot failed'}`);
+    }
+  }
+  return lines.join('; ');
+}
+
+/** Push a node's newest snapshot back into its Caddy. */
+export async function restoreNode(node: SshTarget): Promise<{ restored: boolean; hosts: string[] }> {
+  const latest = await prisma.caddySnapshot.findFirst({
+    where: { serverId: node.id },
+    orderBy: { createdAt: 'desc' },
+  });
   if (!latest) return { restored: false, hosts: [] };
 
-  await replaceCaddyConfig(latest.config);
+  await replaceCaddyConfig(node, latest.config);
   return { restored: true, hosts: latest.hosts };
 }
 
+/** Restore every node that has a snapshot. */
+export async function restoreCaddyConfig(): Promise<{ restored: boolean; hosts: string[] }> {
+  const nodes = await allServers();
+  const hosts: string[] = [];
+  let restored = false;
+
+  for (const node of nodes) {
+    const result = await restoreNode(node);
+    if (result.restored) {
+      restored = true;
+      hosts.push(...result.hosts);
+    }
+  }
+
+  return { restored, hosts };
+}
+
 /**
- * The watchdog. Compares what Caddy is serving against what should be there —
- * the snapshot's hostnames plus every app the database expects to be running —
- * and heals the difference: the snapshot first (it carries the sites we cannot
- * rebuild), then the platform's own routes on top, since a port may have moved
- * since the snapshot was taken.
+ * The watchdog. For each node, compares what its Caddy is serving against what
+ * should be there — the snapshot's hostnames plus every app the database
+ * expects to be running on that node — and heals the difference: the snapshot
+ * first (it carries the sites we cannot rebuild), then the platform's own
+ * routes on top, since a port may have moved since the snapshot was taken.
  */
 export async function healCaddyRoutes(): Promise<string> {
-  if (!process.env.CADDY_API_URL) return 'skipped — CADDY_API_URL is not set';
-
-  const live = await listCaddyRouteHosts();
-  if (live === null) return 'skipped — Caddy did not answer';
+  const nodes = await allServers();
+  if (nodes.length === 0) return 'skipped — no servers registered';
 
   const { DeploymentService } = await import('./deployment');
   const deployment = new DeploymentService();
+  const lines: string[] = [];
+  let healedAny = false;
 
-  const latest = await prisma.caddySnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
-  const expected = [...new Set([...(latest?.hosts ?? []), ...(await deployment.expectedCaddyHosts())])];
-  const missing = expected.filter((host) => !live.includes(host));
+  for (const node of nodes) {
+    try {
+      const live = await listCaddyRouteHosts(node);
+      if (live === null) {
+        lines.push(`${node.hostname}: unreachable`);
+        continue;
+      }
 
-  if (missing.length === 0) {
-    // healthy — this is the moment worth remembering
-    return `${live.length} route(s) live — ${await snapshotCaddyConfig()}`;
+      const latest = await prisma.caddySnapshot.findFirst({
+        where: { serverId: node.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const expected = [
+        ...new Set([...(latest?.hosts ?? []), ...(await deployment.expectedCaddyHosts(node.id))]),
+      ];
+      const missing = expected.filter((host) => !live.includes(host));
+
+      if (missing.length === 0) {
+        // healthy — this is the moment worth remembering
+        lines.push(await snapshotNode(node));
+        continue;
+      }
+
+      healedAny = true;
+      const restored = await restoreNode(node);
+      lines.push(
+        `${node.hostname}: ${missing.length} route(s) missing (${missing.slice(0, 5).join(', ')})${
+          restored.restored ? `, restored ${restored.hosts.length} from snapshot` : ''
+        }`,
+      );
+    } catch (error: any) {
+      lines.push(`${node.hostname}: ${error?.message ?? 'heal failed'}`);
+    }
   }
 
-  const restored = await restoreCaddyConfig();
-  const { applied, failed } = await deployment.reapplyCaddyRoutes();
+  // Ports and origins can have moved since a snapshot, so the platform's own
+  // routes are written again on top of whatever was restored.
+  if (healedAny) {
+    const { applied, failed } = await deployment.reapplyCaddyRoutes();
+    lines.push(`re-applied ${applied}${failed ? `, ${failed} failed` : ''}`);
+  }
 
-  return `healed: ${missing.length} route(s) were missing (${missing.slice(0, 5).join(', ')}) — ${
-    restored.restored ? `restored ${restored.hosts.length} from snapshot, ` : ''
-  }re-applied ${applied}${failed ? `, ${failed} failed` : ''}`;
+  return lines.join('; ');
 }

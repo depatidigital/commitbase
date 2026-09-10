@@ -186,6 +186,33 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
   });
 }
 
+/**
+ * Open a TCP channel to a port on the node, over the pooled SSH connection.
+ *
+ * This is how the control plane reaches a node's Caddy admin API: that API has
+ * no authentication of its own and is bound to the node's loopback, so the SSH
+ * connection is the authentication. Nothing listens on a public port and no
+ * local port is allocated — the stream is a direct-tcpip channel.
+ */
+export async function forwardTcp(
+  server: SshTarget,
+  host: string,
+  port: number,
+): Promise<ClientChannel> {
+  const client = await connect(server);
+
+  return new Promise<ClientChannel>((resolve, reject) => {
+    client.forwardOut('127.0.0.1', 0, host, port, (err, stream) => {
+      if (err) {
+        return reject(
+          new Error(`Could not reach ${host}:${port} on ${server.hostname}: ${err.message}`),
+        );
+      }
+      resolve(stream);
+    });
+  });
+}
+
 // SFTP channel per server, opened lazily on the pooled connection. Cached
 // because a channel handshake per file operation would swamp a deploy.
 const sftpPool = new Map<string, Promise<SFTPWrapper>>();

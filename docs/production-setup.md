@@ -271,7 +271,7 @@ Write `/opt/commitbase/app/backend/.env`, owned `commitbase:commitbase`, mode
 
 | Variable | Default | Notes |
 |---|---|---|
-| `CADDY_API_URL` | *(unset)* | `http://127.0.0.1:2019` — without it, tenant sites are never configured |
+| ~~`CADDY_API_URL`~~ | *removed* | The admin API is unauthenticated, so it is never addressed directly: each node's own `127.0.0.1:2019` is reached through that node's SSH connection |
 | `CADDY_SITES_DIR` | `/etc/caddy/sites` | Read by the server-inventory sync |
 | `APPS_ROOT_DIR` | `/var/www/html` | Document root guessed for synced sites |
 | `APPS_DIR` | `./apps_dir` | Legacy flat app directory — used only for apps with no organization |
@@ -503,8 +503,12 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy
 ```
 
-Set `CADDY_API_URL="http://127.0.0.1:2019"` in the backend env and restart it.
-Without that variable the panel silently never configures tenant sites.
+Nothing to set in the backend env. The admin API has no authentication of its
+own, so it is never given an address: the control plane opens an SSH channel to
+the node and talks to that node's `127.0.0.1:2019` through it, and the SSH key
+in the node's `Server` row is the credential. Keep `admin 127.0.0.1:2019` in the
+Caddyfile and 2019 closed at the firewall — exposing it hands over every site on
+the box.
 
 Tenant routes are added through the admin API and live in Caddy's memory.
 Anything that makes Caddy re-read the Caddyfile — `systemctl reload caddy`,
@@ -641,7 +645,7 @@ are independent of the backend process.
 | Symptom | Cause |
 |---|---|
 | Org creation returns *Could not provision isolated OS user* | sudoers not installed, group `commitbase` missing, or the scripts are not in `/usr/local/bin`. Check `journalctl -u commitbase` |
-| Tenant sites get no TLS, or never appear | `CADDY_API_URL` unset, or the admin endpoint is not on `127.0.0.1:2019` |
+| Tenant sites get no TLS, or never appear | The node's SSH connection is failing, the admin endpoint is not on `127.0.0.1:2019`, or the org has no server assigned |
 | `warning: quota not applied` during provisioning | `/home` is not mounted with `usrquota`, or `quotaon` was never run |
 | App deploys but will not start | `journalctl -u cb-<slug>-<appId>` and `/home/cb-<slug>/apps/<appId>/logs/error.log` |
 | Deploy fails with *Nothing answered on port N* | The app is not listening on `$PORT`. Next: `next start -p $PORT`; Express: `app.listen(process.env.PORT)`. Or set the port the app hardcodes in its settings. The previous release was put back |

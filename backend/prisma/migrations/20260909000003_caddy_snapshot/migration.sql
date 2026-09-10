@@ -1,6 +1,7 @@
 -- CreateTable
 CREATE TABLE "caddy_snapshots" (
     "id" TEXT NOT NULL,
+    "serverId" TEXT NOT NULL,
     "config" JSONB NOT NULL,
     "hosts" TEXT[],
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -9,4 +10,4 @@ CREATE TABLE "caddy_snapshots" (
 );
 
 -- CreateIndex
-CREATE INDEX "caddy_snapshots_createdAt_idx" ON "caddy_snapshots"("createdAt");
+CREATE INDEX "caddy_snapshots_serverId_createdAt_idx" ON "caddy_snapshots"("serverId", "createdAt");

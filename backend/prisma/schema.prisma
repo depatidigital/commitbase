@@ -74,7 +74,10 @@ model Server {
   sshKeyPath    String
   /// Public address for this node's apps. Becomes the Cloudflare A record target.
   publicIp      String
-  /// Caddy admin API on this node. Each node runs its own Caddy.
+  /// Deprecated: the Caddy admin API is unauthenticated, so it is never
+  /// addressed directly. Each node's is reached at its own 127.0.0.1:2019
+  /// through the SSH connection above. Kept only so an existing row survives;
+  /// drop the column once nothing reads it.
   caddyApiUrl   String   @default("")
 
   /// ONLINE, OFFLINE or UNKNOWN, from the heartbeat. With more than one node,
@@ -455,11 +458,14 @@ enum SSLStatus {
 /// pushed back when routes go missing.
 model CaddySnapshot {
   id        String   @id @default(cuid())
+  /// The node this config belongs to. Each node runs its own Caddy, so a
+  /// snapshot is only ever restorable onto the box it came from.
+  serverId  String
   config    Json
   hosts     String[]
   createdAt DateTime @default(now())
 
-  @@index([createdAt])
+  @@index([serverId, createdAt])
   @@map("caddy_snapshots")
 }
 

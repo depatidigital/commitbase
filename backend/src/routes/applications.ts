@@ -10,6 +10,7 @@ import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
 import { configureCaddyForStaticApplication, removeCaddySite } from '../services/caddyService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
+import { serverForApplication } from '../lib/servers';
 import * as systemd from '../services/systemdService';
 import { resolveAppDir } from '../lib/appPaths';
 import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
@@ -116,7 +117,18 @@ router.post('/sync', authenticateToken, requireRole(['SUPERADMIN']), async (req:
  */
 router.post('/caddy/adopt', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const result = await adoptCaddySites({ apply: req.body?.apply === true });
+    // one node per call — say which, since each runs its own Caddy
+    const node = await prisma.server.findFirst({
+      where: req.body?.serverId ? { id: String(req.body.serverId) } : {},
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true },
+    });
+
+    if (!node) {
+      return res.status(400).json({ success: false, error: 'No server to adopt sites from' } as ApiResponse);
+    }
+
+    const result = await adoptCaddySites(node, { apply: req.body?.apply === true });
 
     return res.json({
       success: true,
@@ -485,7 +497,12 @@ router.post(
           },
         });
 
-        await configureCaddyForStaticApplication(application.id, application.domain, origin).catch(() => {});
+        await configureCaddyForStaticApplication(
+          await serverForApplication(application.id),
+          application.id,
+          application.domain,
+          origin,
+        ).catch(() => {});
         await ensureAppHostname(application).catch(() => {});
 
         return res.json({
@@ -680,7 +697,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       await systemd.removeApplication(application).catch((error) => {
         console.error(`Failed to remove unit for ${application.domain}:`, error);
       });
-      await removeCaddySite(application.domain).catch(() => {});
+      await removeCaddySite(await serverForApplication(application.id), application.domain).catch(() => {});
       await removeAppHostname(application);
       await fs.rm(await resolveAppDir(application.id), { recursive: true, force: true }).catch(() => {});
     }

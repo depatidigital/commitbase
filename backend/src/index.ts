@@ -8,37 +8,26 @@ import * as appStatusWatcher from './services/appStatusWatcher';
 import { startCronJobs } from './services/cron';
 import { snapshotCaddyConfig } from './services/caddySnapshotService';
 import { DeploymentService } from './services/deployment';
+import { allServers } from './lib/servers';
+import { getCaddyConfig } from './services/caddyService';
 
 config();
 
+/**
+ * Can each node's Caddy be reached over its SSH connection? Not fatal any more:
+ * with several nodes, one unreachable box must not stop the control plane —
+ * the watchdog keeps trying and the server row carries the error.
+ */
 async function ensureCaddyReady(): Promise<void> {
-  const caddyUrl = process.env.CADDY_API_URL;
-  if (!caddyUrl) {
-    return;
-  }
+  const nodes = await allServers();
 
-  const fetchFn: any = (globalThis as any).fetch;
-  if (!fetchFn) {
-    console.warn('CADDY_API_URL is set but fetch is not available; skipping Caddy readiness check');
-    return;
-  }
-
-  const baseUrl = caddyUrl.replace(/\/$/, '');
-
-  try {
-    const response = await fetchFn(`${baseUrl}/config`, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      console.error(`Caddy readiness check failed with status ${response.status} ${response.statusText}`);
-      process.exit(1);
+  for (const node of nodes) {
+    const config = await getCaddyConfig(node);
+    if (config === null) {
+      console.error(`❌ Caddy on ${node.hostname} did not answer over SSH`);
+      continue;
     }
-
-    console.log('✅ Caddy is reachable and ready for configuration');
-  } catch (error) {
-    console.error('Caddy readiness check error:', error);
-    process.exit(1);
+    console.log(`✅ Caddy on ${node.hostname} is reachable`);
   }
 }
 

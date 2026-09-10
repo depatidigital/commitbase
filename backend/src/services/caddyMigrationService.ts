@@ -1,4 +1,5 @@
 import { listCaddySites, CaddySite } from './appSyncService';
+import type { SshTarget } from '../lib/runner';
 import {
   configureCaddyForRuntimeApplication,
   configureCaddyForPhpApplication,
@@ -54,7 +55,10 @@ function targetFor(site: CaddySite):
  * `apply` defaults to false so the first run is a dry run: it reports what it
  * understood and what it could not, and changes nothing.
  */
-export async function adoptCaddySites({ apply = false }: { apply?: boolean } = {}): Promise<{
+export async function adoptCaddySites(
+  node: SshTarget,
+  { apply = false }: { apply?: boolean } = {},
+): Promise<{
   sites: AdoptedSite[];
   applied: number;
   skipped: number;
@@ -92,11 +96,11 @@ export async function adoptCaddySites({ apply = false }: { apply?: boolean } = {
 
       try {
         if (target.kind === 'proxy') {
-          await configureCaddyForRuntimeApplication(domain, target.port);
+          await configureCaddyForRuntimeApplication(node, domain, target.port);
         } else if (target.kind === 'php') {
-          await configureCaddyForPhpApplication(domain, target.root, target.socket);
+          await configureCaddyForPhpApplication(node, domain, target.root, target.socket);
         } else {
-          await configureCaddyForFiles(domain, target.root);
+          await configureCaddyForFiles(node, domain, target.root);
         }
         results.push({ domain, kind: target.kind, detail, configPath: site.configPath, applied: true });
       } catch (error: any) {

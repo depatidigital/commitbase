@@ -1,6 +1,72 @@
+import * as http from 'http';
 import { getStaticSiteBaseUrl } from './s3Service';
+import { forwardTcp, type SshTarget } from '../lib/runner';
 
-const CADDY_API_URL = process.env.CADDY_API_URL || '';
+/**
+ * Caddy's admin API has no authentication of its own — its whole security model
+ * is that it listens on loopback and nothing else can reach it. So the address
+ * is not configurable: it is always the node's own 127.0.0.1:2019, reached
+ * through an SSH channel to that node, and the SSH key is the credential.
+ *
+ * Anything that puts this endpoint on a public interface hands over every site
+ * on the box, so there is deliberately no environment variable to point it
+ * somewhere else.
+ */
+const CADDY_ADMIN_HOST = '127.0.0.1';
+const CADDY_ADMIN_PORT = 2019;
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/** One request to a node's admin API, over the pooled SSH connection. */
+async function caddyRequest(
+  server: SshTarget,
+  method: 'GET' | 'PUT' | 'POST',
+  path: string,
+  body?: any,
+): Promise<{ status: number; body: string }> {
+  const stream = await forwardTcp(server, CADDY_ADMIN_HOST, CADDY_ADMIN_PORT);
+  const payload = body === undefined ? null : JSON.stringify(body);
+
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        // the Host header is for Caddy's own admin origin check, not routing —
+        // the socket is already the tunnel to that node
+        host: CADDY_ADMIN_HOST,
+        port: CADDY_ADMIN_PORT,
+        method,
+        path,
+        timeout: REQUEST_TIMEOUT_MS,
+        createConnection: () => stream as any,
+        ...(payload && {
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+        }),
+      },
+      (response) => {
+        let text = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => (text += chunk));
+        response.on('end', () => {
+          stream.end();
+          resolve({ status: response.statusCode ?? 0, body: text });
+        });
+      },
+    );
+
+    request.on('timeout', () => {
+      request.destroy();
+      stream.end();
+      reject(new Error(`Caddy admin API on ${server.hostname} timed out`));
+    });
+
+    request.on('error', (error) => {
+      stream.end();
+      reject(new Error(`Caddy admin API on ${server.hostname}: ${error.message}`));
+    });
+
+    if (payload) request.write(payload);
+    request.end();
+  });
+}
 
 type RuntimeTarget = {
   type: 'runtime';
@@ -35,51 +101,22 @@ type FilesTarget = {
 
 type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget;
 
-async function fetchCaddyConfig(): Promise<any | null> {
-  if (!CADDY_API_URL) {
-    return null;
-  }
-
-  const fetchFn: any = (globalThis as any).fetch;
-  if (!fetchFn) {
-    return null;
-  }
-
+/** null means the node did not answer — different from an empty config. */
+async function fetchCaddyConfig(server: SshTarget): Promise<any | null> {
   try {
-    const response = await fetchFn(`${CADDY_API_URL}/config`, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      return {};
-    }
-
-    const data = await response.json();
-    return data || {};
-  } catch {
+    const response = await caddyRequest(server, 'GET', '/config/');
+    if (response.status >= 400) return {};
+    return JSON.parse(response.body || '{}') || {};
+  } catch (error: any) {
+    console.error(`Could not read Caddy config from ${server.hostname}:`, error?.message);
     return null;
   }
 }
 
-async function putCaddyConfig(config: any): Promise<void> {
-  if (!CADDY_API_URL) {
-    return;
-  }
-
-  const fetchFn: any = (globalThis as any).fetch;
-  if (!fetchFn) {
-    return;
-  }
-
-  try {
-    await fetchFn(`${CADDY_API_URL}/config`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(config),
-    });
-  } catch {
+async function putCaddyConfig(server: SshTarget, config: any): Promise<void> {
+  const response = await caddyRequest(server, 'PUT', '/config/', config);
+  if (response.status >= 400) {
+    throw new Error(`Caddy rejected the config (HTTP ${response.status}): ${response.body.slice(0, 200)}`);
   }
 }
 
@@ -235,8 +272,8 @@ function buildRoute(domain: string, target: Target): any {
 }
 
 /** Rewrite the route list for one hostname: drop what is there, add `target` if given. */
-async function setRoute(domain: string, target: Target | null): Promise<void> {
-  const existing = await fetchCaddyConfig();
+async function setRoute(node: SshTarget, domain: string, target: Target | null): Promise<void> {
+  const existing = await fetchCaddyConfig(node);
   if (existing === null) {
     return;
   }
@@ -264,21 +301,18 @@ async function setRoute(domain: string, target: Target | null): Promise<void> {
   servers[serverName] = server;
   config.apps.http.servers = servers;
 
-  await putCaddyConfig(config);
+  await putCaddyConfig(node, config);
 }
 
 export async function configureCaddyForStaticApplication(
+  node: SshTarget,
   applicationId: string,
   domain: string,
   bucketOrigin?: string | null
 ): Promise<void> {
-  if (!CADDY_API_URL) {
-    return;
-  }
-
   // R2-backed sites are proxied; older ones still redirect to their S3 URL
   if (bucketOrigin) {
-    await setRoute(domain, {
+    await setRoute(node, domain, {
       type: 'bucket',
       origin: bucketOrigin,
     });
@@ -290,55 +324,54 @@ export async function configureCaddyForStaticApplication(
     return;
   }
 
-  await setRoute(domain, {
+  await setRoute(node, domain, {
     type: 'static',
     redirectUrl,
   });
 }
 
-export async function configureCaddyForRuntimeApplication(domain: string, hostPort: number): Promise<void> {
-  if (!CADDY_API_URL) {
-    return;
-  }
-
+export async function configureCaddyForRuntimeApplication(
+  node: SshTarget,
+  domain: string,
+  hostPort: number,
+): Promise<void> {
   if (!hostPort || hostPort <= 0) {
     return;
   }
 
-  await setRoute(domain, {
+  await setRoute(node, domain, {
     type: 'runtime',
     upstreamPort: hostPort,
   });
 }
 
-export async function configureCaddyForPhpApplication(domain: string, root: string, socket: string): Promise<void> {
-  if (!CADDY_API_URL) {
-    return;
-  }
-  await setRoute(domain, { type: 'php', root, socket });
+export async function configureCaddyForPhpApplication(
+  node: SshTarget,
+  domain: string,
+  root: string,
+  socket: string,
+): Promise<void> {
+  await setRoute(node, domain, { type: 'php', root, socket });
 }
 
 /** Drop the hostname's route when the application is deleted. */
-export async function removeCaddySite(domain: string): Promise<void> {
-  if (!CADDY_API_URL) {
-    return;
-  }
-  await setRoute(domain, null);
+export async function removeCaddySite(node: SshTarget, domain: string): Promise<void> {
+  await setRoute(node, domain, null);
 }
 
-export async function configureCaddyForFiles(domain: string, root: string): Promise<void> {
-  if (!CADDY_API_URL || !root) {
+export async function configureCaddyForFiles(node: SshTarget, domain: string, root: string): Promise<void> {
+  if (!root) {
     return;
   }
-  await setRoute(domain, { type: 'files', root });
+  await setRoute(node, domain, { type: 'files', root });
 }
 
 /**
  * Hostnames Caddy is currently serving. The config lives in memory, so this is
  * the only way to know whether a reload has thrown the platform's routes away.
  */
-export async function listCaddyRouteHosts(): Promise<string[] | null> {
-  const config = await fetchCaddyConfig();
+export async function listCaddyRouteHosts(node: SshTarget): Promise<string[] | null> {
+  const config = await fetchCaddyConfig(node);
   if (config === null) return null;
 
   const routes: any[] = config?.apps?.http?.servers?.commitbase?.routes ?? [];
@@ -355,13 +388,13 @@ export async function listCaddyRouteHosts(): Promise<string[] | null> {
 }
 
 /** The whole live config, for snapshotting. Null when Caddy did not answer. */
-export async function getCaddyConfig(): Promise<any | null> {
-  return fetchCaddyConfig();
+export async function getCaddyConfig(node: SshTarget): Promise<any | null> {
+  return fetchCaddyConfig(node);
 }
 
 /** Push a whole config back — restoring a snapshot, and nothing else. */
-export async function replaceCaddyConfig(config: any): Promise<void> {
-  await putCaddyConfig(config);
+export async function replaceCaddyConfig(node: SshTarget, config: any): Promise<void> {
+  await putCaddyConfig(node, config);
 }
 
 /** Hostnames in a config object (live or snapshotted). */

@@ -23,7 +23,6 @@ const SSH_PORT = Number(process.env.SEED_SERVER_SSH_PORT || 22);
 const SSH_KEY_PATH = process.env.CB_SSH_KEY_PATH || '/home/commitbase/.ssh/id_ed25519';
 // SERVER_IP is what cloudflareService already used as the A record target.
 const PUBLIC_IP = process.env.SERVER_IP || process.env.CLOUDFLARE_DNS_TARGET || '';
-const CADDY_API_URL = process.env.CADDY_API_URL || '';
 
 async function main() {
   if (!PUBLIC_IP) {
@@ -37,7 +36,6 @@ async function main() {
     sshPort: SSH_PORT,
     sshKeyPath: SSH_KEY_PATH,
     publicIp: PUBLIC_IP,
-    caddyApiUrl: CADDY_API_URL,
   };
 
   console.log(DRY ? '[dry run] would seed:' : 'seeding:', fields);
