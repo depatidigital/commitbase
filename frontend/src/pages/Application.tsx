@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
@@ -21,8 +22,22 @@ import {
   Search,
   Loader2,
   RefreshCw,
+  Eye,
+  ExternalLink,
+  MoreHorizontal,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { HeartbeatBar, healthLabel } from "@/components/HeartbeatBar";
+import { AppTypeBadge } from "@/components/AppTypeBadge";
+import { getApplicationHealth } from "@/lib/health";
 import { useToast } from "@/hooks/use-toast";
 import {
   useApplicationsWithRealtime,
@@ -34,7 +49,8 @@ import {
   useSyncServerApps,
 } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
-import { hasBeenDeployed } from "@/lib/applications";
+import { bulkAssignApplications, hasBeenDeployed } from "@/lib/applications";
+import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
   Tooltip,
   TooltipContent,
@@ -53,8 +69,21 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+/** Compact relative time — "3d ago". The exact stamp lives in the title. */
+const ago = (value: string) => {
+  const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+};
+
 export default function Application() {
-  const query = useTableQuery();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // an inventory screen, not a dashboard: show a useful page of it at once
+  const query = useTableQuery(25);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOrgId, setBulkOrgId] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     type: "start" | "start-existing" | "stop" | "restart" | "delete";
     appId: string;
@@ -77,6 +106,39 @@ export default function Application() {
   const deleteApp = useDeleteApplication();
 
   const applications = applicationsData?.data || [];
+
+  // One request for the whole page's history — a call per row would be 25 round
+  // trips for one screen. Refetched on the same rhythm the checks are written.
+  const ids = applications.map((app) => app.id);
+  const { data: healthById = {} } = useQuery({
+    queryKey: ["applications", "health", ids],
+    queryFn: () => getApplicationHealth(ids),
+    enabled: ids.length > 0,
+    refetchInterval: 60_000,
+  });
+
+  const bulkAssign = useMutation({
+    mutationFn: () => bulkAssignApplications(selectedIds, bulkOrgId || null),
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      setSelectedIds([]);
+      setBulkOrgId("");
+      toast({ title: "Assigned", description: `${count} application(s) updated` });
+    },
+    onError: (error: Error) =>
+      toast({ title: "Assign failed", description: error.message, variant: "destructive" }),
+  });
+
+  const allSelected =
+    applications.length > 0 && applications.every((app) => selectedIds.includes(app.id));
+
+  const toggleAll = () =>
+    setSelectedIds(allSelected ? [] : applications.map((app) => app.id));
+
+  const toggleOne = (id: string) =>
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
 
   const handleStart = async (id: string, name: string) => {
     setConfirmAction({ type: "start", appId: id, appName: name });
@@ -206,242 +268,230 @@ export default function Application() {
   const dialogContent = getDialogContent();
 
   const columns: Column<(typeof applications)[number]>[] = [
+    ...(superAdmin
+      ? [
+          {
+            header: (
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={toggleAll}
+                aria-label="Select all applications on this page"
+              />
+            ),
+            className: "w-10",
+            cell: (app: (typeof applications)[number]) => (
+              <Checkbox
+                checked={selectedIds.includes(app.id)}
+                onCheckedChange={() => toggleOne(app.id)}
+                aria-label={`Select ${app.name}`}
+              />
+            ),
+          },
+        ]
+      : []),
     {
-      header: "Name",
-      className: "w-[18%]",
-      cell: (app) => (
-        <Link
-          to={`/application/${app.id}`}
-          className="block truncate font-medium transition-colors hover:text-primary"
-        >
-          {app.name}
-        </Link>
-      ),
+      header: "Application",
+      className: "w-[22%]",
+      // name and hostname are the same string for every imported site, so they
+      // share one cell: the name leads, the address and the owner sit under it
+      cell: (app) => {
+        // an imported site is named after its hostname, so printing both is
+        // printing the same string twice — the second line only earns its
+        // place when the app was given a name of its own
+        const named = app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
+
+        return (
+          <div className="min-w-0">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Link
+                to={`/application/${app.id}`}
+                className="truncate font-medium transition-colors hover:text-primary"
+              >
+                {app.name}
+              </Link>
+              <a
+                href={`https://${app.domain}`}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open https://${app.domain}`}
+                aria-label={`Open ${app.domain}`}
+                className="shrink-0 text-muted-foreground hover:text-primary"
+              >
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </span>
+            {named && (
+              <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <Globe className="h-3 w-3 shrink-0" />
+                <span className="truncate">{app.domain}</span>
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    ...(superAdmin
+      ? [
+          {
+            header: "Organization",
+            className: "w-[16%]",
+            // its own column only because a superadmin is the one who assigns
+            // it — everyone else sees a single organization's apps anyway
+            cell: (app: (typeof applications)[number]) =>
+              app.organization ? (
+                <Badge variant="outline" className="max-w-full truncate">
+                  {app.organization.name}
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">Unassigned</span>
+              ),
+          },
+        ]
+      : []),
+    {
+      header: "Type",
+      className: "w-28",
+      cell: (app) => <AppTypeBadge type={app.type} port={app.port} />,
     },
     {
-      header: "Organization",
-      className: "w-[16%]",
+      header: "Server",
+      className: "w-28 text-xs",
       cell: (app) =>
-        app.organization ? (
-          <Badge variant="outline" className="max-w-full truncate">
-            {app.organization.name}
-          </Badge>
+        app.server ? (
+          <Link to={`/servers/${app.server.id}`} className="truncate hover:underline">
+            {app.server.name}
+          </Link>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
     },
     {
-      header: "Domain",
-      className: "w-[18%]",
-      cell: (app) => (
-        <div className="flex min-w-0 items-center space-x-2">
-          <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm">{app.domain}</span>
-        </div>
-      ),
+      header: "Health",
+      className: "w-[22%]",
+      cell: (app) => {
+        const health = healthById[app.id];
+        const label = healthLabel(health);
+        // a deploy in flight is this platform's own work, not the site's health
+        const deploying = app.status === "DEPLOYING" || app.status === "BUILDING";
+
+        return (
+          <div className="space-y-1">
+            <HeartbeatBar health={health} />
+            <span className="flex min-w-0 items-center gap-1.5 text-xs">
+              {deploying ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-warning" />
+                  <span className="text-warning">{app.status.toLowerCase()}</span>
+                </>
+              ) : (
+                <span className={label.className}>{label.text}</span>
+              )}
+              {health?.responseMs != null && (
+                <span className="text-muted-foreground">· {health.responseMs}ms</span>
+              )}
+              {health?.lastError && health.state !== "up" && (
+                <span className="truncate text-muted-foreground" title={health.lastError}>
+                  · {health.lastError}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      },
     },
     {
-      header: "Type",
-      className: "w-24",
-      cell: (app) => <Badge variant="secondary">{app.type}</Badge>,
+      header: "Uptime",
+      className: "w-24 text-xs",
+      cell: (app) => {
+        const uptime = healthById[app.id]?.uptime24h;
+        return uptime == null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <span title="Successful checks in the last 24 hours">{uptime}%</span>
+        );
+      },
     },
     {
-      header: "Status",
-      className: "w-28",
-      cell: (app) => (
-        <div className="flex items-center space-x-2">
-          {app.status === "DEPLOYING" || app.status === "BUILDING" ? (
-            <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />
-          ) : (
-            <div
-              className={`h-2 w-2 rounded-full ${
-                app.status === "RUNNING"
-                  ? "bg-green-500"
-                  : app.status === "STOPPED"
-                    ? "bg-gray-500"
-                    : app.status === "ERROR"
-                      ? "bg-red-500"
-                      : "bg-blue-500"
-              }`}
-            />
-          )}
-          <span className="capitalize">{app.status.toLowerCase()}</span>
-        </div>
-      ),
-    },
-    { header: "Port", className: "w-20", cell: (app) => app.port || "-" },
-    {
-      header: "Last Deployment",
+      header: "Last deploy",
       className: "w-28 text-xs",
-      cell: (app) =>
-        app.deployments && app.deployments.length > 0
-          ? new Date(app.deployments[0].createdAt).toLocaleDateString()
-          : "-",
+      cell: (app) => {
+        const at = app.deployments?.[0]?.createdAt;
+        if (!at) return <span className="text-muted-foreground">—</span>;
+        return <span title={new Date(at).toLocaleString()}>{ago(at)}</span>;
+      },
     },
     {
-      header: "Actions",
-      className: "w-40",
+      header: "",
+      className: "w-16 text-right",
       cell: (app) => (
-        <div className="flex items-center space-x-2">
-          {app.status === "RUNNING" ? (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleStop(app.id, app.name)}
-                    aria-label="Stop application"
-                    disabled={stopApp.isPending}
-                    className="h-8 w-8 p-0"
-                  >
-                    {stopApp.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Square className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Stop App</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleStart(app.id, app.name)}
-                    aria-label="Redeploy application"
-                    disabled={startApp.isPending}
-                    className="h-8 w-8 p-0"
-                  >
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Redeploy (no downtime)</p>
-                </TooltipContent>
-              </Tooltip>
-            </>
-          ) : hasBeenDeployed(app) ? (
-            // Show both Start and Redeploy buttons for previously deployed apps
-            <div className="flex items-center space-x-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    onClick={() => handleStartExisting(app.id, app.name)}
-                    aria-label="Start existing container"
-                    disabled={startExistingApp.isPending}
-                    className="h-8 px-2 text-xs"
-                  >
-                    {startExistingApp.isPending ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Play className="h-3 w-3" />
-                    )}
-                    Start
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Start existing application</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleStart(app.id, app.name)}
-                    aria-label="Start application"
-                    disabled={startApp.isPending}
-                    className="h-8 px-2 text-xs"
-                  >
-                    {startApp.isPending ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-3 w-3" />
-                    )}
-                    Redeploy
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Rebuild and start application</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleStart(app.id, app.name)}
-                  aria-label="Start application"
-                  disabled={startApp.isPending}
-                  className="h-8 w-8 p-0"
-                >
-                  {startApp.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Deploy & Start</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {/* Restart button - only show if application is running */}
-          {app.status === "RUNNING" && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleRestart(app.id, app.name)}
-                  aria-label="Restart application"
-                  disabled={restartApp.isPending}
-                  className="h-8 w-8 p-0"
-                >
-                  {restartApp.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Restart App</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDelete(app.id, app.name)}
-                aria-label="Delete application"
-                disabled={deleteApp.isPending}
-                className="h-8 w-8 p-0 text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              aria-label={`Actions for ${app.name}`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onClick={() => navigate(`/application/${app.id}`)}>
+              <Eye className="mr-2 h-4 w-4" />
+              Manage
+            </DropdownMenuItem>
+
+            {app.status === "RUNNING" ? (
+              <DropdownMenuItem
+                disabled={stopApp.isPending}
+                onClick={() => handleStop(app.id, app.name)}
               >
-                {deleteApp.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
+                <Square className="mr-2 h-4 w-4" />
+                Stop
+              </DropdownMenuItem>
+            ) : hasBeenDeployed(app) ? (
+              <DropdownMenuItem
+                disabled={startExistingApp.isPending}
+                onClick={() => handleStartExisting(app.id, app.name)}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                Start
+              </DropdownMenuItem>
+            ) : null}
+
             {app.status === "RUNNING" && (
-              <TooltipContent>
-                <p>Stop the application first before deleting</p>
-              </TooltipContent>
+              <DropdownMenuItem
+                disabled={restartApp.isPending}
+                onClick={() => handleRestart(app.id, app.name)}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Restart
+              </DropdownMenuItem>
             )}
-          </Tooltip>
-        </div>
+
+            {/* an imported site is supervised by whoever set it up, not by us —
+                offering a redeploy would promise something we cannot do */}
+            {!app.runtime && (
+              <DropdownMenuItem
+                disabled={startApp.isPending}
+                onClick={() => handleStart(app.id, app.name)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {app.status === "RUNNING" ? "Redeploy" : "Deploy and start"}
+              </DropdownMenuItem>
+            )}
+
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={deleteApp.isPending || app.status === "RUNNING"}
+              onClick={() => handleDelete(app.id, app.name)}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
@@ -476,6 +526,30 @@ export default function Application() {
           </div>
         }
       >
+        {/* the imported-sites workflow: fifty unassigned rows, one owner */}
+        {superAdmin && selectedIds.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-muted/40 p-3">
+            <span className="text-sm font-medium">{selectedIds.length} selected</span>
+            <OrganizationCombobox
+              value={bulkOrgId || null}
+              onChange={(id) => setBulkOrgId(id ?? "")}
+              placeholder="Assign to organization"
+              className="w-64"
+            />
+            <Button
+              size="sm"
+              disabled={!bulkOrgId || bulkAssign.isPending}
+              onClick={() => bulkAssign.mutate()}
+            >
+              {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Assign
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+              Clear
+            </Button>
+          </div>
+        )}
+
         <DataTable
           columns={columns}
           rows={applications}

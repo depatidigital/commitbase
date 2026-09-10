@@ -628,8 +628,16 @@ export default function ApplicationDetail() {
                   ) : (
                     <>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">Port</label>
-                        <p className="font-medium">{application.port || 'Not configured'}</p>
+                        <label className="text-sm font-medium text-muted-foreground">Internal port</label>
+                        <p className="font-medium">
+                          {application.port ? `127.0.0.1:${application.port}` : 'Not configured'}
+                        </p>
+                        {/* bound to loopback and reached only through the proxy —
+                            an admin reading a bare number assumes it is open */}
+                        <p className="text-xs text-muted-foreground">
+                          Bound to loopback on the node. Not reachable from outside; the
+                          proxy is what serves this app publicly.
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-muted-foreground">Memory Usage</label>

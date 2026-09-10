@@ -4,7 +4,7 @@ import { syncDomains, backfillExpiries } from './domainSyncService';
 import { provisionPending } from './domainProvisionService';
 import { healCaddyRoutes } from './caddySnapshotService';
 import { syncServerApps } from './appSyncService';
-import { pruneHeartbeats } from './heartbeatService';
+import { pruneHeartbeats, checkApplicationHostnames } from './heartbeatService';
 import { pingAllServers } from './serverHealthService';
 
 /**
@@ -73,6 +73,14 @@ const jobs: Job[] = [
       const failed = r.errors?.length ? ` (errors: ${r.errors.length})` : '';
       return `${r.discovered} site(s), ${r.created} added, ${r.updated} updated${failed}`;
     },
+  },
+  {
+    name: 'app-http-check',
+    // Every minute. No SSH — a TLS connection from the control plane — so it is
+    // cheap enough to give the heartbeat bars a minute of resolution, and an
+    // outage is called within two checks instead of twenty minutes.
+    schedule: process.env.CRON_APP_HTTP_CHECK || '* * * * *',
+    run: checkApplicationHostnames,
   },
   {
     name: 'heartbeat-prune',

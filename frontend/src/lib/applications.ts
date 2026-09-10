@@ -1,6 +1,8 @@
 import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
 
 export interface Application {
+  /** The node it was discovered on, when it came from a server sync. */
+  server?: { id: string; name: string } | null;
   id: string;
   name: string;
   domain: string;
@@ -361,4 +363,18 @@ export const syncServerApps = async (): Promise<AppSyncResult> => {
   }
 
   throw new Error(response.error || 'Failed to sync server apps');
+};
+
+/** Give many applications an owner at once — the imported-sites workflow. */
+export const bulkAssignApplications = async (
+  ids: string[],
+  organizationId: string | null,
+): Promise<number> => {
+  const response = await apiRequest<{ count: number }>('/applications/bulk-assign', {
+    method: 'PATCH',
+    body: JSON.stringify({ ids, organizationId }),
+  });
+
+  if (response.success && response.data) return response.data.count;
+  throw new Error(response.error || 'Failed to assign applications');
 };

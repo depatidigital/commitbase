@@ -15,8 +15,16 @@ import { prisma } from '../lib/prisma';
 
 export type TargetType = 'APPLICATION' | 'SERVER';
 
-/** Beats older than this are pruned — a month is longer than any question asked of them. */
-const RETENTION_DAYS = 30;
+/**
+ * How long raw beats are kept.
+ *
+ * At a beat a minute per application this is the whole storage cost: 50 apps is
+ * ~72k rows a day. A week feeds the bars and every uptime window anyone reads
+ * off this screen.
+ * ponytail: raw only, no rollups. Add an hourly aggregate table if 30- or
+ * 90-day uptime is ever asked for — that is the point where raw stops paying.
+ */
+const RETENTION_DAYS = Number(process.env.HEARTBEAT_RETENTION_DAYS || 7);
 
 /**
  * Consecutive failures before a target is called down.
@@ -191,4 +199,55 @@ export async function pruneHeartbeats(): Promise<number> {
     where: { at: { lt: new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000) } },
   });
   return count;
+}
+
+/**
+ * Check every application's hostname and record what came back.
+ *
+ * Deliberately separate from the inventory sync: this needs no SSH — it opens a
+ * TLS connection from the control plane — so it can run every minute, where the
+ * inventory (pm2, ss, the Caddy config) cannot. That difference is what makes
+ * the bars mean something: a minute of resolution instead of ten.
+ */
+export async function checkApplicationHostnames(): Promise<string> {
+  const { checkAppHostname } = await import('./appDnsService');
+
+  const apps = await prisma.application.findMany({
+    // a hostname that only exists inside the platform has nothing to check
+    where: { domain: { not: { endsWith: '.pm2.local' } } },
+    select: { id: true, domain: true },
+  });
+
+  if (apps.length === 0) return 'no applications to check';
+
+  const beats: BeatInput[] = [];
+  const CONCURRENCY = 10;
+
+  // A slice at a time: fifty simultaneous TLS handshakes is a burst the node
+  // sees as a small flood, and the results are needed together anyway.
+  for (let i = 0; i < apps.length; i += CONCURRENCY) {
+    const slice = apps.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      slice.map(async (app) => {
+        const startedAt = Date.now();
+        const health = await checkAppHostname(app.domain);
+        return { app, health, ms: Date.now() - startedAt };
+      }),
+    );
+
+    for (const { app, health, ms } of results) {
+      beats.push({
+        targetType: 'APPLICATION',
+        targetId: app.id,
+        ok: health.live,
+        responseMs: ms,
+        httpStatus: health.httpStatus,
+        error: health.live ? null : health.error,
+      });
+    }
+  }
+
+  await recordBeats(beats);
+  const up = beats.filter((beat) => beat.ok).length;
+  return `${up}/${beats.length} answering`;
 }

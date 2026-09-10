@@ -243,6 +243,9 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
         where,
         include: {
           organization: { select: { id: true, name: true, slug: true } },
+          // which box it runs on — with more than one node, the row is
+          // ambiguous without it
+          server: { select: { id: true, name: true } },
           deployments: {
             orderBy: {
               createdAt: 'desc',
@@ -284,6 +287,53 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
 });
 
 // Get a specific application by ID
+/**
+ * Give many applications an owner at once.
+ *
+ * A node's sites arrive from the sync unassigned, and there can be fifty of
+ * them — assigning one at a time is the whole reason this exists.
+ */
+router.patch('/bulk-assign', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { ids, organizationId } = req.body as { ids?: unknown; organizationId?: unknown };
+
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids must be a non-empty array of application IDs',
+      } as ApiResponse);
+    }
+
+    if (organizationId !== null && typeof organizationId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'organizationId must be an organization ID or null',
+      } as ApiResponse);
+    }
+
+    if (organizationId) {
+      const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+      if (!organization) {
+        return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+      }
+    }
+
+    const { count } = await prisma.application.updateMany({
+      where: { id: { in: ids as string[] } },
+      data: { organizationId: (organizationId as string) || null },
+    });
+
+    return res.json({
+      success: true,
+      data: { count },
+      message: `${count} application(s) updated`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error bulk assigning applications:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 /**
  * Health for a set of applications: the recent beats, the day's uptime, and
  * whether the failures are enough to call it down.

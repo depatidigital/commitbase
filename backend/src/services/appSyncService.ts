@@ -6,7 +6,6 @@ import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
-import { recordBeats, type BeatInput } from './heartbeatService';
 
 const execAsync = promisify(localExec);
 
@@ -420,7 +419,6 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   }
 
   const discovered = await scanNode(node);
-  const beats: BeatInput[] = [];
   const result: AppSyncResult = { discovered: discovered.length, created: 0, updated: 0, apps: [] };
   const errors: string[] = [];
 
@@ -459,27 +457,10 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         result.apps.push({ ...app, action: 'created' });
       }
 
-      // What the scan saw becomes this round's heartbeat: the same check, kept
-      // instead of discarded, so the row can show a history rather than a dot.
-      beats.push({
-        targetType: 'APPLICATION',
-        targetId: applicationId,
-        ok: app.status === 'RUNNING',
-        error:
-          app.status === 'ERROR'
-            ? app.port
-              ? `Nothing is listening on port ${app.port}`
-              : 'The site is not being served'
-            : app.status === 'STOPPED'
-              ? 'The process is stopped'
-              : null,
-      });
     } catch (error: any) {
       errors.push(`${app.domain}: ${error?.message || 'sync failed'}`);
     }
   }
-
-  await recordBeats(beats);
 
   if (errors.length) result.errors = errors;
   return result;
