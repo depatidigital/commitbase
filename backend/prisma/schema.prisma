@@ -54,7 +54,7 @@ model Organization {
   mysqlServerId    String?
   mysqlServer      DatabaseServer? @relation("OrgMysqlServer", fields: [mysqlServerId], references: [id])
 
-  // OS provisioning queue (orgProvisionQueue). Requests only flag the row;
+  // OS provisioning queue (orgProvisionService). Requests only flag the row;
   // the worker runs cb-provision-org over SSH and records the outcome here.
   // A QUEUED org with no server waits until it is placed.
   provisionState ProvisionState @default(NONE)
@@ -123,8 +123,8 @@ model Server {
   /// "the panel cannot reach this box" is a state an admin has to be able to
   /// see before a tenant reports it.
   status        String    @default("UNKNOWN")
-  /// Whether the runner scripts are installed on this node. Separate from
-  /// status on purpose: a box can be perfectly reachable and simply not set up
+  /// Whether the panel can become root on this node (the runner scripts are
+  /// sent over SSH, so that is all "set up" needs). Separate from status on purpose: a box can be perfectly reachable and simply not set up
   /// yet, and those two problems have completely different fixes.
   provisioned   Boolean   @default(false)
   lastSeenAt    DateTime?

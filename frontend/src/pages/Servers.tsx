@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ import {
   RefreshCw,
   ScrollText,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -51,6 +53,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
+import { ProvisionBadge } from "@/components/ProvisionBadge";
+import { isProvisionPending } from "@/lib/organizations";
 import { t } from "@/lib/i18n";
 import {
   LogSource,
@@ -61,6 +65,7 @@ import {
   getServerLogs,
   getServersPage,
   pingServer,
+  setupServer,
   updateServer,
 } from "@/lib/servers";
 
@@ -107,10 +112,17 @@ export default function Servers() {
   // the node whose logs are open, or null
   const [logsFor, setLogsFor] = useState<Server | null>(null);
   const [logSource, setLogSource] = useState<LogSource>("system");
+  // the node about to be set up, and whether to add PHP-FPM
+  const [confirmSetup, setConfirmSetup] = useState<Server | null>(null);
+  const [withPhp, setWithPhp] = useState(false);
+  // the node whose last setup output is open
+  const [setupLogFor, setSetupLogFor] = useState<Server | null>(null);
 
   const { data, isFetching } = useQuery({
     queryKey: ["servers", "page", query.params, tagFilter],
     queryFn: () => getServersPage(query.params, tagFilter),
+    // poll while a setup is queued or running
+    refetchInterval: (q) => (q.state.data?.data.some((s) => isProvisionPending(s.setupState)) ? 5000 : false),
   });
 
   const { data: logs, isFetching: logsLoading, refetch: refetchLogs } = useQuery({
@@ -182,6 +194,19 @@ export default function Servers() {
       });
     },
     onError: fail,
+  });
+
+  const setupMutation = useMutation({
+    mutationFn: (server: Server) => setupServer(server.id, withPhp),
+    onSuccess: () => {
+      refresh();
+      setConfirmSetup(null);
+      toast({ title: t("Setup queued"), description: t("Runs in the background — the list updates when it finishes.") });
+    },
+    onError: (error: Error) => {
+      setConfirmSetup(null);
+      fail(error);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -263,6 +288,18 @@ export default function Servers() {
         </div>
       ),
     },
+    {
+      header: t("Provisioning"),
+      className: "w-32",
+      cell: (s) => (
+        <ProvisionBadge
+          state={s.setupState}
+          error={s.setupError}
+          at={s.setupAt}
+          onClick={s.setupLog ? () => setSetupLogFor(s) : undefined}
+        />
+      ),
+    },
     { header: t("Orgs"), className: "w-20", cell: (s) => s._count.organizations },
     {
       header: t("Last error"),
@@ -306,6 +343,16 @@ export default function Servers() {
             >
               <ScrollText className="mr-2 h-4 w-4" />
               {t("Logs")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isProvisionPending(s.setupState)}
+              onClick={() => {
+                setWithPhp(false);
+                setConfirmSetup(s);
+              }}
+            >
+              <Wrench className="mr-2 h-4 w-4" />
+              {t("Set up server")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openEdit(s)}>
               <Pencil className="mr-2 h-4 w-4" />
@@ -562,6 +609,41 @@ export default function Servers() {
               stretching the dialog */}
           <pre className="max-h-[55vh] overflow-auto rounded-md bg-muted p-3 text-xs leading-relaxed">
             {logsLoading && !logs ? t("Loading…") : logs?.output || t("(no output)")}
+          </pre>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!confirmSetup} onOpenChange={(o) => !o && setConfirmSetup(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Set up {name}?", { name: confirmSetup?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Runs install.sh as root on this box over SSH: system packages, Caddy, the panel's SSH user with passwordless root, and the panel's key. Takes a few minutes. Safe to re-run.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={withPhp} onCheckedChange={(v) => setWithPhp(v === true)} />
+            {t("Also install PHP-FPM and Composer")}
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmSetup && setupMutation.mutate(confirmSetup)}>
+              {t("Set up server")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={!!setupLogFor} onOpenChange={(o) => !o && setSetupLogFor(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t("Setup output — {name}", { name: setupLogFor?.name ?? "" })}</DialogTitle>
+            {setupLogFor?.setupError && (
+              <DialogDescription className="text-destructive">{setupLogFor.setupError}</DialogDescription>
+            )}
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
+            {setupLogFor?.setupLog}
           </pre>
         </DialogContent>
       </Dialog>

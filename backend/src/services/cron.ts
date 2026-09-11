@@ -8,6 +8,7 @@ import { pruneHeartbeats, checkApplicationHostnames } from './heartbeatService';
 import { pingAllServers } from './serverHealthService';
 import { checkAllDatabaseServers } from './databaseServerService';
 import { provisionQueuedOrgs } from './orgProvisionService';
+import { setupQueuedServers } from './serverSetupService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -122,6 +123,12 @@ const jobs: Job[] = [
     // were queued before they had a server.
     schedule: process.env.CRON_ORG_PROVISION || '* * * * *',
     run: provisionQueuedOrgs,
+  },
+  {
+    name: 'server-setup',
+    // Same shape: kicked in-process, swept for what a restart cut short.
+    schedule: process.env.CRON_SERVER_SETUP || '* * * * *',
+    run: setupQueuedServers,
   },
 ];
 

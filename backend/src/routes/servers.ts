@@ -7,6 +7,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { pingServer } from '../services/serverHealthService';
+import { queueServerSetup } from '../services/serverSetupService';
 import { exec, RemoteExecError } from '../lib/runner';
 import { snapshotNode } from '../services/caddySnapshotService';
 import { syncServerApps, classifyRoute, routeHosts, isNotAnApp } from '../services/appSyncService';
@@ -436,6 +437,25 @@ router.delete('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req
       return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
     }
     console.error('Error deleting server:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// Queue install.sh ROLE=node on this box, run over SSH. Idempotent: re-running
+// upgrades packages and re-applies the config install.sh owns.
+router.post('/:id/setup', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string }, select: { id: true, name: true } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    await queueServerSetup(server.id, { withPhp: req.body?.withPhp === true });
+    return res.status(202).json({
+      success: true,
+      data: { setupState: 'QUEUED' },
+      message: `Setup queued for ${server.name}`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error queueing server setup:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

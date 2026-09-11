@@ -159,4 +159,14 @@ export default {
   "Failed to fetch RDASH config": "Gagal memuat konfigurasi RDASH",
   "Failed to fetch Cloudflare config": "Gagal memuat konfigurasi Cloudflare",
   "Failed to fetch Cloudflare zones": "Gagal memuat zona Cloudflare",
+
+  // server setup queue
+  "Set up server": "Siapkan server",
+  "Set up {name}?": "Siapkan {name}?",
+  "Runs install.sh as root on this box over SSH: system packages, Caddy, the panel's SSH user with passwordless root, and the panel's key. Takes a few minutes. Safe to re-run.":
+    "Menjalankan install.sh sebagai root di server ini lewat SSH: paket sistem, Caddy, pengguna SSH panel dengan root tanpa kata sandi, dan kunci panel. Butuh beberapa menit. Aman dijalankan ulang.",
+  "Also install PHP-FPM and Composer": "Sekalian pasang PHP-FPM dan Composer",
+  "Setup queued": "Penyiapan masuk antrean",
+  "Setup output — {name}": "Keluaran penyiapan — {name}",
+  "Failed to queue server setup": "Gagal mengantrekan penyiapan server",
 } satisfies Record<string, string>;

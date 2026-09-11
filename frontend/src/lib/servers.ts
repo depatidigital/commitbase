@@ -1,7 +1,7 @@
 import apiRequest from './api';
 import { ListParams, listQuery } from './admin';
 import type { Paginated } from '@/components/DataTable';
-import type { Organization } from './organizations';
+import type { Organization, ProvisionState } from './organizations';
 import { t } from '@/lib/i18n';
 
 export type ServerStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
@@ -22,10 +22,16 @@ export interface Server {
   publicIp: string;
   tags: string[];
   status: ServerStatus;
-  /** Runner scripts installed? A node can be reachable and still not set up. */
+  /** Can the panel become root here? A node can be reachable and still not set up. */
   provisioned: boolean;
   lastSeenAt: string | null;
   lastError: string | null;
+  /** Setup queue: install.sh ROLE=node run over SSH by the panel. */
+  setupState: ProvisionState;
+  setupError: string | null;
+  /** Tail of the last setup run's output. */
+  setupLog: string | null;
+  setupAt: string | null;
   createdAt: string;
   _count: { organizations: number };
 }
@@ -94,6 +100,13 @@ export const pingServer = async (
   id: string
 ): Promise<{ id: string; name: string; status: ServerStatus; provisioned: boolean; error?: string }> =>
   unwrap(await apiRequest(`/servers/${id}/ping`, { method: 'POST' }), t('Failed to reach server'));
+
+/** Queue install.sh ROLE=node on this node, run over SSH. */
+export const setupServer = async (id: string, withPhp: boolean) =>
+  unwrap(
+    await apiRequest(`/servers/${id}/setup`, { method: 'POST', body: JSON.stringify({ withPhp }) }),
+    t('Failed to queue server setup'),
+  );
 
 /** Place an organization on a node. `null` unplaces it. */
 export const setOrganizationServer = async (orgId: string, serverId: string | null): Promise<Organization> =>

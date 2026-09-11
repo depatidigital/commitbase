@@ -184,6 +184,5 @@ export default {
   Queued: "Dalam antrean",
   Failed: "Gagal",
   "Waiting for server": "Menunggu server",
-  "Runs once the organization is placed on a server.": "Berjalan setelah organisasi ditempatkan di server.",
   "Provisioning queued": "Provisi masuk antrean",
 } satisfies Record<string, string>;
