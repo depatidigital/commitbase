@@ -7,7 +7,7 @@ import { validateRequest } from '../middleware/validation';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { paging, paginated, contains } from '../lib/paging';
 import {
-  provisionOrgLogged,
+  queueOrgProvision,
   getProvisionStatus,
   OS_ISOLATION_ENABLED,
 } from '../services/orgProvisionService';
@@ -284,19 +284,20 @@ router.post('/organizations/:id/provision', async (req: AuthenticatedRequest, re
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
     }
 
+    // Queued, not run: the list polls provisionState for the outcome.
     const { diskQuota, cpuQuota, memoryMax } = req.body || {};
-    const result = await provisionOrgLogged(org.slug, req.user!.userId, {
-      diskQuota,
-      cpuQuota,
-      memoryMax,
-      organizationId: org.id,
+    await queueOrgProvision(org.id, {
+      userId: req.user!.userId,
       trigger: 'admin',
+      ...(typeof diskQuota === 'string' && { diskQuota }),
+      ...(typeof cpuQuota === 'string' && { cpuQuota }),
+      ...(typeof memoryMax === 'string' && { memoryMax }),
     });
 
-    return res.json({
+    return res.status(202).json({
       success: true,
-      data: { ...result, status: await getProvisionStatus(org.slug) },
-      message: `Provisioned ${result.osUser ?? org.slug}`,
+      data: { provisionState: 'QUEUED' },
+      message: org.serverId ? `Queued cb-${org.slug}` : `Queued cb-${org.slug} — runs once it is placed on a server`,
     } as ApiResponse);
   } catch (error: any) {
     const message = error?.stderr || error?.message || String(error);

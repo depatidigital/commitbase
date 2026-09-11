@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { exec, remoteExists, remoteReadDir, rootArgv, type SshTarget, type ExecOptions } from '../lib/runner';
+import { execRoot, remoteExists, remoteReadDir, type SshTarget, type ExecOptions } from '../lib/runner';
 import { serverForOrg } from '../lib/servers';
 import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } from '../lib/appPaths';
 
@@ -17,7 +17,7 @@ import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } 
  * their text is sent with every call as `bash -c <script> <name> <args...>`.
  * A node therefore always runs the script that matches this panel's version.
  * The price is that the SSH user needs passwordless root (root itself, or
- * NOPASSWD: ALL) — see rootArgv in runner.ts.
+ * NOPASSWD: ALL, or sudo with the stored login password) — see execRoot in runner.ts.
  *
  * Arguments are still passed as an array, never as a shell string; runner.ts
  * quotes each element (the script text included), so nothing from the database
@@ -53,7 +53,7 @@ function assertSlug(slug: string) {
 
 /** Run one runner script as root on the node, its text sent inline. $0 is the script name. */
 function runScript(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', args: string[], opts: ExecOptions = {}) {
-  return exec(server, rootArgv(server, ['bash', '-c', script(name), name, ...args]), opts);
+  return execRoot(server, ['bash', '-c', script(name), name, ...args], opts);
 }
 
 async function sudo(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', args: string[], timeout = 60_000): Promise<string> {

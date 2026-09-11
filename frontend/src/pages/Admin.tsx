@@ -120,17 +120,12 @@ export default function Admin() {
 
   const provisionMutation = useMutation({
     mutationFn: (organizationId: string) => provisionOrganization(organizationId),
-    onSuccess: (_result, organizationId) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "provision-logs"] });
-      const org = orgData?.data.find((o) => o.id === organizationId);
+      queryClient.invalidateQueries({ queryKey: ["organizations"] });
       setPendingProvision(null);
-      toast({
-        title: t("Provisioned"),
-        description: org
-          ? t("{user} now has its own OS user, home and cgroup slice.", { user: `cb-${org.slug}` })
-          : t("OS user provisioned."),
-      });
+      // runs in the background; the Organizations list shows the outcome
+      toast({ title: t("Provisioning queued") });
     },
     onError: (error: Error) => {
       setPendingProvision(null);

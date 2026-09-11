@@ -14,8 +14,16 @@ export interface Organization {
   /** Where this tenant's databases are created, per engine. null until placed. */
   postgresServer?: { id: string; name: string; status: string } | null;
   mysqlServer?: { id: string; name: string; status: string } | null;
+  /** OS provisioning queue. QUEUED with no server waits for placement. */
+  provisionState: ProvisionState;
+  provisionError: string | null;
+  provisionedAt: string | null;
   _count: { members: number; domains: number; applications: number };
 }
+
+export type ProvisionState = 'NONE' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
+
+export const isProvisionPending = (s: ProvisionState) => s === 'QUEUED' || s === 'RUNNING';
 
 export interface Member {
   id: string;

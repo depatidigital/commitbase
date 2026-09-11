@@ -177,4 +177,13 @@ export default {
   "Failed to revoke invite": "Gagal mencabut undangan",
   "This invite link is invalid or has expired": "Tautan undangan ini tidak valid atau sudah kedaluwarsa",
   "Failed to accept invite": "Gagal menerima undangan",
+
+  // provisioning queue
+  Provisioning: "Provisi",
+  Running: "Berjalan",
+  Queued: "Dalam antrean",
+  Failed: "Gagal",
+  "Waiting for server": "Menunggu server",
+  "Runs once the organization is placed on a server.": "Berjalan setelah organisasi ditempatkan di server.",
+  "Provisioning queued": "Provisi masuk antrean",
 } satisfies Record<string, string>;

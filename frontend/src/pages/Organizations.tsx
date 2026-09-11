@@ -24,6 +24,7 @@ import {
   isInviteResult,
   createOrganization,
   getOrganizationsPage,
+  isProvisionPending,
 } from "@/lib/organizations";
 import { Label } from "@/components/ui/label";
 import { t } from "@/lib/i18n";
@@ -41,6 +42,9 @@ export default function Organizations() {
   const { data, isFetching } = useQuery({
     queryKey: ["organizations", "page", query.params],
     queryFn: () => getOrganizationsPage(query.params),
+    // poll while a placed org is still in the provisioning queue
+    refetchInterval: (q) =>
+      q.state.data?.data.some((o) => o.server && isProvisionPending(o.provisionState)) ? 5000 : false,
   });
 
   const orgMutation = useMutation({
@@ -111,6 +115,35 @@ export default function Organizations() {
         ) : (
           <span className="block truncate">{o.server.name}</span>
         ),
+    },
+    {
+      header: t("Provisioning"),
+      className: "w-36",
+      cell: (o) => {
+        switch (o.provisionState) {
+          case "DONE":
+            return <Badge title={o.provisionedAt ? new Date(o.provisionedAt).toLocaleString() : undefined}>{t("Provisioned")}</Badge>;
+          case "RUNNING":
+            return (
+              <Badge variant="secondary">
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" /> {t("Running")}
+              </Badge>
+            );
+          case "QUEUED":
+            return (
+              <Badge
+                variant="secondary"
+                title={o.server ? undefined : t("Runs once the organization is placed on a server.")}
+              >
+                {o.server ? t("Queued") : t("Waiting for server")}
+              </Badge>
+            );
+          case "FAILED":
+            return <Badge variant="destructive" title={o.provisionError ?? undefined}>{t("Failed")}</Badge>;
+          default:
+            return <span className="text-xs text-muted-foreground">—</span>;
+        }
+      },
     },
     {
       header: t("Databases"),

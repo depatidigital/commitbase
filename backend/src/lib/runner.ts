@@ -40,6 +40,8 @@ export interface ExecOptions {
   timeout?: number;
   /** Bytes of stdout+stderr to keep. Default 64 MiB — builds are noisy. */
   maxBuffer?: number;
+  /** Written to the command's stdin, which is then closed. */
+  input?: string;
 }
 
 /**
@@ -83,12 +85,34 @@ export function shellQuote(arg: string): string {
 export const buildCommand = (argv: string[]): string => argv.map(shellQuote).join(' ');
 
 /**
- * Prefix argv so it runs as root on the node. Logging in as root needs nothing;
- * any other SSH user needs `NOPASSWD: ALL` — `-n` makes a password prompt fail
- * fast instead of hanging a channel that has no tty to answer it.
+ * Validate sudo with the password read from stdin, then run the command with
+ * stdin from /dev/null. The password lives only in a shell variable and sudo's
+ * stdin: never in argv (visible in ps) and never in the command's stdin, where
+ * a NOPASSWD grant would leave it unread for a tenant build to pick up. No
+ * `exec` on the second sudo: its cached credential is keyed on the parent PID,
+ * which has to be the same shell the first sudo ran under.
  */
-export const rootArgv = (server: Pick<SshTarget, 'sshUser'>, argv: string[]): string[] =>
-  server.sshUser === 'root' ? argv : ['sudo', '-n', ...argv];
+const SUDO_WITH_PASSWORD =
+  'IFS= read -r pw; printf "%s\\n" "$pw" | sudo -S -p "" -v && sudo -n "$@" </dev/null';
+
+/**
+ * Run argv as root on the node:
+ * - logged in as root: as is;
+ * - password auth: sudo with the stored login password (an ordinary sudoer works);
+ * - key auth: `sudo -n`, so the user needs NOPASSWD — `-n` makes a prompt fail
+ *   fast instead of hanging a channel that has no tty to answer it.
+ */
+export function execRoot(server: SshTarget, argv: string[], opts: ExecOptions = {}): Promise<ExecResult> {
+  if (server.sshUser === 'root') return exec(server, argv, opts);
+
+  if ((server.authMethod ?? 'KEY') === 'PASSWORD' && server.sshPassword) {
+    const password = decrypt(server.sshPassword);
+    if (/[\r\n]/.test(password)) throw new Error(`SSH password for ${server.hostname} cannot be used for sudo: it contains a newline`);
+    return exec(server, ['sh', '-c', SUDO_WITH_PASSWORD, 'sh', ...argv], { ...opts, input: password + '\n' });
+  }
+
+  return exec(server, ['sudo', '-n', ...argv], opts);
+}
 
 // One live connection per server, reused across execs. A deploy fires many
 // commands back to back and an SSH handshake per command would dominate.
@@ -197,6 +221,7 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
 
       stream.on('data', (c: Buffer) => append('out', c));
       stream.stderr.on('data', (c: Buffer) => append('err', c));
+      if (opts.input !== undefined) stream.end(opts.input);
 
       stream.on('close', (code: number | null) => {
         clearTimeout(timer);

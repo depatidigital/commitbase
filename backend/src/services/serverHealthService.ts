@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { recordBeat } from './heartbeatService';
-import { exec, rootArgv, RemoteExecError, type SshTarget } from '../lib/runner';
+import { execRoot, RemoteExecError, type SshTarget } from '../lib/runner';
 
 /**
  * Node heartbeat.
@@ -71,7 +71,7 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
   const startedAt = Date.now();
 
   try {
-    await exec(server, rootArgv(server, ['true']), { timeout: PING_TIMEOUT_MS });
+    await execRoot(server, ['true'], { timeout: PING_TIMEOUT_MS });
     await prisma.server.update({
       where: { id: server.id },
       data: { status: 'ONLINE', provisioned: true, lastSeenAt: new Date(), lastError: null },
@@ -89,7 +89,7 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
     // A RemoteExecError carrying an exit code means the command ran, so the
     // node answered — it is up, just not set up.
     if (err instanceof RemoteExecError && err.code !== null) {
-      const note = `Reachable, but ${server.sshUser} has no passwordless root — log in as root or grant NOPASSWD: ALL (install.sh ROLE=node does) before placing organizations on it`;
+      const note = `Reachable, but ${server.sshUser} cannot become root — use Set up server, log in as root, or grant sudo before placing organizations on it`;
       await prisma.server
         .update({
           where: { id: server.id },

@@ -57,7 +57,7 @@ model Organization {
   // OS provisioning queue (orgProvisionQueue). Requests only flag the row;
   // the worker runs cb-provision-org over SSH and records the outcome here.
   // A QUEUED org with no server waits until it is placed.
-  provisionState OrgProvisionState @default(NONE)
+  provisionState ProvisionState @default(NONE)
   provisionError String?
   /// { userId, trigger, diskQuota?, cpuQuota?, memoryMax? } of the pending request
   provisionJob   Json?
@@ -75,7 +75,7 @@ model Organization {
   @@map("organizations")
 }
 
-enum OrgProvisionState {
+enum ProvisionState {
   NONE
   QUEUED
   RUNNING
@@ -131,6 +131,16 @@ model Server {
   /// Why the last heartbeat failed. Kept so the failure is diagnosable from
   /// the UI without shell access to either machine.
   lastError     String?
+
+  /// Node setup queue (serverSetupService): the panel runs install.sh ROLE=node
+  /// over SSH. Same states as an organization's provisioning.
+  setupState    ProvisionState @default(NONE)
+  setupError    String?
+  /// { withPhp? } of the pending request
+  setupJob      Json?
+  /// Tail of the last setup run's output.
+  setupLog      String?
+  setupAt       DateTime?
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
