@@ -25,6 +25,8 @@ export interface Application {
   staticSiteUrl?: string | null;
   /** the site's Cloudflare R2 bucket, once files have been uploaded */
   staticBucket?: string | null;
+  /** detail endpoint only: the node it runs on (found there, else its organization's) */
+  placement?: { id: string; name: string; hostname: string; publicIp: string; tags: string[] } | null;
   runtime?: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | null;
   processName?: string | null;
   rootPath?: string | null;

@@ -454,6 +454,12 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
             createdAt: 'desc',
           },
         },
+        // where it runs: the node the sync found it on, else its organization's
+        // node (the one serverForApplication routes through). Never SSH fields.
+        server: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } },
+        organization: {
+          select: { server: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
+        },
       },
     });
 
@@ -481,6 +487,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       data: {
         ...application,
         staticSiteUrl,
+        placement: application.server ?? application.organization?.server ?? null,
       },
       message: 'Application retrieved successfully',
     } as ApiResponse<Application & { staticSiteUrl?: string | null }>);

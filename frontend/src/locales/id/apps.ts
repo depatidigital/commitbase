@@ -150,6 +150,27 @@ export default {
   "Rebuilding from the new files…": "Membangun ulang dari file baru…",
   "The new files replace what the site serves.": "File baru menggantikan isi situs saat ini.",
   "The app is rebuilt from the new files.": "Aplikasi dibangun ulang dari file baru.",
+  "The uploaded files are published to the site.": "File yang diunggah dipublikasikan ke situs.",
+  "Replace the whole site": "Ganti seluruh isi situs",
+  "Files on the site that are not in this upload are deleted.":
+    "File di situs yang tidak ada di unggahan ini akan dihapus.",
+  "Only adds and overwrites — files already on the site stay.":
+    "Hanya menambah dan menimpa — file yang sudah ada di situs tetap.",
+  // site files card
+  "Site files": "File situs",
+  "Delete ({count})": "Hapus ({count})",
+  "Loading files…": "Memuat file…",
+  "The site has no files.": "Situs belum punya file.",
+  "Open {path}": "Buka {path}",
+  "Files deleted": "File dihapus",
+  "{count} files removed from the site.": "{count} file dihapus dari situs.",
+  "Delete {count} files from the site?": "Hapus {count} file dari situs?",
+  "They stop being served right away. This cannot be undone — upload them again to bring them back.":
+    "File langsung berhenti disajikan. Tidak bisa dibatalkan — unggah lagi untuk mengembalikannya.",
+  "Could not list the files": "Daftar file tidak bisa dimuat",
+  "Could not delete the files": "File tidak bisa dihapus",
+  "No server — assign the organization to one before deploying.":
+    "Belum ada server — tetapkan server untuk organisasinya sebelum deploy.",
   // releases / rollback
   Releases: "Release",
   Serving: "Aktif",

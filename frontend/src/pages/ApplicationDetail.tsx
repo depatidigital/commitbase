@@ -53,6 +53,7 @@ import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/appli
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
+import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { locale, t } from "@/lib/i18n";
 import {
   Tooltip,
@@ -576,6 +577,37 @@ export default function ApplicationDetail() {
                     </p>
                   </div>
                   <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">{t("Server")}</label>
+                    {application.placement ? (
+                      <div className="space-y-1">
+                        <Link
+                          to={`/servers/${application.placement.id}`}
+                          className="flex items-center gap-2 font-medium hover:text-primary"
+                        >
+                          <Server className="h-4 w-4 text-muted-foreground" />
+                          {application.placement.name}
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {application.placement.publicIp}
+                          </span>
+                        </Link>
+                        {application.placement.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {application.placement.tags.map((tag) => (
+                              <Badge key={tag} variant="outline" className="text-xs">
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      // routes and builds refuse to run without one — say it here
+                      <p className="text-sm text-destructive">
+                        {t("No server — assign the organization to one before deploying.")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">{t("Directory")}</label>
                     <p className="font-mono text-sm break-all">{application.rootPath || t('Not detected')}</p>
                   </div>
@@ -822,6 +854,11 @@ export default function ApplicationDetail() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* what the static site is serving — only once there is a bucket */}
+            {application.type === "STATIC" && application.staticBucket && (
+              <SiteFilesCard appId={application.id} />
+            )}
           </TabsContent>
 
           {/* Logs Tab */}
