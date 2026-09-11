@@ -189,12 +189,17 @@ and is not.
 
 ```bash
 sudo -u commitbase ssh-keygen -t ed25519 -N '' -f /opt/commitbase/.ssh/id_ed25519
-sudo -u commitbase sh -c 'cat /opt/commitbase/.ssh/id_ed25519.pub >> /opt/commitbase/.ssh/authorized_keys'
-chmod 700 /opt/commitbase/.ssh && chmod 600 /opt/commitbase/.ssh/authorized_keys
+
+# The panel logs in as larika (in the commitbase group, full passwordless root
+# via runner/commitbase.sudoers), not as commitbase.
+id larika >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --groups commitbase larika
+install -d -m 700 -o larika -g larika ~larika/.ssh
+cat /opt/commitbase/.ssh/id_ed25519.pub >> ~larika/.ssh/authorized_keys
+chown larika:larika ~larika/.ssh/authorized_keys && chmod 600 ~larika/.ssh/authorized_keys
 
 # prove it works — and accept the host key while you are here, so the first
 # real connection is not the one that has to answer a prompt
-sudo -u commitbase ssh -o StrictHostKeyChecking=accept-new      -i /opt/commitbase/.ssh/id_ed25519 commitbase@127.0.0.1 true
+sudo -u commitbase ssh -o StrictHostKeyChecking=accept-new      -i /opt/commitbase/.ssh/id_ed25519 larika@127.0.0.1 sudo -n true
 ```
 
 Set `CB_SSH_KEY_PATH=/opt/commitbase/.ssh/id_ed25519` in the backend env — it is
@@ -202,8 +207,9 @@ the default `sshKeyPath` for seeded nodes, and the directory every server row's
 key must sit inside.
 
 For an **additional** node later: generate nothing new. Append this same public
-key to that box's `~commitbase/.ssh/authorized_keys`, then register the node in
-the panel using its hostname. One key, every node.
+key to that box's `~larika/.ssh/authorized_keys` (or run `install.sh` with
+`ROLE=node`, which does it), then register the node in the panel with SSH user
+`larika`. One key, every node.
 
 **Password authentication** is supported for boxes where installing a key is not
 an option: register the node with `authMethod: "PASSWORD"` and an `sshPassword`.
