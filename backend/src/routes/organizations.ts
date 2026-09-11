@@ -8,7 +8,7 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
-import { provisionOrgLogged, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
+import { queueOrgProvision, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 
 const router = Router();
 
@@ -162,27 +162,21 @@ router.post(
         return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
       }
 
-      // Provision the OS user before the row exists: an org with no home is an
-      // org whose apps fail to deploy, and the script is idempotent so a
-      // leftover user from a failed create costs nothing.
-      if (OS_ISOLATION_ENABLED) {
-        try {
-          await provisionOrgLogged(slug, req.user!.userId, { trigger: 'org-create' });
-        } catch (err) {
-          console.error(`Failed to provision OS user for org "${slug}":`, err);
-          return res.status(500).json({
-            success: false,
-            error: 'Could not provision isolated OS user for this organization',
-          } as ApiResponse);
-        }
-      }
-
-      const organization = await prisma.organization.create({
+      const created = await prisma.organization.create({
         data: {
           name,
           slug,
           members: { create: { userId: req.user!.userId, role: 'OWNER' } },
         },
+        select: { id: true },
+      });
+
+      // Queued, not run: a new org has no server yet, so the worker picks it up
+      // the moment it is placed.
+      await queueOrgProvision(created.id, { userId: req.user!.userId, trigger: 'org-create' });
+
+      const organization = await prisma.organization.findUniqueOrThrow({
+        where: { id: created.id },
         include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
       });
 
@@ -235,6 +229,13 @@ router.put(
           server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
         },
       });
+
+      // Placing is what lets provisioning run. Idempotent, so re-placing on
+      // the same server doubles as a repair.
+      if (serverId) {
+        await queueOrgProvision(id, { userId: req.user!.userId, trigger: 'placement' });
+        if (OS_ISOLATION_ENABLED) organization.provisionState = 'QUEUED';
+      }
 
       return res.json({
         success: true,

@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma';
 import { CreateUserSchema, LoginSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { provisionOrgLogged, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
+import { queueOrgProvision } from '../services/orgProvisionService';
 
 const router = Router();
 
@@ -69,14 +69,10 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
       },
     });
 
-    // The bootstrap org is created inline above, so it misses the provisioning
-    // that POST /api/organizations does. Run it here, but never fail the very
-    // first registration over it — the admin can retry from /admin.
-    if (OS_ISOLATION_ENABLED) {
-      await provisionOrgLogged('default', user.id, { trigger: 'bootstrap' }).catch((err) =>
-        console.error('Bootstrap organization provisioning failed:', err)
-      );
-    }
+    // The bootstrap org is created inline above, so it misses the queueing that
+    // POST /api/organizations does. It runs once the org is placed on a server.
+    const bootstrapOrg = await prisma.organization.findUnique({ where: { slug: 'default' }, select: { id: true } });
+    if (bootstrapOrg) await queueOrgProvision(bootstrapOrg.id, { userId: user.id, trigger: 'bootstrap' });
 
     const token = jwt.sign(
       {

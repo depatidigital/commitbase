@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, remoteExists, remoteReadDir, rootArgv, type SshTarget, type ExecOptions } from '../lib/runner';
 import { serverForOrg } from '../lib/servers';
@@ -242,4 +243,98 @@ export async function provisionOrgLogged(
     await logProvision('ERROR', `Provisioning failed for "${slug}": ${message}`, userId, base);
     throw err;
   }
+}
+
+// --- Queue -------------------------------------------------------------------
+//
+// Provisioning is a root script on a remote node — seconds on a good day, a
+// connect timeout on a bad one. Nothing waits for it: a request flags the org
+// QUEUED, the worker runs it and records DONE or FAILED on the row. Same shape
+// as domainProvisionService: kicked in-process, swept by cron for what a
+// restart or an unplaced org left behind.
+//
+// States: NONE → QUEUED → RUNNING → DONE | FAILED. FAILED is not retried on its
+// own — a broken node would fail every minute; an admin re-queues.
+
+export interface ProvisionJob {
+  userId: string;
+  trigger: string;
+  diskQuota?: string;
+  cpuQuota?: string;
+  memoryMax?: string;
+}
+
+/** Orgs being provisioned by this process. Anything RUNNING that is not here was orphaned by a restart. */
+const running = new Set<string>();
+
+/**
+ * Flag an organization for provisioning and kick the worker. Returns at once.
+ * Re-queuing an org that is already queued just replaces the pending request.
+ */
+export async function queueOrgProvision(organizationId: string, job: ProvisionJob): Promise<void> {
+  if (!OS_ISOLATION_ENABLED) return;
+  await prisma.organization.update({
+    where: { id: organizationId },
+    data: { provisionState: 'QUEUED', provisionError: null, provisionJob: job as any },
+  });
+  void runOrgProvision(organizationId);
+}
+
+/** Run one queued org. Safe to call twice: claiming QUEUED → RUNNING is the guard. */
+export async function runOrgProvision(organizationId: string): Promise<void> {
+  if (running.has(organizationId)) return;
+  running.add(organizationId);
+
+  try {
+    // Unplaced orgs stay QUEUED — placement kicks them.
+    const claimed = await prisma.organization.updateMany({
+      where: { id: organizationId, provisionState: 'QUEUED', serverId: { not: null } },
+      data: { provisionState: 'RUNNING' },
+    });
+    if (claimed.count === 0) return;
+
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { slug: true, provisionJob: true },
+    });
+    const { userId, trigger, ...limits } = (org.provisionJob ?? {}) as unknown as ProvisionJob;
+
+    try {
+      await provisionOrgLogged(org.slug, userId, { ...limits, organizationId, trigger });
+      await prisma.organization.update({
+        where: { id: organizationId },
+        data: { provisionState: 'DONE', provisionError: null, provisionJob: Prisma.DbNull, provisionedAt: new Date() },
+      });
+    } catch (err: any) {
+      await prisma.organization.update({
+        where: { id: organizationId },
+        data: {
+          provisionState: 'FAILED',
+          provisionError: String(err?.stderr || err?.message || err).slice(0, 1000),
+        },
+      });
+    }
+  } catch (err) {
+    console.error(`Provisioning worker failed for org ${organizationId}:`, err);
+  } finally {
+    running.delete(organizationId);
+  }
+}
+
+/** Cron sweep: requeue RUNNING rows a restart orphaned, then run every placed QUEUED org. */
+export async function provisionQueuedOrgs(): Promise<string> {
+  if (!OS_ISOLATION_ENABLED) return 'skipped — ORG_OS_ISOLATION is off';
+
+  // ponytail: "not in this process's set" = orphaned, valid for one replica only (see cron.ts).
+  await prisma.organization.updateMany({
+    where: { provisionState: 'RUNNING', id: { notIn: [...running] } },
+    data: { provisionState: 'QUEUED' },
+  });
+
+  const queued = await prisma.organization.findMany({
+    where: { provisionState: 'QUEUED', serverId: { not: null } },
+    select: { id: true },
+  });
+  for (const org of queued) await runOrgProvision(org.id);
+  return queued.length === 0 ? 'nothing queued' : `${queued.length} organization(s) processed`;
 }

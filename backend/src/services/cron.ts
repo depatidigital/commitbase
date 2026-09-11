@@ -7,6 +7,7 @@ import { syncServerApps } from './appSyncService';
 import { pruneHeartbeats, checkApplicationHostnames } from './heartbeatService';
 import { pingAllServers } from './serverHealthService';
 import { checkAllDatabaseServers } from './databaseServerService';
+import { provisionQueuedOrgs } from './orgProvisionService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -114,6 +115,13 @@ const jobs: Job[] = [
     // only catches what a restart or a failed DNS step left half-done.
     schedule: process.env.CRON_DOMAIN_PROVISION || '* * * * *',
     run: provisionPending,
+  },
+  {
+    name: 'org-provision',
+    // Queued orgs are kicked in-process; this catches restarts and orgs that
+    // were queued before they had a server.
+    schedule: process.env.CRON_ORG_PROVISION || '* * * * *',
+    run: provisionQueuedOrgs,
   },
 ];
 
