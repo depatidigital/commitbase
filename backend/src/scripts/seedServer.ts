@@ -18,7 +18,7 @@ const DRY = process.argv.includes('--dry-run');
 
 const NAME = process.env.SEED_SERVER_NAME || 'primary';
 const HOSTNAME = process.env.SEED_SERVER_HOSTNAME || '127.0.0.1';
-const SSH_USER = process.env.SEED_SERVER_SSH_USER || 'commitbase';
+const SSH_USER = process.env.SEED_SERVER_SSH_USER || 'larika';
 const SSH_PORT = Number(process.env.SEED_SERVER_SSH_PORT || 22);
 const SSH_KEY_PATH = process.env.CB_SSH_KEY_PATH || '/home/commitbase/.ssh/id_ed25519';
 // SERVER_IP is what cloudflareService already used as the A record target.

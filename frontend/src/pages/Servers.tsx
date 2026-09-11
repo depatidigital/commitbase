@@ -67,7 +67,7 @@ import {
 const BLANK: ServerInput = {
   name: "",
   hostname: "",
-  sshUser: "commitbase",
+  sshUser: "larika",
   sshPort: 22,
   authMethod: "KEY",
   sshKeyPath: "",

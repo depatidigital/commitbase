@@ -22,7 +22,7 @@
 #                   plane to run the provisioning scripts on this node.
 #   SSH_USER        larika   the user the control plane logs in as, on every
 #                   box (this one included). Gets full passwordless root via
-#                   runner/commitbase.sudoers - keep the two names in sync.
+#                   runner/commitbase.sudoers (the name is substituted in).
 #   ACME_EMAIL      admin@<domain>   Let's Encrypt contact
 #   REPO / BRANCH   github.com/depatidigital/commitbase, main
 #   NODE_MAJOR      24
@@ -146,7 +146,7 @@ else
 fi
 SSH_HOME="$(getent passwd "$SSH_USER" | cut -d: -f6)"
 SSH_DIR="$SSH_HOME/.ssh"
-install -d -m 0700 -o "$SSH_USER" -g "$SSH_USER" "$SSH_DIR"
+install -d -m 0700 -o "$SSH_USER" -g "$(id -gn "$SSH_USER")" "$SSH_DIR"
 
 # The panel authorizes itself; a node authorizes the panel it was given.
 if [ "$ROLE" = panel ]; then AUTHORIZE="$(cat "$CB_KEY.pub")"; else AUTHORIZE="$PANEL_SSH_PUBKEY"; fi
@@ -162,7 +162,7 @@ else
   printf '%s\n' "$AUTHORIZE" >> "$AUTH_KEYS"
   note "authorized the panel key"
 fi
-chown -R "$SSH_USER:$SSH_USER" "$SSH_DIR"
+chown -R "$SSH_USER:$(id -gn "$SSH_USER")" "$SSH_DIR"
 chmod 0600 "$AUTH_KEYS"
 
 # A box with no sshd is unreachable in exactly the way that is hardest to
@@ -291,7 +291,9 @@ fi
 # The runner scripts are not installed: the panel sends them over SSH on every
 # call. This box only grants the SSH user passwordless root to run them.
 say "Sudoers, logrotate"
-install -m 0440 "$APP_DIR/runner/commitbase.sudoers"   /etc/sudoers.d/commitbase
+# The file names larika; a different SSH_USER is swapped in on the way.
+sed "s/\blarika\b/$SSH_USER/g" "$APP_DIR/runner/commitbase.sudoers" > /etc/sudoers.d/commitbase
+chown root:root /etc/sudoers.d/commitbase; chmod 0440 /etc/sudoers.d/commitbase
 install -m 0644 "$APP_DIR/runner/commitbase.logrotate" /etc/logrotate.d/commitbase
 visudo -cf /etc/sudoers.d/commitbase >/dev/null || die "sudoers file did not validate"
 # Left over from when the scripts were installed; a stale copy would only mislead.
@@ -438,12 +440,13 @@ fi
 
 # ----------------------------------------------------------------- 11. verify
 say "Verify"
+# Both roles: the panel's own box is a node too. Checked here so a broken box
+# fails at install time rather than on someone's first deploy.
+sudo -u "$SSH_USER" sudo -n true \
+  || die "$SSH_USER has no passwordless root - check /etc/sudoers.d/commitbase"
+note "$SSH_USER has passwordless root for the runner scripts"
+
 if [ "$ROLE" = node ]; then
-  # Everything the control plane will actually invoke, checked here so a broken
-  # node fails at install time rather than on someone's first deploy.
-  sudo -u "$CB_USER" sudo -n true \
-    || die "$CB_USER has no passwordless root - check /etc/sudoers.d/commitbase"
-  note "$CB_USER has passwordless root for the runner scripts"
   systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
 
   say "Done"
@@ -452,12 +455,12 @@ if [ "$ROLE" = node ]; then
 
     Add it in the panel with:
       hostname   $(hostname -I | awk '{print $1}')
-      ssh user   $CB_USER
+      ssh user   $SSH_USER
       ssh key    the panel's /opt/commitbase/.ssh/id_ed25519
       public ip  ${SERVER_IP:-$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}
       caddy api  http://127.0.0.1:2019
 
-    Verify from the panel:  sudo -u $CB_USER ssh $CB_USER@<this-host> sudo -n true
+    Verify from the panel:  sudo -u $CB_USER ssh $SSH_USER@<this-host> sudo -n true
     The runner scripts come from the panel on every call - nothing to upgrade here.
 EOF
   exit 0
