@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Users as UsersIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { createUser, getUsers, updateUser, AdminUser } from "@/lib/admin";
+import { createUser, getUsers, updateUser, AdminUser, ORG_ROLE_LABEL, PLATFORM_ROLE_LABEL } from "@/lib/admin";
+import { t } from "@/lib/i18n";
 
 const EMPTY_USER = { email: "", name: "", password: "" };
 
@@ -31,7 +32,7 @@ export default function Users() {
 
   const onError = (error: Error) =>
     toast({
-      title: "Error",
+      title: t("Error"),
       description: error.message,
       variant: "destructive",
     });
@@ -50,8 +51,8 @@ export default function Users() {
       setOpen(false);
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       toast({
-        title: "User created",
-        description: "Invite them to an organization from the Team page.",
+        title: t("User created"),
+        description: t("Invite them to an organization from the Team page."),
       });
     },
     onError,
@@ -62,14 +63,14 @@ export default function Users() {
       updateUser(user.id, { isActive }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
-      toast({ title: "User updated" });
+      toast({ title: t("User updated") });
     },
     onError,
   });
 
   const columns: Column<AdminUser>[] = [
     {
-      header: "User",
+      header: t("User"),
       className: "w-[30%]",
       cell: (u) => (
         <>
@@ -81,20 +82,20 @@ export default function Users() {
       ),
     },
     {
-      header: "Platform role",
+      header: t("Platform role"),
       className: "w-32",
       cell: (u) => (
         <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
-          {u.role}
+          {PLATFORM_ROLE_LABEL[u.role] ?? u.role}
         </Badge>
       ),
     },
     {
-      header: "Organizations",
+      header: t("Organizations"),
       className: "space-x-1",
       cell: (u) =>
         u.memberships.length === 0 ? (
-          <span className="text-xs text-muted-foreground">none</span>
+          <span className="text-xs text-muted-foreground">{t("none")}</span>
         ) : (
           u.memberships.map((m) => (
             <Badge
@@ -102,13 +103,13 @@ export default function Users() {
               variant="outline"
               className="max-w-full truncate"
             >
-              {m.organization.name} · {m.role}
+              {m.organization.name} · {ORG_ROLE_LABEL[m.role]}
             </Badge>
           ))
         ),
     },
     {
-      header: "Active",
+      header: t("Active"),
       className: "w-20",
       cell: (u) => (
         <Switch
@@ -124,26 +125,25 @@ export default function Users() {
   return (
     <PageLayout
       icon={UsersIcon}
-      title="Users"
-      description="Client accounts on the platform and their organization memberships."
+      title={t("Users")}
+      description={t("Client accounts on the platform and their organization memberships.")}
       actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
-              <Plus className="mr-2 h-4 w-4" /> New user
+              <Plus className="mr-2 h-4 w-4" /> {t("New user")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>New client account</DialogTitle>
+              <DialogTitle>{t("New client account")}</DialogTitle>
               <DialogDescription>
-                They sign in with this temporary password and must change it on
-                first login.
+                {t("They sign in with this temporary password and must change it on first login.")}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("Email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -154,7 +154,7 @@ export default function Users() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{t("Name")}</Label>
                 <Input
                   id="name"
                   value={newUser.name}
@@ -164,11 +164,11 @@ export default function Users() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Temporary password</Label>
+                <Label htmlFor="password">{t("Temporary password")}</Label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="min 8 characters"
+                  placeholder={t("min 8 characters")}
                   value={newUser.password}
                   onChange={(e) =>
                     setNewUser({ ...newUser, password: e.target.value })
@@ -178,7 +178,7 @@ export default function Users() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button
                 onClick={() => userMutation.mutate()}
@@ -191,7 +191,7 @@ export default function Users() {
                 {userMutation.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Create
+                {t("Create")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -205,8 +205,8 @@ export default function Users() {
         query={query}
         pagination={data?.pagination}
         isLoading={isFetching}
-        searchPlaceholder="Search email or name…"
-        empty="No users found."
+        searchPlaceholder={t("Search email or name…")}
+        empty={t("No users found.")}
       />
     </PageLayout>
   );

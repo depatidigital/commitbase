@@ -16,6 +16,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 import { getOrganization, getOrganizationsPage } from "@/lib/organizations";
 
 const PAGE_SIZE = 20;
@@ -39,7 +40,7 @@ export function OrganizationCombobox({
   value,
   onChange,
   noneLabel,
-  placeholder = "Select an organization",
+  placeholder = t("Select an organization"),
   className,
   disabled,
 }: Props) {
@@ -103,7 +104,7 @@ export function OrganizationCombobox({
         {/* server does the filtering, so cmdk must not filter again */}
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Search organizations…"
+            placeholder={t("Search organizations…")}
             value={input}
             onValueChange={setInput}
           />
@@ -111,10 +112,10 @@ export function OrganizationCombobox({
             {isFetching && options.length === 0 ? (
               <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Searching…
+                {t("Searching…")}
               </div>
             ) : (
-              <CommandEmpty>No organizations found.</CommandEmpty>
+              <CommandEmpty>{t("No organizations found.")}</CommandEmpty>
             )}
             <CommandGroup>
               {noneLabel && (
@@ -155,7 +156,7 @@ export function OrganizationCombobox({
             </CommandGroup>
             {total > options.length && (
               <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-                Showing {options.length} of {total} — keep typing to narrow.
+                {t("Showing {count} of {total} — keep typing to narrow.", { count: options.length, total })}
               </p>
             )}
           </CommandList>

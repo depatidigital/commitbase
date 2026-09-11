@@ -1,6 +1,7 @@
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { TableQuery } from "@/components/DataTable";
 import { isAdmin } from "@/lib/auth";
+import { t } from "@/lib/i18n";
 
 /** Tenant filter for the platform-wide lists. Renders nothing for non-admins. */
 export function OrganizationFilter({ query }: { query: TableQuery }) {
@@ -10,7 +11,7 @@ export function OrganizationFilter({ query }: { query: TableQuery }) {
     <OrganizationCombobox
       value={query.organizationId || null}
       onChange={(id) => query.setOrganizationId(id ?? "")}
-      noneLabel="All organizations"
+      noneLabel={t("All organizations")}
       className="w-52"
     />
   );

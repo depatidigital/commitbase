@@ -208,7 +208,7 @@ export default function Admin() {
       },
     },
     {
-      header: t("Home"),
+      header: "Home",
       className: "w-[25%]",
       cell: (o) => (
         <span className="block truncate font-mono text-xs text-muted-foreground">
