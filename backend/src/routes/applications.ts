@@ -613,31 +613,42 @@ router.post(
       // Cloudflare, so their files never touch our disk. Runtime apps still
       // need a sources/ tree for the build step.
       if (application.type === 'STATIC') {
+        // An upload is this app's deploy, so it gets a row in the history —
+        // including when it fails, which is when the history matters most.
+        const deployment = await prisma.deployment.create({
+          data: { status: 'DEPLOYING', applicationId: application.id, userId: req.user!.userId },
+        });
+        const fail = async (status: number, message: string) => {
+          await prisma.deployment.update({
+            where: { id: deployment.id },
+            data: { status: 'FAILED', deployLogs: message },
+          });
+          await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
+          return res.status(status).json({ success: false, error: message } as ApiResponse);
+        };
+
         let bucket: string;
         let origin: string;
+        let uploaded = 0;
 
         try {
           ({ bucket, origin } = await ensureSiteBucket(application.domain));
+
+          for (const [index, file] of files.entries()) {
+            const relative = safeRelativePath(paths[index] || file.originalname);
+            if (!relative) continue;
+
+            if (await uploadSiteObject(bucket, relative, file.buffer)) uploaded += 1;
+          }
         } catch (error: any) {
-          return res.status(500).json({
-            success: false,
-            error: error?.message || 'Could not prepare the site bucket',
-          } as ApiResponse);
-        }
-
-        let uploaded = 0;
-        for (const [index, file] of files.entries()) {
-          const relative = safeRelativePath(paths[index] || file.originalname);
-          if (!relative) continue;
-
-          if (await uploadSiteObject(bucket, relative, file.buffer)) uploaded += 1;
+          return fail(500, error?.message || 'Could not upload to the site bucket');
         }
 
         if (uploaded === 0) {
-          return res.status(400).json({ success: false, error: 'No usable files in the upload' } as ApiResponse);
+          return fail(400, 'No usable files in the upload');
         }
 
-        // the bucket is recorded either way, so a redeploy can retry the route
+        // recorded once the files are in, so a redeploy can retry the route
         // without asking for the files again
         await prisma.application.update({
           where: { id: application.id },
@@ -652,20 +663,28 @@ router.post(
             origin,
           );
         } catch (error: any) {
-          await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
-          return res.status(502).json({ success: false, error: staticRouteError(error) } as ApiResponse);
+          return fail(502, staticRouteError(error));
         }
-
-        await prisma.application.update({
-          where: { id: application.id },
-          data: { status: 'RUNNING', lastDeployment: new Date() },
-        });
 
         // DNS is a warning, not a failure: the hostname may live in a zone
         // someone else runs, and the site itself is up
         const dns = await ensureAppHostname(application).catch(
           (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
         );
+        const dnsWarning =
+          dns.state === 'conflict' || dns.state === 'unavailable' ? `\nDNS was not set up: ${dns.detail}` : '';
+
+        await prisma.deployment.update({
+          where: { id: deployment.id },
+          data: {
+            status: 'SUCCESS',
+            deployLogs: `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'} to Cloudflare R2 (${bucket})${dnsWarning}`,
+          },
+        });
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { status: 'RUNNING', lastDeployment: new Date() },
+        });
 
         return res.json({
           success: true,
@@ -716,13 +735,7 @@ router.post(
 // Update an application
 router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    console.log('Update application request:', {
-      params: req.params,
-      body: req.body,
-      url: req.url,
-      method: req.method
-    });
-
+    // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
     const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars, gitAccountId } = req.body || {};
     console.log(req.body);
@@ -1053,7 +1066,9 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         where: { id },
         data: {
           status: result.success || result.rolledBack ? 'RUNNING' : 'ERROR',
-          lastDeployment: new Date(),
+          // only a deploy that left something running counts — the UI reads
+          // lastDeployment as "has a build to start"
+          ...(result.success && { lastDeployment: new Date() }),
         },
       });
     }).catch(async (error) => {

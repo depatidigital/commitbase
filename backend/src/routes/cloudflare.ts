@@ -1,15 +1,18 @@
 import { Router, Response } from 'express';
-import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { authenticateToken, AuthenticatedRequest, requireRole } from '../middleware/auth';
 import { ApiResponse } from '../types';
 import { listCloudflareZones } from '../services/cloudflareService';
 import { getCloudflareConfigFromDb, setIntegrationConfigValue } from '../services/integrationConfigService';
 
 const router = Router();
 
+// The platform's Cloudflare token (DNS for every zone, and R2): superadmins
+// only — the integrations pages are theirs alone. No roles = SUPERADMIN.
+router.use(authenticateToken, requireRole([]));
+
 router.get('/config', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const config = await getCloudflareConfigFromDb();
-    console.log('Cloudflare config:', config);
     return res.json({
       success: true,
       data: {

@@ -26,8 +26,6 @@ import {
   Gitlab,
   Upload,
   FileCode,
-  FileUp,
-  FolderUp,
   Server,
   Check,
   ChevronsUpDown,
@@ -44,7 +42,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { AppLaunchProgress } from "@/components/AppLaunchProgress";
-import { UploadTree } from "@/components/UploadTree";
+import { SourcePicker } from "@/components/SourcePicker";
 import { useDomains } from "@/hooks/useDomains";
 import { PageLayout } from "@/components/PageLayout";
 import {
@@ -54,8 +52,6 @@ import {
   readDetectFiles,
   uploadApplicationSource,
   startApplication,
-  entriesFromInput,
-  entriesFromDrop,
   listRepositoryBranches,
   type DnsOutcome,
   type UploadEntry,
@@ -122,7 +118,6 @@ export default function AddApp() {
     setPickedFiles(entries);
     setExcluded(new Set());
   };
-  const [dragging, setDragging] = useState(false);
   const [domainOpen, setDomainOpen] = useState(false);
   const [detected, setDetected] = useState<DetectedProject | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -688,101 +683,12 @@ export default function AddApp() {
 
                 {sourceMode === "upload" && (
                   <div className="space-y-4">
-                    {/* one target for both: drop anything, or pick — a file
-                        input can open files or a folder, never both, hence two buttons */}
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setDragging(true);
-                      }}
-                      // moving over the buttons inside also fires dragleave
-                      onDragLeave={(e) => {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node))
-                          setDragging(false);
-                      }}
-                      onDrop={async (e) => {
-                        e.preventDefault();
-                        setDragging(false);
-                        setUploadFiles(await entriesFromDrop(e.dataTransfer.items));
-                      }}
-                      className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
-                        dragging
-                          ? "border-primary bg-primary/5"
-                          : "border-border/60"
-                      }`}
-                    >
-                      <Upload className="h-8 w-8 text-muted-foreground" />
-                      <p className="text-sm font-medium">
-                        {t("Drop files or a folder here")}
-                      </p>
-                      <div className="flex flex-wrap justify-center gap-2">
-                        <Button asChild type="button" variant="outline" size="sm">
-                          <label htmlFor="upload-files" className="cursor-pointer">
-                            <FileUp className="mr-2 h-4 w-4" />
-                            {t("Choose files")}
-                          </label>
-                        </Button>
-                        <Button asChild type="button" variant="outline" size="sm">
-                          <label htmlFor="upload-folder" className="cursor-pointer">
-                            <FolderUp className="mr-2 h-4 w-4" />
-                            {t("Choose folder")}
-                          </label>
-                        </Button>
-                      </div>
-                      <input
-                        id="upload-files"
-                        type="file"
-                        multiple
-                        hidden
-                        onChange={(e) => {
-                          setUploadFiles(entriesFromInput(e.target.files));
-                          // picking the same thing again must fire onChange again
-                          e.target.value = "";
-                        }}
-                      />
-                      <input
-                        id="upload-folder"
-                        type="file"
-                        multiple
-                        hidden
-                        // folder picking is a non-standard attribute, hence the cast
-                        {...({ webkitdirectory: "", directory: "" } as any)}
-                        onChange={(e) => {
-                          setUploadFiles(entriesFromInput(e.target.files));
-                          e.target.value = "";
-                        }}
-                      />
-                    </div>
-                    {pickedFiles.length > 0 && (
-                      <UploadTree
-                        entries={pickedFiles}
-                        excluded={excluded}
-                        onExcludedChange={setExcluded}
-                      />
-                    )}
-                    {pickedFiles.length > 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        {(() => {
-                          const vars = {
-                            count: uploadFiles.length,
-                            size: (
-                              uploadFiles.reduce(
-                                (sum, { file }) => sum + file.size,
-                                0,
-                              ) /
-                              (1024 * 1024)
-                            ).toFixed(1),
-                          };
-                          return uploadFiles.length === 1
-                            ? t("{count} file ready — {size} MB", vars)
-                            : t("{count} files ready — {size} MB", vars);
-                        })()}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        {t("Pick the files or the folder to deploy.")}
-                      </p>
-                    )}
+                    <SourcePicker
+                      picked={pickedFiles}
+                      excluded={excluded}
+                      onPick={setUploadFiles}
+                      onExcludedChange={setExcluded}
+                    />
                     {formData.type === "STATIC" && (
                       <p className="text-xs text-muted-foreground">
                         {t(

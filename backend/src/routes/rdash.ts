@@ -1,10 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { getRdashAccountProfile, registerRdashDomain, updateRdashDomainNameservers, listRdashDomains, getRdashBalance } from '../services/rdashService';
 import { setIntegrationConfigValue, getRdashConfigFromDb } from '../services/integrationConfigService';
-import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { authenticateToken, AuthenticatedRequest, requireRole } from '../middleware/auth';
 import { ApiResponse } from '../types';
 
 const router = Router();
+
+// The registrar account spends real money (register, nameservers) and holds
+// its credentials: superadmins only. Admins register through /domains/register,
+// which has its own gate. No roles = SUPERADMIN.
+router.use(authenticateToken, requireRole([]));
 
 // RDASH errors arrive as a JSON body string - pull out .message when present
 function upstreamMessage(error: any): string {

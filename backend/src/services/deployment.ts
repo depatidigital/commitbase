@@ -673,6 +673,13 @@ export class DeploymentService {
 
           const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
 
+          // no origin = the files never made it to a bucket (the upload failed
+          // or never ran); there is nothing to serve, so do not report green
+          if (!(application as any).staticOrigin) {
+            const message = 'No uploaded files for this site yet — upload the site files again';
+            return { success: false, error: message, buildLogs, deployLogs: message };
+          }
+
           // the files are fine, but without its route the site is down — say
           // so instead of reporting green. Redeploying retries just this step.
           try {
