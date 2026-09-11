@@ -752,7 +752,9 @@ router.post(
 
 // ---------------------------------------------------------------------------
 // Static site files: what is in the app's R2 bucket, and removing some of it.
-// Adding files goes through POST /:id/source like any upload.
+// Adding files goes through POST /:id/source like any upload (with replace=true
+// the upload becomes the whole site). No rename/move: a static site is
+// redeployed whole, not edited in place.
 
 /** The static app with its bucket, or the response that says why not. */
 async function siteBucketFor(req: AuthenticatedRequest, res: Response) {
