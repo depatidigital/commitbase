@@ -8,7 +8,7 @@ import { paging, contains } from '../lib/paging';
 import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
-import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
+import { ensureSiteBucket, uploadSiteObject, listSiteObjects, deleteSiteObjects } from '../services/r2Service';
 import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
@@ -634,7 +634,8 @@ router.post(
 
         let bucket: string;
         let origin: string;
-        let uploaded = 0;
+        const uploadedKeys = new Set<string>();
+        let removed = 0;
 
         try {
           ({ bucket, origin } = await ensureSiteBucket(application.domain));
@@ -643,12 +644,21 @@ router.post(
             const relative = safeRelativePath(paths[index] || file.originalname);
             if (!relative) continue;
 
-            if (await uploadSiteObject(bucket, relative, file.buffer)) uploaded += 1;
+            if (await uploadSiteObject(bucket, relative, file.buffer)) uploadedKeys.add(relative);
+          }
+
+          // ?replace: the upload becomes the whole site — whatever it no longer
+          // contains goes. Only after every file landed, so a failed upload
+          // never leaves the site half-deleted.
+          if (uploadedKeys.size > 0 && (req.body?.replace === 'true' || req.body?.replace === true)) {
+            const stale = (await listSiteObjects(bucket)).map((o) => o.key).filter((key) => !uploadedKeys.has(key));
+            removed = await deleteSiteObjects(bucket, stale);
           }
         } catch (error: any) {
           return fail(500, error?.message || 'Could not upload to the site bucket');
         }
 
+        const uploaded = uploadedKeys.size;
         if (uploaded === 0) {
           return fail(400, 'No usable files in the upload');
         }
@@ -683,7 +693,10 @@ router.post(
           where: { id: deployment.id },
           data: {
             status: 'SUCCESS',
-            deployLogs: `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'} to Cloudflare R2 (${bucket})${dnsWarning}`,
+            deployLogs:
+              `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'} to Cloudflare R2 (${bucket})` +
+              (removed ? `, removed ${removed} no longer in the upload` : '') +
+              dnsWarning,
           },
         });
         await prisma.application.update({
@@ -736,6 +749,65 @@ router.post(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// Static site files: what is in the app's R2 bucket, and removing some of it.
+// Adding files goes through POST /:id/source like any upload.
+
+/** The static app with its bucket, or the response that says why not. */
+async function siteBucketFor(req: AuthenticatedRequest, res: Response) {
+  const application = await prisma.application.findFirst({
+    where: { id: req.params.id as string, ...(await orgScope(req)) },
+  });
+  if (!application) {
+    res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    return null;
+  }
+  if (application.type !== 'STATIC' || !application.staticBucket) {
+    res.status(400).json({ success: false, error: 'This app has no uploaded site files' } as ApiResponse);
+    return null;
+  }
+  return application as typeof application & { staticBucket: string };
+}
+
+router.get('/:id/files', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await siteBucketFor(req, res);
+    if (!application) return;
+
+    return res.json({
+      success: true,
+      data: {
+        // public bucket host, so a file can be opened before DNS points here
+        origin: application.staticOrigin,
+        files: await listSiteObjects(application.staticBucket),
+      },
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error listing site files:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not list the files' } as ApiResponse);
+  }
+});
+
+router.delete('/:id/files', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await siteBucketFor(req, res);
+    if (!application) return;
+
+    const raw: unknown[] = Array.isArray(req.body?.keys) ? req.body.keys : [];
+    // same shape check as uploads: plain relative paths, no traversal
+    const keys = raw.map((key) => safeRelativePath(String(key))).filter((key): key is string => !!key);
+    if (keys.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files to delete' } as ApiResponse);
+    }
+
+    const deleted = await deleteSiteObjects(application.staticBucket, keys);
+    return res.json({ success: true, data: { deleted } } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error deleting site files:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not delete the files' } as ApiResponse);
+  }
+});
 
 // Update an application
 router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {

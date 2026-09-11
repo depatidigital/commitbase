@@ -1,4 +1,10 @@
-import { S3Client, PutObjectCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  CreateBucketCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
@@ -247,4 +253,52 @@ export async function uploadSiteDirectory(bucket: string, localDir: string): Pro
 
   await walk(localDir);
   return count;
+}
+
+export type SiteObject = { key: string; size: number; lastModified: string | null };
+
+/** Every object in a site bucket. ponytail: no cap — a static site is thousands of files, not millions. */
+export async function listSiteObjects(bucket: string): Promise<SiteObject[]> {
+  const config = await getR2Config();
+  if (!config) throw new Error('R2 is not configured');
+
+  const objects: SiteObject[] = [];
+  let token: string | undefined;
+  do {
+    const page = await client(config).send(
+      new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token })
+    );
+    for (const item of page.Contents ?? []) {
+      if (item.Key) {
+        objects.push({
+          key: item.Key,
+          size: item.Size ?? 0,
+          lastModified: item.LastModified?.toISOString() ?? null,
+        });
+      }
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+
+  return objects;
+}
+
+/** Delete objects, 1000 per request (the S3 limit). Returns how many went. */
+export async function deleteSiteObjects(bucket: string, keys: string[]): Promise<number> {
+  if (keys.length === 0) return 0;
+  const config = await getR2Config();
+  if (!config) throw new Error('R2 is not configured');
+
+  let deleted = 0;
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    const result = await client(config).send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      })
+    );
+    deleted += batch.length - (result.Errors?.length ?? 0);
+  }
+  return deleted;
 }
