@@ -297,13 +297,21 @@ export function mysqlPatternMatches(pattern: string, name: string): boolean {
 export async function readInventory(dbs: DbServerRow): Promise<Inventory> {
   return withAdmin(dbs, async ({ query }) => {
     if (dbs.engine === 'POSTGRESQL') {
-      // size only where the admin may connect — pg_database_size refuses otherwise
       const databases = await query(`
-        SELECT d.datname AS name, pg_get_userbyid(d.datdba) AS owner,
-               CASE WHEN has_database_privilege(d.oid, 'CONNECT') THEN pg_database_size(d.oid) END AS size
+        SELECT d.oid, d.datname AS name, pg_get_userbyid(d.datdba) AS owner,
+               has_database_privilege(d.oid, 'CONNECT') AS can_connect
         FROM pg_database d
         WHERE NOT d.datistemplate AND d.datname <> 'postgres'
-        ORDER BY 1`);
+        ORDER BY 2`);
+      // One statement per database: pg_database_size walks the files and can
+      // take a second each on a busy box, so summed into one query a server
+      // with many databases blows the statement timeout. A size that fails is
+      // just unknown. Only where the admin may connect — it refuses otherwise.
+      for (const row of databases) {
+        if (!row.can_connect) continue;
+        const [sized] = await query('SELECT pg_database_size($1::oid) AS size', [row.oid]).catch(() => [] as any[]);
+        row.size = sized?.size ?? null;
+      }
       // explicit CONNECT grants; grantee 0 is PUBLIC, which says nothing about anyone
       const grants = await query(`
         SELECT d.datname AS db, pg_get_userbyid(a.grantee) AS username

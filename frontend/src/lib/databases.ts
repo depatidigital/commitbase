@@ -93,12 +93,16 @@ export interface DatabaseWithApplication extends Database {
   port?: number | null;
   memory?: string | null;
   cpu?: string | null;
+  /** null for a database found on a server that no app uses yet */
   application: {
     id: string;
     name: string;
     domain: string;
     organization?: { id: string; name: string; slug: string } | null;
-  };
+  } | null;
+  /** the org that owns the database itself — falls back to the app's for older rows */
+  organization?: { id: string; name: string; slug: string } | null;
+  databaseServer?: { id: string; name: string; engine: string } | null;
 }
 
 // Every database across the organizations the caller belongs to

@@ -62,6 +62,33 @@ export default {
   "Failed to remove the database server": "Gagal menghapus server database",
   "Failed to place the organization": "Gagal menempatkan organisasi",
 
+  // server detail: inventory
+  "Databases and logins": "Database dan login",
+  "Sync now": "Sinkronkan sekarang",
+  Synced: "Tersinkron",
+  Saved: "Tersimpan",
+  "Tunnel via {node}": "Tunnel melalui {node}",
+  "Apps connect to {host}": "Aplikasi terhubung ke {host}",
+  "Last checked {date}": "Terakhir dicek {date}",
+  "Failed to fetch the inventory": "Gagal memuat inventaris",
+  Database: "Database",
+  Size: "Ukuran",
+  "found on the server": "ditemukan di server",
+  "created by the panel": "dibuat oleh panel",
+  "missing from the server": "tidak ada di server",
+  "Logins with access": "Login dengan akses",
+  "Only superusers can reach it.": "Hanya superuser yang dapat menjangkaunya.",
+  Logins: "Login",
+  Login: "Login",
+  Access: "Akses",
+  "cannot log in": "tidak bisa login",
+  "all databases": "semua database",
+  "Search databases…": "Cari database…",
+  "Search logins…": "Cari login…",
+  "No databases found yet — run a sync.": "Belum ada database — jalankan sinkronisasi.",
+  "No logins found. MySQL needs SELECT on the mysql schema to list them.":
+    "Tidak ada login. MySQL memerlukan SELECT pada skema mysql untuk menampilkannya.",
+
   // organization placement
   "Database placement": "Penempatan database",
   "Database placement saved": "Penempatan database disimpan",

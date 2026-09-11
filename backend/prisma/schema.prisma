@@ -415,6 +415,8 @@ model Database {
   discovered       Boolean         @default(false)
   /// On-disk size from the last sync, in bytes
   sizeBytes        Float?
+  /// Why the last create or drop on the server failed — shown on the row, cleared on success
+  lastError        String?
 
   @@unique([databaseServerId, dbName])
   @@index([organizationId])

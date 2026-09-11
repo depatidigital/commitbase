@@ -6,7 +6,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { canEncrypt, encrypt } from '../lib/secretBox';
-import { checkDatabaseServer } from '../services/databaseServerService';
+import { checkDatabaseServer, syncInventory, type SyncResult } from '../services/databaseServerService';
 
 const router = Router();
 
@@ -69,6 +69,18 @@ const include = {
 function redact<T extends { adminPasswordEnc?: string }>(row: T) {
   const { adminPasswordEnc, ...rest } = row;
   return { ...rest, hasPassword: !!adminPasswordEnc };
+}
+
+const syncSummary = (r: SyncResult) =>
+  `${r.databases} database(s) and ${r.users} login(s) found, ${r.created} new${r.missing ? `, ${r.missing} missing from the server` : ''}`;
+
+/** Import what is already on the server. Never fails the caller — a sync error is a line in the message. */
+async function trySync(row: Parameters<typeof syncInventory>[0]): Promise<string> {
+  try {
+    return syncSummary(await syncInventory(row));
+  } catch (error: any) {
+    return `inventory not synced: ${error?.message ?? 'failed'}`;
+  }
 }
 
 // List. Unpaged (optionally ?engine=) for the org-placement pickers, paged for the table.
@@ -145,6 +157,8 @@ router.post(
       });
 
       const check = await checkDatabaseServer(created);
+      // what the server already holds becomes rows straight away, like the app sync
+      const synced = check.status === 'ONLINE' ? await trySync(created) : '';
       const fresh = await prisma.databaseServer.findUnique({ where: { id: created.id }, include });
 
       return res.status(201).json({
@@ -152,7 +166,7 @@ router.post(
         data: fresh ? redact(fresh) : null,
         message:
           check.status === 'ONLINE'
-            ? `Database server registered — ${check.inspection?.version}`
+            ? `Database server registered — ${check.inspection?.version}; ${synced}`
             : `Database server registered, but it could not be reached: ${check.error}`,
       } as ApiResponse);
     } catch (error) {
@@ -211,6 +225,7 @@ router.put(
 
       // a new address or credential is only trustworthy once it has answered
       const check = await checkDatabaseServer(updated);
+      const synced = check.status === 'ONLINE' ? await trySync(updated) : '';
       const fresh = await prisma.databaseServer.findUnique({ where: { id }, include });
 
       return res.json({
@@ -218,7 +233,7 @@ router.put(
         data: fresh ? redact(fresh) : null,
         message:
           check.status === 'ONLINE'
-            ? 'Database server updated'
+            ? `Database server updated; ${synced}`
             : `Database server updated, but it could not be reached: ${check.error}`,
       } as ApiResponse);
     } catch (error) {
@@ -248,6 +263,82 @@ router.post('/:id/test', authenticateToken, requireRole(['SUPERADMIN']), async (
   }
 });
 
+// Import what is on the server now — databases and logins. Read-only on the server.
+router.post('/:id/sync', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const row = await prisma.databaseServer.findUnique({ where: { id: req.params.id as string }, include: { server: true } });
+    if (!row) return res.status(404).json({ success: false, error: 'Database server not found' } as ApiResponse);
+
+    const result = await syncInventory(row);
+    return res.json({ success: true, data: result, message: syncSummary(result) } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error syncing database server:', error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the database server',
+    } as ApiResponse);
+  }
+});
+
+// The mirror: databases on the server (with owner org / app) and its logins.
+router.get('/:id/inventory', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const [databases, users] = await Promise.all([
+      prisma.database.findMany({
+        where: { databaseServerId: id },
+        include: {
+          organization: { select: { id: true, name: true } },
+          application: { select: { id: true, name: true } },
+        },
+        orderBy: { dbName: 'asc' },
+      }),
+      prisma.databaseUser.findMany({ where: { databaseServerId: id }, orderBy: [{ username: 'asc' }, { host: 'asc' }] }),
+    ]);
+    return res.json({ success: true, data: { databases, users } } as ApiResponse);
+  } catch (error) {
+    console.error('Error reading database server inventory:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+const AssignSchema = z.object({ organizationId: z.string().min(1).nullable() });
+
+// Give a database found on the server an owner — the discovered-rows workflow.
+router.put(
+  '/:id/databases/:databaseId/organization',
+  authenticateToken,
+  requireRole(['SUPERADMIN']),
+  validateRequest(AssignSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { organizationId } = AssignSchema.parse(req.body);
+      const database = await prisma.database.findFirst({
+        where: { id: req.params.databaseId as string, databaseServerId: req.params.id as string },
+        select: { id: true },
+      });
+      if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
+      if (organizationId && !(await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } }))) {
+        return res.status(400).json({ success: false, error: 'Unknown organization' } as ApiResponse);
+      }
+
+      const updated = await prisma.database.update({
+        where: { id: database.id },
+        data: { organizationId },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+      return res.json({
+        success: true,
+        data: updated,
+        message: organizationId ? `Assigned to ${updated.organization?.name}` : 'Unassigned',
+      } as ApiResponse);
+    } catch (error) {
+      console.error('Error assigning database:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  },
+);
+
 /**
  * Removing the row does not touch the engine. Refused while anything still
  * points at it — tenant databases and logins live there, and organizations
@@ -258,19 +349,30 @@ router.delete('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req
     const id = req.params.id as string;
     const row = await prisma.databaseServer.findUnique({
       where: { id },
-      include: { _count: { select: { databases: true, accounts: true, postgresOrgs: true, mysqlOrgs: true } } },
+      include: { _count: { select: { accounts: true, postgresOrgs: true, mysqlOrgs: true } } },
     });
     if (!row) return res.status(404).json({ success: false, error: 'Database server not found' } as ApiResponse);
 
-    const { databases, accounts, postgresOrgs, mysqlOrgs } = row._count;
+    // Databases only the sync knows about are a mirror and go with the row;
+    // one we created, or that an organization or app relies on, keeps it.
+    const databases = await prisma.database.count({
+      where: {
+        databaseServerId: id,
+        OR: [{ discovered: false }, { organizationId: { not: null } }, { applicationId: { not: null } }],
+      },
+    });
+    const { accounts, postgresOrgs, mysqlOrgs } = row._count;
     if (databases || accounts || postgresOrgs || mysqlOrgs) {
       return res.status(409).json({
         success: false,
-        error: `Still in use: ${databases} database(s), ${accounts} organization login(s), ${postgresOrgs + mysqlOrgs} organization(s) placed on it`,
+        error: `Still in use: ${databases} database(s) in use, ${accounts} organization login(s), ${postgresOrgs + mysqlOrgs} organization(s) placed on it`,
       } as ApiResponse);
     }
 
-    await prisma.databaseServer.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.database.deleteMany({ where: { databaseServerId: id } }),
+      prisma.databaseServer.delete({ where: { id } }),
+    ]);
     return res.json({ success: true, message: 'Database server removed' } as ApiResponse);
   } catch (error) {
     console.error('Error deleting database server:', error);

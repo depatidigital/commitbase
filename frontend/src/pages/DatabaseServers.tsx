@@ -37,8 +37,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Database, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Database, Eye, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -87,6 +87,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default function DatabaseServers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const query = useTableQuery();
 
   const [open, setOpen] = useState(false);
@@ -193,7 +194,9 @@ export default function DatabaseServers() {
       className: "w-[20%]",
       cell: (row) => (
         <div className="min-w-0">
-          <span className="block truncate font-medium">{row.name}</span>
+          <Link to={`/database-servers/${row.id}`} className="block truncate font-medium hover:underline">
+            {row.name}
+          </Link>
           <span className="block truncate text-xs text-muted-foreground">
             {row.version ?? ENGINE_LABEL[row.engine]}
           </span>
@@ -279,6 +282,10 @@ export default function DatabaseServers() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => navigate(`/database-servers/${row.id}`)}>
+              <Eye className="mr-2 h-4 w-4" />
+              {t("Databases and logins")}
+            </DropdownMenuItem>
             <DropdownMenuItem disabled={testMutation.isPending} onClick={() => testMutation.mutate(row)}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {t("Test connection")}

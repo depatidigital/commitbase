@@ -8,18 +8,24 @@ import { paging, paginated, contains } from '../lib/paging';
 
 const router = Router();
 
+/**
+ * Who may see a database: members of the org that owns it, or of the org its
+ * app belongs to (rows from before databases had an owner of their own).
+ */
+async function databaseScope(req: AuthenticatedRequest) {
+  const scope = await orgScope(req);
+  return 'organizationId' in scope ? { OR: [scope, { application: scope }] } : {};
+}
+
 // Get databases for an application
 // All databases across the caller's organizations
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search, paged, organizationId } = paging(req);
-    const where = {
-      application: {
-        ...(await orgScope(req)),
-        ...(organizationId && { organizationId }),
-      },
-      ...(search && { OR: [{ name: contains(search) }, { application: { name: contains(search) } }] }),
-    };
+    const and: any[] = [await databaseScope(req)];
+    if (organizationId) and.push({ OR: [{ organizationId }, { application: { organizationId } }] });
+    if (search) and.push({ OR: [{ name: contains(search) }, { application: { name: contains(search) } }] });
+    const where = { AND: and };
 
     const [databases, total] = await Promise.all([
       prisma.database.findMany({
@@ -33,6 +39,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
               organization: { select: { id: true, name: true, slug: true } },
             },
           },
+          organization: { select: { id: true, name: true, slug: true } },
+          databaseServer: { select: { id: true, name: true, engine: true } },
         },
         orderBy: { createdAt: 'desc' },
         ...(paged && { skip, take: limit }),
@@ -113,9 +121,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     const database = await prisma.database.findFirst({
       where: {
         id: id as string,
-        application: {
-          ...(await orgScope(req)),
-        },
+        ...(await databaseScope(req)),
       },
       include: {
         application: true,
@@ -145,83 +151,85 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create new database
 router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, type, version, config, applicationId } = req.body as {
-      name: string;
-      type: string;
-      version?: string;
-      config?: Record<string, unknown>;
-      applicationId: string;
-    };
+    const { name, type, organizationId: requestedOrg, applicationId } = CreateDatabaseSchema.parse(req.body);
 
-    if (!applicationId) {
+    if (type !== 'POSTGRESQL' && type !== 'MYSQL') {
+      return res.status(400).json({ success: false, error: `${type} databases are not supported yet` } as ApiResponse);
+    }
+
+    // The owner is the app's organization, or the one asked for. Either way the
+    // caller has to be able to manage it — a database is that org's resource.
+    let organizationId = requestedOrg ?? null;
+    if (applicationId) {
+      const application = await prisma.application.findFirst({
+        where: { id: applicationId, ...(await orgScope(req)) },
+        select: { organizationId: true },
+      });
+      if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+      if (!application.organizationId) {
+        return res.status(400).json({ success: false, error: 'Assign the app to an organization first' } as ApiResponse);
+      }
+      organizationId = application.organizationId;
+    }
+    if (!organizationId) {
+      return res.status(400).json({ success: false, error: 'Choose the organization the database belongs to' } as ApiResponse);
+    }
+    if (!(await canManageOrg(req, organizationId))) {
+      return res.status(403).json({ success: false, error: 'Only owners and admins of the organization can create databases' } as ApiResponse);
+    }
+
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { postgresServer: { select: { id: true, port: true } }, mysqlServer: { select: { id: true, port: true } } },
+    });
+    if (!organization) return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+
+    const placed = type === 'POSTGRESQL' ? organization.postgresServer : organization.mysqlServer;
+    if (!placed) {
       return res.status(400).json({
         success: false,
-        error: 'Application ID is required',
+        error: `This organization is not placed on a ${type === 'POSTGRESQL' ? 'PostgreSQL' : 'MySQL'} server yet — a superadmin sets that on the organization page`,
       } as ApiResponse);
     }
 
-    // Verify application belongs to user
-    const application = await prisma.application.findFirst({
-      where: {
-        id: applicationId,
-        ...(await orgScope(req)),
-      },
-    });
+    const dbName = databaseName(organization.slug, name, type);
 
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        error: 'Application not found',
-      } as ApiResponse);
+    let database;
+    try {
+      database = await prisma.database.create({
+        data: {
+          name,
+          type,
+          status: 'CREATING',
+          dbName,
+          port: placed.port,
+          organizationId,
+          databaseServerId: placed.id,
+          ...(applicationId && { applicationId }),
+        },
+      });
+    } catch (error: any) {
+      // (databaseServerId, dbName) is unique — the name is taken on that server
+      if (error?.code === 'P2002') {
+        return res.status(409).json({ success: false, error: `A database named ${dbName} already exists on that server` } as ApiResponse);
+      }
+      throw error;
     }
 
-    // Generate connection string based on type
-    let connectionString = '';
-    let port = 0;
+    const result = await provisionDatabase(database.id);
+    const fresh = await prisma.database.findUnique({ where: { id: database.id } });
 
-    switch (type) {
-      case 'POSTGRESQL':
-        port = 5432;
-        connectionString = `postgresql://user:password@localhost:${port}/${name}`;
-        break;
-      case 'MYSQL':
-        port = 3306;
-        connectionString = `mysql://user:password@localhost:${port}/${name}`;
-        break;
-      case 'MONGODB':
-        port = 27017;
-        connectionString = `mongodb://localhost:${port}/${name}`;
-        break;
-      case 'REDIS':
-        port = 6379;
-        connectionString = `redis://localhost:${port}`;
-        break;
-      default:
-        connectionString = '';
-    }
-
-    const database = await prisma.database.create({
-      data: {
-        name,
-        type,
-        version,
-        config: config || {},
-        connectionString,
-        port,
-        applicationId,
-        status: 'CREATING',
-      } as any,
-      include: {
-        application: true,
-      },
-    });
-
-    return res.status(201).json({
-      success: true,
-      data: database,
-      message: 'Database created successfully',
+    return res.status(result.ok ? 201 : 502).json({
+      success: result.ok,
+      data: fresh,
+      ...(result.ok
+        ? { message: `Database ${dbName} created` }
+        : { error: `The database was recorded but could not be created on the server: ${result.error}` }),
     } as ApiResponse);
   } catch (error) {
+    if (error instanceof ProvisionError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
     console.error('Create database error:', error);
     return res.status(500).json({
       success: false,
@@ -245,10 +253,9 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     const database = await prisma.database.findFirst({
       where: {
         id: id as string,
-        application: {
-          ...(await orgScope(req)),
-        },
+        ...(await databaseScope(req)),
       },
+      include: { application: { select: { organizationId: true } } },
     });
 
     if (!database) {
@@ -258,13 +265,41 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
 
+    const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
+    if (ownerOrg ? !(await canManageOrg(req, ownerOrg)) : !isPlatformAdmin(req)) {
+      return res.status(403).json({ success: false, error: 'Only owners and admins of the organization can delete databases' } as ApiResponse);
+    }
+
+    // An imported database is data someone else created: the panel only forgets
+    // it (a superadmin's call), and the next sync lists it again, unassigned.
+    if (database.discovered && !isPlatformAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        error: 'This database was imported from its server — ask an administrator to remove it',
+      } as ApiResponse);
+    }
+
+    // Dropping real data is typed out, not clicked through.
+    if (!database.discovered && database.dbName && req.body?.confirm !== database.dbName) {
+      return res.status(400).json({ success: false, error: `Type ${database.dbName} to confirm` } as ApiResponse);
+    }
+
+    try {
+      await dropDatabase(database.id);
+    } catch (error: any) {
+      return res.status(502).json({
+        success: false,
+        error: `Could not drop the database on its server: ${error?.message ?? 'failed'}`,
+      } as ApiResponse);
+    }
+
     await prisma.database.delete({
       where: { id: id as string },
     });
 
     return res.json({
       success: true,
-      message: 'Database deleted successfully',
+      message: database.discovered ? 'Database removed from the panel' : 'Database deleted',
     } as ApiResponse);
   } catch (error) {
     console.error('Delete database error:', error);

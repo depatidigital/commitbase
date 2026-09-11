@@ -90,6 +90,57 @@ export const testDatabaseServer = async (id: string) => {
   return { ok: res.success, message: res.success ? res.message : res.error };
 };
 
+export const getDatabaseServer = async (id: string): Promise<DatabaseServer> =>
+  unwrap(await apiRequest<DatabaseServer>(`/database-servers/${id}`), t('Failed to fetch database servers'));
+
+/** A database on the server — found by the sync, or created by us. */
+export interface ServerDatabase {
+  id: string;
+  name: string;
+  dbName: string | null;
+  status: 'CREATING' | 'RUNNING' | 'STOPPED' | 'ERROR';
+  discovered: boolean;
+  sizeBytes: number | null;
+  organization: { id: string; name: string } | null;
+  application: { id: string; name: string } | null;
+}
+
+/** A login on the server, mirrored by the sync. */
+export interface DatabaseLogin {
+  id: string;
+  username: string;
+  /** MySQL account host; empty for Postgres */
+  host: string;
+  canLogin: boolean;
+  superuser: boolean;
+  databases: string[];
+  lastSeenAt: string;
+}
+
+export const getDatabaseServerInventory = async (
+  id: string,
+): Promise<{ databases: ServerDatabase[]; users: DatabaseLogin[] }> =>
+  unwrap(
+    await apiRequest<{ databases: ServerDatabase[]; users: DatabaseLogin[] }>(`/database-servers/${id}/inventory`),
+    t('Failed to fetch the inventory'),
+  );
+
+/** Re-read the server's databases and logins. Resolves with the summary line. */
+export const syncDatabaseServer = async (id: string): Promise<string | undefined> => {
+  const res = await apiRequest(`/database-servers/${id}/sync`, { method: 'POST' });
+  unwrap(res, t('Sync failed'));
+  return res.message;
+};
+
+export const assignServerDatabase = async (serverId: string, databaseId: string, organizationId: string | null) =>
+  unwrap(
+    await apiRequest(`/database-servers/${serverId}/databases/${databaseId}/organization`, {
+      method: 'PUT',
+      body: JSON.stringify({ organizationId }),
+    }),
+    t('Assign failed'),
+  );
+
 /** Place an organization on a database server for one engine; null unplaces. */
 export const setOrganizationDatabaseServer = async (
   organizationId: string,

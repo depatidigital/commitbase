@@ -63,14 +63,16 @@ export default function Database() {
           {
             header: t("Organization"),
             className: "w-[20%]",
-            cell: (db: DatabaseWithApplication) =>
-              db.application?.organization ? (
+            cell: (db: DatabaseWithApplication) => {
+              const organization = db.organization ?? db.application?.organization;
+              return organization ? (
                 <Badge variant="outline" className="max-w-full truncate">
-                  {db.application.organization.name}
+                  {organization.name}
                 </Badge>
               ) : (
-                <span className="text-muted-foreground">—</span>
-              ),
+                <span className="text-muted-foreground">{t("Unassigned")}</span>
+              );
+            },
           },
         ]
       : []),
