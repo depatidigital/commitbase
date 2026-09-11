@@ -1,6 +1,6 @@
-# CommitBase Backend
+# Larika Backend
 
-A robust backend API for the CommitBase application management platform, built with Express.js, TypeScript, and Prisma ORM.
+A robust backend API for the Larika application management platform, built with Express.js, TypeScript, and Prisma ORM.
 
 ## Features
 

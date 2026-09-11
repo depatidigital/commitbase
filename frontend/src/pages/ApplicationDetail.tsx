@@ -572,7 +572,7 @@ export default function ApplicationDetail() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">{t("Deployment Mode")}</label>
                     <p className="font-medium">
-                      {application.type === 'STATIC' ? t('Static Site (S3)') : t('Runtime Container')}
+                      {application.type === 'STATIC' ? t('Static Site') : t('Runtime Container')}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -657,7 +657,20 @@ export default function ApplicationDetail() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-muted-foreground">{t("Hosting")}</label>
-                        <p className="font-medium">{t("Object storage (S3-compatible)")}</p>
+                        {/* where the files actually are: an R2 bucket once uploaded,
+                            the old S3 prefix only for sites deployed before R2 */}
+                        {application.staticBucket ? (
+                          <p className="font-medium">
+                            Cloudflare R2{" "}
+                            <span className="font-mono text-xs text-muted-foreground">
+                              · {application.staticBucket}
+                            </span>
+                          </p>
+                        ) : application.staticSiteUrl ? (
+                          <p className="font-medium">{t("Object storage (S3, legacy)")}</p>
+                        ) : (
+                          <p className="font-medium text-muted-foreground">{t("No files uploaded yet")}</p>
+                        )}
                       </div>
                     </>
                   ) : (

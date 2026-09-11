@@ -102,7 +102,6 @@ export default {
   "App is being deployed": "Aplikasi sedang di-deploy",
   Deployments: "Deployment",
   "Deployment Mode": "Mode Deployment",
-  "Static Site (S3)": "Situs Statis (S3)",
   "Runtime Container": "Container Runtime",
   Directory: "Direktori",
   "Not detected": "Tidak terdeteksi",

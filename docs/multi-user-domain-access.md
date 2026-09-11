@@ -49,7 +49,7 @@ Needed only when one client is *multiple people* (agency staff, client + their d
 
 ```prisma
 enum UserRole {   // platform level
-  ADMIN           // operator of CommitBase itself
+  ADMIN           // operator of Larika itself
   USER            // existing internal users — kept for back-compat
   CLIENT          // external customer
 }

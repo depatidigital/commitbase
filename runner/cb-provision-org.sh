@@ -1,6 +1,6 @@
 #!/bin/bash
 # cb-provision-org — create the isolated OS user, home, cgroup slice and PHP-FPM
-# pool for one CommitBase organization.
+# pool for one Larika organization.
 #
 # Not installed on the node: the panel sends this file's text over SSH and runs
 # it as root with `bash -c <text> cb-provision-org <args>` (orgProvisionService).
@@ -86,7 +86,7 @@ fi
 # an org-wide ceiling: one runaway app cannot starve the other tenants.
 cat > "/etc/systemd/system/$SLICE" <<SLICE_EOF
 [Unit]
-Description=CommitBase organization $SLUG
+Description=Larika organization $SLUG
 Before=slices.target
 
 [Slice]

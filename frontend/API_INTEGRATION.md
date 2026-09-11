@@ -1,10 +1,10 @@
 # API Integration Documentation
 
-This document describes the API integration implemented in the CommitBase frontend.
+This document describes the API integration implemented in the Larika frontend.
 
 ## Overview
 
-The frontend now integrates with the CommitBase backend API to provide real-time application management, authentication, and deployment capabilities.
+The frontend now integrates with the Larika backend API to provide real-time application management, authentication, and deployment capabilities.
 
 ## API Services
 

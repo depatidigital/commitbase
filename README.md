@@ -1,6 +1,6 @@
-# CommitBase
+# Larika
 
-CommitBase is an application management platform with a frontend and backend architecture.
+Larika is an application management platform with a frontend and backend architecture.
 
 ## Project Structure
 

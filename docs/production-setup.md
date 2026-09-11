@@ -1,6 +1,6 @@
 # Production setup
 
-Single-VPS install of CommitBase: Postgres, the Node backend, the built React
+Single-VPS install of Larika: Postgres, the Node backend, the built React
 frontend served by Caddy, and per-organization OS isolation for the apps the
 platform deploys.
 
@@ -355,7 +355,7 @@ defaults until per-org storage lands.
 |---|---|
 | `JWT_EXPIRES_IN` | Token lifetime, default `7d` |
 | `SMTP_URL`, `MAIL_FROM` | Invite email. Unset = the link is only shown in the UI |
-| `APP_NAME` | Branding in emails, default `CommitBase` |
+| `APP_NAME` | Branding in emails, default `Larika` |
 | `GITHUB_CLIENT_ID` / `_SECRET` | Git integration |
 | `GITLAB_CLIENT_ID` / `_SECRET`, `GITLAB_OAUTH_BASE`, `GITLAB_API_BASE` | Self-hosted GitLab |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_PREFIX` | Static-site hosting on Cloudflare R2 |
@@ -375,7 +375,7 @@ only) after first login.
 
 ```
 VITE_API_URL=https://panel.example.com/api
-VITE_APP_NAME=CommitBase
+VITE_APP_NAME=Larika
 VITE_APP_TAGLINE=Self-hosted platform
 ```
 
@@ -482,7 +482,7 @@ New organizations are provisioned automatically when they are created.
 
 ```ini
 [Unit]
-Description=CommitBase control plane
+Description=Larika control plane
 After=network.target postgresql.service
 Wants=postgresql.service
 
@@ -530,7 +530,7 @@ already supervises every tenant app on this box — one supervisor is enough.
 
 ```caddyfile
 {
-    # The admin API is how CommitBase adds tenant sites. Keep it on loopback.
+    # The admin API is how Larika adds tenant sites. Keep it on loopback.
     admin 127.0.0.1:2019
     email you@example.com
 }

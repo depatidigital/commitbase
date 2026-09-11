@@ -23,6 +23,8 @@ export interface Application {
   createdAt: string;
   updatedAt: string;
   staticSiteUrl?: string | null;
+  /** the site's Cloudflare R2 bucket, once files have been uploaded */
+  staticBucket?: string | null;
   runtime?: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | null;
   processName?: string | null;
   rootPath?: string | null;

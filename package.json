@@ -1,7 +1,7 @@
 {
   "name": "commitbase",
   "version": "1.0.0",
-  "description": "CommitBase application management platform",
+  "description": "Larika application management platform",
   "main": "ecosystem.config.js",
   "scripts": {
     "start": "pm2 start ecosystem.config.js",

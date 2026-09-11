@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Setting up PM2 for CommitBase deployment system..."
+echo "🚀 Setting up PM2 for Larika deployment system..."
 
 # Check if Node.js is installed
 if ! command -v node &> /dev/null; then

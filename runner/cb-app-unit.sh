@@ -1,5 +1,5 @@
 #!/bin/bash
-# cb-app-unit — manage the systemd unit that runs one CommitBase application as
+# cb-app-unit — manage the systemd unit that runs one Larika application as
 # its organization's OS user, inside that organization's cgroup slice.
 #
 # Not installed on the node: the panel sends this file's text over SSH and runs
@@ -79,7 +79,7 @@ case "$ACTION" in
 
     cat > "$UNIT_PATH" <<UNIT_EOF
 [Unit]
-Description=CommitBase app $APP_ID ($SLUG)
+Description=Larika app $APP_ID ($SLUG)
 After=network.target
 
 [Service]

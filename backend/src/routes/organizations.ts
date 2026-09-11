@@ -77,7 +77,7 @@ async function issueInvite(orgId: string, email: string, role: 'OWNER' | 'ADMIN'
     where: { id: orgId },
     select: { name: true },
   });
-  const appName = process.env.APP_NAME || 'CommitBase';
+  const appName = process.env.APP_NAME || 'Larika';
 
   // best effort: the link is still returned to the caller if the mail fails
   const emailed = acceptUrl

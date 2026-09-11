@@ -1,5 +1,5 @@
 #!/bin/bash
-# CommitBase single-VPS installer. Ubuntu 22.04/24.04 or Debian 12, run as root.
+# Larika single-VPS installer. Ubuntu 22.04/24.04 or Debian 12, run as root.
 #
 #   curl -fsSL https://raw.githubusercontent.com/depatidigital/commitbase/main/install.sh \
 #     | sudo PANEL_DOMAIN=panel.example.com bash
@@ -272,7 +272,7 @@ fi
 
 FRONTEND_ENV="$APP_DIR/frontend/.env"
 if [ ! -f "$FRONTEND_ENV" ] || ! grep -q "VITE_API_URL=https://${PANEL_DOMAIN}/api" "$FRONTEND_ENV"; then
-  printf 'VITE_API_URL=https://%s/api\nVITE_APP_NAME=CommitBase\nVITE_APP_TAGLINE=Self-hosted platform\n' "$PANEL_DOMAIN" > "$FRONTEND_ENV"
+  printf 'VITE_API_URL=https://%s/api\nVITE_APP_NAME=Larika\nVITE_APP_TAGLINE=Self-hosted platform\n' "$PANEL_DOMAIN" > "$FRONTEND_ENV"
   chown "$CB_USER:$CB_GROUP" "$FRONTEND_ENV"
 fi
 
@@ -318,7 +318,7 @@ if ! systemctl is-active --quiet commitbase 2>/dev/null && ss -ltn "( sport = :$
 fi
 cat > /etc/systemd/system/commitbase.service <<EOF
 [Unit]
-Description=CommitBase control plane
+Description=Larika control plane
 After=network.target postgresql.service
 Wants=postgresql.service
 
@@ -395,7 +395,7 @@ elif [ -f "$CADDYFILE" ] && grep -qE '^[^#]*\{' "$CADDYFILE" && ! grep -qE '^\s*
   fi
   {
     printf '
-# --- CommitBase panel (added by install.sh) ---
+# --- Larika panel (added by install.sh) ---
 '
     printf '%s
 ' "$PANEL_BLOCK"
@@ -409,7 +409,7 @@ else
   [ -f "$CADDYFILE" ] && cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%s)"
   cat > "$CADDYFILE" <<EOF
 {
-    # The admin API is how CommitBase adds tenant sites. Keep it on loopback.
+    # The admin API is how Larika adds tenant sites. Keep it on loopback.
     admin 127.0.0.1:2019
     email $ACME_EMAIL
 }
@@ -451,7 +451,7 @@ if [ "$ROLE" = node ]; then
 
   say "Done"
   cat <<EOF
-    This box is a CommitBase node. It runs no backend and no database.
+    This box is a Larika node. It runs no backend and no database.
 
     Add it in the panel with:
       hostname   $(hostname -I | awk '{print $1}')

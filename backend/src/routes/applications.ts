@@ -464,11 +464,16 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       } as ApiResponse);
     }
 
+    // R2 sites are served on their own hostname. Only a site that was deployed
+    // before R2 (deployed, but no bucket origin) still lives at the old S3
+    // prefix — a never-uploaded one has no URL at all.
     const staticSiteUrl =
       application.type === 'STATIC'
         ? (application as any).staticOrigin
           ? `https://${application.domain}`
-          : getStaticSiteBaseUrl(application.id)
+          : application.lastDeployment
+            ? getStaticSiteBaseUrl(application.id)
+            : null
         : undefined;
 
     return res.json({

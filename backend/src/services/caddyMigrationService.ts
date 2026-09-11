@@ -13,7 +13,7 @@ import {
  * `caddySnapshotService` is what keeps API-only routes alive from then on.
  *
  * The platform's own apps have always been configured over the API; sites that
- * predate CommitBase still live in `.caddy` files imported by the Caddyfile.
+ * predate Larika still live in `.caddy` files imported by the Caddyfile.
  * This reads those files and pushes the same routes through the API, so there
  * is one source of truth instead of two.
  *

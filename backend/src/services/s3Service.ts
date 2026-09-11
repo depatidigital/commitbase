@@ -186,34 +186,7 @@ function getStaticSitePrefix(applicationId: string): string | null {
   return `${normalizedRoot}sites/${applicationId}/`;
 }
 
-export async function uploadDirectoryToS3(localDir: string, applicationId: string): Promise<void> {
-  const prefix = getStaticSitePrefix(applicationId);
-  const config = getS3Config();
-
-  if (!prefix || !config) {
-    return;
-  }
-
-  async function walk(currentDir: string): Promise<void> {
-    const entries = await fs.readdir(currentDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(currentDir, entry.name);
-
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile()) {
-        const relativePath = path.relative(localDir, fullPath).replace(/\\/g, '/');
-        const key = `${prefix}${relativePath}`;
-        const body = await fs.readFile(fullPath);
-        await uploadObject(key, body);
-      }
-    }
-  }
-
-  await walk(localDir);
-}
-
+/** Where sites deployed before R2 still live. New sites go to R2 (r2Service). */
 export function getStaticSiteBaseUrl(applicationId: string): string | null {
   const config = getS3Config();
   if (!config) {

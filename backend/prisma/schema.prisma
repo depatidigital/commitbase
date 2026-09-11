@@ -552,7 +552,7 @@ model GitAccount {
 
 // Enums
 // Platform-level role. SUPERADMIN = platform owner (integrations config).
-// ADMIN = operator of CommitBase itself.
+// ADMIN = operator of Larika itself.
 enum UserRole {
   SUPERADMIN
   ADMIN

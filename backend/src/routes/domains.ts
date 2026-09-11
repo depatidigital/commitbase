@@ -931,7 +931,7 @@ router.post('/:id/cloudflare/disable', authenticateToken, requireRole(['ADMIN'])
       success: true,
       data: updated,
       message:
-        'Cloudflare detached in CommitBase. The zone still exists in Cloudflare — repoint the nameservers at your registrar before deleting it.',
+        'Cloudflare detached in Larika. The zone still exists in Cloudflare — repoint the nameservers at your registrar before deleting it.',
     } as ApiResponse);
   } catch (error) {
     console.error('Error disabling Cloudflare for domain:', error);
