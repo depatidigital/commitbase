@@ -167,6 +167,7 @@ model DatabaseServer {
 
   accounts     OrgDatabaseAccount[]
   databases    Database[]
+  users        DatabaseUser[]
   postgresOrgs Organization[]       @relation("OrgPostgresServer")
   mysqlOrgs    Organization[]       @relation("OrgMysqlServer")
 
@@ -191,6 +192,26 @@ model OrgDatabaseAccount {
 
   @@unique([organizationId, databaseServerId])
   @@map("org_database_accounts")
+}
+
+/// A login/role that exists on a database server — a mirror of the server,
+/// rewritten by every inventory sync. The panel does not manage these; it
+/// shows who can reach what. Organizations' own logins are OrgDatabaseAccount.
+model DatabaseUser {
+  id               String         @id @default(cuid())
+  databaseServerId String
+  databaseServer   DatabaseServer @relation(fields: [databaseServerId], references: [id], onDelete: Cascade)
+  username         String
+  /// MySQL account host ('%', 'localhost', …); empty for Postgres roles
+  host             String         @default("")
+  canLogin         Boolean        @default(true)
+  superuser        Boolean        @default(false)
+  /// Databases it owns or was explicitly granted access to
+  databases        String[]
+  lastSeenAt       DateTime       @default(now())
+
+  @@unique([databaseServerId, username, host])
+  @@map("database_users")
 }
 
 enum DbServerMode {
@@ -331,7 +352,7 @@ model Deployment {
   // Relations
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  
+
   userId String
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -375,8 +396,10 @@ model Database {
   updatedAt DateTime @updatedAt
   
   // Relations
-  applicationId String
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  // Optional: a database belongs to its organization, and one found on a
+  // server by the inventory sync has no app at all until it is attached.
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   // The org the database belongs to and the server it lives on. Nullable until
   // databases are created for real: rows from before database servers carry no
@@ -387,7 +410,13 @@ model Database {
   databaseServer   DatabaseServer? @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
   /// The database's real name on the server, <slug>_<name>
   dbName           String?
+  /// Found on the server by the inventory sync rather than created by us.
+  /// Unassigned until a superadmin gives it an organization.
+  discovered       Boolean         @default(false)
+  /// On-disk size from the last sync, in bytes
+  sizeBytes        Float?
 
+  @@unique([databaseServerId, dbName])
   @@index([organizationId])
   @@index([databaseServerId])
   @@map("databases")

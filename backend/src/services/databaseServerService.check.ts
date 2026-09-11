@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mysqlRights } from './databaseServerService';
+import { mysqlRights, mysqlPatternMatches } from './databaseServerService';
 
 // a dedicated provisioning admin: exactly what is needed, not a superuser
 const scoped = mysqlRights([
@@ -24,4 +24,12 @@ const dbAll = mysqlRights(['GRANT ALL PRIVILEGES ON `shop`.* TO `x`@`%` WITH GRA
 assert.equal(dbAll.superuser, false);
 assert.ok(dbAll.missing.includes('CREATE USER'));
 
-console.log('databaseServerService: mysqlRights OK');
+// mysql.db patterns: % any run, _ any one char, \_ a literal underscore
+assert.equal(mysqlPatternMatches('shop', 'shop'), true);
+assert.equal(mysqlPatternMatches('shop', 'shop2'), false);
+assert.equal(mysqlPatternMatches('org\\_acme\\_%', 'org_acme_crm'), true);
+assert.equal(mysqlPatternMatches('org\\_acme\\_%', 'orgXacme_crm'), false);
+assert.equal(mysqlPatternMatches('db_', 'dbX'), true);
+assert.equal(mysqlPatternMatches('a.b', 'aXb'), false);
+
+console.log('databaseServerService: mysqlRights + mysqlPatternMatches OK');

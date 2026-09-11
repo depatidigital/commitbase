@@ -246,15 +246,220 @@ export async function checkDatabaseServer(
   }
 }
 
-/** Every database server, for the health cron. */
+/** Every database server, for the health cron — and, for each that answers, its inventory. */
 export async function checkAllDatabaseServers(): Promise<{ total: number; online: number; offline: string[] }> {
   const servers = await prisma.databaseServer.findMany({ include: { server: true } });
   const offline: string[] = [];
 
   for (const dbs of servers) {
     const result = await checkDatabaseServer(dbs);
-    if (result.status === 'OFFLINE') offline.push(dbs.name);
+    if (result.status === 'OFFLINE') {
+      offline.push(dbs.name);
+      continue;
+    }
+    await syncInventory(dbs).catch((error: any) =>
+      console.error(`Could not sync the inventory of ${dbs.name}:`, error?.message),
+    );
   }
 
   return { total: servers.length, online: servers.length - offline.length, offline };
+}
+
+// --- Inventory ---------------------------------------------------------------
+
+/** Schemas and accounts every MySQL/MariaDB install has — never tenant data. */
+const MYSQL_SYSTEM_SCHEMAS = ['mysql', 'information_schema', 'performance_schema', 'sys'];
+const MYSQL_SYSTEM_USERS = ['mysql.sys', 'mysql.session', 'mysql.infoschema', 'mariadb.sys', 'debian-sys-maint'];
+
+export interface Inventory {
+  databases: Array<{ name: string; owner: string | null; sizeBytes: number | null }>;
+  users: Array<{ username: string; host: string; canLogin: boolean; superuser: boolean; databases: string[] }>;
+}
+
+/**
+ * Does a MySQL grant's database pattern cover a database name? `%` is any run,
+ * `_` any one character, `\_` / `\%` literal — the rules mysql.db is written in.
+ */
+export function mysqlPatternMatches(pattern: string, name: string): boolean {
+  let regex = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i]!;
+    if (char === '\\' && i + 1 < pattern.length) {
+      regex += pattern[++i]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    } else if (char === '%') regex += '.*';
+    else if (char === '_') regex += '.';
+    else regex += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${regex}$`).test(name);
+}
+
+/** What is on the server right now: its databases and its logins, and who can reach what. */
+export async function readInventory(dbs: DbServerRow): Promise<Inventory> {
+  return withAdmin(dbs, async ({ query }) => {
+    if (dbs.engine === 'POSTGRESQL') {
+      // size only where the admin may connect — pg_database_size refuses otherwise
+      const databases = await query(`
+        SELECT d.datname AS name, pg_get_userbyid(d.datdba) AS owner,
+               CASE WHEN has_database_privilege(d.oid, 'CONNECT') THEN pg_database_size(d.oid) END AS size
+        FROM pg_database d
+        WHERE NOT d.datistemplate AND d.datname <> 'postgres'
+        ORDER BY 1`);
+      // explicit CONNECT grants; grantee 0 is PUBLIC, which says nothing about anyone
+      const grants = await query(`
+        SELECT d.datname AS db, pg_get_userbyid(a.grantee) AS username
+        FROM pg_database d, aclexplode(d.datacl) a
+        WHERE a.grantee <> 0 AND a.privilege_type = 'CONNECT' AND NOT d.datistemplate`);
+      const roles = await query(`
+        SELECT rolname AS username, rolcanlogin AS can_login, rolsuper AS superuser
+        FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY 1`);
+
+      return {
+        databases: databases.map((row) => ({
+          name: String(row.name),
+          owner: row.owner ? String(row.owner) : null,
+          sizeBytes: row.size == null ? null : Number(row.size),
+        })),
+        users: roles.map((role) => {
+          const username = String(role.username);
+          const reach = new Set([
+            ...databases.filter((row) => row.owner === username).map((row) => String(row.name)),
+            ...grants.filter((row) => row.username === username).map((row) => String(row.db)),
+          ]);
+          return {
+            username,
+            host: '',
+            canLogin: !!role.can_login,
+            superuser: !!role.superuser,
+            databases: [...reach].sort(),
+          };
+        }),
+      };
+    }
+
+    const schemas = await query(
+      `SELECT s.schema_name AS name, SUM(t.data_length + t.index_length) AS size
+       FROM information_schema.schemata s
+       LEFT JOIN information_schema.tables t ON t.table_schema = s.schema_name
+       WHERE s.schema_name NOT IN (?)
+       GROUP BY s.schema_name ORDER BY 1`,
+      [MYSQL_SYSTEM_SCHEMAS],
+    );
+    const names = schemas.map((row) => String(row.name));
+
+    // mysql.user / mysql.db need SELECT on the mysql schema; without it the
+    // databases still sync and the user list is simply empty
+    const accounts = await query('SELECT User AS username, Host AS host, Super_priv AS super FROM mysql.user').catch(
+      () => [] as any[],
+    );
+    const dbGrants = await query('SELECT User AS username, Host AS host, Db AS db FROM mysql.db').catch(
+      () => [] as any[],
+    );
+
+    return {
+      databases: schemas.map((row) => ({
+        name: String(row.name),
+        owner: null,
+        sizeBytes: row.size == null ? null : Number(row.size),
+      })),
+      users: accounts
+        .filter((row) => row.username && !MYSQL_SYSTEM_USERS.includes(String(row.username)))
+        .map((row) => {
+          const username = String(row.username);
+          const host = String(row.host ?? '');
+          const patterns = dbGrants
+            .filter((grant) => grant.username === username && grant.host === host)
+            .map((grant) => String(grant.db));
+          return {
+            username,
+            host,
+            canLogin: true,
+            superuser: String(row.super).toUpperCase() === 'Y',
+            databases: names.filter((name) => patterns.some((pattern) => mysqlPatternMatches(pattern, name))).sort(),
+          };
+        }),
+    };
+  });
+}
+
+export interface SyncResult {
+  databases: number;
+  users: number;
+  /** new databases found this time */
+  created: number;
+  /** databases the panel knew that are no longer on the server */
+  missing: number;
+}
+
+/**
+ * Mirror the server into the panel: every database becomes a row (new ones
+ * unassigned, like apps from the app sync), and the login list is rewritten.
+ * Re-runnable; never touches the server itself.
+ */
+export async function syncInventory(dbs: DbServerRow): Promise<SyncResult> {
+  const inventory = await readInventory(dbs);
+  const seenAt = new Date();
+
+  for (const user of inventory.users) {
+    const fields = {
+      canLogin: user.canLogin,
+      superuser: user.superuser,
+      databases: user.databases,
+      lastSeenAt: seenAt,
+    };
+    await prisma.databaseUser.upsert({
+      where: {
+        databaseServerId_username_host: { databaseServerId: dbs.id, username: user.username, host: user.host },
+      },
+      create: { databaseServerId: dbs.id, username: user.username, host: user.host, ...fields },
+      update: fields,
+    });
+  }
+  // a login dropped on the server drops out of the mirror
+  await prisma.databaseUser.deleteMany({ where: { databaseServerId: dbs.id, lastSeenAt: { lt: seenAt } } });
+
+  let created = 0;
+  for (const database of inventory.databases) {
+    const existing = await prisma.database.findFirst({
+      where: { databaseServerId: dbs.id, dbName: database.name },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.database.update({
+        where: { id: existing.id },
+        data: { sizeBytes: database.sizeBytes, status: 'RUNNING' },
+      });
+    } else {
+      await prisma.database.create({
+        data: {
+          name: database.name,
+          dbName: database.name,
+          type: dbs.engine,
+          status: 'RUNNING',
+          discovered: true,
+          databaseServerId: dbs.id,
+          port: dbs.port,
+          sizeBytes: database.sizeBytes,
+        },
+      });
+      created++;
+    }
+  }
+
+  // Gone from the server. An unassigned discovery just leaves the mirror; one
+  // that an organization or app relies on stays, flagged, for someone to see.
+  const gone = await prisma.database.findMany({
+    where: { databaseServerId: dbs.id, dbName: { notIn: inventory.databases.map((database) => database.name) } },
+    select: { id: true, discovered: true, organizationId: true, applicationId: true },
+  });
+  const drop = gone.filter((row) => row.discovered && !row.organizationId && !row.applicationId).map((row) => row.id);
+  if (drop.length) await prisma.database.deleteMany({ where: { id: { in: drop } } });
+  const flag = gone.filter((row) => !drop.includes(row.id)).map((row) => row.id);
+  if (flag.length) await prisma.database.updateMany({ where: { id: { in: flag } }, data: { status: 'ERROR' } });
+
+  return {
+    databases: inventory.databases.length,
+    users: inventory.users.length,
+    created,
+    missing: flag.length,
+  };
 }
