@@ -23,6 +23,7 @@ const LABELS: Record<string, string> = {
   organizations: t("Organizations"),
   users: t("Users"),
   servers: t("Servers"),
+  "database-servers": t("Database Servers"),
   integrations: t("Integrations"),
   rdash: "Rdash",
   cloudflare: "Cloudflare",

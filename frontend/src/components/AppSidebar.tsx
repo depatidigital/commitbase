@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog, HardDrive } from "lucide-react";
+import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog, HardDrive, DatabaseZap } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -36,7 +36,8 @@ export function AppSidebar() {
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
-    return location.pathname.startsWith(path);
+    // whole segments: /database must not light up on /database-servers
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
   return (
@@ -98,6 +99,19 @@ export function AppSidebar() {
                     <HardDrive className="h-4 w-4" />
                     <span className={collapsed ? "sr-only" : undefined}>
                       {t("Servers")}
+                    </span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              )}
+
+              {superadmin && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/database-servers")}>
+                  <NavLink to="/database-servers" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
+                    <DatabaseZap className="h-4 w-4" />
+                    <span className={collapsed ? "sr-only" : undefined}>
+                      {t("Database Servers")}
                     </span>
                   </NavLink>
                 </SidebarMenuButton>

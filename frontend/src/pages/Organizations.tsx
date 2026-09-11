@@ -112,6 +112,21 @@ export default function Organizations() {
           <span className="block truncate">{o.server.name}</span>
         ),
     },
+    {
+      header: t("Databases"),
+      className: "w-40",
+      // only needed once the org wants a database of that engine, so a gap is
+      // a quiet dash, not the warning an unplaced node gets
+      cell: (o) =>
+        o.postgresServer || o.mysqlServer ? (
+          <div className="min-w-0 text-xs">
+            {o.postgresServer && <span className="block truncate">PostgreSQL · {o.postgresServer.name}</span>}
+            {o.mysqlServer && <span className="block truncate">MySQL · {o.mysqlServer.name}</span>}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
     { header: t("Members"), className: "w-24", cell: (o) => o._count.members },
     { header: t("Domains"), className: "w-24", cell: (o) => o._count.domains },
     { header: t("Apps"), className: "w-20", cell: (o) => o._count.applications },

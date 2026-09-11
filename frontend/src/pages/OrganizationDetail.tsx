@@ -50,6 +50,15 @@ import {
   updateMemberRole,
 } from "@/lib/organizations";
 import { getServers, setOrganizationServer } from "@/lib/servers";
+import {
+  ENGINE_LABEL,
+  type DbEngine,
+  getDatabaseServers,
+  setOrganizationDatabaseServer,
+} from "@/lib/databaseServers";
+
+/** Radix Select cannot hold an empty value, so "not placed" needs a stand-in. */
+const NOT_PLACED = "__none__";
 
 const ROLES: OrgRole[] = ["OWNER", "ADMIN", "MEMBER"];
 
@@ -117,6 +126,22 @@ export default function OrganizationDetail() {
       setPlacement("");
       toast({ title: t("Error"), description: error.message, variant: "destructive" });
     },
+  });
+
+  const { data: databaseServers = [] } = useQuery({
+    queryKey: ["database-servers"],
+    queryFn: () => getDatabaseServers(),
+    enabled: superadmin,
+  });
+
+  const dbPlaceMutation = useMutation({
+    mutationFn: ({ engine, databaseServerId }: { engine: DbEngine; databaseServerId: string | null }) =>
+      setOrganizationDatabaseServer(id, engine, databaseServerId),
+    onSuccess: () => {
+      refresh();
+      toast({ title: t("Database placement saved") });
+    },
+    onError: (error: Error) => toast({ title: t("Error"), description: error.message, variant: "destructive" }),
   });
 
   const inviteMutation = useMutation({
@@ -355,6 +380,55 @@ export default function OrganizationDetail() {
               {org.server
                 ? t("Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files.")
                 : t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {superadmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("Database placement")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(["POSTGRESQL", "MYSQL"] as const).map((engine) => {
+              const current = engine === "POSTGRESQL" ? org.postgresServer : org.mysqlServer;
+              const options = databaseServers.filter((row) => row.engine === engine);
+              return (
+                <div key={engine} className="flex flex-wrap items-center gap-3">
+                  <span className="w-28 text-sm font-medium">{ENGINE_LABEL[engine]}</span>
+                  <Select
+                    value={current?.id ?? NOT_PLACED}
+                    onValueChange={(v) =>
+                      dbPlaceMutation.mutate({ engine, databaseServerId: v === NOT_PLACED ? null : v })
+                    }
+                    disabled={dbPlaceMutation.isPending}
+                  >
+                    <SelectTrigger className="w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NOT_PLACED}>{t("Not placed")}</SelectItem>
+                      {options.map((row) => (
+                        <SelectItem key={row.id} value={row.id}>
+                          {row.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {current && (
+                    <Badge variant={current.status === "ONLINE" ? "default" : "destructive"}>{current.status}</Badge>
+                  )}
+                  {!options.length && (
+                    <Link to="/database-servers" className="text-xs text-primary hover:underline">
+                      {t("Add a {engine} server", { engine: ENGINE_LABEL[engine] })}
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-xs text-muted-foreground">
+              {t("Databases of that engine are created on this server, owned by the organization's own login there. Moving is refused while the organization has databases on its current server.")}
             </p>
           </CardContent>
         </Card>

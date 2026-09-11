@@ -23,6 +23,7 @@ import OrganizationDetail from "./pages/OrganizationDetail";
 import Users from "./pages/Users";
 import Servers from "./pages/Servers";
 import ServerDetail from "./pages/ServerDetail";
+import DatabaseServers from "./pages/DatabaseServers";
 import AcceptInvite from "./pages/AcceptInvite";
 import ChangePassword from "./pages/ChangePassword";
 import {
@@ -128,6 +129,14 @@ const App = () => (
               element={
                 <SuperAdminRoute>
                   <Servers />
+                </SuperAdminRoute>
+              }
+            />
+            <Route
+              path="database-servers"
+              element={
+                <SuperAdminRoute>
+                  <DatabaseServers />
                 </SuperAdminRoute>
               }
             />
