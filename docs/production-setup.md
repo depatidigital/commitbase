@@ -7,38 +7,29 @@ platform deploys.
 Target: Ubuntu 22.04/24.04 or Debian 12. Commands assume root unless a step
 says otherwise.
 
-## Quick install
+## The panel vs. nodes
 
-`install.sh` at the repo root does steps 1–10 below in one go, idempotently.
-DNS for the panel hostname must already point at the box.
+This document sets up the **panel** (control plane) by hand, steps 0–13.
+
+`install.sh` at the repo root is for **nodes only** — the boxes that run tenant
+apps. It installs packages, Caddy (admin API on loopback, no sites), the
+`larika` SSH user with passwordless root and the panel's key, sudoers and
+logrotate. No backend, no database, no checkout of this repo. You normally never
+run it yourself: the panel's **Servers → Set up** sends it over SSH and runs it
+as root. By hand, on the node:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/depatidigital/commitbase/main/install.sh   | sudo PANEL_DOMAIN=panel.example.com ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<strong>' bash
+sudo PANEL_SSH_PUBKEY="$(cat id_ed25519.pub)" ./install.sh   # the panel's /opt/commitbase/.ssh/id_ed25519.pub
 ```
 
 Knobs, all optional: `WITH_PHP=1` (PHP tenants), `WITH_NVM=1` (per-app Node
-versions), `NODE_MAJOR=24`, `ACME_EMAIL`, `SERVER_IP`, `REPO`, `BRANCH`.
+versions), `NODE_MAJOR=24`, `ACME_EMAIL`, `SSH_USER`, `SERVER_IP`. Idempotent;
+a re-run that finds the Caddyfile already correct does not reload Caddy, so
+live tenant routes are not dropped.
 
-What it will not touch on a re-run: an existing `backend/.env`, a Caddyfile
-that already serves the panel, an existing database password. Re-running is
-also the upgrade path (step 13). It skips disk quotas (Appendix A, needs a
-reboot on a live box) and the Cloudflare/R2/SMTP settings, which are done in
-the panel or in `.env` afterwards.
-
-An existing `commitbase` database owned by another role is handed over
-automatically (step 3 explains what that does).
-
-**Caddy already running other sites**: the script appends the panel block to
-your Caddyfile and reloads (not restarts) Caddy. Nothing already in the file is
-changed; a timestamped backup sits next to it. A re-run that finds the file
-already correct does not reload at all. One thing to know from then on: tenant
-sites are added through Caddy's admin API, in memory — no site files. A later
-`systemctl reload caddy` or `caddy reload` re-reads the Caddyfile and drops
-them until the `caddy-routes` watchdog restores them (within five minutes) or
-you restart `commitbase.service`, which re-applies them — see step 9.
-
-The rest of this document is the same procedure by hand, for reading what the
-script does or for boxes that differ from the assumptions.
+The panel's own box is a node too. Once the panel is up, run `install.sh` there
+with the panel's own public key (or use Set up on its Server row) — that covers
+steps 2's SSH user, 7's sudoers/logrotate and the Caddy group membership.
 
 ## Who runs what
 
@@ -206,8 +197,8 @@ the default `sshKeyPath` for seeded nodes, and the directory every server row's
 key must sit inside.
 
 For an **additional** node later: generate nothing new. Append this same public
-key to that box's `~larika/.ssh/authorized_keys` (or run `install.sh` with
-`ROLE=node`, which does it), then register the node in the panel with SSH user
+key to that box's `~larika/.ssh/authorized_keys` (or run `install.sh`, which
+does it, or let the panel's Set up run it), then register the node in the panel with SSH user
 `larika`. One key, every node.
 
 **Password authentication** is supported for boxes where installing a key is not

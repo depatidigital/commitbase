@@ -132,7 +132,7 @@ model Server {
   /// the UI without shell access to either machine.
   lastError     String?
 
-  /// Node setup queue (serverSetupService): the panel runs install.sh ROLE=node
+  /// Node setup queue (serverSetupService): the panel runs install.sh
   /// over SSH. Same states as an organization's provisioning.
   setupState    ProvisionState @default(NONE)
   setupError    String?

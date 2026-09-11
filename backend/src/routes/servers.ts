@@ -441,7 +441,7 @@ router.delete('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req
   }
 });
 
-// Queue install.sh ROLE=node on this box, run over SSH. Idempotent: re-running
+// Queue install.sh on this box, run over SSH. Idempotent: re-running
 // upgrades packages and re-applies the config install.sh owns.
 router.post('/:id/setup', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {

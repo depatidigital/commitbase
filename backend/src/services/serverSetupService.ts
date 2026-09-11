@@ -7,7 +7,7 @@ import { pingServer } from './serverHealthService';
 /**
  * Node setup queue.
  *
- * Setting a box up is `install.sh ROLE=node`: packages, Caddy, the SSH user
+ * Setting a box up is `install.sh` (node-only): packages, Caddy, the SSH user
  * with its root grant, the panel's key. Instead of an operator running it on
  * the box, the panel sends the script's text over SSH and runs it as root
  * (execRoot: root login, NOPASSWD, or sudo with the stored password). Minutes
@@ -26,7 +26,7 @@ const LOG_TAIL = 8_000;
 
 const running = new Set<string>();
 
-/** ACME contact for the node's Caddy. install.sh would otherwise default to "admin@" with no domain. */
+/** ACME contact for the node's Caddy. Without it install.sh registers with Let's Encrypt anonymously. */
 function acmeEmail(): string | null {
   if (process.env.ACME_EMAIL) return process.env.ACME_EMAIL;
   try {
@@ -62,7 +62,6 @@ export async function runServerSetup(serverId: string): Promise<void> {
       const pubkey = fs.readFileSync(`${PANEL_KEY}.pub`, 'utf8').trim();
       const email = acmeEmail();
       const env = [
-        'ROLE=node',
         `PANEL_SSH_PUBKEY=${pubkey}`,
         `SERVER_IP=${server.publicIp}`,
         ...(withPhp ? ['WITH_PHP=1'] : []),

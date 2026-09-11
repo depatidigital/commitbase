@@ -9,11 +9,13 @@ Larika is an application management platform with a frontend and backend archite
 
 ## Production install
 
-One command on a fresh or existing Ubuntu/Debian VPS, see
-[docs/production-setup.md](docs/production-setup.md):
+The panel is set up by hand: [docs/production-setup.md](docs/production-setup.md).
+
+`install.sh` prepares a **node** (a box that runs tenant apps). The panel runs
+it for you from Servers → Set up; by hand on the node:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/depatidigital/commitbase/main/install.sh   | sudo PANEL_DOMAIN=panel.example.com bash
+sudo PANEL_SSH_PUBKEY='ssh-ed25519 AAAA… commitbase-panel' ./install.sh
 ```
 
 ## Getting Started

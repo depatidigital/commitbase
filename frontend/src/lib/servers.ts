@@ -26,7 +26,7 @@ export interface Server {
   provisioned: boolean;
   lastSeenAt: string | null;
   lastError: string | null;
-  /** Setup queue: install.sh ROLE=node run over SSH by the panel. */
+  /** Setup queue: install.sh run over SSH by the panel. */
   setupState: ProvisionState;
   setupError: string | null;
   /** Tail of the last setup run's output. */
@@ -101,7 +101,7 @@ export const pingServer = async (
 ): Promise<{ id: string; name: string; status: ServerStatus; provisioned: boolean; error?: string }> =>
   unwrap(await apiRequest(`/servers/${id}/ping`, { method: 'POST' }), t('Failed to reach server'));
 
-/** Queue install.sh ROLE=node on this node, run over SSH. */
+/** Queue install.sh on this node, run over SSH. */
 export const setupServer = async (id: string, withPhp: boolean) =>
   unwrap(
     await apiRequest(`/servers/${id}/setup`, { method: 'POST', body: JSON.stringify({ withPhp }) }),
