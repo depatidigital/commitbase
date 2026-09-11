@@ -9,19 +9,21 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Home } from "lucide-react";
+import { t } from "@/lib/i18n";
 
 const LABELS: Record<string, string> = {
-  application: "Apps",
-  "add-app": "Add App",
-  database: "Databases",
-  domains: "Domains",
-  logs: "Logs",
-  settings: "Settings",
-  team: "Team",
-  admin: "Administration",
-  organizations: "Organizations",
-  users: "Users",
-  integrations: "Integrations",
+  application: t("Apps"),
+  "add-app": t("Add App"),
+  database: t("Databases"),
+  domains: t("Domains"),
+  logs: t("Logs"),
+  settings: t("Settings"),
+  team: t("Team"),
+  admin: t("Administration"),
+  organizations: t("Organizations"),
+  users: t("Users"),
+  servers: t("Servers"),
+  integrations: t("Integrations"),
   rdash: "Rdash",
   cloudflare: "Cloudflare",
 };
@@ -31,7 +33,7 @@ const isId = (segment: string) => /^(c[a-z0-9]{20,}|[0-9a-f-]{16,})$/i.test(segm
 
 const label = (segment: string) =>
   LABELS[segment] ??
-  (isId(segment) ? "Detail" : segment.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()));
+  (isId(segment) ? t("Detail") : segment.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()));
 
 export function Breadcrumbs() {
   const segments = useLocation().pathname.split("/").filter(Boolean);
@@ -42,12 +44,12 @@ export function Breadcrumbs() {
         <BreadcrumbItem>
           {segments.length === 0 ? (
             <BreadcrumbPage className="flex items-center gap-1.5">
-              <Home className="h-3.5 w-3.5" /> Home
+              <Home className="h-3.5 w-3.5" /> {t("Home")}
             </BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild>
               <Link to="/" className="flex items-center gap-1.5">
-                <Home className="h-3.5 w-3.5" /> Home
+                <Home className="h-3.5 w-3.5" /> {t("Home")}
               </Link>
             </BreadcrumbLink>
           )}

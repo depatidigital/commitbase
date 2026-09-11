@@ -1,6 +1,7 @@
 import { Code2, FileCode, Hexagon, Layers, Globe } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { t } from "@/lib/i18n";
 
 /**
  * What kind of app a row is, and — for the ones that have it — the loopback
@@ -12,14 +13,14 @@ import { Badge } from "@/components/ui/badge";
  * anybody could connect to, and it is not one.
  */
 
-const TYPES: Record<
+export const TYPES: Record<
   string,
   { label: string; icon: typeof Hexagon; className: string }
 > = {
   NODEJS: { label: "Node.js", icon: Hexagon, className: "text-success" },
   PHP: { label: "PHP", icon: FileCode, className: "text-primary" },
   PYTHON: { label: "Python", icon: Code2, className: "text-warning" },
-  STATIC: { label: "Static", icon: Globe, className: "text-muted-foreground" },
+  STATIC: { label: t("Static"), icon: Globe, className: "text-muted-foreground" },
 };
 
 export const AppTypeBadge = ({
@@ -46,7 +47,7 @@ export const AppTypeBadge = ({
       {port ? (
         <span
           className="block font-mono text-xs text-muted-foreground"
-          title={`Internal only — the proxy dials 127.0.0.1:${port} on the node`}
+          title={t("Internal only — the proxy dials 127.0.0.1:{port} on the node", { port })}
         >
           :{port}
         </span>

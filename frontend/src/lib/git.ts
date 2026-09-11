@@ -1,4 +1,5 @@
 import apiRequest from './api';
+import { t } from './i18n';
 
 export interface GitRepository {
   id: string;
@@ -41,7 +42,7 @@ export const updateGitAccountDisplayName = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to update git account');
+  throw new Error(response.error || t('Failed to update git account'));
 };
 
 export const deleteGitAccount = async (id: string): Promise<void> => {
@@ -50,7 +51,7 @@ export const deleteGitAccount = async (id: string): Promise<void> => {
   });
 
   if (!response.success) {
-    throw new Error(response.error || 'Failed to delete git account');
+    throw new Error(response.error || t('Failed to delete git account'));
   }
 };
 
@@ -61,7 +62,7 @@ export const getGithubAccounts = async (): Promise<GitAccount[]> => {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch GitHub accounts');
+  throw new Error(response.error || t('Failed to fetch GitHub accounts'));
 };
 
 export const getGitlabAccounts = async (): Promise<GitAccount[]> => {
@@ -71,7 +72,7 @@ export const getGitlabAccounts = async (): Promise<GitAccount[]> => {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch GitLab accounts');
+  throw new Error(response.error || t('Failed to fetch GitLab accounts'));
 };
 
 export const getGithubProjects = async (
@@ -86,7 +87,7 @@ export const getGithubProjects = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch GitHub repositories');
+  throw new Error(response.error || t('Failed to fetch GitHub repositories'));
 };
 
 export const getGitlabProjects = async (
@@ -101,7 +102,7 @@ export const getGitlabProjects = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch GitLab projects');
+  throw new Error(response.error || t('Failed to fetch GitLab projects'));
 };
 
 export const getGithubBranches = async (
@@ -118,7 +119,7 @@ export const getGithubBranches = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch GitHub branches');
+  throw new Error(response.error || t('Failed to fetch GitHub branches'));
 };
 
 export const getGitlabBranches = async (
@@ -135,7 +136,7 @@ export const getGitlabBranches = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch GitLab branches');
+  throw new Error(response.error || t('Failed to fetch GitLab branches'));
 };
 
 export const getGithubAuthUrl = async (): Promise<string> => {
@@ -145,7 +146,7 @@ export const getGithubAuthUrl = async (): Promise<string> => {
     return response.data.url;
   }
 
-  throw new Error(response.error || 'Failed to get GitHub OAuth URL');
+  throw new Error(response.error || t('Failed to get GitHub OAuth URL'));
 };
 
 export const getGitlabAuthUrl = async (): Promise<string> => {
@@ -155,7 +156,7 @@ export const getGitlabAuthUrl = async (): Promise<string> => {
     return response.data.url;
   }
 
-  throw new Error(response.error || 'Failed to get GitLab OAuth URL');
+  throw new Error(response.error || t('Failed to get GitLab OAuth URL'));
 };
 
 export const getGitConnectionStatus = async (): Promise<GitConnectionStatus> => {
@@ -165,5 +166,5 @@ export const getGitConnectionStatus = async (): Promise<GitConnectionStatus> => 
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to get git connection status');
+  throw new Error(response.error || t('Failed to get git connection status'));
 };

@@ -15,6 +15,7 @@ import {
   useSetupApplicationDns,
 } from "@/hooks/useApplications";
 import type { DnsOutcome } from "@/lib/applications";
+import { t } from "@/lib/i18n";
 
 type StepState = "pending" | "running" | "done" | "failed";
 
@@ -102,15 +103,15 @@ export const AppLaunchProgress = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Setting up {domain}</CardTitle>
+        <CardTitle className="text-base">{t("Setting up {domain}", { domain })}</CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <Step state="done" title="Application created" />
+        <Step state="done" title={t("Application created")} />
 
         <Step
           state={dnsFailed ? "failed" : "done"}
           title="DNS"
-          detail={dns?.detail ?? "Hostname pointed at the platform"}
+          detail={dns?.detail ?? t("Hostname pointed at the platform")}
           action={
             dnsFailed && dns?.state === "conflict" ? (
               <Button
@@ -121,7 +122,7 @@ export const AppLaunchProgress = ({
                   setupDns.mutate({ id: applicationId, force: true })
                 }
               >
-                Repoint it here
+                {t("Repoint it here")}
               </Button>
             ) : undefined
           }
@@ -129,45 +130,45 @@ export const AppLaunchProgress = ({
 
         <Step
           state={uploadFailed ? "failed" : uploading ? "running" : "done"}
-          title="Source files"
+          title={t("Source files")}
           detail={uploadFailed ?? undefined}
         />
 
         <Step
           state={deployState}
-          title="Build and deploy"
+          title={t("Build and deploy")}
           detail={
             deployState === "failed"
-              ? "The deployment failed — open the app to read its build log"
+              ? t("The deployment failed — open the app to read its build log")
               : deployState === "running"
-                ? "Building on the server"
+                ? t("Building on the server")
                 : undefined
           }
         />
 
         <Step
           state={liveState}
-          title="Live over HTTPS"
+          title={t("Live over HTTPS")}
           detail={
             liveState === "done"
-              ? `Answering with HTTP ${health?.httpStatus}`
+              ? t("Answering with HTTP {status}", { status: health?.httpStatus ?? "" })
               : liveState === "running"
                 ? (health?.error ??
-                  "Waiting for DNS to propagate and the certificate to be issued")
+                  t("Waiting for DNS to propagate and the certificate to be issued"))
                 : undefined
           }
         />
 
         <div className="flex items-center justify-between gap-3 pt-4">
           <Button variant="outline" onClick={() => navigate("/")}>
-            Back to dashboard
+            {t("Back to dashboard")}
           </Button>
           <div className="flex gap-2">
             <Button
               variant="outline"
               onClick={() => navigate(`/application/${applicationId}`)}
             >
-              Open app
+              {t("Open app")}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
             <Button
@@ -175,7 +176,7 @@ export const AppLaunchProgress = ({
               onClick={() => window.open(`https://${domain}`, "_blank")}
             >
               <ExternalLink className="mr-2 h-4 w-4" />
-              Visit site
+              {t("Visit site")}
             </Button>
           </div>
         </div>

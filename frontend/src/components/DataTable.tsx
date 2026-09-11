@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
+import { t } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -132,8 +133,8 @@ export function DataTable<T>({
   pagination,
   filter,
   isLoading,
-  searchPlaceholder = "Search…",
-  empty = "No results.",
+  searchPlaceholder = t("Search…"),
+  empty = t("No results."),
   toolbar,
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
@@ -156,7 +157,7 @@ export function DataTable<T>({
     <div data-fill className="flex min-h-[20rem] flex-col gap-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>Show</span>
+          <span>{t("Show")}</span>
           <Select
             value={String(limit)}
             onValueChange={(v) => setLimit(Number(v))}
@@ -172,7 +173,7 @@ export function DataTable<T>({
               ))}
             </SelectContent>
           </Select>
-          <span>entries</span>
+          <span>{t("entries")}</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -261,8 +262,8 @@ export function DataTable<T>({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
           {total === 0
-            ? "0 entries"
-            : `Showing ${firstRowNumber + 1}–${firstRowNumber + visible.length} of ${total}`}
+            ? t("0 entries")
+            : t("Showing {from}–{to} of {total}", { from: firstRowNumber + 1, to: firstRowNumber + visible.length, total })}
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -271,10 +272,10 @@ export function DataTable<T>({
             onClick={() => setPage(page - 1)}
             disabled={page <= 1 || isLoading}
           >
-            <ChevronLeft className="h-4 w-4" /> Previous
+            <ChevronLeft className="h-4 w-4" /> {t("Previous")}
           </Button>
           <span className="text-sm text-muted-foreground">
-            Page {page} of {Math.max(1, totalPages)}
+            {t("Page {page} of {pages}", { page, pages: Math.max(1, totalPages) })}
           </span>
           <Button
             variant="outline"
@@ -282,7 +283,7 @@ export function DataTable<T>({
             onClick={() => setPage(page + 1)}
             disabled={page >= totalPages || isLoading}
           >
-            Next <ChevronRight className="h-4 w-4" />
+            {t("Next")} <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       </div>

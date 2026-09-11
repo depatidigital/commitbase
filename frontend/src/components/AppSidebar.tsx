@@ -16,14 +16,15 @@ import {
 } from "@/components/ui/sidebar";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
+import { t } from "@/lib/i18n";
 
 const items = [
-  { title: "Apps", url: "/", icon: Server },
-  { title: "Databases", url: "/database", icon: Database },
-  { title: "Domains", url: "/domains", icon: Globe },
-  { title: "Logs", url: "/logs", icon: Terminal },
-  { title: "Team", url: "/team", icon: Users },
-  { title: "Settings", url: "/settings", icon: Settings },
+  { title: t("Apps"), url: "/", icon: Server },
+  { title: t("Databases"), url: "/database", icon: Database },
+  { title: t("Domains"), url: "/domains", icon: Globe },
+  { title: t("Logs"), url: "/logs", icon: Terminal },
+  { title: t("Team"), url: "/team", icon: Users },
+  { title: t("Settings"), url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -65,13 +66,13 @@ export function AppSidebar() {
         </div>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Platform</SidebarGroupLabel>
+          <SidebarGroupLabel>{t("Platform")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {items
                 .filter((item) => item.url !== "/team" || !admin)
                 .map((item) => (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild tooltip={item.title}>
                     <NavLink
                       to={item.url}
@@ -96,7 +97,7 @@ export function AppSidebar() {
                   <NavLink to="/servers" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
                     <HardDrive className="h-4 w-4" />
                     <span className={collapsed ? "sr-only" : undefined}>
-                      Servers
+                      {t("Servers")}
                     </span>
                   </NavLink>
                 </SidebarMenuButton>
@@ -109,7 +110,7 @@ export function AppSidebar() {
                   <NavLink to="/organizations" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
                     <Building2 className="h-4 w-4" />
                     <span className={collapsed ? "sr-only" : undefined}>
-                      Organizations
+                      {t("Organizations")}
                     </span>
                   </NavLink>
                 </SidebarMenuButton>
@@ -122,7 +123,7 @@ export function AppSidebar() {
                   <NavLink to="/users" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
                     <UserCog className="h-4 w-4" />
                     <span className={collapsed ? "sr-only" : undefined}>
-                      Users
+                      {t("Users")}
                     </span>
                   </NavLink>
                 </SidebarMenuButton>
@@ -131,11 +132,11 @@ export function AppSidebar() {
 
               {admin && (
               <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Administration" isActive={location.pathname.startsWith("/admin")}>
+                <SidebarMenuButton asChild tooltip={t("Administration")} isActive={location.pathname.startsWith("/admin")}>
                   <NavLink to="/admin" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
                     <ShieldCheck className="h-4 w-4" />
                     <span className={collapsed ? "sr-only" : undefined}>
-                      Administration
+                      {t("Administration")}
                     </span>
                   </NavLink>
                 </SidebarMenuButton>
@@ -146,7 +147,7 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <div className="flex items-center space-x-2 px-3 py-2 text-muted-foreground">
                   <Link2 className="h-4 w-4" />
-                  {!collapsed && <span className="text-xs font-medium uppercase tracking-wide">Integrations</span>}
+                  {!collapsed && <span className="text-xs font-medium uppercase tracking-wide">{t("Integrations")}</span>}
                 </div>
                 <SidebarMenuSub>
                   <SidebarMenuSubItem>

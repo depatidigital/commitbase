@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { AppType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';

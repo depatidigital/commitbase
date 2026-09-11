@@ -42,7 +42,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HeartbeatBar, healthLabel } from "@/components/HeartbeatBar";
-import { AppTypeBadge } from "@/components/AppTypeBadge";
+import { AppTypeBadge, TYPES as APP_TYPES } from "@/components/AppTypeBadge";
+import { getServers } from "@/lib/servers";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+/** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
+const ALL = "__all__";
 import { getApplicationHealth } from "@/lib/health";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -99,12 +110,23 @@ export default function Application() {
   const syncApps = useSyncServerApps();
   const superAdmin = isSuperAdmin();
 
+  // page-specific filters on top of the shared table query; a change goes back
+  // to page 1 like the organization filter does
+  const [typeFilter, setTypeFilter] = useState("");
+  const [serverFilter, setServerFilter] = useState("");
+  const { data: servers = [] } = useQuery({
+    queryKey: ["servers"],
+    queryFn: getServers,
+    // the node list is superadmin-only on the API
+    enabled: superAdmin,
+  });
+
   // API hooks
   const {
     data: applicationsData,
     isLoading,
     error,
-  } = useApplicationsWithRealtime(query.params);
+  } = useApplicationsWithRealtime({ ...query.params, type: typeFilter, serverId: serverFilter });
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
@@ -526,7 +548,48 @@ export default function Application() {
         title="Apps"
         description="Manage your applications and services."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <OrganizationFilter query={query} />
+            <Select
+              value={typeFilter || ALL}
+              onValueChange={(v) => {
+                setTypeFilter(v === ALL ? "" : v);
+                query.setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All types</SelectItem>
+                {Object.entries(APP_TYPES).map(([value, meta]) => (
+                  <SelectItem key={value} value={value}>
+                    {meta.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {superAdmin && (
+              <Select
+                value={serverFilter || ALL}
+                onValueChange={(v) => {
+                  setServerFilter(v === ALL ? "" : v);
+                  query.setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-10 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All servers</SelectItem>
+                  {servers.map((server) => (
+                    <SelectItem key={server.id} value={server.id}>
+                      {server.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {superAdmin && (
               <Button
                 variant="outline"
@@ -550,30 +613,6 @@ export default function Application() {
           </div>
         }
       >
-        {/* the imported-sites workflow: fifty unassigned rows, one owner */}
-        {superAdmin && selectedIds.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-muted/40 p-3">
-            <span className="text-sm font-medium">{selectedIds.length} selected</span>
-            <OrganizationCombobox
-              value={bulkOrgId || null}
-              onChange={(id) => setBulkOrgId(id ?? "")}
-              placeholder="Assign to organization"
-              className="w-64"
-            />
-            <Button
-              size="sm"
-              disabled={!bulkOrgId || bulkAssign.isPending}
-              onClick={() => bulkAssign.mutate({ ids: selectedIds, organizationId: bulkOrgId || null })}
-            >
-              {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Assign
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
-              Clear
-            </Button>
-          </div>
-        )}
-
         <DataTable
           columns={columns}
           rows={applications}
@@ -583,7 +622,33 @@ export default function Application() {
           isLoading={isLoading}
           searchPlaceholder="Search name or domain…"
           empty="No applications yet — deploy your first one."
-          toolbar={<OrganizationFilter query={query} />}
+          toolbar={
+            // the imported-sites workflow: fifty unassigned rows, one owner —
+            // beside the search box, only while something is selected
+            superAdmin && selectedIds.length > 0 ? (
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-sm font-medium">
+                  {selectedIds.length} selected
+                </span>
+                <OrganizationCombobox
+                  value={bulkOrgId || null}
+                  onChange={(id) => setBulkOrgId(id ?? "")}
+                  placeholder="Assign to organization"
+                  className="w-56"
+                />
+                <Button
+                  disabled={!bulkOrgId || bulkAssign.isPending}
+                  onClick={() => bulkAssign.mutate({ ids: selectedIds, organizationId: bulkOrgId || null })}
+                >
+                  {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Assign
+                </Button>
+                <Button variant="ghost" onClick={() => setSelectedIds([])}>
+                  Clear
+                </Button>
+              </div>
+            ) : null
+          }
         />
 
         <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>

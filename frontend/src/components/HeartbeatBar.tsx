@@ -1,4 +1,5 @@
 import type { Health } from "@/lib/health";
+import { locale, t } from "@/lib/i18n";
 
 /**
  * A bar per check, newest on the right.
@@ -28,8 +29,8 @@ export const HeartbeatBar = ({
       {beats.map((beat, i) => (
         <span
           key={i}
-          title={`${new Date(beat.at).toLocaleString()} — ${
-            beat.ok ? "up" : beat.error || "down"
+          title={`${new Date(beat.at).toLocaleString(locale)} — ${
+            beat.ok ? t("up") : beat.error || t("down")
           }${beat.responseMs ? ` · ${beat.responseMs}ms` : ""}`}
           className={`w-[3px] rounded-sm ${
             beat.ok ? "h-5 bg-success" : "h-6 bg-destructive"
@@ -44,15 +45,15 @@ export const HeartbeatBar = ({
 export const healthLabel = (health?: Health) => {
   switch (health?.state) {
     case "up":
-      return { text: "up", className: "text-success" };
+      return { text: t("up"), className: "text-success" };
     case "down":
-      return { text: "down", className: "text-destructive" };
+      return { text: t("down"), className: "text-destructive" };
     case "pending":
       // failing, but not yet often enough to be an outage — saying "down" here
       // is how a dashboard teaches people to ignore it
-      return { text: "pending", className: "text-warning" };
+      return { text: t("pending"), className: "text-warning" };
     default:
-      return { text: "no data", className: "text-muted-foreground" };
+      return { text: t("no data"), className: "text-muted-foreground" };
   }
 };
 

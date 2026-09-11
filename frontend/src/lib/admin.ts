@@ -13,6 +13,9 @@ export interface ListParams {
   order?: string;
   /** domains only: 'expired' or a day window like '30' */
   expiring?: string;
+  /** applications only */
+  type?: string;
+  serverId?: string;
 }
 
 export const listQuery = ({
@@ -25,8 +28,12 @@ export const listQuery = ({
   expiring,
   sort,
   order,
+  type,
+  serverId,
 }: ListParams) =>
   `?page=${page}&limit=${limit}` +
+  (type ? `&type=${encodeURIComponent(type)}` : '') +
+  (serverId ? `&serverId=${encodeURIComponent(serverId)}` : '') +
   (search ? `&search=${encodeURIComponent(search)}` : '') +
   (organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '') +
   (filter ? `&filter=${encodeURIComponent(filter)}` : '') +

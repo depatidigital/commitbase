@@ -14,6 +14,7 @@ import { Settings, LogOut, ChevronDown } from "lucide-react";
 
 import { useLogout } from "@/hooks/useAuth";
 import { API_BASE_URL } from "@/lib/api";
+import { lang, setLang, t } from "@/lib/i18n";
 // Floating toggle that sits on the sidebar/content divider, above everything.
 function EdgeSidebarTrigger() {
   const { state } = useSidebar();
@@ -67,8 +68,24 @@ export function Layout() {
             <div className="pl-4 md:pl-6">
               <Breadcrumbs />
             </div>
+            {/* language: a reload applies it, see lib/i18n */}
+            <div className="ml-auto mr-3 flex items-center rounded-full border border-border p-0.5 text-xs font-medium">
+              {(["id", "en"] as const).map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setLang(code)}
+                  aria-pressed={lang === code}
+                  className={`rounded-full px-2 py-0.5 uppercase transition-colors ${
+                    lang === code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
             <div
-              className={`flex items-center space-x-1 px-2 py-1 rounded-full border ml-auto mr-4 ${
+              className={`flex items-center space-x-1 px-2 py-1 rounded-full border mr-4 ${
                 healthy === false
                   ? "bg-destructive/10 border-destructive/20"
                   : "bg-success/10 border-success/20"
@@ -84,7 +101,7 @@ export function Layout() {
                   healthy === false ? "text-destructive" : "text-success"
                 }`}
               >
-                {healthy === false ? "Platform Unreachable" : "Platform Online"}
+                {healthy === false ? t("Platform Unreachable") : t("Platform Online")}
               </span>
             </div>
 
@@ -124,7 +141,7 @@ export function Layout() {
                   <DropdownMenuItem asChild>
                     <Link to="/settings" className="cursor-pointer">
                       <Settings className="mr-2 h-4 w-4" />
-                      <span>Settings</span>
+                      <span>{t("Settings")}</span>
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -135,14 +152,14 @@ export function Layout() {
                   >
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>
-                      {logoutMutation.isPending ? 'Signing out...' : 'Sign out'}
+                      {logoutMutation.isPending ? t('Signing out...') : t('Sign out')}
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
               <div className="text-sm text-muted-foreground">
-                No user data available
+                {t("No user data available")}
               </div>
             )}
           </header>
