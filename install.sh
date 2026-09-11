@@ -20,6 +20,9 @@
 #   PANEL_SSH_PUBKEY  required for ROLE=node  the panel's public key, printed at
 #                   the end of a ROLE=panel install. Authorizes the control
 #                   plane to run the provisioning scripts on this node.
+#   SSH_USER        larika   the user the control plane logs in as, on every
+#                   box (this one included). Gets full passwordless root via
+#                   runner/commitbase.sudoers - keep the two names in sync.
 #   ACME_EMAIL      admin@<domain>   Let's Encrypt contact
 #   REPO / BRANCH   github.com/depatidigital/commitbase, main
 #   NODE_MAJOR      24
@@ -48,6 +51,7 @@ SERVER_IP="${SERVER_IP:-}"
 
 CB_USER=commitbase
 CB_GROUP=commitbase
+SSH_USER="${SSH_USER:-larika}"
 CB_HOME=/opt/commitbase
 APP_DIR="$CB_HOME/app"
 ENV_FILE="$APP_DIR/backend/.env"
