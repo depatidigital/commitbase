@@ -280,10 +280,17 @@ export async function queueOrgProvision(organizationId: string, job: ProvisionJo
   void runOrgProvision(organizationId);
 }
 
-/** Run one queued org. Safe to call twice: claiming QUEUED → RUNNING is the guard. */
-export async function runOrgProvision(organizationId: string): Promise<void> {
-  if (running.has(organizationId)) return;
+/**
+ * Run one queued org. Safe to call twice: claiming QUEUED → RUNNING is the guard.
+ * Resolves with a one-line outcome (never rejects) so the cron sweep can report it.
+ */
+export async function runOrgProvision(organizationId: string): Promise<string> {
+  if (running.has(organizationId)) {
+    console.log(`[org-provision] ${organizationId}: already running in this process — skipped`);
+    return `${organizationId}: already running`;
+  }
   running.add(organizationId);
+  const started = Date.now();
 
   try {
     // Unplaced orgs stay QUEUED — placement kicks them.
@@ -291,31 +298,49 @@ export async function runOrgProvision(organizationId: string): Promise<void> {
       where: { id: organizationId, provisionState: 'QUEUED', serverId: { not: null } },
       data: { provisionState: 'RUNNING' },
     });
-    if (claimed.count === 0) return;
+    if (claimed.count === 0) {
+      const row = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { slug: true, provisionState: true, serverId: true },
+      });
+      const why = !row ? 'organization not found' : !row.serverId ? 'no server assigned yet' : `state is ${row.provisionState}, not QUEUED`;
+      console.log(`[org-provision] ${row?.slug ?? organizationId}: not claimed — ${why}`);
+      return `${row?.slug ?? organizationId}: not claimed (${why})`;
+    }
 
     const org = await prisma.organization.findUniqueOrThrow({
       where: { id: organizationId },
-      select: { slug: true, provisionJob: true },
+      select: { slug: true, provisionJob: true, server: { select: { name: true, hostname: true } } },
     });
     const { userId, trigger, ...limits } = (org.provisionJob ?? {}) as unknown as ProvisionJob;
+    const node = org.server ? `${org.server.name} (${org.server.hostname})` : 'unknown node';
+    console.log(
+      `[org-provision] ${org.slug}: RUNNING on ${node} — trigger=${trigger ?? 'none'} user=${userId ?? 'none'} limits=${JSON.stringify(limits)}`
+    );
+    if (!org.provisionJob) console.warn(`[org-provision] ${org.slug}: provisionJob is empty — running with defaults`);
 
     try {
-      await provisionOrgLogged(org.slug, userId, { ...limits, organizationId, trigger });
+      const result = await provisionOrgLogged(org.slug, userId, { ...limits, organizationId, trigger });
       await prisma.organization.update({
         where: { id: organizationId },
         data: { provisionState: 'DONE', provisionError: null, provisionJob: Prisma.DbNull, provisionedAt: new Date() },
       });
+      console.log(`[org-provision] ${org.slug}: DONE in ${Date.now() - started}ms`);
+      if (result.output) console.log(`[org-provision] ${org.slug}: script output:\n${result.output}`);
+      return `${org.slug}: done`;
     } catch (err: any) {
+      const message = String(err?.stderr || err?.message || err);
       await prisma.organization.update({
         where: { id: organizationId },
-        data: {
-          provisionState: 'FAILED',
-          provisionError: String(err?.stderr || err?.message || err).slice(0, 1000),
-        },
+        data: { provisionState: 'FAILED', provisionError: message.slice(0, 1000) },
       });
+      console.error(`[org-provision] ${org.slug}: FAILED after ${Date.now() - started}ms on ${node} — ${message}`);
+      if (err?.stdout) console.error(`[org-provision] ${org.slug}: script stdout:\n${err.stdout}`);
+      return `${org.slug}: failed (${(message.split('\n')[0] ?? '').slice(0, 200)})`;
     }
-  } catch (err) {
-    console.error(`Provisioning worker failed for org ${organizationId}:`, err);
+  } catch (err: any) {
+    console.error(`[org-provision] worker crashed for org ${organizationId}:`, err);
+    return `${organizationId}: worker error (${err?.message || err})`;
   } finally {
     running.delete(organizationId);
   }
@@ -326,15 +351,29 @@ export async function provisionQueuedOrgs(): Promise<string> {
   if (!OS_ISOLATION_ENABLED) return 'skipped — ORG_OS_ISOLATION is off';
 
   // ponytail: "not in this process's set" = orphaned, valid for one replica only (see cron.ts).
-  await prisma.organization.updateMany({
+  const requeued = await prisma.organization.updateMany({
     where: { provisionState: 'RUNNING', id: { notIn: [...running] } },
     data: { provisionState: 'QUEUED' },
   });
+  if (requeued.count) console.warn(`[org-provision] requeued ${requeued.count} org(s) left RUNNING by a restart`);
 
-  const queued = await prisma.organization.findMany({
-    where: { provisionState: 'QUEUED', serverId: { not: null } },
-    select: { id: true },
-  });
-  for (const org of queued) await runOrgProvision(org.id);
-  return queued.length === 0 ? 'nothing queued' : `${queued.length} organization(s) processed`;
+  const [queued, unplaced] = await Promise.all([
+    prisma.organization.findMany({
+      where: { provisionState: 'QUEUED', serverId: { not: null } },
+      select: { id: true },
+    }),
+    prisma.organization.findMany({
+      where: { provisionState: 'QUEUED', serverId: null },
+      select: { slug: true },
+    }),
+  ]);
+
+  const parts: string[] = [];
+  if (requeued.count) parts.push(`${requeued.count} requeued`);
+  if (unplaced.length) parts.push(`${unplaced.length} waiting for a server (${unplaced.map((o) => o.slug).join(', ')})`);
+  if (queued.length === 0) return ['nothing queued', ...parts].join('; ');
+
+  const outcomes: string[] = [];
+  for (const org of queued) outcomes.push(await runOrgProvision(org.id));
+  return [`${queued.length} organization(s) processed`, ...parts, ...outcomes].join('; ');
 }
