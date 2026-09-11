@@ -550,7 +550,7 @@ export default function Application() {
         description={t("Manage your applications and services.")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <OrganizationFilter query={query} />
+            <OrganizationFilter query={query} unassigned />
             <Select
               value={typeFilter || ALL}
               onValueChange={(v) => {

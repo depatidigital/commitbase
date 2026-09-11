@@ -40,6 +40,12 @@ const PlacementSchema = z.object({
   serverId: z.string().min(1).nullable(),
 });
 
+const DatabasePlacementSchema = z.object({
+  engine: z.enum(['POSTGRESQL', 'MYSQL']),
+  // null unplaces — creating a database of that engine is then refused
+  databaseServerId: z.string().min(1).nullable(),
+});
+
 const INVITE_TTL_DAYS = 7;
 
 const slugify = (name: string) =>
@@ -117,7 +123,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const [organizations, total] = await Promise.all([
       prisma.organization.findMany({
         where: scoped,
-        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } } },
+        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
         orderBy: { createdAt: 'desc' },
         ...(paged && { skip, take: limit }),
       }),
@@ -177,7 +183,7 @@ router.post(
           slug,
           members: { create: { userId: req.user!.userId, role: 'OWNER' } },
         },
-        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } } },
+        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
       });
 
       return res.status(201).json({ success: true, data: organization, message: 'Organization created' } as ApiResponse);
@@ -226,7 +232,7 @@ router.put(
         data: { serverId },
         include: {
           _count: { select: { members: true, domains: true, applications: true } },
-          server: { select: { id: true, name: true, status: true } },
+          server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
         },
       });
 
@@ -237,6 +243,69 @@ router.put(
       } as ApiResponse);
     } catch (error) {
       console.error('Error placing organization:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
+
+/**
+ * Place an organization on a database server, per engine. Same rule as node
+ * placement: the org's login and databases live on the server it is placed on,
+ * so moving or unplacing an org that already has databases there is refused
+ * rather than stranding them.
+ */
+router.put(
+  '/:id/database-server',
+  authenticateToken,
+  requireRole(['SUPERADMIN']),
+  validateRequest(DatabasePlacementSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { engine, databaseServerId } = DatabasePlacementSchema.parse(req.body);
+      const field = engine === 'POSTGRESQL' ? 'postgresServerId' : 'mysqlServerId';
+
+      const org = await prisma.organization.findUnique({
+        where: { id },
+        select: { postgresServerId: true, mysqlServerId: true },
+      });
+      if (!org) return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+
+      const current = org[field];
+      if (current && current !== databaseServerId) {
+        const inUse = await prisma.database.count({ where: { organizationId: id, databaseServerId: current } });
+        if (inUse) {
+          return res.status(400).json({
+            success: false,
+            error: `This organization has ${inUse} database(s) on its current server — move them first.`,
+          } as ApiResponse);
+        }
+      }
+
+      if (databaseServerId) {
+        const target = await prisma.databaseServer.findUnique({ where: { id: databaseServerId }, select: { engine: true } });
+        if (!target) return res.status(400).json({ success: false, error: 'Unknown database server' } as ApiResponse);
+        if (target.engine !== engine) {
+          return res.status(400).json({ success: false, error: `That database server is not ${engine}` } as ApiResponse);
+        }
+      }
+
+      const organization = await prisma.organization.update({
+        where: { id },
+        data: { [field]: databaseServerId },
+        include: {
+          _count: { select: { members: true, domains: true, applications: true } },
+          server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
+        },
+      });
+
+      return res.json({
+        success: true,
+        data: organization,
+        message: databaseServerId ? 'Database server placed' : 'Database server unplaced',
+      } as ApiResponse);
+    } catch (error) {
+      console.error('Error placing organization on a database server:', error);
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
     }
   }
@@ -253,7 +322,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 
     const organization = await prisma.organization.findUnique({
       where: { id },
-      include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } } },
+      include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
     });
     if (!organization) {
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);

@@ -27,6 +27,8 @@ type Props = {
   onChange: (value: string | null) => void;
   /** label for the null option — omit to require a real organization */
   noneLabel?: string;
+  /** fixed entries after the null one, e.g. a filter's "Unassigned" — not organizations */
+  extraOptions?: { value: string; label: string }[];
   placeholder?: string;
   className?: string;
   disabled?: boolean;
@@ -40,6 +42,7 @@ export function OrganizationCombobox({
   value,
   onChange,
   noneLabel,
+  extraOptions = [],
   placeholder = t("Select an organization"),
   className,
   disabled,
@@ -63,16 +66,17 @@ export function OrganizationCombobox({
 
   const options = data?.data ?? [];
   const selectedInPage = options.find((o) => o.id === value);
+  const selectedExtra = extraOptions.find((o) => o.value === value);
 
   // the selected org may not be in the current search page — fetch its name once
   const { data: selectedOrg } = useQuery({
     queryKey: ["organizations", value],
     queryFn: () => getOrganization(value as string),
-    enabled: !!value && !selectedInPage,
+    enabled: !!value && !selectedInPage && !selectedExtra,
   });
 
   const selectedLabel = value
-    ? selectedInPage?.name ?? selectedOrg?.name ?? "…"
+    ? selectedExtra?.label ?? selectedInPage?.name ?? selectedOrg?.name ?? "…"
     : noneLabel;
 
   const total = data?.pagination?.total ?? 0;
@@ -135,6 +139,24 @@ export function OrganizationCombobox({
                   {noneLabel}
                 </CommandItem>
               )}
+              {extraOptions.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  value={option.value}
+                  onSelect={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === option.value ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {option.label}
+                </CommandItem>
+              ))}
               {options.map((org) => (
                 <CommandItem
                   key={org.id}

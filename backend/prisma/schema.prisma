@@ -46,10 +46,20 @@ model Organization {
   serverId  String?
   server    Server?  @relation(fields: [serverId], references: [id])
 
-  members      Membership[]
-  domains      Domain[]
-  applications Application[]
-  invites      Invite[]
+  // Which database server this org's databases are created on, per engine.
+  // Same rule as serverId: null means "not placed", and creating a database
+  // is refused rather than guessing a server.
+  postgresServerId String?
+  postgresServer   DatabaseServer? @relation("OrgPostgresServer", fields: [postgresServerId], references: [id])
+  mysqlServerId    String?
+  mysqlServer      DatabaseServer? @relation("OrgMysqlServer", fields: [mysqlServerId], references: [id])
+
+  members          Membership[]
+  domains          Domain[]
+  applications     Application[]
+  invites          Invite[]
+  databases        Database[]
+  databaseAccounts OrgDatabaseAccount[]
 
   @@index([serverId])
   @@map("organizations")
@@ -107,10 +117,85 @@ model Server {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  organizations Organization[]
-  applications  Application[]
+  organizations   Organization[]
+  applications    Application[]
+  databaseServers DatabaseServer[]
 
   @@map("servers")
+}
+
+/// A Postgres or MySQL instance tenant databases are created on.
+///
+/// Either on one of our nodes — bound to its loopback or private address and
+/// reached through that node's SSH connection, so no database port is public —
+/// or a managed service reached directly over TLS. The admin login is the one
+/// the control plane creates roles and databases with; it should be able to do
+/// exactly that and no more (CREATEROLE + CREATEDB, not a superuser).
+model DatabaseServer {
+  id               String       @id @default(cuid())
+  name             String
+  /// POSTGRESQL or MYSQL — the other DatabaseType values are not servers
+  engine           DatabaseType
+  mode             DbServerMode @default(TUNNEL)
+  /// TUNNEL: the node the engine runs on. host/port are then as seen from that
+  /// node, usually 127.0.0.1.
+  serverId         String?
+  server           Server?      @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  host             String
+  port             Int
+  /// DISABLE, REQUIRE (encrypt, no certificate check) or VERIFY (check the
+  /// certificate against caCert or the system roots). A DIRECT server never
+  /// runs DISABLE — its traffic crosses networks we do not own.
+  tlsMode          String       @default("REQUIRE")
+  caCert           String?
+  adminUser        String
+  /// AES-256-GCM ciphertext (secretBox). Never leaves the backend.
+  adminPasswordEnc String
+  /// The address apps connect to — a private IP or localhost for a node, the
+  /// public host for a managed service. Separate from host because the control
+  /// plane and the apps rarely see the server from the same place.
+  appHost          String
+  /// ONLINE, OFFLINE or UNKNOWN, from the health check
+  status           String       @default("UNKNOWN")
+  version          String?
+  /// What the admin login may do, from the last check, e.g. "createrole,createdb"
+  adminRights      String?
+  lastSeenAt       DateTime?
+  lastError        String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  accounts     OrgDatabaseAccount[]
+  databases    Database[]
+  postgresOrgs Organization[]       @relation("OrgPostgresServer")
+  mysqlOrgs    Organization[]       @relation("OrgMysqlServer")
+
+  @@index([serverId])
+  @@map("database_servers")
+}
+
+/// The organization's login on one database server — created with the org's
+/// first database there, and the owner of every database it has on it.
+model OrgDatabaseAccount {
+  id               String         @id @default(cuid())
+  organizationId   String
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  databaseServerId String
+  databaseServer   DatabaseServer @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
+  /// org_<slug> — the role/user name on the server
+  username         String
+  /// AES-256-GCM ciphertext (secretBox)
+  passwordEnc      String
+  createdAt        DateTime       @default(now())
+  rotatedAt        DateTime?
+
+  @@unique([organizationId, databaseServerId])
+  @@map("org_database_accounts")
+}
+
+enum DbServerMode {
+  TUNNEL
+  DIRECT
 }
 
 model Membership {
@@ -293,6 +378,18 @@ model Database {
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
+  // The org the database belongs to and the server it lives on. Nullable until
+  // databases are created for real: rows from before database servers carry no
+  // server, and the backfill fills organizationId from their application.
+  organizationId   String?
+  organization     Organization?   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  databaseServerId String?
+  databaseServer   DatabaseServer? @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
+  /// The database's real name on the server, <slug>_<name>
+  dbName           String?
+
+  @@index([organizationId])
+  @@index([databaseServerId])
   @@map("databases")
 }
 

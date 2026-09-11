@@ -2,25 +2,14 @@
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   // shared
-  Success: "Berhasil",
-  Error: "Kesalahan",
-  Save: "Simpan",
-  Cancel: "Batal",
   "Try again": "Coba lagi",
-  Refresh: "Muat ulang",
-  Search: "Cari",
   App: "Aplikasi",
-  Name: "Nama",
-  Type: "Tipe",
-  Status: "Status",
-  Organization: "Organisasi",
   Version: "Versi",
   Created: "Dibuat",
   "Request failed": "Permintaan gagal",
 
   // Settings
   "Git account updated": "Akun Git diperbarui",
-  "Failed to update git account": "Gagal memperbarui akun Git",
   "Git account disconnected": "Akun Git diputuskan",
   "Failed to disconnect git account": "Gagal memutuskan akun Git",
   "Display name cannot be empty": "Nama tampilan tidak boleh kosong",
@@ -45,17 +34,13 @@ export default {
 
   // Logs
   "Error Loading Logs": "Gagal Memuat Log",
-  "App Logs": "Log Aplikasi",
   "Monitor and debug your applications": "Pantau dan debug aplikasi Anda",
   "Export CSV": "Ekspor CSV",
   Filters: "Filter",
   "All Apps": "Semua Aplikasi",
-  Level: "Level",
   "All Levels": "Semua Level",
   "Search messages...": "Cari pesan...",
-  Lines: "Baris",
   "Last {count}": "{count} terakhir",
-  Total: "Total",
   Errors: "Error",
   Warnings: "Peringatan",
   Info: "Info",
@@ -71,9 +56,7 @@ export default {
   "Failed to export logs": "Gagal mengekspor log",
 
   // Databases
-  Running: "Berjalan",
   Creating: "Sedang dibuat",
-  Stopped: "Berhenti",
   "Error loading databases": "Gagal memuat database",
   "Databases provisioned for your applications.": "Database yang disediakan untuk aplikasi Anda.",
   "Search name or application…": "Cari nama atau aplikasi…",
@@ -93,9 +76,7 @@ export default {
   "Checking authentication...": "Memeriksa autentikasi...",
   "Sign In": "Masuk",
   "Enter your credentials to access your dashboard": "Masukkan kredensial Anda untuk mengakses dasbor",
-  Email: "Email",
   "Enter your email": "Masukkan email Anda",
-  Password: "Kata sandi",
   "Enter your password": "Masukkan kata sandi Anda",
   "Signing in...": "Sedang masuk...",
   "Accounts are created by an administrator or through an organization invite link.":
@@ -105,7 +86,6 @@ export default {
   "Registration successful": "Pendaftaran berhasil",
   "Logged out successfully": "Berhasil keluar",
   "Login failed": "Gagal masuk",
-  "Registration failed": "Pendaftaran gagal",
 
   // Change password
   "Password updated": "Kata sandi diperbarui",

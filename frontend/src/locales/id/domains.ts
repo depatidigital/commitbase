@@ -4,32 +4,21 @@ export default {
   // list
   "Manage your custom domains and SSL certificates.": "Kelola domain kustom dan sertifikat SSL Anda.",
   "Sync domains": "Sinkronkan domain",
-  "Syncing…": "Menyinkronkan…",
   "Connect domain": "Hubungkan domain",
   "Connect a domain": "Hubungkan domain",
   "Connect a domain you already own. To buy a new one, use Register domain.":
     "Hubungkan domain yang sudah Anda miliki. Untuk membeli domain baru, gunakan Daftarkan domain.",
   "Register domain": "Daftarkan domain",
-  "Owning organization": "Organisasi pemilik",
   "Only this organization's members can create applications on it.":
     "Hanya anggota organisasi ini yang dapat membuat aplikasi di domain ini.",
   "Choose the owning organization to continue.": "Pilih organisasi pemilik untuk melanjutkan.",
   "Domain name": "Nama domain",
   "Save domain": "Simpan domain",
   All: "Semua",
-  Unassigned: "Belum ditetapkan",
   "Any status": "Semua status",
-  Active: "Aktif",
-  Pending: "Menunggu",
   Inactive: "Nonaktif",
-  Error: "Error",
   "Any expiration": "Semua masa berlaku",
-  Expired: "Kedaluwarsa",
   "Expiring in {days} days": "Kedaluwarsa dalam {days} hari",
-  "{count} selected": "{count} dipilih",
-  "Assign to organization": "Tetapkan ke organisasi",
-  Assign: "Tetapkan",
-  Clear: "Bersihkan",
   "Search domains…": "Cari domain…",
   "No domains yet — add your first custom domain.": "Belum ada domain — tambahkan domain kustom pertama Anda.",
   "No domains are assigned to your organization yet. Ask an administrator to assign one.":
@@ -39,15 +28,10 @@ export default {
   "Back to domains": "Kembali ke domain",
 
   // columns
-  Domain: "Domain",
   Destination: "Tujuan",
-  Organization: "Organisasi",
-  Status: "Status",
   Expires: "Kedaluwarsa",
   Actions: "Aksi",
   "Select all domains on this page": "Pilih semua domain di halaman ini",
-  "Select {name}": "Pilih {name}",
-  "Actions for {name}": "Aksi untuk {name}",
   "HTTPS active — valid certificate served": "HTTPS aktif — sertifikat valid disajikan",
   "HTTPS pending — certificate not issued yet": "HTTPS menunggu — sertifikat belum diterbitkan",
   "HTTPS expired — the certificate has lapsed": "HTTPS kedaluwarsa — masa berlaku sertifikat telah habis",
@@ -66,8 +50,6 @@ export default {
   failed: "gagal",
   registering: "mendaftarkan",
   Renew: "Perpanjang",
-  Manage: "Kelola",
-  "Assign organization": "Tetapkan organisasi",
   "Renew registration": "Perpanjang pendaftaran",
   "Verify DNS": "Verifikasi DNS",
   "Delete domain": "Hapus domain",
@@ -75,14 +57,12 @@ export default {
   // status badges and expiry notes
   active: "aktif",
   inactive: "nonaktif",
-  pending: "menunggu",
   error: "error",
   expired: "kedaluwarsa",
   expiring: "segera kedaluwarsa",
   "expires today": "kedaluwarsa hari ini",
   "{days}d left": "{days} hari lagi",
   "Registration expired": "Pendaftaran kedaluwarsa",
-  "Expires {note}": "Kedaluwarsa {note}",
 
   // confirmations
   "External domain": "Domain eksternal",
@@ -98,14 +78,11 @@ export default {
   'Renew "{name}" for 1 year at the registrar? This charges your registrar account and cannot be undone.':
     'Perpanjang "{name}" selama 1 tahun di registrar? Ini akan menagih akun registrar Anda dan tidak dapat dibatalkan.',
   "Renew for 1 year": "Perpanjang 1 tahun",
-  "Processing...": "Memproses...",
 
   // detail
   "Domain DNS zone and SSL configuration.": "Zona DNS dan konfigurasi SSL domain.",
   Verifying: "Memverifikasi",
   Deleting: "Menghapus",
-  Delete: "Hapus",
-  Overview: "Ringkasan",
   Subdomains: "Subdomain",
   Registration: "Pendaftaran",
   "Edit the destination": "Ubah tujuan",
@@ -119,7 +96,6 @@ export default {
   "until {date}": "hingga {date}",
   Registrar: "Registrar",
   Managed: "Dikelola",
-  Unknown: "Tidak diketahui",
   "Registration expiry": "Masa berlaku pendaftaran",
   "Redirect to": "Dialihkan ke",
   Add: "Tambah",
@@ -135,15 +111,12 @@ export default {
     "Belum ada record hostname. Tambahkan, atau salin record yang selama ini disajikan registrar.",
   "Sync from registrar DNS": "Sinkronkan dari DNS registrar",
   Subdomain: "Subdomain",
-  Type: "Tipe",
   Target: "Target",
   Proxied: "Di-proxy",
   "DNS only": "Hanya DNS",
   Auto: "Otomatis",
-  Edit: "Ubah",
   "DNS Records": "Record DNS",
   "Loading DNS records...": "Memuat record DNS...",
-  Name: "Nama",
   Content: "Konten",
   "No DNS records found in Cloudflare for this domain.": "Tidak ada record DNS di Cloudflare untuk domain ini.",
   "Registrar DNS": "DNS Registrar",
@@ -167,11 +140,9 @@ export default {
   "This domain is not attached to Cloudflare.": "Domain ini tidak terhubung ke Cloudflare.",
 
   // record / Cloudflare / assign dialogs
-  "Edit {name}": "Ubah {name}",
   "Edit subdomain": "Ubah subdomain",
   "Saved to Cloudflare straight away.": "Langsung disimpan ke Cloudflare.",
   "Somewhere else": "Tempat lain",
-  Save: "Simpan",
   "Delete DNS record": "Hapus record DNS",
   "Anything relying on this hostname stops resolving.":
     "Semua yang bergantung pada hostname ini tidak akan ter-resolve lagi.",
@@ -202,7 +173,6 @@ export default {
   "Register a domain": "Daftarkan domain",
   "Search the registry, then register through the {app} registrar account.":
     "Cari di registry, lalu daftarkan melalui akun registrar {app}.",
-  Search: "Cari",
   "AI suggestions": "Saran AI",
   "Search for a domain": "Cari domain",
   "mycompany or mycompany.com": "perusahaansaya atau perusahaansaya.com",
@@ -222,7 +192,6 @@ export default {
   "Registration period": "Periode pendaftaran",
   "{count} year — {price}": "{count} tahun — {price}",
   "{count} years — {price}": "{count} tahun — {price}",
-  Total: "Total",
   "Renews at {price} for 1 year.": "Perpanjangan {price} untuk 1 tahun.",
   "Pick an available domain to continue.": "Pilih domain yang tersedia untuk melanjutkan.",
   "Register {domain}": "Daftarkan {domain}",
@@ -240,7 +209,6 @@ export default {
   "Domain Created": "Domain Dibuat",
   "Domain has been created successfully.": "Domain berhasil dibuat.",
   "Failed to create domain.": "Gagal membuat domain.",
-  "Sync failed": "Sinkronisasi gagal",
   "Sync finished with errors": "Sinkronisasi selesai dengan error",
   "Sync complete": "Sinkronisasi selesai",
   "{total} domains — {created} added, {updated} updated ({rdashOnly} registrar-only, {cfOnly} Cloudflare-only).":
@@ -286,13 +254,11 @@ export default {
   "Registration started": "Pendaftaran dimulai",
   "{name} is being registered — follow it in the domains list.":
     "{name} sedang didaftarkan — pantau di daftar domain.",
-  "Registration failed": "Pendaftaran gagal",
   "The registrar refused the registration.": "Registrar menolak pendaftaran.",
   "Wildcard record ready": "Record wildcard siap",
   "Could not create the wildcard record": "Tidak dapat membuat record wildcard",
 
   // API fallback errors
-  "Failed to fetch domains": "Gagal mengambil domain",
   "Failed to fetch domain": "Gagal mengambil domain",
   "Failed to fetch domain DNS zone": "Gagal mengambil zona DNS domain",
   "Failed to create domain": "Gagal membuat domain",

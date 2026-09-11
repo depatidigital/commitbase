@@ -20,12 +20,10 @@ export default {
     "OAuth GitLab belum dikonfigurasi di server. Silakan atur GITLAB_CLIENT_ID dan GITLAB_CLIENT_SECRET.",
   "Could not start GitLab OAuth flow.": "Tidak dapat memulai alur OAuth GitLab.",
   "GitLab connection failed": "Koneksi GitLab gagal",
-  Deploying: "Sedang deploy",
   "{domain} is being set up.": "{domain} sedang disiapkan.",
   "Loading domains...": "Memuat domain...",
   "Error Loading Domains": "Gagal Memuat Domain",
   "Failed to load domains. Please try again.": "Gagal memuat domain. Silakan coba lagi.",
-  "Back to Apps": "Kembali ke Aplikasi",
   "No Active Domains": "Tidak Ada Domain Aktif",
   "You need to have at least one active domain to deploy applications. Please add a domain first.":
     "Anda memerlukan setidaknya satu domain aktif untuk men-deploy aplikasi. Silakan tambahkan domain terlebih dahulu.",
@@ -51,7 +49,6 @@ export default {
   "GitLab connected": "GitLab terhubung",
   "GitLab not connected": "GitLab belum terhubung",
   "Git Repository URL": "URL Repositori Git",
-  Branch: "Branch",
   "GitHub account": "Akun GitHub",
   "GitLab account": "Akun GitLab",
   "Select a GitHub account": "Pilih akun GitHub",
@@ -88,7 +85,6 @@ export default {
   "Select a branch": "Pilih branch",
   "No branches found for this repository.": "Tidak ada branch untuk repositori ini.",
   "No branches found for this project.": "Tidak ada branch untuk proyek ini.",
-  "Basic Information": "Informasi Dasar",
   "App Name": "Nama Aplikasi",
   "Domain Configuration": "Konfigurasi Domain",
   "Select a domain": "Pilih domain",
@@ -102,15 +98,10 @@ export default {
   "App type and commands below were filled from this. Change them if the guess is wrong.":
     "Tipe aplikasi dan perintah di bawah diisi berdasarkan hasil ini. Ubah jika tebakannya salah.",
   "Build & Runtime Configuration": "Konfigurasi Build & Runtime",
-  "Build Command": "Perintah Build",
-  "Start Command": "Perintah Start",
-  Port: "Port",
   "(assigned automatically — set only if the app ignores $PORT)":
     "(ditetapkan otomatis — isi hanya jika aplikasi mengabaikan $PORT)",
   auto: "otomatis",
-  "Environment Variables": "Variabel Lingkungan",
   "One variable per line in KEY=value format": "Satu variabel per baris dengan format KEY=value",
-  Cancel: "Batal",
   Back: "Kembali",
   Continue: "Lanjutkan",
   "Deploying...": "Sedang deploy...",
@@ -135,7 +126,6 @@ export default {
   "Visit site": "Kunjungi situs",
 
   // git fallbacks (lib/git.ts)
-  "Failed to update git account": "Gagal memperbarui akun git",
   "Failed to delete git account": "Gagal menghapus akun git",
   "Failed to fetch GitHub accounts": "Gagal mengambil akun GitHub",
   "Failed to fetch GitLab accounts": "Gagal mengambil akun GitLab",

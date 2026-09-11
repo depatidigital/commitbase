@@ -11,6 +11,9 @@ export interface Organization {
   myRole: OrgRole | null;
   /** The node this tenant's OS user, home and apps live on. null until placed. */
   server: { id: string; name: string; status: string } | null;
+  /** Where this tenant's databases are created, per engine. null until placed. */
+  postgresServer?: { id: string; name: string; status: string } | null;
+  mysqlServer?: { id: string; name: string; status: string } | null;
   _count: { members: number; domains: number; applications: number };
 }
 

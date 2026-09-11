@@ -6,6 +6,7 @@ import { healCaddyRoutes } from './caddySnapshotService';
 import { syncServerApps } from './appSyncService';
 import { pruneHeartbeats, checkApplicationHostnames } from './heartbeatService';
 import { pingAllServers } from './serverHealthService';
+import { checkAllDatabaseServers } from './databaseServerService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -43,7 +44,10 @@ const jobs: Job[] = [
     schedule: process.env.CRON_SERVER_HEALTH || '*/5 * * * *',
     run: async () => {
       const r = await pingAllServers();
-      return `${r.online}/${r.total} online${r.offline.length ? ` — offline: ${r.offline.join(', ')}` : ''}`;
+      // database servers ride along: most tunnel through the nodes just pinged
+      const d = await checkAllDatabaseServers();
+      const offline = [...r.offline, ...d.offline];
+      return `${r.online}/${r.total} node(s), ${d.online}/${d.total} database server(s) online${offline.length ? ` — offline: ${offline.join(', ')}` : ''}`;
     },
   },
   {

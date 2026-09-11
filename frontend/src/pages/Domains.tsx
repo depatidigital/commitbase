@@ -964,7 +964,8 @@ export default function Domains() {
                             <AlertCircle className="h-3.5 w-3.5" />
                             {tone.days < 0
                               ? t("Registration expired")
-                              : t("Expires {note}", { note: tone.note })}
+                              : // the note already says it ("expires today", "5d left")
+                                tone.note.charAt(0).toUpperCase() + tone.note.slice(1)}
                           </Badge>
                         );
                       })()}

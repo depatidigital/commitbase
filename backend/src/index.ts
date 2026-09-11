@@ -45,6 +45,7 @@ import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
 import organizationsRoutes from './routes/organizations';
 import serversRoutes from './routes/servers';
+import databaseServersRoutes from './routes/databaseServers';
 import { authenticateToken, requireRole } from './middleware/auth';
 
 const app = express();
@@ -115,6 +116,7 @@ app.use('/api/cloudflare', authenticateToken, requireRole(['SUPERADMIN']), cloud
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
 app.use('/api/organizations', organizationsRoutes);
 app.use('/api/servers', serversRoutes);
+app.use('/api/database-servers', databaseServersRoutes);
 app.use('/api/git', gitRoutes);
 
 // Global error handler
