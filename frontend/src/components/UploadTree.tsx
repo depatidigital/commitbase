@@ -1,14 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, File as FileIcon, Folder } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { UploadEntry } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 type Node = {
   name: string;
   path: string;
-  /** set on files only */
-  entry?: UploadEntry;
+  isFile: boolean;
   children: Map<string, Node>;
   /** every file path at or below this node — what its checkbox toggles */
   files: string[];
@@ -18,18 +16,22 @@ type Node = {
 const newNode = (name: string, path: string): Node => ({
   name,
   path,
+  isFile: false,
   children: new Map(),
   files: [],
   size: 0,
 });
 
-const buildTree = (entries: UploadEntry[]): Node => {
+/** anything with a slash-separated path and a size: picked files, bucket objects */
+export type TreeItem = { path: string; size: number };
+
+const buildTree = (entries: TreeItem[]): Node => {
   const root = newNode("", "");
   for (const entry of entries) {
     const parts = entry.path.split("/");
     let node = root;
     node.files.push(entry.path);
-    node.size += entry.file.size;
+    node.size += entry.size;
     parts.forEach((part, i) => {
       const path = parts.slice(0, i + 1).join("/");
       let child = node.children.get(part);
@@ -38,8 +40,8 @@ const buildTree = (entries: UploadEntry[]): Node => {
         node.children.set(part, child);
       }
       child.files.push(entry.path);
-      child.size += entry.file.size;
-      if (i === parts.length - 1) child.entry = entry;
+      child.size += entry.size;
+      if (i === parts.length - 1) child.isFile = true;
       node = child;
     });
   }
@@ -49,7 +51,7 @@ const buildTree = (entries: UploadEntry[]): Node => {
 /** folders first, then files, each alphabetical */
 const sorted = (node: Node) =>
   [...node.children.values()].sort(
-    (a, b) => Number(!!a.entry) - Number(!!b.entry) || a.name.localeCompare(b.name),
+    (a, b) => Number(a.isFile) - Number(b.isFile) || a.name.localeCompare(b.name),
   );
 
 const formatSize = (bytes: number) =>
@@ -60,18 +62,23 @@ const formatSize = (bytes: number) =>
       : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 type Props = {
-  entries: UploadEntry[];
-  /** paths left out of the upload */
+  entries: TreeItem[];
+  /** unticked paths */
   excluded: Set<string>;
   onExcludedChange: (excluded: Set<string>) => void;
+  /** strike unticked rows through — right for "left out of the upload", not for a selection */
+  strikeUnchecked?: boolean;
+  /** extra control at the end of a file row, e.g. an open link */
+  fileAction?: (path: string) => ReactNode;
 };
 
 /**
- * The picked files as a tree, each file and folder with a checkbox, so part of
- * a selection can be left out. Folders render their children only once opened
- * — a picked project can hold thousands of files.
+ * Files as a tree, each file and folder with a checkbox (a folder's covers all
+ * below it). Folders render their children only once opened — a project can
+ * hold thousands of files. Used for picking what to upload and for selecting
+ * site files to delete.
  */
-export function UploadTree({ entries, excluded, onExcludedChange }: Props) {
+export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecked = true, fileAction }: Props) {
   const tree = useMemo(() => buildTree(entries), [entries]);
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -88,7 +95,7 @@ export function UploadTree({ entries, excluded, onExcludedChange }: Props) {
     const left = node.files.filter((path) => excluded.has(path)).length;
     const state = left === 0 ? true : left === node.files.length ? false : "indeterminate";
     const isOpen = open.has(node.path);
-    const folder = !node.entry;
+    const folder = !node.isFile;
 
     return (
       <div key={node.path}>
@@ -126,7 +133,11 @@ export function UploadTree({ entries, excluded, onExcludedChange }: Props) {
           ) : (
             <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
-          <span className={`flex-1 truncate ${state === false ? "text-muted-foreground line-through" : ""}`}>
+          <span
+            className={`flex-1 truncate ${
+              strikeUnchecked && state === false ? "text-muted-foreground line-through" : ""
+            }`}
+          >
             {node.name}
           </span>
           <span className="shrink-0 text-xs text-muted-foreground">
@@ -134,6 +145,7 @@ export function UploadTree({ entries, excluded, onExcludedChange }: Props) {
               ? `${t("{count} files", { count: node.files.length })} · ${formatSize(node.size)}`
               : formatSize(node.size)}
           </span>
+          {!folder && fileAction?.(node.path)}
         </div>
         {folder && isOpen && sorted(node).map((child) => render(child, depth + 1))}
       </div>

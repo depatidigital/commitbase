@@ -233,6 +233,24 @@ export const getLiveBuildLog = async (id: string): Promise<string> => {
   throw new Error(response.error || t("Could not read the build log"));
 };
 
+export type SiteFile = { key: string; size: number; lastModified: string | null };
+
+/** What a static site's bucket holds, and its public host for opening a file. */
+export const getSiteFiles = async (id: string): Promise<{ origin: string | null; files: SiteFile[] }> => {
+  const response = await apiRequest<{ origin: string | null; files: SiteFile[] }>(`/applications/${id}/files`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not list the files"));
+};
+
+export const deleteSiteFiles = async (id: string, keys: string[]): Promise<number> => {
+  const response = await apiRequest<{ deleted: number }>(`/applications/${id}/files`, {
+    method: 'DELETE',
+    body: JSON.stringify({ keys }),
+  });
+  if (response.success && response.data) return response.data.deleted;
+  throw new Error(response.error || t("Could not delete the files"));
+};
+
 /** Branches of a pasted repository URL. Fails for private repos. */
 export const listRepositoryBranches = async (
   repository: string
@@ -314,9 +332,12 @@ export const readDetectFiles = async (entries: UploadEntry[]): Promise<Record<st
  */
 export const uploadApplicationSource = async (
   id: string,
-  entries: UploadEntry[]
+  entries: UploadEntry[],
+  /** static sites: the upload becomes the whole site, files it lacks are removed */
+  options: { replace?: boolean } = {}
 ): Promise<{ files: number }> => {
   const body = new FormData();
+  if (options.replace) body.append('replace', 'true');
   entries.forEach(({ file, path }) => {
     body.append('files', file);
     body.append('paths', path);

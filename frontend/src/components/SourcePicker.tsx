@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { FileUp, FolderUp, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UploadTree } from "@/components/UploadTree";
@@ -26,6 +26,8 @@ export function SourcePicker({ picked, excluded, onPick, onExcludedChange }: Pro
   // two pickers can sit on one page (wizard + dialog), so ids must not clash
   const id = useId();
   const selected = picked.filter(({ path }) => !excluded.has(path));
+  // stable per pick, so the tree is not rebuilt on every checkbox click
+  const treeItems = useMemo(() => picked.map(({ path, file }) => ({ path, size: file.size })), [picked]);
 
   return (
     <div className="space-y-4">
@@ -91,7 +93,7 @@ export function SourcePicker({ picked, excluded, onPick, onExcludedChange }: Pro
       </div>
 
       {picked.length > 0 && (
-        <UploadTree entries={picked} excluded={excluded} onExcludedChange={onExcludedChange} />
+        <UploadTree entries={treeItems} excluded={excluded} onExcludedChange={onExcludedChange} />
       )}
 
       <p className="text-sm text-muted-foreground">

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -39,12 +40,16 @@ export function ReuploadDialog({
   const [picked, setPicked] = useState<UploadEntry[]>([]);
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  // on by default: a redeploy of a static site should look like the folder
+  // uploaded, not the folder plus whatever earlier uploads left behind
+  const [replace, setReplace] = useState(true);
+  const isStatic = application.type === "STATIC";
   const selected = picked.filter(({ path }) => !excluded.has(path));
 
   const submit = async () => {
     setBusy(true);
     try {
-      await uploadApplicationSource(application.id, selected);
+      await uploadApplicationSource(application.id, selected, { replace: isStatic && replace });
       if (application.type !== "STATIC") await startApplication(application.id);
       toast({
         title: t("Files uploaded"),
@@ -67,6 +72,7 @@ export function ReuploadDialog({
       // a failed upload is recorded too, so refresh either way
       queryClient.invalidateQueries({ queryKey: ["application", application.id] });
       queryClient.invalidateQueries({ queryKey: ["deployments", application.id] });
+      queryClient.invalidateQueries({ queryKey: ["site-files", application.id] });
     }
   };
 
@@ -76,8 +82,8 @@ export function ReuploadDialog({
         <DialogHeader>
           <DialogTitle>{t("Upload files again")}</DialogTitle>
           <DialogDescription>
-            {application.type === "STATIC"
-              ? t("The new files replace what the site serves.")
+            {isStatic
+              ? t("The uploaded files are published to the site.")
               : t("The app is rebuilt from the new files.")}
           </DialogDescription>
         </DialogHeader>
@@ -91,6 +97,24 @@ export function ReuploadDialog({
           }}
           onExcludedChange={setExcluded}
         />
+
+        {isStatic && (
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={replace}
+              onCheckedChange={(checked) => setReplace(checked === true)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">{t("Replace the whole site")}</span>
+              <span className="block text-xs text-muted-foreground">
+                {replace
+                  ? t("Files on the site that are not in this upload are deleted.")
+                  : t("Only adds and overwrites — files already on the site stay.")}
+              </span>
+            </span>
+          </label>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
