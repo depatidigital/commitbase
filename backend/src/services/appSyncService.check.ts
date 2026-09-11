@@ -2,7 +2,7 @@
  * Self-check for the Caddyfile parser: npx ts-node src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp } from './appSyncService';
+import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp, parseListeners } from './appSyncService';
 
 const sample = `
 # a comment
@@ -125,4 +125,40 @@ assert.deepStrictEqual(routeHosts(phpRoute), ['shop.example.com']);
 assert.strictEqual(isNotAnApp('*.example.com'), true);
 assert.strictEqual(isNotAnApp('app.example.com'), false);
 
-console.log('appSyncService: parseCaddyfile + classifyRoute OK');
+// --- path-split site: `/ws*` → socket server, catch-all → the app ---
+
+const proxyTo = (port: number) => ({
+  handler: 'subroute',
+  routes: [{ handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: `localhost:${port}` }] }] }],
+});
+assert.strictEqual(
+  classifyRoute({
+    match: [{ host: ['split.example.com'] }],
+    handle: [
+      {
+        handler: 'subroute',
+        routes: [
+          { match: [{ path: ['/ws*'] }], handle: [proxyTo(5503)] },
+          { handle: [proxyTo(5502)] },
+        ],
+      },
+    ],
+  })?.port,
+  5502,
+);
+
+// --- ss -ltnp: the listener pid is how a proxied port finds its directory ---
+
+const listeners = parseListeners(
+  [
+    'LISTEN 0 511 127.0.0.1:1600 0.0.0.0:* users:(("node",pid=4242,fd=20))',
+    'LISTEN 0 511 [::1]:1600 [::]:* users:(("node",pid=4242,fd=21))',
+    // not root: ss shows the socket but not its owner
+    'LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*',
+  ].join('\n'),
+);
+assert.strictEqual(listeners.get(1600), 4242);
+assert.strictEqual(listeners.has(22), true);
+assert.strictEqual(listeners.get(22), undefined);
+
+console.log('appSyncService: parseCaddyfile + classifyRoute + parseListeners OK');

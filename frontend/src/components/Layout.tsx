@@ -54,10 +54,13 @@ export function Layout() {
   }
   return (
     <SidebarProvider>
-      <div className="relative min-h-screen flex w-full bg-background">
+      {/* Viewport-high, with main as the scroll area: a list page's table can
+          then take the height that is left and scroll its own rows, keeping
+          its pagination on screen. */}
+      <div className="relative h-svh flex w-full bg-background">
         <AppSidebar />
         <EdgeSidebarTrigger />
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <header className="sticky top-0 z-40 h-12 flex items-center border-b border-border bg-card">
             <SidebarTrigger className="ml-4 md:hidden" />
             <Separator orientation="vertical" className="mx-3 h-5 md:hidden" />
@@ -143,7 +146,7 @@ export function Layout() {
               </div>
             )}
           </header>
-          <main className="flex-1 p-6">
+          <main className="flex flex-1 flex-col min-h-0 overflow-y-auto p-6">
             <Outlet />
           </main>
         </div>

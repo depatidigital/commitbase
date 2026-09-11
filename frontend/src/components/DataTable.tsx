@@ -151,7 +151,9 @@ export function DataTable<T>({
     : matched;
 
   return (
-    <div className="space-y-4">
+    // data-fill: PageLayout bounds its height when it holds this. The floor keeps
+    // a few rows visible when there is a lot above it; past that main scrolls.
+    <div data-fill className="flex min-h-[20rem] flex-col gap-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Show</span>
@@ -187,10 +189,11 @@ export function DataTable<T>({
         </div>
       </div>
 
-      {/* The page scrolls, not the table: a scroll area inside a scroll area
-          hides rows with no cue that they are there. The header stays put on
-          the page's own scroll instead. */}
-      <div className="rounded-md border bg-card">
+      {/* The rows scroll, not the page: this box shrinks to the height left in
+          main and Table's own overflow div scrolls inside it, so the header
+          sticks and the pagination below stays on screen. Where the parent is
+          not a flex column it just grows and the page scrolls as before. */}
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-md border bg-card">
         <Table className="table-fixed [&_td]:py-2.5 [&_th]:h-9 [&_th]:py-0">
           <TableHeader className="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_hsl(var(--border))]">
             <TableRow className="hover:bg-transparent">

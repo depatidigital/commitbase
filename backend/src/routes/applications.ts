@@ -27,12 +27,40 @@ const router = Router();
 const deploymentService = new DeploymentService();
 
 /**
+ * List order for ?sort=&order=. Unsorted, what needs attention leads: AppStatus
+ * is declared RUNNING, STOPPED, ERROR, DEPLOYING, BUILDING, so descending puts
+ * work in flight and broken apps above the healthy ones. Name breaks every tie
+ * so a page never reshuffles between refetches.
+ */
+const sortOrder = (sort: unknown, order: unknown): any[] => {
+  const direction = order === 'desc' ? 'desc' : 'asc';
+  const byName = { name: 'asc' as const };
+
+  switch (sort) {
+    case 'name':
+      return [{ name: direction }];
+    case 'status':
+      return [{ status: direction }, byName];
+    case 'type':
+      return [{ type: direction }, byName];
+    case 'organization':
+      return [{ organization: { name: direction } }, byName];
+    case 'server':
+      return [{ server: { name: direction } }, byName];
+    case 'createdAt':
+      return [{ createdAt: direction }];
+    default:
+      return [{ status: 'desc' }, byName];
+  }
+};
+
+/**
  * Apps discovered by the server sync are owned by pm2, not by our systemd
  * deployer, so start/stop/restart route to pm2 for them. Returns null when the
  * app is not pm2-managed and the caller should fall through to systemd.
  */
 async function handlePm2Action(
-  application: { id: string; runtime: string | null; processName: string | null },
+  application: { id: string; runtime: string | null; processName: string | null; serverId: string | null },
   action: 'start' | 'stop' | 'restart',
   res: Response
 ): Promise<Response | null> {
@@ -40,7 +68,15 @@ async function handlePm2Action(
     return null;
   }
 
-  const result = await controlPm2Process(application.processName, action);
+  // pm2 runs on the node the sync found the process on, not on the control plane
+  const server = application.serverId
+    ? await prisma.server.findUnique({ where: { id: application.serverId } })
+    : null;
+  if (!server) {
+    return res.status(409).json({ success: false, error: 'This pm2 app is not linked to a server — re-sync it' } as ApiResponse);
+  }
+
+  const result = await controlPm2Process(server, application.processName, action);
 
   if (!result.success) {
     await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
@@ -232,9 +268,14 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search, organizationId } = paging(req);
+    // ?type=PHP, ?serverId=… — anything not an AppType value is ignored, not a 500
+    const type = String(req.query.type ?? '').trim().toUpperCase();
+    const serverId = String(req.query.serverId ?? '').trim();
     const where = {
       ...(await orgScope(req)),
       ...(organizationId && { organizationId }),
+      ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
+      ...(serverId && { serverId }),
       ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }] }),
     };
 
@@ -255,9 +296,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
         },
         skip,
         take: limit,
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: sortOrder(req.query.sort, req.query.order),
       }),
       prisma.application.count({ where }),
     ]);

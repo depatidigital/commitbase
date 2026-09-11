@@ -24,7 +24,10 @@ export function PageLayout({
   children,
 }: PageLayoutProps) {
   return (
-    <div className="space-y-6">
+    // A list page (a DataTable straight inside) is held to main's height so the
+    // table scrolls its own rows. Every other page keeps its natural height and
+    // main scrolls it as before.
+    <div className="flex flex-col gap-6 [&:has(>[data-fill])]:min-h-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-2">
           {backTo && (

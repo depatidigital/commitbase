@@ -545,6 +545,10 @@ export default function ApplicationDetail() {
                     </p>
                   </div>
                   <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Directory</label>
+                    <p className="font-mono text-sm break-all">{application.rootPath || 'Not detected'}</p>
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">Domain</label>
                     <div className="flex items-center space-x-2">
                       <Globe className="h-4 w-4 text-muted-foreground" />

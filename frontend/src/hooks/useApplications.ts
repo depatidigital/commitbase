@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { 
   getApplications, 
   getApplication, 
@@ -16,56 +16,28 @@ import {
   type CreateApplicationData,
   type UpdateApplicationData
 } from '@/lib/applications';
+import type { ListParams } from '@/lib/admin';
 import { useToast } from '@/hooks/use-toast';
 import { useEffect, useRef } from 'react';
 
-export const useApplications = (page = 1, limit = 10, search = '') => {
-  return useQuery({
-    queryKey: ['applications', page, limit, search],
-    queryFn: () => getApplications(page, limit, search),
-    staleTime: 30000, // 30 seconds
+/**
+ * The apps list, kept fresh in the background: every 3s while a deploy is in
+ * flight, otherwise every minute. The server returns it sorted, so each refetch
+ * re-sorts the table. Previous rows stay on screen while a refetch or a new
+ * sort/page loads — no skeleton flash.
+ */
+export const useApplicationsWithRealtime = (params: ListParams) => {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['applications', params],
+    queryFn: () => getApplications(params),
+    placeholderData: keepPreviousData,
+    refetchInterval: (query) =>
+      query.state.data?.data.some((app) => app.status === 'DEPLOYING' || app.status === 'BUILDING')
+        ? 3000
+        : 60_000,
   });
-};
 
-// Real-time applications list monitoring hook
-export const useApplicationsWithRealtime = (page = 1, limit = 10, search = '') => {
-  const queryClient = useQueryClient();
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  
-  const { data: applicationsData, isLoading, error } = useApplications(page, limit, search);
-  
-  useEffect(() => {
-    // Check if any application is deploying or building
-    const hasDeployingApps = applicationsData?.data?.some(
-      app => app.status === 'DEPLOYING' || app.status === 'BUILDING'
-    );
-    
-    if (hasDeployingApps) {
-      // Clear any existing interval
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      
-      // Start polling every 3 seconds
-      intervalRef.current = setInterval(() => {
-        queryClient.invalidateQueries({ queryKey: ['applications', page, limit, search] });
-      }, 3000);
-      
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
-      };
-    } else {
-      // Clear interval if no deploying apps
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    }
-  }, [applicationsData?.data, page, limit, queryClient]);
-  
-  return { data: applicationsData, isLoading, error };
+  return { data, isLoading, error };
 };
 
 export const useApplication = (id: string) => {

@@ -1,4 +1,5 @@
 import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
+import { type ListParams, listQuery } from './admin';
 
 export interface Application {
   /** The node it was discovered on, when it came from a server sync. */
@@ -87,14 +88,8 @@ export interface UpdateApplicationData {
 }
 
 // Get all applications
-export const getApplications = async (
-  page = 1,
-  limit = 10,
-  search = ''
-): Promise<PaginatedResponse<Application>> => {
-  const response = await apiRequest<PaginatedResponse<Application>>(
-    `/applications?page=${page}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`
-  );
+export const getApplications = async (params: ListParams): Promise<PaginatedResponse<Application>> => {
+  const response = await apiRequest<PaginatedResponse<Application>>(`/applications${listQuery(params)}`);
   
   if (response.success && response.data) {
     return response.data;

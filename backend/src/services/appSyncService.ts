@@ -1,13 +1,9 @@
-import { exec as localExec } from 'child_process';
-import { promisify } from 'util';
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
-
-const execAsync = promisify(localExec);
 
 /** The panel's own hostname is a route like any other, and is not a tenant app. */
 const PANEL_HOST = (process.env.PANEL_HOST || process.env.FRONTEND_HOST || '').trim().toLowerCase();
@@ -43,6 +39,7 @@ export type AppSyncResult = {
 type Pm2Process = {
   name: string;
   status: string;
+  pid?: number | undefined;
   port?: number | undefined;
   cwd?: string | undefined;
   memory?: string | undefined;
@@ -64,21 +61,32 @@ function humanUptime(startedAt: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
+/**
+ * argv for `pm2 <args>` on a node. pm2 is usually installed under nvm, and a
+ * non-interactive SSH exec never sources nvm — so its bin dirs go on PATH first.
+ */
+function pm2(args: string[]): string[] {
+  return ['sh', '-c', 'for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$d:$PATH"; done; exec pm2 "$@"', 'sh', ...args];
+}
+
 /** `pm2 jlist` on a node — an empty list when pm2 is missing, so a box without it just shows its Caddy side. */
 export async function listPm2Processes(node: SshTarget): Promise<Pm2Process[]> {
   try {
-    const { stdout } = await exec(node, ['pm2', 'jlist'], { maxBuffer: 10 * 1024 * 1024 });
+    const { stdout } = await exec(node, pm2(['jlist']), { maxBuffer: 10 * 1024 * 1024 });
     const raw = JSON.parse(stdout || '[]');
 
     return (Array.isArray(raw) ? raw : [])
       .map((process: any) => {
         const env = process.pm2_env || {};
-        const portRaw = env.PORT ?? env.env?.PORT;
+        // no PORT in the env: the `-p 1500` / `--port 5506` a start script was given
+        const args = Array.isArray(env.args) ? env.args.join(' ') : String(env.args ?? '');
+        const portRaw = env.PORT ?? env.env?.PORT ?? args.match(/(?:^|\s)(?:-p|--port)[=\s]+(\d+)/)?.[1];
         const port = Number(portRaw);
 
         return {
           name: String(process.name || ''),
           status: String(env.status || 'unknown'),
+          pid: Number(process.pid) > 0 ? Number(process.pid) : undefined,
           port: Number.isFinite(port) && port > 0 ? port : undefined,
           cwd: env.pm_cwd || env.cwd,
           memory: humanBytes(process.monit?.memory || 0),
@@ -190,7 +198,13 @@ export function classifyRoute(route: any): {
   };
   walk(route?.handle);
 
-  const proxy = handlers.find((handler) => handler?.handler === 'reverse_proxy');
+  const proxies = handlers.filter((handler) => handler?.handler === 'reverse_proxy');
+  // a path-split site (`/ws*` → its socket server, everything else → the app)
+  // has several proxies; the app the hostname is is the catch-all.
+  // ponytail: "catch-all" = the last one, which is where the Caddyfile adapter
+  // sorts the unmatched handle. Read the matchers if hand-written JSON breaks that.
+  const proxy =
+    proxies.find((handler) => handler?.transport?.protocol === 'fastcgi') ?? proxies[proxies.length - 1];
   const dial = String(proxy?.upstreams?.[0]?.dial ?? '');
 
   if (proxy?.transport?.protocol === 'fastcgi') {
@@ -266,26 +280,68 @@ export async function listCaddySites(): Promise<CaddySite[]> {
  * nothing about whether the site is up. Asking the kernel does: a port with a
  * listener is being served, whoever started it.
  *
- * An empty set means the question could not be answered (no `ss`, no
+ * An empty map means the question could not be answered (no `ss`, no
  * permission), and the caller treats that as "assume it is fine" rather than
  * marking every proxied site broken.
  */
-export async function listListeningPorts(node: SshTarget): Promise<Set<number>> {
+export async function listListeningPorts(node: SshTarget): Promise<Map<number, number | undefined>> {
   try {
-    const { stdout } = await exec(node, ['ss', '-H', '-ltn'], { timeout: 10_000 });
-    const ports = new Set<number>();
+    const { stdout } = await exec(node, ['ss', '-H', '-ltnp'], { timeout: 10_000 });
+    return parseListeners(stdout);
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * `ss -H -ltnp` output → port → the pid listening on it. The pid is only there
+ * when ss can see the socket's owner (root, or the same user) — a port with no
+ * pid is still a served port.
+ */
+export function parseListeners(stdout: string): Map<number, number | undefined> {
+  const ports = new Map<number, number | undefined>();
+
+  for (const line of stdout.split(/\r?\n/)) {
+    // "LISTEN 0 511 127.0.0.1:5503 0.0.0.0:* users:(("node",pid=1234,fd=20))"
+    // — the local address is the 4th column
+    const columns = line.trim().split(/\s+/);
+    const port = Number(String(columns[3] ?? '').split(':').pop());
+    if (!Number.isFinite(port) || port <= 0) continue;
+
+    const pid = Number(line.match(/pid=(\d+)/)?.[1]);
+    if (!ports.get(port)) ports.set(port, pid > 0 ? pid : undefined);
+  }
+
+  return ports;
+}
+
+/**
+ * Working directory of each pid, from /proc — for a proxied process that is
+ * where its code lives, and the only place that is written down. A pid we may
+ * not read (another user's, without root) or one running from `/` (a container
+ * proxy) is left out.
+ */
+export async function processCwds(node: SshTarget, pids: number[]): Promise<Map<number, string>> {
+  const cwds = new Map<number, string>();
+  if (!pids.length) return cwds;
+
+  try {
+    const { stdout } = await exec(
+      node,
+      ['sh', '-c', 'for p; do printf "%s %s\\n" "$p" "$(readlink /proc/$p/cwd 2>/dev/null)"; done', 'sh', ...pids.map(String)],
+      { timeout: 10_000 },
+    );
 
     for (const line of stdout.split(/\r?\n/)) {
-      // "LISTEN 0 511 127.0.0.1:5503 0.0.0.0:*" — the local address is the 4th column
-      const local = line.trim().split(/\s+/)[3];
-      const port = Number(String(local ?? '').split(':').pop());
-      if (Number.isFinite(port) && port > 0) ports.add(port);
+      const [pid, ...rest] = line.trim().split(' ');
+      const cwd = rest.join(' ');
+      if (Number(pid) > 0 && cwd.startsWith('/') && cwd !== '/') cwds.set(Number(pid), cwd);
     }
-
-    return ports;
   } catch {
-    return new Set();
+    // no directories is not a failed scan
   }
+
+  return cwds;
 }
 
 /**
@@ -300,9 +356,15 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     listListeningPorts(node),
   ]);
   const byPort = new Map<number, Pm2Process>();
+  const byPid = new Map<number, Pm2Process>();
   for (const process of processes) {
-    if (process.port) byPort.set(process.port, process);
+    // a stopped cron entry can share its app's PORT env — the online one serves it
+    if (process.port && (!byPort.has(process.port) || process.status === 'online')) byPort.set(process.port, process);
+    if (process.pid) byPid.set(process.pid, process);
   }
+
+  const pids = [...new Set([...listening.values()].filter((pid): pid is number => !!pid))];
+  const cwds = await processCwds(node, pids);
 
   const routes = allRoutesOf(config);
   const apps: DiscoveredApp[] = [];
@@ -318,7 +380,10 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
       if (isNotAnApp(domain) || seen.has(domain)) continue;
       seen.add(domain);
 
-      const process = target.port ? byPort.get(target.port) : undefined;
+      // pm2 rarely has the PORT in its env, so the kernel's listener pid is how
+      // a proxied port is traced back to its process and directory
+      const pid = target.port ? listening.get(target.port) : undefined;
+      const process = target.port ? byPort.get(target.port) ?? (pid ? byPid.get(pid) : undefined) : undefined;
       if (process) claimed.add(process.name);
 
       const runtime: Runtime = target.port
@@ -346,13 +411,24 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
             : 'RUNNING',
         port: target.port,
         processName: process?.name,
-        rootPath: target.rootPath || (target.port ? undefined : path.join(APPS_ROOT_DIR, domain)),
+        rootPath:
+          target.rootPath ||
+          process?.cwd ||
+          (pid ? cwds.get(pid) : undefined) ||
+          (target.port ? undefined : path.posix.join(APPS_ROOT_DIR, domain)),
+        memory: process?.memory,
+        cpu: process?.cpu,
+        uptime: process?.uptime,
       });
     }
   }
 
+  // a socket server or cron job running from a routed app's directory is part
+  // of that app, not an app of its own
+  const routedDirs = new Set(apps.map((app) => app.rootPath).filter(Boolean));
+
   for (const process of processes) {
-    if (claimed.has(process.name)) continue;
+    if (claimed.has(process.name) || (process.cwd && routedDirs.has(process.cwd))) continue;
 
     apps.push({
       name: process.name,
@@ -462,6 +538,19 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
     }
   }
 
+  // `<name>.pm2.local` rows are the sync's own placeholders: one whose process
+  // is gone, or is now found behind a route, goes — unless someone assigned it.
+  // Only when pm2 answered, so a failed `pm2 jlist` does not wipe them all.
+  if (discovered.some((app) => app.processName)) {
+    await prisma.application.deleteMany({
+      where: {
+        serverId: node.id,
+        organizationId: null,
+        domain: { endsWith: '.pm2.local', notIn: discovered.map((app) => app.domain) },
+      },
+    });
+  }
+
   if (errors.length) result.errors = errors;
   return result;
 }
@@ -471,13 +560,12 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
  * going through DeploymentService — this only covers processes pm2 owns.
  */
 export async function controlPm2Process(
+  node: SshTarget,
   processName: string,
   action: 'start' | 'stop' | 'restart'
 ): Promise<{ success: boolean; output: string }> {
   try {
-    const { stdout } = await execAsync(`pm2 ${action} ${JSON.stringify(processName)}`, {
-      maxBuffer: 5 * 1024 * 1024,
-    });
+    const { stdout } = await exec(node, pm2([action, processName]), { maxBuffer: 5 * 1024 * 1024 });
     return { success: true, output: stdout || '' };
   } catch (error: any) {
     return { success: false, output: error?.stderr || error?.message || `pm2 ${action} failed` };

@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -8,7 +15,6 @@ import { OrganizationFilter } from "@/components/OrganizationFilter";
 import {
   Server,
   Plus,
-  Activity,
   AlertCircle,
   Zap,
   Globe,
@@ -98,7 +104,7 @@ export default function Application() {
     data: applicationsData,
     isLoading,
     error,
-  } = useApplicationsWithRealtime(query.page, query.limit, query.search);
+  } = useApplicationsWithRealtime(query.params);
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
@@ -117,12 +123,18 @@ export default function Application() {
     refetchInterval: 60_000,
   });
 
+  // one app from its row's modal, or the selection from the bulk bar
+  const [assignTarget, setAssignTarget] = useState<{ id: string; name: string } | null>(null);
+  const [assignOrgId, setAssignOrgId] = useState<string | null>(null);
+
   const bulkAssign = useMutation({
-    mutationFn: () => bulkAssignApplications(selectedIds, bulkOrgId || null),
+    mutationFn: ({ ids, organizationId }: { ids: string[]; organizationId: string | null }) =>
+      bulkAssignApplications(ids, organizationId),
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       setSelectedIds([]);
       setBulkOrgId("");
+      setAssignTarget(null);
       toast({ title: "Assigned", description: `${count} application(s) updated` });
     },
     onError: (error: Error) =>
@@ -241,14 +253,6 @@ export default function Application() {
     }
   };
 
-  const runningApps = applications.filter(
-    (app) => app.status === "RUNNING",
-  ).length;
-  const errorApps = applications.filter((app) => app.status === "ERROR").length;
-  const deployingApps = applications.filter(
-    (app) => app.status === "DEPLOYING" || app.status === "BUILDING",
-  ).length;
-
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -292,6 +296,7 @@ export default function Application() {
     {
       header: "Application",
       className: "w-[22%]",
+      sortKey: "name",
       // name and hostname are the same string for every imported site, so they
       // share one cell: the name leads, the address and the owner sit under it
       cell: (app) => {
@@ -335,27 +340,43 @@ export default function Application() {
           {
             header: "Organization",
             className: "w-[16%]",
+            sortKey: "organization",
             // its own column only because a superadmin is the one who assigns
             // it — everyone else sees a single organization's apps anyway
-            cell: (app: (typeof applications)[number]) =>
-              app.organization ? (
-                <Badge variant="outline" className="max-w-full truncate">
-                  {app.organization.name}
-                </Badge>
-              ) : (
-                <span className="text-xs text-muted-foreground">Unassigned</span>
-              ),
+            cell: (app: (typeof applications)[number]) => (
+              <button
+                type="button"
+                title="Change organization"
+                className="max-w-full"
+                onClick={() => {
+                  setAssignOrgId(app.organization?.id ?? null);
+                  setAssignTarget({ id: app.id, name: app.name });
+                }}
+              >
+                {app.organization ? (
+                  <Badge variant="outline" className="max-w-full truncate hover:border-primary">
+                    {app.organization.name}
+                  </Badge>
+                ) : (
+                  <span className="text-xs text-primary underline-offset-2 hover:underline">
+                    Unassigned — assign
+                  </span>
+                )}
+              </button>
+            ),
           },
         ]
       : []),
     {
       header: "Type",
       className: "w-28",
+      sortKey: "type",
       cell: (app) => <AppTypeBadge type={app.type} port={app.port} />,
     },
     {
       header: "Server",
       className: "w-28 text-xs",
+      sortKey: "server",
       cell: (app) =>
         app.server ? (
           <Link to={`/servers/${app.server.id}`} className="truncate hover:underline">
@@ -368,6 +389,9 @@ export default function Application() {
     {
       header: "Health",
       className: "w-[22%]",
+      // the row's status, not the heartbeat bar — "down" sites the sync marked
+      // ERROR sort with the broken ones
+      sortKey: "status",
       cell: (app) => {
         const health = healthById[app.id];
         const label = healthLabel(health);
@@ -539,7 +563,7 @@ export default function Application() {
             <Button
               size="sm"
               disabled={!bulkOrgId || bulkAssign.isPending}
-              onClick={() => bulkAssign.mutate()}
+              onClick={() => bulkAssign.mutate({ ids: selectedIds, organizationId: bulkOrgId || null })}
             >
               {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Assign
@@ -559,28 +583,36 @@ export default function Application() {
           isLoading={isLoading}
           searchPlaceholder="Search name or domain…"
           empty="No applications yet — deploy your first one."
-          toolbar={
-            <>
-              <OrganizationFilter query={query} />
-              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                <Activity className="h-4 w-4 text-success" />
-                <span>{runningApps} running</span>
-                {deployingApps > 0 && (
-                  <>
-                    <Loader2 className="ml-4 h-4 w-4 animate-spin text-yellow-500" />
-                    <span>{deployingApps} deploying</span>
-                  </>
-                )}
-                {errorApps > 0 && (
-                  <>
-                    <AlertCircle className="ml-4 h-4 w-4 text-destructive" />
-                    <span>{errorApps} errors</span>
-                  </>
-                )}
-              </div>
-            </>
-          }
+          toolbar={<OrganizationFilter query={query} />}
         />
+
+        <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign organization</DialogTitle>
+              <DialogDescription>
+                Choose which organization owns {assignTarget?.name}. Its members get to see and manage it.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <OrganizationCombobox value={assignOrgId} onChange={setAssignOrgId} noneLabel="Unassigned" />
+              <div className="flex items-center justify-end space-x-3">
+                <Button variant="outline" onClick={() => setAssignTarget(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={bulkAssign.isPending}
+                  onClick={() =>
+                    assignTarget && bulkAssign.mutate({ ids: [assignTarget.id], organizationId: assignOrgId })
+                  }
+                >
+                  {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Confirmation Dialog */}
         {confirmAction && dialogContent && (
