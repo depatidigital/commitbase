@@ -110,7 +110,8 @@ export default {
   "Static Site URL": "URL Situs Statis",
   "Not deployed yet": "Belum di-deploy",
   Hosting: "Hosting",
-  "Object storage (S3-compatible)": "Object storage (kompatibel S3)",
+  "Object storage (S3, legacy)": "Object storage (S3, versi lama)",
+  "No files uploaded yet": "Belum ada file yang diunggah",
   "Internal port": "Port internal",
   "Bound to loopback on the node. Not reachable from outside; the proxy is what serves this app publicly.":
     "Terikat ke loopback di node. Tidak dapat dijangkau dari luar; proxy yang melayani aplikasi ini secara publik.",
