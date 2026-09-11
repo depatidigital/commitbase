@@ -8,18 +8,19 @@ import { Loader2, Globe, Cloud, CreditCard, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { APP_NAME } from '@/lib/branding';
+import { t } from '@/lib/i18n';
 
 // RDash /domains returns status as an int enum plus status_label/status_badge (swagger v1).
 const RDASH_STATUS_LABEL: Record<number, string> = {
-  0: 'Pending',
-  1: 'Active',
-  2: 'Expired',
-  3: 'Pending Delete',
-  4: 'Deleted',
-  5: 'Pending Transfer',
-  6: 'Transferred Away',
-  7: 'Suspended',
-  8: 'Rejected',
+  0: t('Pending'),
+  1: t('Active'),
+  2: t('Expired'),
+  3: t('Pending Delete'),
+  4: t('Deleted'),
+  5: t('Pending Transfer'),
+  6: t('Transferred Away'),
+  7: t('Suspended'),
+  8: t('Rejected'),
 };
 
 const RDASH_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -67,23 +68,23 @@ const RdashOverview = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              RDASH Integration
+              {t('RDASH Integration')}
             </h1>
             <p className="text-muted-foreground mt-1">
-              RDASH registrar configuration and domain overview.
+              {t('RDASH registrar configuration and domain overview.')}
             </p>
           </div>
         </div>
 
         <Card className="bg-gradient-card border-border/50">
           <CardHeader>
-            <CardTitle>RDASH configuration</CardTitle>
+            <CardTitle>{t('RDASH configuration')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             {rdashConfigLoading ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Checking RDASH configuration...</span>
+                <span>{t('Checking RDASH configuration...')}</span>
               </div>
             ) : (
               <>
@@ -91,15 +92,15 @@ const RdashOverview = () => {
                   <div className="flex items-center justify-between">
                     <span className="font-medium">RDASH</span>
                     <Badge variant={rdashConfig?.resellerIdSet && rdashConfig?.apiKeySet ? "default" : "outline"}>
-                      {rdashConfig?.resellerIdSet && rdashConfig?.apiKeySet ? "Configured" : "Not configured"}
+                      {rdashConfig?.resellerIdSet && rdashConfig?.apiKeySet ? t('Configured') : t('Not configured')}
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground space-y-1">
                     {!rdashEditing ? (
                       <>
-                        <div>Base URL: {rdashConfig?.baseUrl}</div>
-                        <div>Reseller ID: {rdashConfig?.resellerIdSet ? "set" : "not set"}</div>
-                        <div>API key: {rdashConfig?.apiKeySet ? "set" : "not set"}</div>
+                        <div>{t('Base URL: {url}', { url: rdashConfig?.baseUrl ?? '' })}</div>
+                        <div>{rdashConfig?.resellerIdSet ? t('Reseller ID: set') : t('Reseller ID: not set')}</div>
+                        <div>{rdashConfig?.apiKeySet ? t('API key: set') : t('API key: not set')}</div>
                       </>
                     ) : (
                       <div className="space-y-2">
@@ -109,12 +110,12 @@ const RdashOverview = () => {
                           onChange={(e) => setRdashForm(prev => ({ ...prev, baseUrl: e.target.value }))}
                         />
                         <Input
-                          placeholder={rdashConfig?.resellerIdSet ? '••••••' : 'Reseller ID'}
+                          placeholder={rdashConfig?.resellerIdSet ? '••••••' : t('Reseller ID')}
                           value={rdashForm.resellerId}
                           onChange={(e) => setRdashForm(prev => ({ ...prev, resellerId: e.target.value }))}
                         />
                         <Input
-                          placeholder={rdashConfig?.apiKeySet ? '••••••' : 'API key'}
+                          placeholder={rdashConfig?.apiKeySet ? '••••••' : t('API key')}
                           value={rdashForm.apiKey}
                           onChange={(e) => setRdashForm(prev => ({ ...prev, apiKey: e.target.value }))}
                         />
@@ -135,7 +136,7 @@ const RdashOverview = () => {
                           setRdashEditing(true);
                         }}
                       >
-                        Edit
+                        {t('Edit')}
                       </Button>
                     ) : (
                       <>
@@ -152,7 +153,7 @@ const RdashOverview = () => {
                           }}
                           disabled={updateRdashConfig.isPending}
                         >
-                          Cancel
+                          {t('Cancel')}
                         </Button>
                         <Button
                           size="sm"
@@ -175,14 +176,14 @@ const RdashOverview = () => {
                           {updateRdashConfig.isPending && (
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                           )}
-                          Save changes
+                          {t('Save changes')}
                         </Button>
                       </>
                     )}
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Changes here are saved directly to the {APP_NAME} database and used by the backend services.
+                  {t('Changes here are saved directly to the {appName} database and used by the backend services.', { appName: APP_NAME })}
                 </div>
               </>
             )}
@@ -196,7 +197,7 @@ const RdashOverview = () => {
                 <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-2">
                   <AlertTriangle className="h-4 w-4 text-destructive" />
                   <CardTitle className="text-sm font-medium text-destructive">
-                    RDASH API errors
+                    {t('RDASH API errors')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-1">
@@ -215,14 +216,14 @@ const RdashOverview = () => {
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <CreditCard className="h-4 w-4 text-primary" />
-                    RDash Balance
+                    {t('RDash Balance')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {summaryLoading ? (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Loading...</span>
+                      <span>{t('Loading...')}</span>
                     </div>
                   ) : (
                     <div className="text-2xl font-bold">
@@ -241,14 +242,14 @@ const RdashOverview = () => {
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <Globe className="h-4 w-4 text-primary" />
-                    RDash Domains
+                    {t('RDash Domains')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {summaryLoading ? (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Loading...</span>
+                      <span>{t('Loading...')}</span>
                     </div>
                   ) : (
                     <div className="text-2xl font-bold">
@@ -269,26 +270,26 @@ const RdashOverview = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Globe className="h-5 w-5 text-primary" />
-                  RDash Domains
+                  {t('RDash Domains')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {summaryLoading ? (
                   <div className="flex items-center justify-center h-32 text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading RDash domains...
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" /> {t('Loading RDash domains...')}
                   </div>
                 ) : !rdashDomains ? (
                   <div className="text-sm text-muted-foreground">
-                    No RDash domain data available.
+                    {t('No RDash domain data available.')}
                   </div>
                 ) : (
                   <div className="border rounded-md overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Expiry</TableHead>
+                          <TableHead>{t('Name')}</TableHead>
+                          <TableHead>{t('Status')}</TableHead>
+                          <TableHead>{t('Expiry')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -307,7 +308,7 @@ const RdashOverview = () => {
                                 {domain.status_label ||
                                   RDASH_STATUS_LABEL[domain.status] ||
                                   domain.state ||
-                                  'UNKNOWN'}
+                                  t('UNKNOWN')}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
@@ -332,23 +333,23 @@ const RdashOverview = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Cloudflare Integration
+            {t('Cloudflare Integration')}
           </h1>
           <p className="text-muted-foreground mt-1">
-            Cloudflare DNS configuration and zones overview.
+            {t('Cloudflare DNS configuration and zones overview.')}
           </p>
         </div>
       </div>
 
       <Card className="bg-gradient-card border-border/50">
         <CardHeader>
-          <CardTitle>Cloudflare configuration</CardTitle>
+          <CardTitle>{t('Cloudflare configuration')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           {cloudflareConfigLoading ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Checking Cloudflare configuration...</span>
+              <span>{t('Checking Cloudflare configuration...')}</span>
             </div>
           ) : (
             <>
@@ -356,14 +357,14 @@ const RdashOverview = () => {
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Cloudflare</span>
                   <Badge variant={cloudflareConfig?.apiTokenSet ? "default" : "outline"}>
-                    {cloudflareConfig?.apiTokenSet ? "Configured" : "Not configured"}
+                    {cloudflareConfig?.apiTokenSet ? t('Configured') : t('Not configured')}
                   </Badge>
                 </div>
                 <div className="text-xs text-muted-foreground space-y-1">
                   {!cloudflareEditing ? (
                     <>
-                      <div>API base: {cloudflareConfig?.apiBase}</div>
-                      <div>API token: {cloudflareConfig?.apiTokenSet ? "set" : "not set"}</div>
+                      <div>{t('API base: {url}', { url: cloudflareConfig?.apiBase ?? '' })}</div>
+                      <div>{cloudflareConfig?.apiTokenSet ? t('API token: set') : t('API token: not set')}</div>
                     </>
                   ) : (
                     <div className="space-y-2">
@@ -373,7 +374,7 @@ const RdashOverview = () => {
                         onChange={(e) => setCloudflareForm(prev => ({ ...prev, apiBase: e.target.value }))}
                       />
                       <Input
-                        placeholder={cloudflareConfig?.apiTokenSet ? '••••••' : 'API token'}
+                        placeholder={cloudflareConfig?.apiTokenSet ? '••••••' : t('API token')}
                         value={cloudflareForm.apiToken}
                         onChange={(e) => setCloudflareForm(prev => ({ ...prev, apiToken: e.target.value }))}
                       />
@@ -393,7 +394,7 @@ const RdashOverview = () => {
                         setCloudflareEditing(true);
                       }}
                     >
-                      Edit
+                      {t('Edit')}
                     </Button>
                   ) : (
                     <>
@@ -409,7 +410,7 @@ const RdashOverview = () => {
                         }}
                         disabled={updateCloudflareConfig.isPending}
                       >
-                        Cancel
+                        {t('Cancel')}
                       </Button>
                       <Button
                         size="sm"
@@ -430,14 +431,14 @@ const RdashOverview = () => {
                         {updateCloudflareConfig.isPending && (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         )}
-                        Save changes
+                        {t('Save changes')}
                       </Button>
                     </>
                   )}
                 </div>
               </div>
               <div className="text-xs text-muted-foreground">
-                Changes here are saved directly to the {APP_NAME} database and used by the backend services.
+                {t('Changes here are saved directly to the {appName} database and used by the backend services.', { appName: APP_NAME })}
               </div>
             </>
           )}
@@ -449,7 +450,7 @@ const RdashOverview = () => {
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Cloud className="h-4 w-4 text-primary" />
-              Cloudflare Zones
+              {t('Cloudflare Zones')}
             </CardTitle>
             <Button
               variant="outline"
@@ -458,26 +459,26 @@ const RdashOverview = () => {
               disabled={zonesLoading}
             >
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Refresh
+              {t('Refresh')}
             </Button>
           </CardHeader>
           <CardContent>
             {zonesLoading ? (
               <div className="flex items-center justify-center h-32 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading Cloudflare zones...
+                <Loader2 className="h-5 w-5 animate-spin mr-2" /> {t('Loading Cloudflare zones...')}
               </div>
             ) : !cloudflareZones || cloudflareZones.length === 0 ? (
               <div className="text-sm text-muted-foreground">
-                No Cloudflare zones found for this API token.
+                {t('No Cloudflare zones found for this API token.')}
               </div>
             ) : (
               <div className="border rounded-md overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Zone</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Type</TableHead>
+                      <TableHead>{t('Zone')}</TableHead>
+                      <TableHead>{t('Status')}</TableHead>
+                      <TableHead>{t('Type')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -488,7 +489,7 @@ const RdashOverview = () => {
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">
-                            {zone.status || 'unknown'}
+                            {zone.status || t('unknown')}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">

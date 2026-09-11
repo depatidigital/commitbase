@@ -18,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { t } from "@/lib/i18n";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -39,10 +40,10 @@ export default function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["git", "github", "accounts"] });
       queryClient.invalidateQueries({ queryKey: ["git", "gitlab", "accounts"] });
-      toast.success("Git account updated");
+      toast.success(t("Git account updated"));
     },
     onError: (error: any) => {
-      toast.error(error?.message || "Failed to update git account");
+      toast.error(error?.message || t("Failed to update git account"));
     },
   });
 
@@ -53,10 +54,10 @@ export default function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["git", "github", "accounts"] });
       queryClient.invalidateQueries({ queryKey: ["git", "gitlab", "accounts"] });
-      toast.success("Git account disconnected");
+      toast.success(t("Git account disconnected"));
     },
     onError: (error: any) => {
-      toast.error(error?.message || "Failed to disconnect git account");
+      toast.error(error?.message || t("Failed to disconnect git account"));
     },
   });
 
@@ -72,7 +73,7 @@ export default function Settings() {
   const handleSaveName = (id: string) => {
     const value = (editingNames[id] ?? "").trim();
     if (!value) {
-      toast.error("Display name cannot be empty");
+      toast.error(t("Display name cannot be empty"));
       return;
     }
     updateMutation.mutate({ id, displayName: value });
@@ -85,8 +86,8 @@ export default function Settings() {
   return (
     <PageLayout
       icon={SettingsIcon}
-      title="Settings"
-      description="Configure your deployment platform"
+      title={t("Settings")}
+      description={t("Configure your deployment platform")}
     >
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -94,11 +95,11 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Server className="h-5 w-5 text-primary" />
-              <span>Server Config</span>
+              <span>{t("Server Config")}</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">Configure server settings, domains, and SSL</p>
+            <p className="text-muted-foreground">{t("Configure server settings, domains, and SSL")}</p>
           </CardContent>
         </Card>
 
@@ -106,11 +107,11 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Shield className="h-5 w-5 text-primary" />
-              <span>Security</span>
+              <span>{t("Security")}</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">Manage authentication and access controls</p>
+            <p className="text-muted-foreground">{t("Manage authentication and access controls")}</p>
           </CardContent>
         </Card>
 
@@ -118,11 +119,11 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Bell className="h-5 w-5 text-primary" />
-              <span>Notifications</span>
+              <span>{t("Notifications")}</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">Configure alerts and monitoring</p>
+            <p className="text-muted-foreground">{t("Configure alerts and monitoring")}</p>
           </CardContent>
         </Card>
       </div>
@@ -132,17 +133,17 @@ export default function Settings() {
           <div>
             <h2 className="text-xl font-semibold flex items-center space-x-2">
               <GitBranch className="h-5 w-5 text-primary" />
-              <span>Git Integrations</span>
+              <span>{t("Git Integrations")}</span>
             </h2>
             <p className="text-sm text-muted-foreground">
-              Manage connected GitHub and GitLab accounts.
+              {t("Manage connected GitHub and GitLab accounts.")}
             </p>
           </div>
         </div>
 
         {allAccounts.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No Git accounts connected yet. Connect from the Add App page when selecting a repository.
+            {t("No Git accounts connected yet. Connect from the Add App page when selecting a repository.")}
           </p>
         ) : (
           <div className="space-y-3">
@@ -178,8 +179,8 @@ export default function Settings() {
                           onChange={(e) =>
                             handleNameChange(account.id, e.target.value)
                           }
-                          aria-label="Display name"
-                          placeholder="Display name"
+                          aria-label={t("Display name")}
+                          placeholder={t("Display name")}
                           className="h-8 max-w-xs"
                         />
                         <Button
@@ -188,7 +189,7 @@ export default function Settings() {
                           onClick={() => handleSaveName(account.id)}
                           disabled={updateMutation.isPending}
                         >
-                          Save
+                          {t("Save")}
                         </Button>
                       </div>
                     </div>
@@ -207,7 +208,7 @@ export default function Settings() {
                     disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="h-4 w-4" />
-                            <span className="sr-only">Disconnect account</span>
+                            <span className="sr-only">{t("Disconnect account")}</span>
                   </Button>
                 </div>
               );
@@ -228,20 +229,29 @@ export default function Settings() {
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Disconnect Git account</AlertDialogTitle>
+                <AlertDialogTitle>{t("Disconnect Git account")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to disconnect your{" "}
-                  {accountPendingDelete.providerLabel} account{" "}
-                  <span className="font-mono">
-                    {accountPendingDelete.username}
-                  </span>
-                  ? You can reconnect later from the Add App page, but existing
-                  deployments will keep using their configured repositories.
+                  {(() => {
+                    // {username} is left in by t() so it can be set in mono
+                    const [before, after] = t(
+                      "Are you sure you want to disconnect your {provider} account {username}? You can reconnect later from the Add App page, but existing deployments will keep using their configured repositories.",
+                      { provider: accountPendingDelete.providerLabel },
+                    ).split("{username}");
+                    return (
+                      <>
+                        {before}
+                        <span className="font-mono">
+                          {accountPendingDelete.username}
+                        </span>
+                        {after}
+                      </>
+                    );
+                  })()}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={deleteMutation.isPending}>
-                  Cancel
+                  {t("Cancel")}
                 </AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
@@ -259,7 +269,7 @@ export default function Settings() {
                   disabled={deleteMutation.isPending}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  {deleteMutation.isPending ? "Disconnecting..." : "Disconnect"}
+                  {deleteMutation.isPending ? t("Disconnecting...") : t("Disconnect")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

@@ -274,7 +274,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const serverId = String(req.query.serverId ?? '').trim();
     const where = {
       ...(await orgScope(req)),
-      ...(organizationId && { organizationId }),
+      // ?organizationId=unassigned: the synced rows nobody has claimed yet
+      ...(organizationId && { organizationId: organizationId === 'unassigned' ? null : organizationId }),
       ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
       ...(serverId && { serverId }),
       ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }] }),

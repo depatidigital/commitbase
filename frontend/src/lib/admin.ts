@@ -1,4 +1,5 @@
 import apiRequest from './api';
+import { t } from './i18n';
 import type { Paginated } from '@/components/DataTable';
 
 export interface ListParams {
@@ -43,6 +44,13 @@ export const listQuery = ({
 
 export type OrgRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 
+/** Display labels — the enum values themselves go to the API untouched. */
+export const ORG_ROLE_LABEL: Record<OrgRole, string> = {
+  OWNER: t('Owner'),
+  ADMIN: t('Admin'),
+  MEMBER: t('Member'),
+};
+
 export interface OrgSummary {
   id: string;
   name: string;
@@ -58,6 +66,12 @@ export interface AdminUser {
   createdAt: string;
   memberships: { role: OrgRole; organization: OrgSummary }[];
 }
+
+export const PLATFORM_ROLE_LABEL: Record<AdminUser['role'], string> = {
+  ADMIN: t('Admin'),
+  USER: t('User'),
+  CLIENT: t('Client'),
+};
 
 export interface AdminDomain {
   id: string;
@@ -85,13 +99,13 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
 export const getUsers = async (params: ListParams): Promise<Paginated<AdminUser>> =>
   unwrap(
     await apiRequest<Paginated<AdminUser>>(`/admin/users${listQuery(params)}`),
-    'Failed to fetch users'
+    t('Failed to fetch users')
   );
 
 export const createUser = async (data: CreateUserData): Promise<AdminUser> =>
   unwrap(
     await apiRequest<AdminUser>('/admin/users', { method: 'POST', body: JSON.stringify(data) }),
-    'Failed to create user'
+    t('Failed to create user')
   );
 
 export const updateUser = async (
@@ -100,13 +114,13 @@ export const updateUser = async (
 ): Promise<AdminUser> =>
   unwrap(
     await apiRequest<AdminUser>(`/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    'Failed to update user'
+    t('Failed to update user')
   );
 
 export const getAdminDomains = async (params: ListParams): Promise<Paginated<AdminDomain>> =>
   unwrap(
     await apiRequest<Paginated<AdminDomain>>(`/admin/domains${listQuery(params)}`),
-    'Failed to fetch domains'
+    t('Failed to fetch domains')
   );
 
 export const assignDomain = async (domainId: string, organizationId: string) =>
@@ -115,13 +129,13 @@ export const assignDomain = async (domainId: string, organizationId: string) =>
       method: 'POST',
       body: JSON.stringify({ organizationId }),
     }),
-    'Failed to assign domain'
+    t('Failed to assign domain')
   );
 
 export const unassignDomain = async (domainId: string) =>
   unwrap(
     await apiRequest(`/admin/domains/${domainId}/assign`, { method: 'DELETE' }),
-    'Failed to unassign domain'
+    t('Failed to unassign domain')
   );
 
 
@@ -141,6 +155,8 @@ export interface ProvisionStatus {
 export interface AdminOrganization extends OrgSummary {
   createdAt: string;
   _count: { members: number; domains: number; applications: number };
+  /** The node this tenant lives on. null until placed. */
+  server: { id: string; name: string; status: string } | null;
   provisioning: ProvisionStatus | null;
 }
 
@@ -158,7 +174,7 @@ export const getAdminOrganizations = async (
 ): Promise<Paginated<AdminOrganization>> =>
   unwrap(
     await apiRequest<Paginated<AdminOrganization>>(`/admin/organizations${listQuery(params)}`),
-    'Failed to fetch organizations'
+    t('Failed to fetch organizations')
   );
 
 export const provisionOrganization = async (
@@ -170,11 +186,11 @@ export const provisionOrganization = async (
       method: 'POST',
       body: JSON.stringify(limits ?? {}),
     }),
-    'Failed to provision organization'
+    t('Failed to provision organization')
   );
 
 export const getProvisionLogs = async (params: ListParams): Promise<Paginated<ProvisionLog>> =>
   unwrap(
     await apiRequest<Paginated<ProvisionLog>>(`/admin/provision-logs${listQuery(params)}`),
-    'Failed to fetch provisioning logs'
+    t('Failed to fetch provisioning logs')
   );

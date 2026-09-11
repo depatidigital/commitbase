@@ -231,7 +231,11 @@ router.get('/organizations', async (req: AuthenticatedRequest, res: Response) =>
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { members: true, domains: true, applications: true } } },
+        include: {
+          _count: { select: { members: true, domains: true, applications: true } },
+          // provisioning refuses to run until an org is placed, so the list says where
+          server: { select: { id: true, name: true, status: true } },
+        },
       }),
       prisma.organization.count({ where }),
     ]);

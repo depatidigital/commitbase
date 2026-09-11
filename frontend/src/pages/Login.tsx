@@ -11,10 +11,11 @@ import { useLogin } from '@/hooks/useAuth';
 import { LoginCredentials } from '@/lib/auth';
 import { isAuthenticated } from '@/lib/auth';
 import { Loader2 } from 'lucide-react';
+import { lang, setLang, t } from '@/lib/i18n';
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().email(t('Invalid email address')),
+  password: z.string().min(1, t('Password is required')),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -64,31 +65,47 @@ const Login = () => {
       <div className="min-h-screen flex items-center justify-center bg-muted/40">
         <div className="flex flex-col items-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Checking authentication...</p>
+          <p className="text-sm text-muted-foreground">{t('Checking authentication...')}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/40">
+    <div className="relative min-h-screen flex items-center justify-center bg-muted/40">
+      {/* language: a reload applies it, see lib/i18n */}
+      <div className="absolute right-4 top-4 flex items-center rounded-full border border-border p-0.5 text-xs font-medium">
+        {(["id", "en"] as const).map((code) => (
+          <button
+            key={code}
+            type="button"
+            onClick={() => setLang(code)}
+            aria-pressed={lang === code}
+            className={`rounded-full px-2 py-0.5 uppercase transition-colors ${
+              lang === code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {code}
+          </button>
+        ))}
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
-            Sign In
+            {t('Sign In')}
           </CardTitle>
           <CardDescription className="text-center">
-            Enter your credentials to access your dashboard
+            {t('Enter your credentials to access your dashboard')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('Email')}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="Enter your email"
+                placeholder={t('Enter your email')}
                 {...register('email')}
                 className={errors.email ? 'border-red-500' : ''}
               />
@@ -98,11 +115,11 @@ const Login = () => {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('Password')}</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
+                placeholder={t('Enter your password')}
                 {...register('password')}
                 className={errors.password ? 'border-red-500' : ''}
               />
@@ -116,13 +133,12 @@ const Login = () => {
               className="w-full"
               disabled={login.isPending}
             >
-              {login.isPending ? 'Signing in...' : 'Sign In'}
+              {login.isPending ? t('Signing in...') : t('Sign In')}
             </Button>
           </form>
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Accounts are created by an administrator or through an organization
-            invite link.
+            {t('Accounts are created by an administrator or through an organization invite link.')}
           </p>
         </CardContent>
       </Card>

@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { acceptInvite, getInvitePreview } from "@/lib/organizations";
 import { setAuthToken } from "@/lib/api";
 import { APP_NAME } from '@/lib/branding';
+import { locale, t } from "@/lib/i18n";
 
 export default function AcceptInvite() {
   const [params] = useSearchParams();
@@ -42,13 +43,15 @@ export default function AcceptInvite() {
     onSuccess: (data) => {
       setAuthToken(data.token);
       toast({
-        title: "Welcome",
-        description: `You have joined ${invite?.organizationName ?? "the organization"}.`,
+        title: t("Welcome"),
+        description: invite?.organizationName
+          ? t("You have joined {organization}.", { organization: invite.organizationName })
+          : t("You have joined the organization."),
       });
       navigate("/");
     },
     onError: (err: Error) =>
-      toast({ title: "Error", description: err.message, variant: "destructive" }),
+      toast({ title: t("Error"), description: err.message, variant: "destructive" }),
   });
 
   const shell = (children: React.ReactNode) => (
@@ -62,7 +65,7 @@ export default function AcceptInvite() {
       <CardContent className="py-10 text-center">
         <AlertCircle className="mx-auto mb-4 h-10 w-10 text-destructive" />
         <p className="text-muted-foreground">
-          This invite link is missing its token. Ask for a new invite.
+          {t("This invite link is missing its token. Ask for a new invite.")}
         </p>
       </CardContent>
     );
@@ -82,21 +85,24 @@ export default function AcceptInvite() {
         <AlertCircle className="mx-auto mb-4 h-10 w-10 text-destructive" />
         <p className="mb-4 text-muted-foreground">
           {(error as Error)?.message ||
-            "This invite is invalid, already used, or expired."}
+            t("This invite is invalid, already used, or expired.")}
         </p>
         <Button variant="outline" onClick={() => navigate("/login")}>
-          Go to sign in
+          {t("Go to sign in")}
         </Button>
       </CardContent>
     );
   }
 
+  // {email} is left in by t() so it can be set in bold
+  const [invitedBefore, invitedAfter] = t("Invited as {email}").split("{email}");
+
   return shell(
     <>
       <CardHeader>
-        <CardTitle>Join {invite.organizationName}</CardTitle>
+        <CardTitle>{t("Join {organization}", { organization: invite.organizationName })}</CardTitle>
         <CardDescription>
-          Invited as <strong>{invite.email}</strong>{" "}
+          {invitedBefore}<strong>{invite.email}</strong>{invitedAfter}{" "}
           <Badge variant="secondary">{invite.role}</Badge>
         </CardDescription>
       </CardHeader>
@@ -104,16 +110,16 @@ export default function AcceptInvite() {
         {invite.needsPassword ? (
           <>
             <div className="space-y-2">
-              <Label htmlFor="name">Your name</Label>
+              <Label htmlFor="name">{t("Your name")}</Label>
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Choose a password</Label>
+              <Label htmlFor="password">{t("Choose a password")}</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="At least 8 characters"
+                placeholder={t("At least 8 characters")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -121,8 +127,10 @@ export default function AcceptInvite() {
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            You already have a {APP_NAME} account with this email — accepting adds
-            you to {invite.organizationName}. Your password stays the same.
+            {t("You already have a {app} account with this email — accepting adds you to {organization}. Your password stays the same.", {
+              app: APP_NAME,
+              organization: invite.organizationName,
+            })}
           </p>
         )}
 
@@ -134,11 +142,11 @@ export default function AcceptInvite() {
           }
         >
           {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Join organization
+          {t("Join organization")}
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">
-          This invite expires {new Date(invite.expiresAt).toLocaleDateString()}.
+          {t("This invite expires {date}.", { date: new Date(invite.expiresAt).toLocaleDateString(locale) })}
         </p>
       </CardContent>
     </>

@@ -1,4 +1,5 @@
 import apiRequest from './api';
+import { t } from './i18n';
 import { OrgRole, ListParams, listQuery } from './admin';
 import type { Paginated } from '@/components/DataTable';
 
@@ -44,16 +45,16 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
 };
 
 export const getOrganizations = async (): Promise<Organization[]> =>
-  unwrap(await apiRequest<Organization[]>('/organizations'), 'Failed to fetch organizations');
+  unwrap(await apiRequest<Organization[]>('/organizations'), t('Failed to fetch organizations'));
 
 export const getOrganizationsPage = async (params: ListParams): Promise<Paginated<Organization>> =>
   unwrap(
     await apiRequest<Paginated<Organization>>(`/organizations${listQuery(params)}`),
-    'Failed to fetch organizations'
+    t('Failed to fetch organizations')
   );
 
 export const getOrganization = async (id: string): Promise<Organization> =>
-  unwrap(await apiRequest<Organization>(`/organizations/${id}`), 'Failed to fetch organization');
+  unwrap(await apiRequest<Organization>(`/organizations/${id}`), t('Failed to fetch organization'));
 
 // no account with that email? the backend issues an invite instead of failing
 export type AddMemberResult = Member | { invited: true; invite: CreatedInvite };
@@ -71,17 +72,17 @@ export const addMember = async (
       method: 'POST',
       body: JSON.stringify(data),
     }),
-    'Failed to add member'
+    t('Failed to add member')
   );
 
 export const createOrganization = async (data: { name: string; slug?: string }): Promise<Organization> =>
   unwrap(
     await apiRequest<Organization>('/organizations', { method: 'POST', body: JSON.stringify(data) }),
-    'Failed to create organization'
+    t('Failed to create organization')
   );
 
 export const getMembers = async (orgId: string): Promise<Member[]> =>
-  unwrap(await apiRequest<Member[]>(`/organizations/${orgId}/members`), 'Failed to fetch members');
+  unwrap(await apiRequest<Member[]>(`/organizations/${orgId}/members`), t('Failed to fetch members'));
 
 export const updateMemberRole = async (orgId: string, userId: string, role: OrgRole) =>
   unwrap(
@@ -89,17 +90,17 @@ export const updateMemberRole = async (orgId: string, userId: string, role: OrgR
       method: 'PUT',
       body: JSON.stringify({ role }),
     }),
-    'Failed to update member'
+    t('Failed to update member')
   );
 
 export const removeMember = async (orgId: string, userId: string) =>
   unwrap(
     await apiRequest(`/organizations/${orgId}/members/${userId}`, { method: 'DELETE' }),
-    'Failed to remove member'
+    t('Failed to remove member')
   );
 
 export const getInvites = async (orgId: string): Promise<Invite[]> =>
-  unwrap(await apiRequest<Invite[]>(`/organizations/${orgId}/invites`), 'Failed to fetch invites');
+  unwrap(await apiRequest<Invite[]>(`/organizations/${orgId}/invites`), t('Failed to fetch invites'));
 
 // an email that already has an account is added as a member instead of invited
 export type InviteResult = CreatedInvite | { added: true; membership: Member };
@@ -117,13 +118,13 @@ export const createInvite = async (
       method: 'POST',
       body: JSON.stringify(data),
     }),
-    'Failed to create invite'
+    t('Failed to create invite')
   );
 
 export const revokeInvite = async (orgId: string, inviteId: string) =>
   unwrap(
     await apiRequest(`/organizations/${orgId}/invites/${inviteId}`, { method: 'DELETE' }),
-    'Failed to revoke invite'
+    t('Failed to revoke invite')
   );
 
 export interface InvitePreview {
@@ -137,7 +138,7 @@ export interface InvitePreview {
 export const getInvitePreview = async (token: string): Promise<InvitePreview> =>
   unwrap(
     await apiRequest<InvitePreview>(`/auth/invite/${encodeURIComponent(token)}`),
-    'This invite link is invalid or has expired'
+    t('This invite link is invalid or has expired')
   );
 
 export const acceptInvite = async (data: { token: string; name?: string; password?: string }) =>
@@ -146,5 +147,5 @@ export const acceptInvite = async (data: { token: string; name?: string; passwor
       method: 'POST',
       body: JSON.stringify(data),
     }),
-    'Failed to accept invite'
+    t('Failed to accept invite')
   );

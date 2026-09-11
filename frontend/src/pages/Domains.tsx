@@ -111,10 +111,25 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APP_NAME } from "@/lib/branding";
+import { locale, t } from "@/lib/i18n";
 
 // radix Select rejects an empty string value, so "no organization" needs a sentinel
 const UNASSIGNED = "__unassigned__";
 const ANY = "__any__";
+
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: t("active"),
+  INACTIVE: t("inactive"),
+  PENDING: t("pending"),
+  ERROR: t("error"),
+};
+
+const SSL_LABELS: Record<string, string> = {
+  ACTIVE: t("active"),
+  PENDING: t("pending"),
+  EXPIRED: t("expired"),
+  ERROR: t("error"),
+};
 
 // expired, or inside the 30-day window the Expires column already highlights
 const needsRenewal = (domain: Pick<Domain, "expiresAt">) => {
@@ -141,7 +156,7 @@ const expiryTone = (value: Date): ExpiryTone => {
     return {
       days,
       className: "text-destructive font-semibold",
-      note: "expired",
+      note: t("expired"),
       urgent: true,
     };
   }
@@ -149,7 +164,7 @@ const expiryTone = (value: Date): ExpiryTone => {
     return {
       days,
       className: "text-destructive font-semibold",
-      note: "expires today",
+      note: t("expires today"),
       urgent: true,
     };
   }
@@ -157,7 +172,7 @@ const expiryTone = (value: Date): ExpiryTone => {
     return {
       days,
       className: "text-destructive font-semibold",
-      note: `${days}d left`,
+      note: t("{days}d left", { days }),
       urgent: true,
     };
   }
@@ -165,7 +180,7 @@ const expiryTone = (value: Date): ExpiryTone => {
     return {
       days,
       className: "text-warning font-medium",
-      note: `${days}d left`,
+      note: t("{days}d left", { days }),
       urgent: true,
     };
   }
@@ -173,7 +188,7 @@ const expiryTone = (value: Date): ExpiryTone => {
     return {
       days,
       className: "text-warning",
-      note: `${days}d left`,
+      note: t("{days}d left", { days }),
       urgent: false,
     };
   }
@@ -182,14 +197,14 @@ const expiryTone = (value: Date): ExpiryTone => {
 
 // compact form for the table — "25 Sep 2027"
 const formatDateShort = (value: Date) =>
-  value.toLocaleDateString("id-ID", {
+  value.toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 
 const formatDate = (value: Date) =>
-  value.toLocaleDateString("id-ID", {
+  value.toLocaleDateString(locale, {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -374,7 +389,7 @@ export default function Domains() {
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={toggleAll}
-                aria-label="Select all domains on this page"
+                aria-label={t("Select all domains on this page")}
               />
             ),
             className: "w-10",
@@ -382,28 +397,28 @@ export default function Domains() {
               <Checkbox
                 checked={selectedIds.includes(domain.id)}
                 onCheckedChange={() => toggleOne(domain.id)}
-                aria-label={`Select ${domain.name}`}
+                aria-label={t("Select {name}", { name: domain.name })}
               />
             ),
           },
         ]
       : []),
     {
-      header: "Domain",
+      header: t("Domain"),
       sortKey: "name",
       className: "w-[26%]",
       cell: (domain) => {
         const secure = domain.sslStatus === "ACTIVE";
         const Icon = secure ? Globe : LockOpen;
         const sslLabel = secure
-          ? "HTTPS active — valid certificate served"
+          ? t("HTTPS active — valid certificate served")
           : domain.sslStatus === "PENDING"
-            ? "HTTPS pending — certificate not issued yet"
+            ? t("HTTPS pending — certificate not issued yet")
             : domain.sslStatus === "EXPIRED"
-              ? "HTTPS expired — the certificate has lapsed"
+              ? t("HTTPS expired — the certificate has lapsed")
               : domain.sslStatus === "ERROR"
-                ? "HTTPS broken — the certificate is not trusted for this domain"
-                : "No HTTPS — nothing answered on port 443";
+                ? t("HTTPS broken — the certificate is not trusted for this domain")
+                : t("No HTTPS — nothing answered on port 443");
         return (
           <div className="flex min-w-0 items-center space-x-2 font-medium">
             <Icon
@@ -427,12 +442,12 @@ export default function Domains() {
                 className="gap-1 border-border/60 bg-transparent px-1.5 py-0 text-[11px] font-normal text-muted-foreground"
               >
                 <Unlink className="h-3 w-3" />
-                External
+                {t("External")}
               </Badge>
             )}
             {!domain.cfZoneId && (
               <Badge variant="outline" className="border-warning text-warning">
-                No zone
+                {t("No zone")}
               </Badge>
             )}
           </div>
@@ -440,7 +455,7 @@ export default function Domains() {
       },
     },
     {
-      header: "Destination",
+      header: t("Destination"),
       className: "w-[14%]",
       cell: (domain) => {
         // a redirect set by hand wins; otherwise the apex DNS record found by sync
@@ -455,17 +470,17 @@ export default function Domains() {
                 className="flex min-w-0 items-center gap-1 text-muted-foreground"
                 title={
                   domain.redirectTo
-                    ? `Redirects to ${domain.redirectTo}`
-                    : `Apex ${cf?.target?.type} record${
-                        cf?.target?.proxied ? " (proxied)" : ""
-                      }`
+                    ? t("Redirects to {target}", { target: domain.redirectTo })
+                    : cf?.target?.proxied
+                      ? t("Apex {type} record (proxied)", { type: cf?.target?.type ?? "" })
+                      : t("Apex {type} record", { type: cf?.target?.type ?? "" })
                 }
               >
                 <ExternalLink className="h-3 w-3 shrink-0" />
                 {!domain.redirectTo && isPlatformTarget(value) ? (
                   <Badge className="gap-1">
                     <Cloud className="h-3 w-3" />
-                    This platform
+                    {t("This platform")}
                   </Badge>
                 ) : (
                   <span className="truncate">{value}</span>
@@ -480,14 +495,16 @@ export default function Domains() {
                 onClick={() => navigate(`/domains/${domain.id}?destination=1`)}
               >
                 <Cloud className="mr-1 h-3 w-3" />
-                Set up destination
+                {t("Set up destination")}
               </Button>
             ) : (
               <span className="text-muted-foreground">-</span>
             )}
             {typeof subdomains === "number" && subdomains > 0 && (
               <span className="block text-xs text-muted-foreground">
-                {subdomains} subdomain{subdomains === 1 ? "" : "s"}
+                {subdomains === 1
+                  ? t("{count} subdomain", { count: subdomains })
+                  : t("{count} subdomains", { count: subdomains })}
               </span>
             )}
           </div>
@@ -495,7 +512,7 @@ export default function Domains() {
       },
     },
     {
-      header: "Organization",
+      header: t("Organization"),
       className: "w-[24%]",
       cell: (domain) =>
         domain.organization ? (
@@ -503,11 +520,11 @@ export default function Domains() {
             {domain.organization.name}
           </Badge>
         ) : (
-          <span className="text-muted-foreground">Unassigned</span>
+          <span className="text-muted-foreground">{t("Unassigned")}</span>
         ),
     },
     {
-      header: "Status",
+      header: t("Status"),
       className: "w-28",
       cell: (domain) => {
         // a registration still running says more than the PENDING row behind it
@@ -516,12 +533,12 @@ export default function Domains() {
           return provisioning.state === "FAILED" ? (
             <Badge variant="destructive" className="gap-1" title={provisioning.error ?? ""}>
               <AlertCircle className="h-3.5 w-3.5" />
-              failed
+              {t("failed")}
             </Badge>
           ) : (
             <Badge variant="outline" className="gap-1" title={provisioning.step}>
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              registering
+              {t("registering")}
             </Badge>
           );
         }
@@ -529,7 +546,7 @@ export default function Domains() {
       },
     },
     {
-      header: "Expires",
+      header: t("Expires"),
       sortKey: "expiresAt",
       className: "w-48 text-xs",
       cell: (domain) => {
@@ -554,7 +571,7 @@ export default function Domains() {
                 disabled={renewDomain.isPending}
               >
                 <RotateCw className="h-3 w-3 mr-1" />
-                Renew
+                {t("Renew")}
               </Button>
             )}
           </span>
@@ -562,7 +579,7 @@ export default function Domains() {
       },
     },
     {
-      header: "Actions",
+      header: t("Actions"),
       className: "w-16",
       cell: (domain) => (
         <DropdownMenu>
@@ -571,7 +588,7 @@ export default function Domains() {
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0"
-              aria-label={`Actions for ${domain.name}`}
+              aria-label={t("Actions for {name}", { name: domain.name })}
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
@@ -579,14 +596,14 @@ export default function Domains() {
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={() => navigate(`/domains/${domain.id}`)}>
               <Eye className="mr-2 h-4 w-4" />
-              Manage
+              {t("Manage")}
             </DropdownMenuItem>
             {admin && domain.cfZoneId && (
               <DropdownMenuItem
                 onClick={() => navigate(`/domains/${domain.id}?destination=1`)}
               >
                 <Cloud className="mr-2 h-4 w-4" />
-                Set up destination
+                {t("Set up destination")}
               </DropdownMenuItem>
             )}
             {admin && (
@@ -597,7 +614,7 @@ export default function Domains() {
                 }}
               >
                 <Building2 className="mr-2 h-4 w-4" />
-                Assign organization
+                {t("Assign organization")}
               </DropdownMenuItem>
             )}
             {admin && needsRenewal(domain) && (
@@ -606,7 +623,7 @@ export default function Domains() {
                 disabled={renewDomain.isPending}
               >
                 <RotateCw className="mr-2 h-4 w-4" />
-                Renew registration
+                {t("Renew registration")}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
@@ -614,7 +631,7 @@ export default function Domains() {
               disabled={verifyDomain.isPending}
             >
               <RefreshCw className="mr-2 h-4 w-4" />
-              Verify DNS
+              {t("Verify DNS")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -623,7 +640,7 @@ export default function Domains() {
               className="text-destructive focus:text-destructive"
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete domain
+              {t("Delete domain")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -637,13 +654,13 @@ export default function Domains() {
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Error Loading Domain</h3>
+            <h3 className="text-lg font-semibold mb-2">{t("Error Loading Domain")}</h3>
             <p className="text-muted-foreground mb-4">
-              Failed to load domain. Please try again.
+              {t("Failed to load domain. Please try again.")}
             </p>
             <Button variant="outline" onClick={() => navigate("/domains")}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to domains
+              {t("Back to domains")}
             </Button>
           </div>
         </div>
@@ -671,8 +688,11 @@ export default function Domains() {
     // external domains live at a registrar we do not talk to — say so instead of failing
     if (domain.registrar !== "RDASH") {
       toast({
-        title: "External domain",
-        description: `${domain.name} is registered outside ${APP_NAME}. Renew it with the registrar you bought it from.`,
+        title: t("External domain"),
+        description: t(
+          "{name} is registered outside {app}. Renew it with the registrar you bought it from.",
+          { name: domain.name, app: APP_NAME },
+        ),
       });
       return;
     }
@@ -738,23 +758,32 @@ export default function Domains() {
     switch (type) {
       case "delete":
         return {
-          title: "Delete Domain",
-          description: `Are you sure you want to delete "${domainName}"? This action cannot be undone and will remove all associated DNS records and SSL certificates.`,
-          actionText: "Delete Domain",
+          title: t("Delete Domain"),
+          description: t(
+            'Are you sure you want to delete "{name}"? This action cannot be undone and will remove all associated DNS records and SSL certificates.',
+            { name: domainName },
+          ),
+          actionText: t("Delete Domain"),
           variant: "destructive" as const,
         };
       case "verify":
         return {
-          title: "Verify Domain DNS",
-          description: `Are you sure you want to verify the DNS records for "${domainName}"? This will check if the domain is properly configured.`,
-          actionText: "Verify DNS",
+          title: t("Verify Domain DNS"),
+          description: t(
+            'Are you sure you want to verify the DNS records for "{name}"? This will check if the domain is properly configured.',
+            { name: domainName },
+          ),
+          actionText: t("Verify DNS"),
           variant: "default" as const,
         };
       case "renew":
         return {
-          title: "Renew Domain",
-          description: `Renew "${domainName}" for 1 year at the registrar? This charges your registrar account and cannot be undone.`,
-          actionText: "Renew for 1 year",
+          title: t("Renew Domain"),
+          description: t(
+            'Renew "{name}" for 1 year at the registrar? This charges your registrar account and cannot be undone.',
+            { name: domainName },
+          ),
+          actionText: t("Renew for 1 year"),
           variant: "default" as const,
         };
     }
@@ -811,7 +840,7 @@ export default function Domains() {
         return (
           <Badge variant="destructive" className="gap-1">
             <AlertCircle className="h-3.5 w-3.5" />
-            expired
+            {t("expired")}
           </Badge>
         );
       }
@@ -823,7 +852,7 @@ export default function Domains() {
             className="gap-1 border-warning bg-warning/10 text-warning"
           >
             <Clock className="h-3.5 w-3.5" />
-            expiring
+            {t("expiring")}
           </Badge>
         );
       }
@@ -840,7 +869,7 @@ export default function Domains() {
         }`}
       >
         {getStatusIcon(status)}
-        {status.toLowerCase()}
+        {STATUS_LABELS[status] ?? status.toLowerCase()}
       </Badge>
     );
   };
@@ -863,7 +892,7 @@ export default function Domains() {
         }`}
       >
         {getSSLIcon(sslStatus)}
-        {sslStatus.toLowerCase()}
+        {SSL_LABELS[sslStatus] ?? sslStatus.toLowerCase()}
       </Badge>
     );
   };
@@ -883,10 +912,10 @@ export default function Domains() {
           <div className="text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">
-              Error Loading Domains
+              {t("Error Loading Domains")}
             </h3>
             <p className="text-muted-foreground">
-              Failed to load domains. Please try again.
+              {t("Failed to load domains. Please try again.")}
             </p>
           </div>
         </div>
@@ -907,7 +936,7 @@ export default function Domains() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  aria-label="Back to domains"
+                  aria-label={t("Back to domains")}
                   onClick={() => navigate("/domains")}
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -934,8 +963,8 @@ export default function Domains() {
                           >
                             <AlertCircle className="h-3.5 w-3.5" />
                             {tone.days < 0
-                              ? "Registration expired"
-                              : `Expires ${tone.note}`}
+                              ? t("Registration expired")
+                              : t("Expires {note}", { note: tone.note })}
                           </Badge>
                         );
                       })()}
@@ -945,7 +974,7 @@ export default function Domains() {
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Domain DNS zone and SSL configuration.
+                    {t("Domain DNS zone and SSL configuration.")}
                   </p>
                 </div>
               </div>
@@ -957,7 +986,7 @@ export default function Domains() {
                     disabled={renewDomain.isPending}
                   >
                     <RotateCw className="h-4 w-4 mr-2" />
-                    Renew
+                    {t("Renew")}
                   </Button>
                 )}
                 <Button
@@ -971,12 +1000,12 @@ export default function Domains() {
                   {verifyDomain.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Verifying
+                      {t("Verifying")}
                     </>
                   ) : (
                     <>
                       <RefreshCw className="h-4 w-4 mr-2" />
-                      Verify DNS
+                      {t("Verify DNS")}
                     </>
                   )}
                 </Button>
@@ -991,12 +1020,12 @@ export default function Domains() {
                   {deleteDomain.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Deleting
+                      {t("Deleting")}
                     </>
                   ) : (
                     <>
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
+                      {t("Delete")}
                     </>
                   )}
                 </Button>
@@ -1005,36 +1034,36 @@ export default function Domains() {
 
             <Tabs defaultValue="overview" className="space-y-4">
               <TabsList>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="subdomains">Subdomains</TabsTrigger>
+                <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+                <TabsTrigger value="subdomains">{t("Subdomains")}</TabsTrigger>
                 <TabsTrigger value="dns">DNS</TabsTrigger>
-                <TabsTrigger value="registration">Registration</TabsTrigger>
-                {admin && <TabsTrigger value="settings">Settings</TabsTrigger>}
+                <TabsTrigger value="registration">{t("Registration")}</TabsTrigger>
+                {admin && <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>}
               </TabsList>
 
               <TabsContent value="overview" className="space-y-4">
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Card>
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Overview</CardTitle>
+                      <CardTitle className="text-base">{t("Overview")}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 pt-0">
                       {/* what it is doing now */}
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Status</span>
+                        <span className="text-muted-foreground">{t("Status")}</span>
                         {getStatusBadge(
                           domainDetail.status,
                           domainDetail.expiresAt,
                         )}
                       </div>
                       <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-muted-foreground">Destination</span>
+                        <span className="text-muted-foreground">{t("Destination")}</span>
                         {apexRecord ? (
                           <span className="flex items-center gap-2">
                             {isPlatformTarget(apexRecord.content) ? (
                               <Badge className="gap-1">
                                 <Cloud className="h-3.5 w-3.5" />
-                                This platform
+                                {t("This platform")}
                               </Badge>
                             ) : (
                               <span className="font-mono text-xs">
@@ -1046,7 +1075,7 @@ export default function Domains() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 w-6 p-0"
-                                aria-label="Edit the destination"
+                                aria-label={t("Edit the destination")}
                                 onClick={() =>
                                   setRecordForm({
                                     id: apexRecord.id,
@@ -1072,10 +1101,10 @@ export default function Domains() {
                             className="h-7"
                             onClick={openDestinationForm}
                           >
-                            Set up destination
+                            {t("Set up destination")}
                           </Button>
                         ) : (
-                          <span className="text-muted-foreground">Not set</span>
+                          <span className="text-muted-foreground">{t("Not set")}</span>
                         )}
                       </div>
 
@@ -1083,7 +1112,7 @@ export default function Domains() {
                       {admin && domainDetail.cfZoneId && (
                         <div className="flex items-center justify-between gap-2 text-sm">
                           <span className="text-muted-foreground">
-                            Apps subdomain
+                            {t("Apps subdomain")}
                           </span>
                           {wildcardRecord ? (
                             <Badge variant="secondary">*.{domainDetail.name}</Badge>
@@ -1094,9 +1123,9 @@ export default function Domains() {
                               className="h-7"
                               disabled={setupWildcard.isPending}
                               onClick={() => setupWildcard.mutate(domainDetail.id)}
-                              title="Points *.domain at the platform, so apps deployed under it need no record of their own"
+                              title={t("Points *.domain at the platform, so apps deployed under it need no record of their own")}
                             >
-                              Point all subdomains here
+                              {t("Point all subdomains here")}
                             </Button>
                           )}
                         </div>
@@ -1117,14 +1146,14 @@ export default function Domains() {
                             {enableCloudflare.isPending && (
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                             )}
-                            Move to Cloudflare
+                            {t("Move to Cloudflare")}
                           </Button>
                         ) : (
                           <Badge
                             variant="outline"
                             className="border-warning text-warning"
                           >
-                            Not on Cloudflare
+                            {t("Not on Cloudflare")}
                           </Badge>
                         )}
                       </div>
@@ -1134,8 +1163,9 @@ export default function Domains() {
                           {getSSLBadge(domainDetail.sslStatus)}
                           {domainDetail.sslExpiry && (
                             <span className="text-xs text-muted-foreground">
-                              until{" "}
-                              {formatDate(new Date(domainDetail.sslExpiry))}
+                              {t("until {date}", {
+                                date: formatDate(new Date(domainDetail.sslExpiry)),
+                              })}
                             </span>
                           )}
                         </span>
@@ -1143,18 +1173,18 @@ export default function Domains() {
 
                       {/* who owns it and for how long */}
                       <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
-                        <span className="text-muted-foreground">Registrar</span>
+                        <span className="text-muted-foreground">{t("Registrar")}</span>
                         <span>
                           {domainDetail.registrar === "RDASH"
-                            ? "Managed"
+                            ? t("Managed")
                             : domainDetail.registrar === "EXTERNAL"
-                              ? "External"
-                              : "Unknown"}
+                              ? t("External")
+                              : t("Unknown")}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
-                          Registration expiry
+                          {t("Registration expiry")}
                         </span>
                         {domainDetail.expiresAt ? (
                           (() => {
@@ -1189,8 +1219,8 @@ export default function Domains() {
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">
                               {domainDetail.redirectTo
-                                ? "Redirect to"
-                                : "Destination"}
+                                ? t("Redirect to")
+                                : t("Destination")}
                             </span>
                             <span className="flex items-center gap-2 text-muted-foreground">
                               <ExternalLink className="h-3 w-3" />
@@ -1207,7 +1237,7 @@ export default function Domains() {
 
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                      <CardTitle className="text-base">Subdomains</CardTitle>
+                      <CardTitle className="text-base">{t("Subdomains")}</CardTitle>
                       {domainDetail.cfZoneId && (
                         <Button
                           variant="outline"
@@ -1224,18 +1254,18 @@ export default function Domains() {
                           }
                         >
                           <Plus className="h-4 w-4 mr-2" />
-                          Add
+                          {t("Add")}
                         </Button>
                       )}
                     </CardHeader>
                     <CardContent>
                       {!domainDetail.cfZoneId ? (
                         <p className="text-sm text-muted-foreground">
-                          Move this domain to Cloudflare to manage subdomains.
+                          {t("Move this domain to Cloudflare to manage subdomains.")}
                         </p>
                       ) : subdomainRecords.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                          None yet.
+                          {t("None yet.")}
                         </p>
                       ) : (
                         <div className="space-y-1">
@@ -1251,7 +1281,7 @@ export default function Domains() {
                                 {isPlatformTarget(record.content) ? (
                                   <Badge className="gap-1">
                                     <Cloud className="h-3.5 w-3.5" />
-                                    This platform
+                                    {t("This platform")}
                                   </Badge>
                                 ) : (
                                   <>
@@ -1263,8 +1293,9 @@ export default function Domains() {
                           ))}
                           {subdomainRecords.length > 5 && (
                             <p className="pt-1 text-xs text-muted-foreground">
-                              +{subdomainRecords.length - 5} more in the
-                              Subdomains tab
+                              {t("+{count} more in the Subdomains tab", {
+                                count: subdomainRecords.length - 5,
+                              })}
                             </p>
                           )}
                         </div>
@@ -1277,7 +1308,7 @@ export default function Domains() {
               <TabsContent value="subdomains" className="space-y-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                    <CardTitle className="text-base">Subdomains</CardTitle>
+                    <CardTitle className="text-base">{t("Subdomains")}</CardTitle>
                     {domainDetail.cfZoneId && (
                       <Button
                         size="sm"
@@ -1293,26 +1324,26 @@ export default function Domains() {
                         }
                       >
                         <Plus className="h-4 w-4 mr-2" />
-                        Add subdomain
+                        {t("Add subdomain")}
                       </Button>
                     )}
                   </CardHeader>
                   <CardContent>
                     {!domainDetail.cfZoneId ? (
                       <p className="text-sm text-warning">
-                        Move this domain to Cloudflare before managing
-                        subdomains.
+                        {t("Move this domain to Cloudflare before managing subdomains.")}
                       </p>
                     ) : dnsZoneLoading ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Loading subdomains…</span>
+                        <span>{t("Loading subdomains…")}</span>
                       </div>
                     ) : subdomainRecords.length === 0 ? (
                       <div className="space-y-3">
                         <p className="text-sm text-muted-foreground">
-                          No hostname records yet. Add one, or pull across
-                          whatever the registrar was serving.
+                          {t(
+                            "No hostname records yet. Add one, or pull across whatever the registrar was serving.",
+                          )}
                         </p>
                         <Button
                           variant="outline"
@@ -1325,7 +1356,7 @@ export default function Domains() {
                           ) : (
                             <RefreshCw className="h-4 w-4 mr-2" />
                           )}
-                          Sync from registrar DNS
+                          {t("Sync from registrar DNS")}
                         </Button>
                       </div>
                     ) : (
@@ -1333,10 +1364,10 @@ export default function Domains() {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Subdomain</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Target</TableHead>
-                              <TableHead>Proxied</TableHead>
+                              <TableHead>{t("Subdomain")}</TableHead>
+                              <TableHead>{t("Type")}</TableHead>
+                              <TableHead>{t("Target")}</TableHead>
+                              <TableHead>{t("Proxied")}</TableHead>
                               <TableHead className="text-right">TTL</TableHead>
                               <TableHead className="w-12" />
                             </TableRow>
@@ -1354,7 +1385,7 @@ export default function Domains() {
                                   {isPlatformTarget(record.content) ? (
                                     <Badge className="gap-1">
                                       <Cloud className="h-3.5 w-3.5" />
-                                      This platform
+                                      {t("This platform")}
                                     </Badge>
                                   ) : (
                                     record.content
@@ -1362,15 +1393,15 @@ export default function Domains() {
                                 </TableCell>
                                 <TableCell>
                                   {record.proxied ? (
-                                    <Badge variant="secondary">Proxied</Badge>
+                                    <Badge variant="secondary">{t("Proxied")}</Badge>
                                   ) : (
                                     <span className="text-xs text-muted-foreground">
-                                      DNS only
+                                      {t("DNS only")}
                                     </span>
                                   )}
                                 </TableCell>
                                 <TableCell className="text-right text-xs">
-                                  {record.ttl === 1 ? "Auto" : record.ttl}
+                                  {record.ttl === 1 ? t("Auto") : record.ttl}
                                 </TableCell>
                                 <TableCell>
                                   <DropdownMenu>
@@ -1379,7 +1410,7 @@ export default function Domains() {
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 w-8 p-0"
-                                        aria-label={`Actions for ${record.name}`}
+                                        aria-label={t("Actions for {name}", { name: record.name })}
                                       >
                                         <MoreHorizontal className="h-4 w-4" />
                                       </Button>
@@ -1402,7 +1433,7 @@ export default function Domains() {
                                         }
                                       >
                                         <Edit className="mr-2 h-4 w-4" />
-                                        Edit
+                                        {t("Edit")}
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
                                       <DropdownMenuItem
@@ -1412,7 +1443,7 @@ export default function Domains() {
                                         }
                                       >
                                         <Trash2 className="mr-2 h-4 w-4" />
-                                        Delete
+                                        {t("Delete")}
                                       </DropdownMenuItem>
                                     </DropdownMenuContent>
                                   </DropdownMenu>
@@ -1437,22 +1468,22 @@ export default function Domains() {
                 >
                   <Card>
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-base">DNS Records</CardTitle>
+                      <CardTitle className="text-base">{t("DNS Records")}</CardTitle>
                     </CardHeader>
                     <CardContent>
                       {dnsZoneLoading ? (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Loading DNS records...</span>
+                          <span>{t("Loading DNS records...")}</span>
                         </div>
                       ) : domainDnsZone && domainDnsZone.records.length > 0 ? (
                         <div className="rounded-md border border-border/60 bg-muted/20 max-h-96 overflow-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead className="w-[80px]">Type</TableHead>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Content</TableHead>
+                                <TableHead className="w-[80px]">{t("Type")}</TableHead>
+                                <TableHead>{t("Name")}</TableHead>
+                                <TableHead>{t("Content")}</TableHead>
                                 <TableHead className="w-[80px] text-right">
                                   TTL
                                 </TableHead>
@@ -1480,7 +1511,7 @@ export default function Domains() {
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          No DNS records found in Cloudflare for this domain.
+                          {t("No DNS records found in Cloudflare for this domain.")}
                         </p>
                       )}
                     </CardContent>
@@ -1489,47 +1520,46 @@ export default function Domains() {
                     <Card>
                       <CardHeader className="pb-3">
                         <CardTitle className="text-base">
-                          Registrar DNS
+                          {t("Registrar DNS")}
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3 pt-0">
                         {rdashDnsLoading ? (
                           <div className="flex items-center text-sm text-muted-foreground">
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
-                            Reading DNS from the registrar…
+                            {t("Reading DNS from the registrar…")}
                           </div>
                         ) : !rdashDns?.registered ? (
                           <p className="text-sm text-muted-foreground">
-                            This domain was not found at the registrar.
+                            {t("This domain was not found at the registrar.")}
                           </p>
                         ) : (
                           <>
                             <div className="text-sm">
                               <span className="text-muted-foreground">
-                                Nameservers:{" "}
+                                {t("Nameservers:")}{" "}
                               </span>
                               <span className="font-mono text-xs">
                                 {rdashDns.nameservers.join(", ") || "-"}
                               </span>
                               {rdashDns.delegatedToCloudflare && (
                                 <Badge variant="secondary" className="ml-2">
-                                  Delegated to Cloudflare
+                                  {t("Delegated to Cloudflare")}
                                 </Badge>
                               )}
                             </div>
                             {rdashDns.records.length === 0 ? (
                               <p className="text-sm text-muted-foreground">
-                                The registrar holds no DNS records for this
-                                domain.
+                                {t("The registrar holds no DNS records for this domain.")}
                               </p>
                             ) : (
                               <div className="rounded-md border overflow-x-auto">
                                 <Table>
                                   <TableHeader>
                                     <TableRow>
-                                      <TableHead>Type</TableHead>
-                                      <TableHead>Name</TableHead>
-                                      <TableHead>Content</TableHead>
+                                      <TableHead>{t("Type")}</TableHead>
+                                      <TableHead>{t("Name")}</TableHead>
+                                      <TableHead>{t("Content")}</TableHead>
                                       <TableHead className="text-right">
                                         TTL
                                       </TableHead>
@@ -1574,27 +1604,28 @@ export default function Domains() {
               <TabsContent value="registration" className="space-y-4">
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Registration</CardTitle>
+                    <CardTitle className="text-base">{t("Registration")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {registrationLoading ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Looking up the registry record…</span>
+                        <span>{t("Looking up the registry record…")}</span>
                       </div>
                     ) : !registration ? (
                       <p className="text-sm text-muted-foreground">
-                        This TLD publishes no public registry record, or the
-                        domain is not registered.
+                        {t(
+                          "This TLD publishes no public registry record, or the domain is not registered.",
+                        )}
                       </p>
                     ) : (
                       <>
                         <div className="flex items-center justify-between gap-4 text-sm">
                           <span className="text-muted-foreground">
-                            Registered with
+                            {t("Registered with")}
                           </span>
                           <span className="text-right">
-                            {registration.registrar ?? "Unknown"}
+                            {registration.registrar ?? t("Unknown")}
                             {registration.registrarId && (
                               <span className="ml-1 text-xs text-muted-foreground">
                                 (IANA {registration.registrarId})
@@ -1604,7 +1635,7 @@ export default function Domains() {
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">
-                            Registered on
+                            {t("Registered on")}
                           </span>
                           <span>
                             {registration.registeredAt
@@ -1614,7 +1645,7 @@ export default function Domains() {
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">
-                            Last changed
+                            {t("Last changed")}
                           </span>
                           <span>
                             {registration.updatedAt
@@ -1623,7 +1654,7 @@ export default function Domains() {
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Expires</span>
+                          <span className="text-muted-foreground">{t("Expires")}</span>
                           <span>
                             {registration.expiresAt
                               ? formatDate(new Date(registration.expiresAt))
@@ -1633,7 +1664,7 @@ export default function Domains() {
                         {registration.status.length > 0 && (
                           <div className="space-y-1 text-sm">
                             <span className="text-muted-foreground">
-                              Registry status
+                              {t("Registry status")}
                             </span>
                             <div className="flex flex-wrap gap-2">
                               {registration.status.map((state) => (
@@ -1647,7 +1678,7 @@ export default function Domains() {
                         {registration.nameservers.length > 0 && (
                           <div className="space-y-1 text-sm">
                             <span className="text-muted-foreground">
-                              Nameservers at the registry
+                              {t("Nameservers at the registry")}
                             </span>
                             <div className="flex flex-wrap gap-2">
                               {registration.nameservers.map((ns) => (
@@ -1673,13 +1704,15 @@ export default function Domains() {
                     {domainDetail.cfZoneId ? (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          DNS for this domain is managed in Cloudflare zone{" "}
+                          {t("DNS for this domain is managed in Cloudflare zone")}{" "}
                           <span className="font-mono text-xs">
                             {domainDetail.cfZoneId}
                           </span>
-                          . Detaching only stops {APP_NAME} managing it — the
-                          zone stays in Cloudflare and the nameservers keep
-                          pointing there until you change them at the registrar.
+                          .{" "}
+                          {t(
+                            "Detaching only stops {app} managing it — the zone stays in Cloudflare and the nameservers keep pointing there until you change them at the registrar.",
+                            { app: APP_NAME },
+                          )}
                         </p>
                         <Button
                           variant="outline"
@@ -1690,12 +1723,12 @@ export default function Domains() {
                           {disableCloudflare.isPending && (
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                           )}
-                          Detach from Cloudflare
+                          {t("Detach from Cloudflare")}
                         </Button>
                       </>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        This domain is not attached to Cloudflare.
+                        {t("This domain is not attached to Cloudflare.")}
                       </p>
                     )}
                   </CardContent>
@@ -1707,8 +1740,8 @@ export default function Domains() {
           <>
             <PageLayout
               icon={Globe}
-              title="Domains"
-              description="Manage your custom domains and SSL certificates."
+              title={t("Domains")}
+              description={t("Manage your custom domains and SSL certificates.")}
               actions={
                 admin ? (
                   <div className="flex items-center gap-3">
@@ -1722,7 +1755,7 @@ export default function Domains() {
                       ) : (
                         <RefreshCw className="h-4 w-4 mr-2" />
                       )}
-                      {syncDomains.isPending ? "Syncing…" : "Sync domains"}
+                      {syncDomains.isPending ? t("Syncing…") : t("Sync domains")}
                     </Button>
                     <Dialog
                       open={addDialogOpen}
@@ -1735,41 +1768,43 @@ export default function Domains() {
                         onClick={() => setAddDialogOpen(true)}
                       >
                         <Plus className="h-4 w-4 mr-2" />
-                        Connect domain
+                        {t("Connect domain")}
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => navigate("/domains/register")}
                       >
                         <Globe className="h-4 w-4 mr-2" />
-                        Register domain
+                        {t("Register domain")}
                       </Button>
                       <DialogContent className="max-w-lg">
                         <DialogHeader>
-                          <DialogTitle>Connect a domain</DialogTitle>
+                          <DialogTitle>{t("Connect a domain")}</DialogTitle>
                           <DialogDescription>
-                            Connect a domain you already own. To buy a new one,
-                            use Register domain.
+                            {t(
+                              "Connect a domain you already own. To buy a new one, use Register domain.",
+                            )}
                           </DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleAddDomain} className="space-y-6">
                           <div className="space-y-2">
                             <Label className="text-sm">
-                              Owning organization
+                              {t("Owning organization")}
                             </Label>
                             <OrganizationCombobox
                               value={newDomainOrgId || null}
                               onChange={(id) => setNewDomainOrgId(id ?? "")}
                             />
                             <p className="text-xs text-muted-foreground">
-                              Only this organization's members can create
-                              applications on it.
+                              {t(
+                                "Only this organization's members can create applications on it.",
+                              )}
                             </p>
                           </div>
                           {!newDomainOrgId ? (
                             <>
                               <p className="rounded-md border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
-                                Choose the owning organization to continue.
+                                {t("Choose the owning organization to continue.")}
                               </p>
                               <div className="flex items-center justify-end pt-2">
                                 <Button
@@ -1777,7 +1812,7 @@ export default function Domains() {
                                   variant="outline"
                                   onClick={resetAddDialog}
                                 >
-                                  Cancel
+                                  {t("Cancel")}
                                 </Button>
                               </div>
                             </>
@@ -1785,7 +1820,7 @@ export default function Domains() {
                             <>
                               <div className="space-y-2">
                                 <Label htmlFor="new-domain-name">
-                                  Domain name
+                                  {t("Domain name")}
                                 </Label>
                                 <Input
                                   id="new-domain-name"
@@ -1803,7 +1838,7 @@ export default function Domains() {
                                   variant="outline"
                                   onClick={resetAddDialog}
                                 >
-                                  Cancel
+                                  {t("Cancel")}
                                 </Button>
                                 <Button
                                   type="submit"
@@ -1817,7 +1852,7 @@ export default function Domains() {
                                   {createDomain.isPending && (
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                   )}
-                                  Save domain
+                                  {t("Save domain")}
                                 </Button>
                               </div>
                             </>
@@ -1838,8 +1873,8 @@ export default function Domains() {
                   }}
                 >
                   <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
+                    <TabsTrigger value="all">{t("All")}</TabsTrigger>
+                    <TabsTrigger value="unassigned">{t("Unassigned")}</TabsTrigger>
                   </TabsList>
                 </Tabs>
 
@@ -1853,14 +1888,14 @@ export default function Domains() {
                   }}
                 >
                   <SelectTrigger className="w-44">
-                    <SelectValue placeholder="Any status" />
+                    <SelectValue placeholder={t("Any status")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any status</SelectItem>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="PENDING">Pending</SelectItem>
-                    <SelectItem value="INACTIVE">Inactive</SelectItem>
-                    <SelectItem value="ERROR">Error</SelectItem>
+                    <SelectItem value={ANY}>{t("Any status")}</SelectItem>
+                    <SelectItem value="ACTIVE">{t("Active")}</SelectItem>
+                    <SelectItem value="PENDING">{t("Pending")}</SelectItem>
+                    <SelectItem value="INACTIVE">{t("Inactive")}</SelectItem>
+                    <SelectItem value="ERROR">{t("Error")}</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -1872,14 +1907,14 @@ export default function Domains() {
                   }}
                 >
                   <SelectTrigger className="w-48">
-                    <SelectValue placeholder="Any expiration" />
+                    <SelectValue placeholder={t("Any expiration")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any expiration</SelectItem>
-                    <SelectItem value="expired">Expired</SelectItem>
-                    <SelectItem value="30">Expiring in 30 days</SelectItem>
-                    <SelectItem value="60">Expiring in 60 days</SelectItem>
-                    <SelectItem value="90">Expiring in 90 days</SelectItem>
+                    <SelectItem value={ANY}>{t("Any expiration")}</SelectItem>
+                    <SelectItem value="expired">{t("Expired")}</SelectItem>
+                    <SelectItem value="30">{t("Expiring in {days} days", { days: 30 })}</SelectItem>
+                    <SelectItem value="60">{t("Expiring in {days} days", { days: 60 })}</SelectItem>
+                    <SelectItem value="90">{t("Expiring in {days} days", { days: 90 })}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1887,12 +1922,12 @@ export default function Domains() {
               {admin && selectedIds.length > 0 && (
                 <div className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-muted/40 p-3">
                   <span className="text-sm font-medium">
-                    {selectedIds.length} selected
+                    {t("{count} selected", { count: selectedIds.length })}
                   </span>
                   <OrganizationCombobox
                     value={bulkOrgId || null}
                     onChange={(id) => setBulkOrgId(id ?? "")}
-                    placeholder="Assign to organization"
+                    placeholder={t("Assign to organization")}
                     className="w-64"
                   />
                   <Button
@@ -1910,14 +1945,14 @@ export default function Domains() {
                     {bulkAssign.isPending && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
-                    Assign
+                    {t("Assign")}
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => setSelectedIds([])}
                   >
-                    Clear
+                    {t("Clear")}
                   </Button>
                 </div>
               )}
@@ -1929,11 +1964,11 @@ export default function Domains() {
                 query={query}
                 pagination={domainsData?.pagination}
                 isLoading={isLoading}
-                searchPlaceholder="Search domains…"
+                searchPlaceholder={t("Search domains…")}
                 empty={
                   admin
-                    ? "No domains yet — add your first custom domain."
-                    : "No domains are assigned to your organization yet. Ask an administrator to assign one."
+                    ? t("No domains yet — add your first custom domain.")
+                    : t("No domains are assigned to your organization yet. Ask an administrator to assign one.")
                 }
               />
             </PageLayout>
@@ -1949,13 +1984,13 @@ export default function Domains() {
               <DialogHeader>
                 <DialogTitle>
                   {!recordForm.id
-                    ? "Add subdomain"
+                    ? t("Add subdomain")
                     : editingApex
-                      ? `Edit ${domainDetail.name}`
-                      : "Edit subdomain"}
+                      ? t("Edit {name}", { name: domainDetail.name })
+                      : t("Edit subdomain")}
                 </DialogTitle>
                 <DialogDescription>
-                  Saved to Cloudflare straight away.
+                  {t("Saved to Cloudflare straight away.")}
                 </DialogDescription>
               </DialogHeader>
               <form
@@ -1997,7 +2032,7 @@ export default function Domains() {
               >
                 {!editingApex && (
                   <div className="space-y-2">
-                    <Label htmlFor="record-name">Subdomain</Label>
+                    <Label htmlFor="record-name">{t("Subdomain")}</Label>
                     <div className="flex items-center gap-2">
                       <Input
                         id="record-name"
@@ -2015,7 +2050,7 @@ export default function Domains() {
                 )}
 
                 <div className="space-y-2">
-                  <Label>Destination</Label>
+                  <Label>{t("Destination")}</Label>
                   <Select
                     value={recordForm.mode}
                     onValueChange={(value) =>
@@ -2029,8 +2064,8 @@ export default function Domains() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">This platform</SelectItem>
-                      <SelectItem value="custom">Somewhere else</SelectItem>
+                      <SelectItem value="auto">{t("This platform")}</SelectItem>
+                      <SelectItem value="custom">{t("Somewhere else")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2077,7 +2112,7 @@ export default function Domains() {
                     variant="outline"
                     onClick={() => setRecordForm(null)}
                   >
-                    Cancel
+                    {t("Cancel")}
                   </Button>
                   <Button
                     type="submit"
@@ -2092,7 +2127,7 @@ export default function Domains() {
                       updateDnsRecord.isPending) && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
-                    {recordForm.id ? "Save" : "Add"}
+                    {recordForm.id ? t("Save") : t("Add")}
                   </Button>
                 </div>
               </form>
@@ -2107,15 +2142,15 @@ export default function Domains() {
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete DNS record</AlertDialogTitle>
+                <AlertDialogTitle>{t("Delete DNS record")}</AlertDialogTitle>
                 <AlertDialogDescription>
                   {recordToDelete.type} {recordToDelete.name} →{" "}
-                  {recordToDelete.content}. Anything relying on this hostname
-                  stops resolving.
+                  {recordToDelete.content}.{" "}
+                  {t("Anything relying on this hostname stops resolving.")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   disabled={deleteDnsRecord.isPending}
@@ -2127,7 +2162,7 @@ export default function Domains() {
                   {deleteDnsRecord.isPending && (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   )}
-                  Delete
+                  {t("Delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -2143,19 +2178,19 @@ export default function Domains() {
               <AlertDialogHeader>
                 <AlertDialogTitle>
                   {cloudflarePrompt === "enable"
-                    ? `Move ${domainDetail.name} to Cloudflare?`
-                    : `Detach ${domainDetail.name} from Cloudflare?`}
+                    ? t("Move {name} to Cloudflare?", { name: domainDetail.name })
+                    : t("Detach {name} from Cloudflare?", { name: domainDetail.name })}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {cloudflarePrompt === "enable"
                     ? domainDetail.registrar === "RDASH"
-                      ? "DNS moves to Cloudflare. Existing records are copied across and the nameservers at the registrar are repointed."
-                      : "DNS moves to Cloudflare. Set the nameservers we show you at your registrar to finish the switch."
-                    : "The Cloudflare zone stays in place — repoint the nameservers at your registrar before deleting it."}
+                      ? t("DNS moves to Cloudflare. Existing records are copied across and the nameservers at the registrar are repointed.")
+                      : t("DNS moves to Cloudflare. Set the nameservers we show you at your registrar to finish the switch.")
+                    : t("The Cloudflare zone stays in place — repoint the nameservers at your registrar before deleting it.")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={async () => {
                     if (cloudflarePrompt === "enable") {
@@ -2172,12 +2207,12 @@ export default function Domains() {
                   {enableCloudflare.isPending || disableCloudflare.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Working…
+                      {t("Working…")}
                     </>
                   ) : cloudflarePrompt === "enable" ? (
-                    "Move to Cloudflare"
+                    t("Move to Cloudflare")
                   ) : (
-                    "Detach"
+                    t("Detach")
                   )}
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -2192,24 +2227,26 @@ export default function Domains() {
           >
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Assign organization</DialogTitle>
+                <DialogTitle>{t("Assign organization")}</DialogTitle>
                 <DialogDescription>
-                  Choose which organization owns {assignTarget.name}. Only its
-                  members can create applications on the domain.
+                  {t(
+                    "Choose which organization owns {name}. Only its members can create applications on the domain.",
+                    { name: assignTarget.name },
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <OrganizationCombobox
                   value={assignOrgId === UNASSIGNED ? null : assignOrgId}
                   onChange={(id) => setAssignOrgId(id ?? UNASSIGNED)}
-                  noneLabel="Unassigned"
+                  noneLabel={t("Unassigned")}
                 />
                 <div className="flex items-center justify-end space-x-3">
                   <Button
                     variant="outline"
                     onClick={() => setAssignTarget(null)}
                   >
-                    Cancel
+                    {t("Cancel")}
                   </Button>
                   <Button
                     disabled={bulkAssign.isPending}
@@ -2225,7 +2262,7 @@ export default function Domains() {
                     {bulkAssign.isPending && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
-                    Save
+                    {t("Save")}
                   </Button>
                 </div>
               </div>
@@ -2246,7 +2283,7 @@ export default function Domains() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={executeAction}
                   disabled={
@@ -2265,7 +2302,7 @@ export default function Domains() {
                   renewDomain.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Processing...
+                      {t("Processing...")}
                     </>
                   ) : (
                     dialogContent.actionText

@@ -1,4 +1,5 @@
 import apiRequest, { setAuthToken, removeAuthToken } from './api';
+import { t } from './i18n';
 
 export interface User {
   id: string;
@@ -40,7 +41,7 @@ export const login = async (credentials: LoginCredentials): Promise<AuthResponse
     return response.data;
   }
 
-  throw new Error(response.error || 'Login failed');
+  throw new Error(response.error || t('Login failed'));
 };
 
 // Register user
@@ -55,7 +56,7 @@ export const register = async (credentials: RegisterCredentials): Promise<AuthRe
     return response.data;
   }
 
-  throw new Error(response.error || 'Registration failed');
+  throw new Error(response.error || t('Registration failed'));
 };
 
 // Logout user
@@ -133,7 +134,7 @@ export const changePassword = async (
     return;
   }
 
-  throw new Error(response.error || 'Failed to change password');
+  throw new Error(response.error || t('Failed to change password'));
 };
 
 // Check if user is authenticated

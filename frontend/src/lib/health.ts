@@ -1,4 +1,5 @@
 import apiRequest from "./api";
+import { t } from "./i18n";
 
 /** One recorded check. */
 export interface Beat {
@@ -32,5 +33,5 @@ export const getApplicationHealth = async (
   );
 
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || "Failed to read health");
+  throw new Error(response.error || t("Failed to read health"));
 };

@@ -49,7 +49,8 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useQueryClient } from "@tanstack/react-query";
 import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/applications";
-import DeploymentHistory from "@/components/DeploymentHistory";
+import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
+import { locale, t } from "@/lib/i18n";
 import {
   Tooltip,
   TooltipContent,
@@ -73,6 +74,22 @@ interface LogEntry {
   level: 'info' | 'warn' | 'error' | 'debug';
   message: string;
 }
+
+/** Displayed word for an app status; the raw value stays for logic. */
+const STATUS_LABELS: Record<string, string> = {
+  RUNNING: t("Running"),
+  STOPPED: t("Stopped"),
+  ERROR: t("Error"),
+  DEPLOYING: t("Deploying"),
+  BUILDING: t("Building"),
+};
+
+const LOG_TYPE_LABELS: Record<string, string> = {
+  combined: t("Combined Logs"),
+  out: t("Output Logs"),
+  error: t("Error Logs"),
+  build: t("Build Logs"),
+};
 
 interface ApplicationLogs {
   build?: string;
@@ -221,8 +238,8 @@ export default function ApplicationDetail() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
-      title: 'Copied',
-      description: 'Text copied to clipboard',
+      title: t('Copied'),
+      description: t('Text copied to clipboard'),
     });
   };
 
@@ -239,11 +256,11 @@ export default function ApplicationDetail() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">App Not Found</h3>
-          <p className="text-muted-foreground mb-4">The application you're looking for doesn't exist.</p>
+          <h3 className="text-lg font-semibold mb-2">{t("App Not Found")}</h3>
+          <p className="text-muted-foreground mb-4">{t("The application you're looking for doesn't exist.")}</p>
           <Button onClick={() => navigate('/')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Apps
+            {t("Back to Apps")}
           </Button>
         </div>
       </div>
@@ -252,35 +269,35 @@ export default function ApplicationDetail() {
 
   const dialogContent = confirmAction ? {
     start: {
-      title: hasBeenDeployed(application) ? 'Redeploy & Start App' : 'Deploy & Start App',
+      title: hasBeenDeployed(application) ? t('Redeploy & Start App') : t('Deploy & Start App'),
       description: hasBeenDeployed(application) 
-        ? `Are you sure you want to redeploy and start "${confirmAction.appName}"? This will rebuild and run the application.`
-        : `Are you sure you want to deploy and start "${confirmAction.appName}"? This will build and run the application for the first time.`,
-      actionText: hasBeenDeployed(application) ? 'Redeploy & Start' : 'Deploy & Start',
+        ? t("Are you sure you want to redeploy and start \"{name}\"? This will rebuild and run the application.", { name: confirmAction.appName })
+        : t("Are you sure you want to deploy and start \"{name}\"? This will build and run the application for the first time.", { name: confirmAction.appName }),
+      actionText: hasBeenDeployed(application) ? t('Redeploy & Start') : t('Deploy & Start'),
       variant: 'default' as const,
     },
     'start-existing': {
-      title: 'Start App',
-      description: `Are you sure you want to start "${confirmAction.appName}"? This will start the existing built application without rebuilding.`,
-      actionText: 'Start App',
+      title: t('Start App'),
+      description: t("Are you sure you want to start \"{name}\"? This will start the existing built application without rebuilding.", { name: confirmAction.appName }),
+      actionText: t('Start App'),
       variant: 'default' as const,
     },
     stop: {
-      title: 'Stop App',
-      description: `Are you sure you want to stop "${confirmAction.appName}"? This will shut down the running application.`,
-      actionText: 'Stop App',
+      title: t('Stop App'),
+      description: t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: confirmAction.appName }),
+      actionText: t('Stop App'),
       variant: 'destructive' as const,
     },
     restart: {
-      title: 'Restart App',
-      description: `Are you sure you want to restart "${confirmAction.appName}"? This will stop and then start the application.`,
-      actionText: 'Restart App',
+      title: t('Restart App'),
+      description: t("Are you sure you want to restart \"{name}\"? This will stop and then start the application.", { name: confirmAction.appName }),
+      actionText: t('Restart App'),
       variant: 'default' as const,
     },
     delete: {
-      title: 'Delete App',
-      description: `Are you sure you want to delete "${confirmAction.appName}"? This action cannot be undone and will permanently remove the application and all its data.`,
-      actionText: 'Delete App',
+      title: t('Delete App'),
+      description: t("Are you sure you want to delete \"{name}\"? This action cannot be undone and will permanently remove the application and all its data.", { name: confirmAction.appName }),
+      actionText: t('Delete App'),
       variant: 'destructive' as const,
     },
   }[confirmAction.type] : null;
@@ -304,7 +321,7 @@ export default function ApplicationDetail() {
                 {application.name}
               </h1>
               <p className="text-muted-foreground">
-                App Details & Management
+                {t("App Details & Management")}
               </p>
             </div>
           </div>
@@ -316,7 +333,7 @@ export default function ApplicationDetail() {
               disabled={isRefreshing}
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-              Refresh
+              {t("Refresh")}
             </Button>
             
             {/* Application Action Buttons */}
@@ -335,11 +352,11 @@ export default function ApplicationDetail() {
                       ) : (
                         <Square className="h-4 w-4 mr-2" />
                       )}
-                      Stop
+                      {t("Stop")}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Stop the running application</p>
+                    <p>{t("Stop the running application")}</p>
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -354,11 +371,11 @@ export default function ApplicationDetail() {
                       ) : (
                         <RotateCcw className="h-4 w-4 mr-2" />
                       )}
-                      Redeploy
+                      {t("Redeploy")}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Build the latest code and switch over once it answers. The current release keeps serving meanwhile.</p>
+                    <p>{t("Build the latest code and switch over once it answers. The current release keeps serving meanwhile.")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -377,11 +394,11 @@ export default function ApplicationDetail() {
                       ) : (
                         <Play className="h-4 w-4 mr-2" />
                       )}
-                      Start
+                      {t("Start")}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Start the existing built application</p>
+                    <p>{t("Start the existing built application")}</p>
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -396,11 +413,11 @@ export default function ApplicationDetail() {
                       ) : (
                         <RotateCcw className="h-4 w-4 mr-2" />
                       )}
-                      Redeploy & Start
+                      {t("Redeploy & Start")}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Rebuild and start the application</p>
+                    <p>{t("Rebuild and start the application")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -418,11 +435,11 @@ export default function ApplicationDetail() {
                     ) : (
                       <Play className="h-4 w-4 mr-2" />
                     )}
-                    Deploy & Start
+                    {t("Deploy & Start")}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Deploy and start the application for the first time</p>
+                  <p>{t("Deploy and start the application for the first time")}</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -441,11 +458,11 @@ export default function ApplicationDetail() {
                     ) : (
                       <RotateCcw className="h-4 w-4 mr-2" />
                     )}
-                    Restart
+                    {t("Restart")}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Restart the application</p>
+                  <p>{t("Restart the application")}</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -457,18 +474,18 @@ export default function ApplicationDetail() {
                   className="text-destructive hover:text-destructive"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
+                  {t("Delete")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete App</AlertDialogTitle>
+                  <AlertDialogTitle>{t("Delete App")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Are you sure you want to delete "{application.name}"? This action cannot be undone and will permanently remove the application and all its data.
+                    {t("Are you sure you want to delete \"{name}\"? This action cannot be undone and will permanently remove the application and all its data.", { name: application.name })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => handleDelete()}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -477,7 +494,7 @@ export default function ApplicationDetail() {
                     {deleteApp.isPending ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : null}
-                    Delete Application
+                    {t("Delete Application")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -492,18 +509,18 @@ export default function ApplicationDetail() {
               <div className="flex items-center space-x-4">
                 {getStatusIcon(application.status)}
                 <div>
-                  <h3 className="text-lg font-semibold">Status: {application.status}</h3>
+                  <h3 className="text-lg font-semibold">{t("Status: {status}", { status: STATUS_LABELS[application.status] ?? application.status })}</h3>
                   <p className="text-muted-foreground">
-                    {application.status === 'RUNNING' ? 'App is running and accessible' :
-                     application.status === 'STOPPED' ? 'App is stopped and not accessible' :
-                     application.status === 'ERROR' ? 'App encountered an error' :
-                     'App is being deployed'}
+                    {application.status === 'RUNNING' ? t('App is running and accessible') :
+                     application.status === 'STOPPED' ? t('App is stopped and not accessible') :
+                     application.status === 'ERROR' ? t('App encountered an error') :
+                     t('App is being deployed')}
                   </p>
                 </div>
               </div>
               <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${getStatusColor(application.status)}`} />
-                <span className="text-sm font-medium capitalize">{application.status?.toLowerCase()}</span>
+                <span className="text-sm font-medium capitalize">{STATUS_LABELS[application.status] ?? application.status?.toLowerCase()}</span>
               </div>
             </div>
           </CardContent>
@@ -512,10 +529,10 @@ export default function ApplicationDetail() {
         {/* Main Content */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="logs">Logs</TabsTrigger>
-            <TabsTrigger value="deployments">Deployments</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+            <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
+            <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+            <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -526,30 +543,30 @@ export default function ApplicationDetail() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Info className="h-5 w-5 text-primary" />
-                    <span>Basic Information</span>
+                    <span>{t("Basic Information")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Name</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Name")}</label>
                     <p className="font-medium">{application.name}</p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Type</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Type")}</label>
                     <Badge variant="secondary">{application.type}</Badge>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Deployment Mode</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Deployment Mode")}</label>
                     <p className="font-medium">
-                      {application.type === 'STATIC' ? 'Static Site (S3)' : 'Runtime Container'}
+                      {application.type === 'STATIC' ? t('Static Site (S3)') : t('Runtime Container')}
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Directory</label>
-                    <p className="font-mono text-sm break-all">{application.rootPath || 'Not detected'}</p>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Directory")}</label>
+                    <p className="font-mono text-sm break-all">{application.rootPath || t('Not detected')}</p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Domain</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Domain")}</label>
                     <div className="flex items-center space-x-2">
                       <Globe className="h-4 w-4 text-muted-foreground" />
                       <span className="font-mono text-sm">{application.domain}</span>
@@ -567,13 +584,13 @@ export default function ApplicationDetail() {
                       {hostname?.live ? (
                         <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
                           <Wifi className="h-3 w-3" />
-                          reachable
+                          {t("reachable")}
                         </Badge>
                       ) : hostname ? (
                         <>
                           <Badge variant="outline" className="gap-1 border-warning text-warning">
                             <WifiOff className="h-3 w-3" />
-                            {hostname.resolves ? "not serving yet" : "no DNS"}
+                            {hostname.resolves ? t("not serving yet") : t("no DNS")}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
                             {hostname.error}
@@ -587,7 +604,7 @@ export default function ApplicationDetail() {
                               setupDns.mutate({ id: application.id, force: true })
                             }
                           >
-                            Point it here
+                            {t("Point it here")}
                           </Button>
                         </>
                       ) : null}
@@ -601,14 +618,14 @@ export default function ApplicationDetail() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Server className="h-5 w-5 text-primary" />
-                    <span>{application.type === 'STATIC' ? 'Static Site' : 'Runtime Information'}</span>
+                    <span>{application.type === 'STATIC' ? t('Static Site') : t('Runtime Information')}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {application.type === 'STATIC' ? (
                     <>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">Static Site URL</label>
+                        <label className="text-sm font-medium text-muted-foreground">{t("Static Site URL")}</label>
                         {application.staticSiteUrl ? (
                           <div className="flex items-center space-x-2">
                             <span className="font-mono text-xs break-all">{application.staticSiteUrl}</span>
@@ -621,39 +638,38 @@ export default function ApplicationDetail() {
                             </Button>
                           </div>
                         ) : (
-                          <p className="font-medium text-muted-foreground">Not deployed yet</p>
+                          <p className="font-medium text-muted-foreground">{t("Not deployed yet")}</p>
                         )}
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">Hosting</label>
-                        <p className="font-medium">Object storage (S3-compatible)</p>
+                        <label className="text-sm font-medium text-muted-foreground">{t("Hosting")}</label>
+                        <p className="font-medium">{t("Object storage (S3-compatible)")}</p>
                       </div>
                     </>
                   ) : (
                     <>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">Internal port</label>
+                        <label className="text-sm font-medium text-muted-foreground">{t("Internal port")}</label>
                         <p className="font-medium">
-                          {application.port ? `127.0.0.1:${application.port}` : 'Not configured'}
+                          {application.port ? `127.0.0.1:${application.port}` : t('Not configured')}
                         </p>
                         {/* bound to loopback and reached only through the proxy —
                             an admin reading a bare number assumes it is open */}
                         <p className="text-xs text-muted-foreground">
-                          Bound to loopback on the node. Not reachable from outside; the
-                          proxy is what serves this app publicly.
+                          {t("Bound to loopback on the node. Not reachable from outside; the proxy is what serves this app publicly.")}
                         </p>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">Memory Usage</label>
-                        <p className="font-medium">Not available</p>
+                        <label className="text-sm font-medium text-muted-foreground">{t("Memory Usage")}</label>
+                        <p className="font-medium">{t("Not available")}</p>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">CPU Usage</label>
-                        <p className="font-medium">Not available</p>
+                        <label className="text-sm font-medium text-muted-foreground">{t("CPU Usage")}</label>
+                        <p className="font-medium">{t("Not available")}</p>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">Uptime</label>
-                        <p className="font-medium">Not available</p>
+                        <label className="text-sm font-medium text-muted-foreground">{t("Uptime")}</label>
+                        <p className="font-medium">{t("Not available")}</p>
                       </div>
                     </>
                   )}
@@ -665,25 +681,25 @@ export default function ApplicationDetail() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <GitBranch className="h-5 w-5 text-primary" />
-                    <span>Repository</span>
+                    <span>{t("Repository")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Repository</label>
-                    <p className="font-mono text-sm break-all">{application.repository || 'Not configured'}</p>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Repository")}</label>
+                    <p className="font-mono text-sm break-all">{application.repository || t('Not configured')}</p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Branch</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Branch")}</label>
                     <p className="font-medium">{application.branch || 'main'}</p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Build Command</label>
-                    <p className="font-mono text-sm">{application.buildCommand || 'Not configured'}</p>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Build Command")}</label>
+                    <p className="font-mono text-sm">{application.buildCommand || t('Not configured')}</p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Start Command</label>
-                    <p className="font-mono text-sm">{application.startCommand || 'Not configured'}</p>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Start Command")}</label>
+                    <p className="font-mono text-sm">{application.startCommand || t('Not configured')}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -693,30 +709,30 @@ export default function ApplicationDetail() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Zap className="h-5 w-5 text-primary" />
-                    <span>Deployment</span>
+                    <span>{t("Deployment")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Last Deployment</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Last Deployment")}</label>
                     <p className="font-medium">
                       {application.deployments && application.deployments.length > 0 
-                        ? new Date(application.deployments[0].createdAt).toLocaleString()
-                        : 'Never deployed'
+                        ? new Date(application.deployments[0].createdAt).toLocaleString(locale)
+                        : t('Never deployed')
                       }
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Deployment Status</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Deployment Status")}</label>
                     <Badge variant="outline">
                       {application.deployments && application.deployments.length > 0 
-                        ? application.deployments[0].status 
-                        : 'Not deployed'
+                        ? deploymentStatusLabel(application.deployments[0].status) 
+                        : t('Not deployed')
                       }
                     </Badge>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Total Deployments</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Total Deployments")}</label>
                     <p className="font-medium">{application.deployments?.length || 0}</p>
                   </div>
                 </CardContent>
@@ -727,14 +743,14 @@ export default function ApplicationDetail() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Settings className="h-5 w-5 text-primary" />
-                    <span>Environment Variables</span>
+                    <span>{t("Environment Variables")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Environment Variables</label>
+                    <label className="text-sm font-medium text-muted-foreground">{t("Environment Variables")}</label>
                     <Textarea
-                      value={application.envVars ? JSON.stringify(application.envVars, null, 2) : 'No environment variables configured'}
+                      value={application.envVars ? JSON.stringify(application.envVars, null, 2) : t('No environment variables configured')}
                       readOnly
                       className="font-mono text-xs"
                       rows={6}
@@ -748,7 +764,7 @@ export default function ApplicationDetail() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Activity className="h-5 w-5 text-primary" />
-                    <span>Quick Actions</span>
+                    <span>{t("Quick Actions")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -758,7 +774,7 @@ export default function ApplicationDetail() {
                     onClick={() => setActiveTab("logs")}
                   >
                     <Terminal className="h-4 w-4 mr-2" />
-                    View Logs
+                    {t("View Logs")}
                   </Button>
                   <Button
                     variant="outline"
@@ -766,7 +782,7 @@ export default function ApplicationDetail() {
                     onClick={() => setActiveTab("deployments")}
                   >
                     <Zap className="h-4 w-4 mr-2" />
-                    View Deployments
+                    {t("View Deployments")}
                   </Button>
                   <Button
                     variant="outline"
@@ -774,7 +790,7 @@ export default function ApplicationDetail() {
                     onClick={() => setActiveTab("settings")}
                   >
                     <Settings className="h-4 w-4 mr-2" />
-                    Edit Settings
+                    {t("Edit Settings")}
                   </Button>
                 </CardContent>
               </Card>
@@ -787,38 +803,38 @@ export default function ApplicationDetail() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Terminal className="h-5 w-5 text-primary" />
-                  <span>App Logs</span>
+                  <span>{t("App Logs")}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Log Controls */}
                 <div className="flex items-center space-x-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Log Type</label>
+                    <label className="text-sm font-medium">{t("Log Type")}</label>
                     <Select value={selectedLogType} onValueChange={setSelectedLogType}>
                       <SelectTrigger className="w-48">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="combined">Combined Logs</SelectItem>
-                        <SelectItem value="out">Output Logs</SelectItem>
-                        <SelectItem value="error">Error Logs</SelectItem>
-                        <SelectItem value="build">Build Logs</SelectItem>
+                        <SelectItem value="combined">{LOG_TYPE_LABELS.combined}</SelectItem>
+                        <SelectItem value="out">{LOG_TYPE_LABELS.out}</SelectItem>
+                        <SelectItem value="error">{LOG_TYPE_LABELS.error}</SelectItem>
+                        <SelectItem value="build">{LOG_TYPE_LABELS.build}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Lines</label>
+                    <label className="text-sm font-medium">{t("Lines")}</label>
                     <Select value={logLines.toString()} onValueChange={(value) => setLogLines(parseInt(value))}>
                       <SelectTrigger className="w-32">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="50">50 lines</SelectItem>
-                        <SelectItem value="100">100 lines</SelectItem>
-                        <SelectItem value="200">200 lines</SelectItem>
-                        <SelectItem value="500">500 lines</SelectItem>
+                        <SelectItem value="50">{t("{n} lines", { n: 50 })}</SelectItem>
+                        <SelectItem value="100">{t("{n} lines", { n: 100 })}</SelectItem>
+                        <SelectItem value="200">{t("{n} lines", { n: 200 })}</SelectItem>
+                        <SelectItem value="500">{t("{n} lines", { n: 500 })}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -830,7 +846,7 @@ export default function ApplicationDetail() {
                       disabled={isRefreshing}
                     >
                       <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-                      Refresh
+                      {t("Refresh")}
                     </Button>
                     
                     <Button
@@ -838,7 +854,7 @@ export default function ApplicationDetail() {
                       onClick={() => setShowRawLogs(!showRawLogs)}
                     >
                       {showRawLogs ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
-                      {showRawLogs ? 'Formatted' : 'Raw'}
+                      {showRawLogs ? t('Formatted') : t('Raw')}
                     </Button>
                     
                     <Button
@@ -846,12 +862,12 @@ export default function ApplicationDetail() {
                       onClick={() => copyToClipboard(logs[selectedLogType as keyof ApplicationLogs] || '')}
                     >
                       <Copy className="h-4 w-4 mr-2" />
-                      Copy
+                      {t("Copy")}
                     </Button>
                     
                     <Button variant="outline">
                       <Download className="h-4 w-4 mr-2" />
-                      Download
+                      {t("Download")}
                     </Button>
                   </div>
                 </div>
@@ -867,7 +883,7 @@ export default function ApplicationDetail() {
                       ) : (
                         <div className="text-center text-muted-foreground py-8">
                           <Terminal className="h-8 w-8 mx-auto mb-2" />
-                          <p>No logs available for {selectedLogType}</p>
+                          <p>{t("No logs available for {type}", { type: LOG_TYPE_LABELS[selectedLogType] ?? selectedLogType })}</p>
                         </div>
                       )}
                     </div>
@@ -888,7 +904,7 @@ export default function ApplicationDetail() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Settings className="h-5 w-5 text-primary" />
-                  <span>App Settings</span>
+                  <span>{t("App Settings")}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -909,7 +925,7 @@ export default function ApplicationDetail() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={executeAction}
                   className={dialogContent.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
@@ -918,7 +934,7 @@ export default function ApplicationDetail() {
                   {startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Processing...
+                      {t("Processing...")}
                     </>
                   ) : (
                     dialogContent.actionText
@@ -973,8 +989,8 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
       await updateApp.mutateAsync({ id: application.id, data: updateData });
       
       toast({
-        title: 'Success',
-        description: 'App settings updated successfully',
+        title: t('Success'),
+        description: t('App settings updated successfully'),
       });
       
       // Refetch application data
@@ -982,8 +998,8 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
       
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'Failed to update application settings',
+        title: t('Error'),
+        description: t('Failed to update application settings'),
         variant: 'destructive',
       });
     } finally {
@@ -1012,8 +1028,8 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
       {/* Build Command */}
       <div className="space-y-2">
         <label className="text-sm font-medium">
-          Build Command
-          <span className="text-muted-foreground ml-1">(optional)</span>
+          {t("Build Command")}
+          <span className="text-muted-foreground ml-1">{t("(optional)")}</span>
         </label>
         <Input
           value={formData.buildCommand}
@@ -1022,15 +1038,15 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
           className="font-mono"
         />
         <p className="text-xs text-muted-foreground">
-          Command to build your application (e.g., yarn build, npm run build)
+          {t("Command to build your application (e.g., yarn build, npm run build)")}
         </p>
       </div>
 
       {/* Start Command */}
       <div className="space-y-2">
         <label className="text-sm font-medium">
-          Start Command
-          <span className="text-muted-foreground ml-1">(optional)</span>
+          {t("Start Command")}
+          <span className="text-muted-foreground ml-1">{t("(optional)")}</span>
         </label>
         <Input
           value={formData.startCommand}
@@ -1039,15 +1055,15 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
           className="font-mono"
         />
         <p className="text-xs text-muted-foreground">
-          Command to start your application (e.g., yarn start, npm start, node app.js)
+          {t("Command to start your application (e.g., yarn start, npm start, node app.js)")}
         </p>
       </div>
 
       {/* Port */}
       <div className="space-y-2">
         <label className="text-sm font-medium">
-          Port
-          <span className="text-muted-foreground ml-1">(optional)</span>
+          {t("Port")}
+          <span className="text-muted-foreground ml-1">{t("(optional)")}</span>
         </label>
         <Input
           type="number"
@@ -1058,7 +1074,7 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
           max="65535"
         />
         <p className="text-xs text-muted-foreground">
-          Port number for your application (1-65535)
+          {t("Port number for your application (1-65535)")}
         </p>
       </div>
 
@@ -1071,11 +1087,11 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
             onClick={handleReset}
             disabled={!hasChanges() || isSubmitting}
           >
-            Reset
+            {t("Reset")}
           </Button>
           {hasChanges() && (
             <Badge variant="secondary" className="text-xs">
-              Unsaved changes
+              {t("Unsaved changes")}
             </Badge>
           )}
         </div>
@@ -1089,12 +1105,12 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
+                {t("Saving...")}
               </>
             ) : (
               <>
                 <Settings className="h-4 w-4 mr-2" />
-                Save Changes
+                {t("Save Changes")}
               </>
             )}
           </Button>
@@ -1103,22 +1119,22 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
 
       {/* Help Section */}
       <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-        <h4 className="text-sm font-medium">Help & Examples</h4>
+        <h4 className="text-sm font-medium">{t("Help & Examples")}</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div>
             <p className="font-medium mb-1">Node.js</p>
-            <p className="text-muted-foreground">Build: yarn build</p>
-            <p className="text-muted-foreground">Start: yarn start</p>
+            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
+            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn start" })}</p>
           </div>
           <div>
             <p className="font-medium mb-1">React</p>
-            <p className="text-muted-foreground">Build: yarn build</p>
-            <p className="text-muted-foreground">Start: yarn start</p>
+            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
+            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn start" })}</p>
           </div>
           <div>
             <p className="font-medium mb-1">Vue.js</p>
-            <p className="text-muted-foreground">Build: yarn build</p>
-            <p className="text-muted-foreground">Start: yarn run serve</p>
+            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
+            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn run serve" })}</p>
           </div>
         </div>
       </div>

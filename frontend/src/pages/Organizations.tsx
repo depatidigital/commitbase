@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Building2, Loader2, Plus, Settings2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -25,6 +26,8 @@ import {
   getOrganizationsPage,
 } from "@/lib/organizations";
 import { Label } from "@/components/ui/label";
+import { t } from "@/lib/i18n";
+import { isSuperAdmin } from "@/lib/auth";
 
 export default function Organizations() {
   const { toast } = useToast();
@@ -33,6 +36,7 @@ export default function Organizations() {
   const [adminEmail, setAdminEmail] = useState("");
   const [open, setOpen] = useState(false);
   const query = useTableQuery();
+  const superadmin = isSuperAdmin();
 
   const { data, isFetching } = useQuery({
     queryKey: ["organizations", "page", query.params],
@@ -55,19 +59,19 @@ export default function Organizations() {
       queryClient.invalidateQueries({ queryKey: ["organizations"] });
       setOpen(false);
       toast({
-        title: "Organization created",
+        title: t("Organization created"),
         description: created
           ? created.emailed
-            ? `Invite emailed to ${created.email}.`
-            : "Invite created, but the email failed — check the SMTP settings."
+            ? t("Invite emailed to {email}.", { email: created.email })
+            : t("Invite created, but the email failed — check the SMTP settings.")
           : adminEmail
-            ? "Admin added."
+            ? t("Admin added.")
             : undefined,
       });
     },
     onError: (error: Error) =>
       toast({
-        title: "Error",
+        title: t("Error"),
         description: error.message,
         variant: "destructive",
       }),
@@ -75,27 +79,49 @@ export default function Organizations() {
 
   const columns: Column<Organization>[] = [
     {
-      header: "Name",
+      header: t("Name"),
       className: "w-[28%]",
       cell: (o) => <span className="block truncate font-medium">{o.name}</span>,
     },
     {
-      header: "Slug",
+      header: t("Slug"),
       className: "w-[26%]",
       cell: (o) => (
         <span className="block truncate text-muted-foreground">{o.slug}</span>
       ),
     },
-    { header: "Members", className: "w-24", cell: (o) => o._count.members },
-    { header: "Domains", className: "w-24", cell: (o) => o._count.domains },
-    { header: "Apps", className: "w-20", cell: (o) => o._count.applications },
+    {
+      header: t("Server"),
+      className: "w-36",
+      cell: (o) =>
+        !o.server ? (
+          <Link to={`/organizations/${o.id}`}>
+            <Badge
+              variant="outline"
+              className="border-warning/40 text-warning"
+              title={t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
+            >
+              {t("Not placed")}
+            </Badge>
+          </Link>
+        ) : superadmin ? (
+          <Link to={`/servers/${o.server.id}`} className="block truncate hover:underline">
+            {o.server.name}
+          </Link>
+        ) : (
+          <span className="block truncate">{o.server.name}</span>
+        ),
+    },
+    { header: t("Members"), className: "w-24", cell: (o) => o._count.members },
+    { header: t("Domains"), className: "w-24", cell: (o) => o._count.domains },
+    { header: t("Apps"), className: "w-20", cell: (o) => o._count.applications },
     {
       header: "",
       className: "w-32 text-right",
       cell: (o) => (
         <Button asChild size="sm" variant="outline">
           <Link to={`/organizations/${o.id}`}>
-            <Settings2 className="mr-2 h-4 w-4" /> Manage
+            <Settings2 className="mr-2 h-4 w-4" /> {t("Manage")}
           </Link>
         </Button>
       ),
@@ -105,8 +131,8 @@ export default function Organizations() {
   return (
     <PageLayout
       icon={Building2}
-      title="Organizations"
-      description="Client tenants. Domain ownership lives on the Administration page."
+      title={t("Organizations")}
+      description={t("Client tenants. Domain ownership lives on the Administration page.")}
       actions={
         <Dialog
           open={open}
@@ -114,7 +140,7 @@ export default function Organizations() {
         >
           <DialogTrigger asChild>
             <Button>
-              <Plus className="mr-2 h-4 w-4" /> New organization
+              <Plus className="mr-2 h-4 w-4" /> {t("New organization")}
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -125,25 +151,24 @@ export default function Organizations() {
               }}
             >
               <DialogHeader>
-                <DialogTitle>New organization</DialogTitle>
+                <DialogTitle>{t("New organization")}</DialogTitle>
                 <DialogDescription>
-                  Creates a client tenant. Assign domains to it from the
-                  Administration page.
+                  {t("Creates a client tenant. Assign domains to it from the Administration page.")}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="org-name">Name</Label>
+                  <Label htmlFor="org-name">{t("Name")}</Label>
                   <Input
                     id="org-name"
                     autoFocus
-                    placeholder="Client name"
+                    placeholder={t("Client name")}
                     value={orgName}
                     onChange={(e) => setOrgName(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="org-admin">Admin email (optional)</Label>
+                  <Label htmlFor="org-admin">{t("Admin email (optional)")}</Label>
                   <Input
                     id="org-admin"
                     type="email"
@@ -152,9 +177,7 @@ export default function Organizations() {
                     onChange={(e) => setAdminEmail(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Joins as ADMIN if the account exists, otherwise gets an
-                    invite emailed to them. You can also invite members later
-                    from the organization page.
+                    {t("Joins as ADMIN if the account exists, otherwise gets an invite emailed to them. You can also invite members later from the organization page.")}
                   </p>
                 </div>
 
@@ -167,7 +190,7 @@ export default function Organizations() {
                   {orgMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
-                  Create
+                  {t("Create")}
                 </Button>
               </DialogFooter>
             </form>
@@ -182,8 +205,8 @@ export default function Organizations() {
         query={query}
         pagination={data?.pagination}
         isLoading={isFetching}
-        searchPlaceholder="Search name or slug…"
-        empty="No organizations yet."
+        searchPlaceholder={t("Search name or slug…")}
+        empty={t("No organizations yet.")}
       />
     </PageLayout>
   );

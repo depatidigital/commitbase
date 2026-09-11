@@ -1,4 +1,5 @@
 import apiRequest from './api';
+import { t } from '@/lib/i18n';
 
 export interface RdashProfile {
   [key: string]: any;
@@ -42,7 +43,7 @@ export const getRdashSummary = async (): Promise<RdashSummary> => {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch RDASH summary');
+  throw new Error(response.error || t('Failed to fetch RDASH summary'));
 };
 
 export const getRdashConfigStatus = async (): Promise<RdashConfigStatus> => {
@@ -54,7 +55,7 @@ export const getRdashConfigStatus = async (): Promise<RdashConfigStatus> => {
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch RDASH config');
+  throw new Error(response.error || t('Failed to fetch RDASH config'));
 };
 
 export const getCloudflareConfigStatus = async (): Promise<CloudflareConfigStatus> => {
@@ -66,7 +67,7 @@ export const getCloudflareConfigStatus = async (): Promise<CloudflareConfigStatu
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch Cloudflare config');
+  throw new Error(response.error || t('Failed to fetch Cloudflare config'));
 };
 
 export const updateRdashConfig = async (payload: RdashConfigUpdatePayload): Promise<RdashConfigStatus> => {
@@ -79,7 +80,7 @@ export const updateRdashConfig = async (payload: RdashConfigUpdatePayload): Prom
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to update RDASH config');
+  throw new Error(response.error || t('Failed to update RDASH config'));
 };
 
 export const updateCloudflareConfig = async (payload: CloudflareConfigUpdatePayload): Promise<CloudflareConfigStatus> => {
@@ -92,7 +93,7 @@ export const updateCloudflareConfig = async (payload: CloudflareConfigUpdatePayl
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to update Cloudflare config');
+  throw new Error(response.error || t('Failed to update Cloudflare config'));
 };
 
 export const getCloudflareZones = async (page?: number, perPage?: number): Promise<any[]> => {
@@ -115,5 +116,5 @@ export const getCloudflareZones = async (page?: number, perPage?: number): Promi
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch Cloudflare zones');
+  throw new Error(response.error || t('Failed to fetch Cloudflare zones'));
 };

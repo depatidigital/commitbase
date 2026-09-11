@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { API_BASE_URL } from '@/lib/api';
+import { t } from '@/lib/i18n';
 
 interface LogResponse {
   success: boolean;
@@ -47,7 +48,7 @@ export const useApplicationLogs = (
       );
       
       if (!response.ok) {
-        throw new Error('Failed to fetch logs');
+        throw new Error(t('Failed to fetch logs'));
       }
       
       return response.json();
@@ -73,7 +74,7 @@ export const useBuildLogStatus = (applicationId: string) => {
       );
       
       if (!response.ok) {
-        throw new Error('Failed to fetch build log status');
+        throw new Error(t('Failed to fetch build log status'));
       }
       
       return response.json();
@@ -103,22 +104,22 @@ export const useCreateTestBuildLog = () => {
       );
       
       if (!response.ok) {
-        throw new Error('Failed to create test build log');
+        throw new Error(t('Failed to create test build log'));
       }
       
       return response.json();
     },
     onSuccess: () => {
       toast({
-        title: 'Success',
-        description: 'Test build log created successfully',
+        title: t('Success'),
+        description: t('Test build log created successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['application-logs'] });
       queryClient.invalidateQueries({ queryKey: ['build-log-status'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });

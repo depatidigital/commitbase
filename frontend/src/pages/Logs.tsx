@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { getSystemLogs, type SystemLog } from "@/lib/logs";
 import { PageLayout } from "@/components/PageLayout";
+import { locale, t } from "@/lib/i18n";
 
 const ALL = "all";
 const LEVELS = [ALL, "error", "warn", "info"] as const;
@@ -131,10 +132,10 @@ export default function Logs() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Error Loading Logs</h3>
+          <h3 className="text-lg font-semibold mb-2">{t("Error Loading Logs")}</h3>
           <p className="text-muted-foreground mb-4">{(error as Error).message}</p>
           <Button variant="outline" onClick={() => refetch()}>
-            Try again
+            {t("Try again")}
           </Button>
         </div>
       </div>
@@ -144,15 +145,15 @@ export default function Logs() {
   return (
     <PageLayout
       icon={Terminal}
-      title="App Logs"
-      description="Monitor and debug your applications"
+      title={t("App Logs")}
+      description={t("Monitor and debug your applications")}
       actions={
         <>
           <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw
               className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`}
             />
-            Refresh
+            {t("Refresh")}
           </Button>
           <Button
             variant="outline"
@@ -160,7 +161,7 @@ export default function Logs() {
             disabled={filteredLogs.length === 0}
           >
             <Download className="h-4 w-4 mr-2" />
-            Export CSV
+            {t("Export CSV")}
           </Button>
         </>
       }
@@ -169,13 +170,13 @@ export default function Logs() {
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Filter className="h-5 w-5 text-primary" />
-            <span>Filters</span>
+            <span>{t("Filters")}</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="log-app">App</Label>
+              <Label htmlFor="log-app">{t("App")}</Label>
               <Select value={selectedApp} onValueChange={setSelectedApp}>
                 <SelectTrigger id="log-app">
                   <SelectValue />
@@ -183,7 +184,7 @@ export default function Logs() {
                 <SelectContent>
                   {apps.map((app) => (
                     <SelectItem key={app} value={app}>
-                      {app === ALL ? "All Apps" : app}
+                      {app === ALL ? t("All Apps") : app}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -191,7 +192,7 @@ export default function Logs() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="log-level">Level</Label>
+              <Label htmlFor="log-level">{t("Level")}</Label>
               <Select
                 value={selectedLevel}
                 onValueChange={(v) => setSelectedLevel(v as (typeof LEVELS)[number])}
@@ -202,7 +203,7 @@ export default function Logs() {
                 <SelectContent>
                   {LEVELS.map((level) => (
                     <SelectItem key={level} value={level}>
-                      {level === ALL ? "All Levels" : level.toUpperCase()}
+                      {level === ALL ? t("All Levels") : level.toUpperCase()}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -210,12 +211,12 @@ export default function Logs() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="log-search">Search</Label>
+              <Label htmlFor="log-search">{t("Search")}</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="log-search"
-                  placeholder="Search messages..."
+                  placeholder={t("Search messages...")}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9"
@@ -224,7 +225,7 @@ export default function Logs() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="log-lines">Lines</Label>
+              <Label htmlFor="log-lines">{t("Lines")}</Label>
               <Select value={String(lines)} onValueChange={(v) => setLines(Number(v))}>
                 <SelectTrigger id="log-lines">
                   <SelectValue />
@@ -232,7 +233,7 @@ export default function Logs() {
                 <SelectContent>
                   {LINE_OPTIONS.map((n) => (
                     <SelectItem key={n} value={String(n)}>
-                      Last {n}
+                      {t("Last {count}", { count: n })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -244,10 +245,10 @@ export default function Logs() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total", value: logs.length, icon: Terminal, tone: "text-primary" },
-          { label: "Errors", value: count("error"), icon: AlertCircle, tone: "text-destructive" },
-          { label: "Warnings", value: count("warn"), icon: AlertTriangle, tone: "text-warning" },
-          { label: "Info", value: count("info"), icon: CheckCircle, tone: "text-success" },
+          { label: t("Total"), value: logs.length, icon: Terminal, tone: "text-primary" },
+          { label: t("Errors"), value: count("error"), icon: AlertCircle, tone: "text-destructive" },
+          { label: t("Warnings"), value: count("warn"), icon: AlertTriangle, tone: "text-warning" },
+          { label: t("Info"), value: count("info"), icon: CheckCircle, tone: "text-success" },
         ].map((stat) => (
           <Card key={stat.label} className="bg-gradient-card border-border/50">
             <CardContent className="flex items-center justify-between p-4">
@@ -265,7 +266,7 @@ export default function Logs() {
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Terminal className="h-5 w-5 text-primary" />
-            <span>Log Entries ({filteredLogs.length})</span>
+            <span>{t("Log Entries ({count})", { count: filteredLogs.length })}</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -274,8 +275,8 @@ export default function Logs() {
               <Terminal className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-muted-foreground">
                 {logs.length === 0
-                  ? "No logs recorded yet."
-                  : "No logs match the current filters."}
+                  ? t("No logs recorded yet.")
+                  : t("No logs match the current filters.")}
               </p>
             </div>
           ) : (
@@ -286,7 +287,7 @@ export default function Logs() {
                   className="flex items-start gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50"
                 >
                   <span className="min-w-[150px] shrink-0 font-mono text-xs text-muted-foreground">
-                    {new Date(log.timestamp).toLocaleString()}
+                    {new Date(log.timestamp).toLocaleString(locale)}
                   </span>
                   <Badge
                     className={`${levelColor(log.level)} shrink-0 gap-1`}
@@ -296,7 +297,7 @@ export default function Logs() {
                     {log.level}
                   </Badge>
                   <Badge variant="outline" className="min-w-[110px] shrink-0 justify-center">
-                    {log.application?.name ?? "platform"}
+                    {log.application?.name ?? t("platform")}
                   </Badge>
                   <span className="break-words">{log.message}</span>
                 </div>

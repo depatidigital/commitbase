@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 export const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 export interface ApiResponse<T = any> {
@@ -58,7 +60,7 @@ const apiRequest = async <T>(
         removeAuthToken();
         window.location.href = '/login';
       }
-      throw new Error(data.error || 'Request failed');
+      throw new Error(data.error || t('Request failed'));
     }
 
     return data;

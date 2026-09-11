@@ -1,4 +1,5 @@
 import apiRequest from "./api";
+import { t } from "@/lib/i18n";
 import { ListParams, listQuery } from "./admin";
 import type { Paginated } from "@/components/DataTable";
 import {
@@ -42,7 +43,7 @@ export const getDomainsPage = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to fetch domains");
+  throw new Error(response.error || t("Failed to fetch domains"));
 };
 
 export const getDomains = async (): Promise<Domain[]> => {
@@ -54,7 +55,7 @@ export const getDomains = async (): Promise<Domain[]> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to fetch domains");
+  throw new Error(response.error || t("Failed to fetch domains"));
 };
 
 // Get a specific domain
@@ -67,7 +68,7 @@ export const getDomain = async (id: string): Promise<Domain> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to fetch domain");
+  throw new Error(response.error || t("Failed to fetch domain"));
 };
 
 export type DomainDnsZone = {
@@ -101,7 +102,7 @@ export const getDomainDnsZone = async (id: string): Promise<DomainDnsZone> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to fetch domain DNS zone");
+  throw new Error(response.error || t("Failed to fetch domain DNS zone"));
 };
 
 // Create a new domain
@@ -115,7 +116,7 @@ export const createDomain = async (data: CreateDomainData): Promise<Domain> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to create domain");
+  throw new Error(response.error || t("Failed to create domain"));
 };
 
 export type DomainSyncResult = {
@@ -146,7 +147,7 @@ export const startDomainSync = async (): Promise<DomainSyncState> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to start the domain sync");
+  throw new Error(response.error || t("Failed to start the domain sync"));
 };
 
 export const getDomainSyncStatus = async (): Promise<DomainSyncState> => {
@@ -156,7 +157,7 @@ export const getDomainSyncStatus = async (): Promise<DomainSyncState> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to read the sync status");
+  throw new Error(response.error || t("Failed to read the sync status"));
 };
 
 export const bulkAssignDomains = async (
@@ -172,7 +173,7 @@ export const bulkAssignDomains = async (
     return response.data.count;
   }
 
-  throw new Error(response.error || "Failed to assign domains");
+  throw new Error(response.error || t("Failed to assign domains"));
 };
 
 export type RdashDns = {
@@ -190,7 +191,7 @@ export const getRdashDns = async (id: string): Promise<RdashDns> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to read DNS from RDASH");
+  throw new Error(response.error || t("Failed to read DNS from RDASH"));
 };
 
 export type CloudflareEnableResult = {
@@ -215,7 +216,7 @@ export const enableCloudflare = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to enable Cloudflare");
+  throw new Error(response.error || t("Failed to enable Cloudflare"));
 };
 
 export const disableCloudflare = async (id: string): Promise<void> => {
@@ -224,7 +225,7 @@ export const disableCloudflare = async (id: string): Promise<void> => {
   });
 
   if (!response.success) {
-    throw new Error(response.error || "Failed to disable Cloudflare");
+    throw new Error(response.error || t("Failed to disable Cloudflare"));
   }
 };
 
@@ -247,7 +248,7 @@ export const createDnsRecord = async (
   });
 
   if (response.success) return response.data;
-  throw new Error(response.error || "Failed to create the DNS record");
+  throw new Error(response.error || t("Failed to create the DNS record"));
 };
 
 export const updateDnsRecord = async (
@@ -264,7 +265,7 @@ export const updateDnsRecord = async (
   );
 
   if (response.success) return response.data;
-  throw new Error(response.error || "Failed to update the DNS record");
+  throw new Error(response.error || t("Failed to update the DNS record"));
 };
 
 export const deleteDnsRecord = async (
@@ -279,7 +280,7 @@ export const deleteDnsRecord = async (
   );
 
   if (!response.success) {
-    throw new Error(response.error || "Failed to delete the DNS record");
+    throw new Error(response.error || t("Failed to delete the DNS record"));
   }
 };
 
@@ -294,7 +295,7 @@ export const importRegistrarDns = async (
 
   if (response.success && response.data) return response.data;
   throw new Error(
-    response.error || "Failed to import the registrar DNS records",
+    response.error || t("Failed to import the registrar DNS records"),
   );
 };
 
@@ -312,7 +313,7 @@ export const updateDomain = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to update domain");
+  throw new Error(response.error || t("Failed to update domain"));
 };
 
 // Delete a domain
@@ -322,7 +323,7 @@ export const deleteDomain = async (id: string): Promise<void> => {
   });
 
   if (!response.success) {
-    throw new Error(response.error || "Failed to delete domain");
+    throw new Error(response.error || t("Failed to delete domain"));
   }
 };
 
@@ -341,7 +342,7 @@ export const verifyDomain = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to verify domain");
+  throw new Error(response.error || t("Failed to verify domain"));
 };
 
 // Renew a domain registration at the registrar (RDASH only)
@@ -352,10 +353,10 @@ export const renewDomain = async (id: string, years = 1): Promise<string> => {
   });
 
   if (!response.success) {
-    throw new Error(response.error || "Failed to renew domain");
+    throw new Error(response.error || t("Failed to renew domain"));
   }
 
-  return response.message || "Renewal submitted.";
+  return response.message || t("Renewal submitted.");
 };
 
 export type DomainRegistration = {
@@ -378,7 +379,7 @@ export const getDomainRegistration = async (
   );
 
   if (!response.success) {
-    throw new Error(response.error || "Failed to look up the registration");
+    throw new Error(response.error || t("Failed to look up the registration"));
   }
 
   return response.data ?? null;
@@ -424,7 +425,7 @@ export const getSearchTlds = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Domain search failed");
+  throw new Error(response.error || t("Domain search failed"));
 };
 
 /**
@@ -450,7 +451,7 @@ export const suggestDomains = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Could not get suggestions");
+  throw new Error(response.error || t("Could not get suggestions"));
 };
 
 export type DomainCheck = {
@@ -470,7 +471,7 @@ export const checkDomain = async (domain: string): Promise<DomainCheck> => {
     return response.data;
   }
 
-  throw new Error(response.error || "Availability check failed");
+  throw new Error(response.error || t("Availability check failed"));
 };
 
 export const registerDomain = async (data: {
@@ -487,7 +488,7 @@ export const registerDomain = async (data: {
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to register domain");
+  throw new Error(response.error || t("Failed to register domain"));
 };
 
 /**
@@ -506,5 +507,5 @@ export const setupWildcard = async (
     return response.data;
   }
 
-  throw new Error(response.error || "Failed to create the wildcard record");
+  throw new Error(response.error || t("Failed to create the wildcard record"));
 };

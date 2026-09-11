@@ -56,6 +56,7 @@ import {
 const ALL = "__all__";
 import { getApplicationHealth } from "@/lib/health";
 import { useToast } from "@/hooks/use-toast";
+import { locale, t } from "@/lib/i18n";
 import {
   useApplicationsWithRealtime,
   useStartApplication,
@@ -89,9 +90,9 @@ import {
 /** Compact relative time — "3d ago". The exact stamp lives in the title. */
 const ago = (value: string) => {
   const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
+  if (seconds < 3600) return t("{n}m ago", { n: Math.floor(seconds / 60) });
+  if (seconds < 86400) return t("{n}h ago", { n: Math.floor(seconds / 3600) });
+  return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
 export default function Application() {
@@ -157,10 +158,10 @@ export default function Application() {
       setSelectedIds([]);
       setBulkOrgId("");
       setAssignTarget(null);
-      toast({ title: "Assigned", description: `${count} application(s) updated` });
+      toast({ title: t("Assigned"), description: t("{count} application(s) updated", { count }) });
     },
     onError: (error: Error) =>
-      toast({ title: "Assign failed", description: error.message, variant: "destructive" }),
+      toast({ title: t("Assign failed"), description: error.message, variant: "destructive" }),
   });
 
   const allSelected =
@@ -234,42 +235,42 @@ export default function Application() {
       case "start":
         return {
           title: hasBeenDeployed(app!)
-            ? "Redeploy & Start App"
-            : "Deploy & Start App",
+            ? t("Redeploy & Start App")
+            : t("Deploy & Start App"),
           description: hasBeenDeployed(app!)
-            ? `Are you sure you want to redeploy and start "${appName}"? This will rebuild and run the application.`
-            : `Are you sure you want to deploy and start "${appName}"? This will build and run the application for the first time.`,
+            ? t("Are you sure you want to redeploy and start \"{name}\"? This will rebuild and run the application.", { name: appName })
+            : t("Are you sure you want to deploy and start \"{name}\"? This will build and run the application for the first time.", { name: appName }),
           actionText: hasBeenDeployed(app!)
-            ? "Redeploy & Start"
-            : "Deploy & Start",
+            ? t("Redeploy & Start")
+            : t("Deploy & Start"),
           variant: "default" as const,
         };
       case "start-existing":
         return {
-          title: "Start App",
-          description: `Are you sure you want to start "${appName}"? This will start the existing built application without rebuilding.`,
-          actionText: "Start App",
+          title: t("Start App"),
+          description: t("Are you sure you want to start \"{name}\"? This will start the existing built application without rebuilding.", { name: appName }),
+          actionText: t("Start App"),
           variant: "default" as const,
         };
       case "stop":
         return {
-          title: "Stop App",
-          description: `Are you sure you want to stop "${appName}"? This will shut down the running application.`,
-          actionText: "Stop App",
+          title: t("Stop App"),
+          description: t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: appName }),
+          actionText: t("Stop App"),
           variant: "destructive" as const,
         };
       case "restart":
         return {
-          title: "Restart App",
-          description: `Are you sure you want to restart "${appName}"? This will stop and then start the application.`,
-          actionText: "Restart App",
+          title: t("Restart App"),
+          description: t("Are you sure you want to restart \"{name}\"? This will stop and then start the application.", { name: appName }),
+          actionText: t("Restart App"),
           variant: "default" as const,
         };
       case "delete":
         return {
-          title: "Delete App",
-          description: `Are you sure you want to delete "${appName}"? This action cannot be undone and will permanently remove the application and all its data.`,
-          actionText: "Delete App",
+          title: t("Delete App"),
+          description: t("Are you sure you want to delete \"{name}\"? This action cannot be undone and will permanently remove the application and all its data.", { name: appName }),
+          actionText: t("Delete App"),
           variant: "destructive" as const,
         };
     }
@@ -281,10 +282,10 @@ export default function Application() {
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">
-            Error Loading Apps
+            {t("Error Loading Apps")}
           </h3>
           <p className="text-muted-foreground">
-            Failed to load applications. Please try again.
+            {t("Failed to load applications. Please try again.")}
           </p>
         </div>
       </div>
@@ -301,7 +302,7 @@ export default function Application() {
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={toggleAll}
-                aria-label="Select all applications on this page"
+                aria-label={t("Select all applications on this page")}
               />
             ),
             className: "w-10",
@@ -309,14 +310,14 @@ export default function Application() {
               <Checkbox
                 checked={selectedIds.includes(app.id)}
                 onCheckedChange={() => toggleOne(app.id)}
-                aria-label={`Select ${app.name}`}
+                aria-label={t("Select {name}", { name: app.name })}
               />
             ),
           },
         ]
       : []),
     {
-      header: "Application",
+      header: t("Application"),
       className: "w-[22%]",
       sortKey: "name",
       // name and hostname are the same string for every imported site, so they
@@ -340,8 +341,8 @@ export default function Application() {
                 href={`https://${app.domain}`}
                 target="_blank"
                 rel="noreferrer"
-                title={`Open https://${app.domain}`}
-                aria-label={`Open ${app.domain}`}
+                title={t("Open {url}", { url: `https://${app.domain}` })}
+                aria-label={t("Open {url}", { url: app.domain })}
                 className="shrink-0 text-muted-foreground hover:text-primary"
               >
                 <ExternalLink className="h-3 w-3" />
@@ -360,7 +361,7 @@ export default function Application() {
     ...(superAdmin
       ? [
           {
-            header: "Organization",
+            header: t("Organization"),
             className: "w-[16%]",
             sortKey: "organization",
             // its own column only because a superadmin is the one who assigns
@@ -368,7 +369,7 @@ export default function Application() {
             cell: (app: (typeof applications)[number]) => (
               <button
                 type="button"
-                title="Change organization"
+                title={t("Change organization")}
                 className="max-w-full"
                 onClick={() => {
                   setAssignOrgId(app.organization?.id ?? null);
@@ -381,7 +382,7 @@ export default function Application() {
                   </Badge>
                 ) : (
                   <span className="text-xs text-primary underline-offset-2 hover:underline">
-                    Unassigned — assign
+                    {t("Unassigned — assign")}
                   </span>
                 )}
               </button>
@@ -390,13 +391,13 @@ export default function Application() {
         ]
       : []),
     {
-      header: "Type",
+      header: t("Type"),
       className: "w-28",
       sortKey: "type",
       cell: (app) => <AppTypeBadge type={app.type} port={app.port} />,
     },
     {
-      header: "Server",
+      header: t("Server"),
       className: "w-28 text-xs",
       sortKey: "server",
       cell: (app) =>
@@ -409,7 +410,7 @@ export default function Application() {
         ),
     },
     {
-      header: "Health",
+      header: t("Health"),
       className: "w-[22%]",
       // the row's status, not the heartbeat bar — "down" sites the sync marked
       // ERROR sort with the broken ones
@@ -427,7 +428,7 @@ export default function Application() {
               {deploying ? (
                 <>
                   <Loader2 className="h-3 w-3 animate-spin text-warning" />
-                  <span className="text-warning">{app.status.toLowerCase()}</span>
+                  <span className="text-warning">{app.status === "DEPLOYING" ? t("deploying") : t("building")}</span>
                 </>
               ) : (
                 <span className={label.className}>{label.text}</span>
@@ -446,24 +447,24 @@ export default function Application() {
       },
     },
     {
-      header: "Uptime",
+      header: t("Uptime"),
       className: "w-24 text-xs",
       cell: (app) => {
         const uptime = healthById[app.id]?.uptime24h;
         return uptime == null ? (
           <span className="text-muted-foreground">—</span>
         ) : (
-          <span title="Successful checks in the last 24 hours">{uptime}%</span>
+          <span title={t("Successful checks in the last 24 hours")}>{uptime}%</span>
         );
       },
     },
     {
-      header: "Last deploy",
+      header: t("Last deploy"),
       className: "w-28 text-xs",
       cell: (app) => {
         const at = app.deployments?.[0]?.createdAt;
         if (!at) return <span className="text-muted-foreground">—</span>;
-        return <span title={new Date(at).toLocaleString()}>{ago(at)}</span>;
+        return <span title={new Date(at).toLocaleString(locale)}>{ago(at)}</span>;
       },
     },
     {
@@ -476,7 +477,7 @@ export default function Application() {
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0"
-              aria-label={`Actions for ${app.name}`}
+              aria-label={t("Actions for {name}", { name: app.name })}
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
@@ -484,7 +485,7 @@ export default function Application() {
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem onClick={() => navigate(`/application/${app.id}`)}>
               <Eye className="mr-2 h-4 w-4" />
-              Manage
+              {t("Manage")}
             </DropdownMenuItem>
 
             {app.status === "RUNNING" ? (
@@ -493,7 +494,7 @@ export default function Application() {
                 onClick={() => handleStop(app.id, app.name)}
               >
                 <Square className="mr-2 h-4 w-4" />
-                Stop
+                {t("Stop")}
               </DropdownMenuItem>
             ) : hasBeenDeployed(app) ? (
               <DropdownMenuItem
@@ -501,7 +502,7 @@ export default function Application() {
                 onClick={() => handleStartExisting(app.id, app.name)}
               >
                 <Play className="mr-2 h-4 w-4" />
-                Start
+                {t("Start")}
               </DropdownMenuItem>
             ) : null}
 
@@ -511,7 +512,7 @@ export default function Application() {
                 onClick={() => handleRestart(app.id, app.name)}
               >
                 <RotateCcw className="mr-2 h-4 w-4" />
-                Restart
+                {t("Restart")}
               </DropdownMenuItem>
             )}
 
@@ -523,7 +524,7 @@ export default function Application() {
                 onClick={() => handleStart(app.id, app.name)}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {app.status === "RUNNING" ? "Redeploy" : "Deploy and start"}
+                {app.status === "RUNNING" ? t("Redeploy") : t("Deploy and start")}
               </DropdownMenuItem>
             )}
 
@@ -534,7 +535,7 @@ export default function Application() {
               className="text-destructive focus:text-destructive"
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("Delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -545,8 +546,8 @@ export default function Application() {
   return (
     <TooltipProvider>
       <PageLayout
-        title="Apps"
-        description="Manage your applications and services."
+        title={t("Apps")}
+        description={t("Manage your applications and services.")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <OrganizationFilter query={query} />
@@ -561,7 +562,7 @@ export default function Application() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={ALL}>{t("All types")}</SelectItem>
                 {Object.entries(APP_TYPES).map(([value, meta]) => (
                   <SelectItem key={value} value={value}>
                     {meta.label}
@@ -581,7 +582,7 @@ export default function Application() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>All servers</SelectItem>
+                  <SelectItem value={ALL}>{t("All servers")}</SelectItem>
                   {servers.map((server) => (
                     <SelectItem key={server.id} value={server.id}>
                       {server.name}
@@ -601,13 +602,13 @@ export default function Application() {
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}
-                {syncApps.isPending ? "Syncing…" : "Sync Apps"}
+                {syncApps.isPending ? t("Syncing…") : t("Sync Apps")}
               </Button>
             )}
             <Link to="/add-app">
             <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
               <Plus className="mr-2 h-4 w-4" />
-              Add App
+              {t("Add App")}
               </Button>
             </Link>
           </div>
@@ -620,20 +621,20 @@ export default function Application() {
           query={query}
           pagination={applicationsData?.pagination}
           isLoading={isLoading}
-          searchPlaceholder="Search name or domain…"
-          empty="No applications yet — deploy your first one."
+          searchPlaceholder={t("Search name or domain…")}
+          empty={t("No applications yet — deploy your first one.")}
           toolbar={
             // the imported-sites workflow: fifty unassigned rows, one owner —
             // beside the search box, only while something is selected
             superAdmin && selectedIds.length > 0 ? (
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-medium">
-                  {selectedIds.length} selected
+                  {t("{count} selected", { count: selectedIds.length })}
                 </span>
                 <OrganizationCombobox
                   value={bulkOrgId || null}
                   onChange={(id) => setBulkOrgId(id ?? "")}
-                  placeholder="Assign to organization"
+                  placeholder={t("Assign to organization")}
                   className="w-56"
                 />
                 <Button
@@ -641,10 +642,10 @@ export default function Application() {
                   onClick={() => bulkAssign.mutate({ ids: selectedIds, organizationId: bulkOrgId || null })}
                 >
                   {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Assign
+                  {t("Assign")}
                 </Button>
                 <Button variant="ghost" onClick={() => setSelectedIds([])}>
-                  Clear
+                  {t("Clear")}
                 </Button>
               </div>
             ) : null
@@ -654,16 +655,16 @@ export default function Application() {
         <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Assign organization</DialogTitle>
+              <DialogTitle>{t("Assign organization")}</DialogTitle>
               <DialogDescription>
-                Choose which organization owns {assignTarget?.name}. Its members get to see and manage it.
+                {t("Choose which organization owns {name}. Its members get to see and manage it.", { name: assignTarget?.name ?? "" })}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
-              <OrganizationCombobox value={assignOrgId} onChange={setAssignOrgId} noneLabel="Unassigned" />
+              <OrganizationCombobox value={assignOrgId} onChange={setAssignOrgId} noneLabel={t("Unassigned")} />
               <div className="flex items-center justify-end space-x-3">
                 <Button variant="outline" onClick={() => setAssignTarget(null)}>
-                  Cancel
+                  {t("Cancel")}
                 </Button>
                 <Button
                   disabled={bulkAssign.isPending}
@@ -672,7 +673,7 @@ export default function Application() {
                   }
                 >
                   {bulkAssign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save
+                  {t("Save")}
                 </Button>
               </div>
             </div>
@@ -693,7 +694,7 @@ export default function Application() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={executeAction}
                   className={
@@ -714,7 +715,7 @@ export default function Application() {
                   deleteApp.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Processing...
+                      {t("Processing...")}
                     </>
                   ) : (
                     dialogContent.actionText

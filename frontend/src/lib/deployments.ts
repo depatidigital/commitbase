@@ -1,4 +1,5 @@
 import apiRequest, { PaginatedResponse } from './api';
+import { t } from './i18n';
 
 export interface Deployment {
   id: string;
@@ -43,7 +44,7 @@ export const getDeploymentHistory = async (appId: string, page = 1, limit = 10):
     };
   }
   
-  throw new Error(response.error || 'Failed to fetch deployment history');
+  throw new Error(response.error || t("Failed to fetch deployment history"));
 };
 
 // Get specific deployment by ID
@@ -54,7 +55,7 @@ export const getDeployment = async (deploymentId: string): Promise<Deployment> =
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to fetch deployment');
+  throw new Error(response.error || t("Failed to fetch deployment"));
 };
 
 // Get deployment logs
@@ -65,7 +66,7 @@ export const getDeploymentLogs = async (deploymentId: string, logType = 'build',
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to fetch deployment logs');
+  throw new Error(response.error || t("Failed to fetch deployment logs"));
 };
 
 // Create a new deployment
@@ -79,7 +80,7 @@ export const createDeployment = async (appId: string, data: CreateDeploymentData
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to create deployment');
+  throw new Error(response.error || t("Failed to create deployment"));
 };
 
 // Update deployment
@@ -93,7 +94,7 @@ export const updateDeployment = async (deploymentId: string, data: UpdateDeploym
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to update deployment');
+  throw new Error(response.error || t("Failed to update deployment"));
 };
 
 // Delete deployment
@@ -103,6 +104,6 @@ export const deleteDeployment = async (deploymentId: string): Promise<void> => {
   });
   
   if (!response.success) {
-    throw new Error(response.error || 'Failed to delete deployment');
+    throw new Error(response.error || t("Failed to delete deployment"));
   }
 }; 

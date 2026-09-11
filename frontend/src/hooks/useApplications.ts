@@ -18,6 +18,7 @@ import {
 } from '@/lib/applications';
 import type { ListParams } from '@/lib/admin';
 import { useToast } from '@/hooks/use-toast';
+import { t } from '@/lib/i18n';
 import { useEffect, useRef } from 'react';
 
 /**
@@ -94,14 +95,14 @@ export const useCreateApplication = () => {
     mutationFn: createApplication,
     onSuccess: (data) => {
       toast({
-        title: 'Success',
-        description: 'App created successfully',
+        title: t('Success'),
+        description: t('App created successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -132,11 +133,11 @@ export const useSetupApplicationDns = () => {
     onSuccess: (result, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['applications', id, 'hostname'] });
       queryClient.invalidateQueries({ queryKey: ['domains'] });
-      toast({ title: 'DNS updated', description: result.detail });
+      toast({ title: t('DNS updated'), description: result.detail });
     },
     onError: (error: Error) => {
       toast({
-        title: 'DNS not set up',
+        title: t('DNS not set up'),
         description: error.message,
         variant: 'destructive',
       });
@@ -153,15 +154,15 @@ export const useUpdateApplication = () => {
       updateApplication(id, data),
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'App updated successfully',
+        title: t('Success'),
+        description: t('App updated successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables.id] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -177,15 +178,15 @@ export const useDeleteApplication = () => {
     mutationFn: deleteApplication,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'App deleted successfully',
+        title: t('Success'),
+        description: t('App deleted successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.removeQueries({ queryKey: ['application', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -201,15 +202,15 @@ export const useStartExistingApplication = () => {
     mutationFn: startExistingApplication,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'App is starting...',
+        title: t('Success'),
+        description: t('App is starting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -225,15 +226,15 @@ export const useStartApplication = () => {
     mutationFn: startApplication,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'App is starting...',
+        title: t('Success'),
+        description: t('App is starting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -249,15 +250,15 @@ export const useStopApplication = () => {
     mutationFn: stopApplication,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'App is stopping...',
+        title: t('Success'),
+        description: t('App is stopping...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -273,15 +274,15 @@ export const useRestartApplication = () => {
     mutationFn: restartApplication,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'App is restarting...',
+        title: t('Success'),
+        description: t('App is restarting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -299,15 +300,19 @@ export const useSyncServerApps = () => {
     mutationFn: syncServerApps,
     onSuccess: (result) => {
       toast({
-        title: 'Server apps synced',
-        description: `${result.discovered} found — ${result.created} imported, ${result.updated} updated.`,
+        title: t('Server apps synced'),
+        description: t('{discovered} found — {created} imported, {updated} updated.', {
+          discovered: result.discovered,
+          created: result.created,
+          updated: result.updated,
+        }),
         ...(result.errors?.length ? { variant: 'destructive' as const } : {}),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Sync failed',
+        title: t('Sync failed'),
         description: error.message,
         variant: 'destructive',
       });

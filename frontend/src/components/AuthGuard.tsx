@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAuthenticated, getCurrentUser, removeAuthToken, validateUserToken } from '@/lib/auth';
 import { Loader2 } from 'lucide-react';
+import { t } from '@/lib/i18n';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -61,7 +62,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
       <div className="flex items-center justify-center min-h-screen">
         <div role="status" className="flex flex-col items-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Validating user session...</p>
+          <p className="text-sm text-muted-foreground">{t('Validating user session...')}</p>
         </div>
       </div>
     );

@@ -1,4 +1,5 @@
 import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
+import { t } from './i18n';
 
 export interface Log {
   id: string;
@@ -39,7 +40,7 @@ export const getLogs = async (
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to fetch logs');
+  throw new Error(response.error || t('Failed to fetch logs'));
 };
 
 // Get real-time logs (for WebSocket or SSE)
@@ -56,7 +57,7 @@ export const clearLogs = async (applicationId: string): Promise<void> => {
   });
   
   if (!response.success) {
-    throw new Error(response.error || 'Failed to clear logs');
+    throw new Error(response.error || t('Failed to clear logs'));
   }
 };
 
@@ -83,7 +84,7 @@ export const exportLogs = async (
   });
 
   if (!response.ok) {
-    throw new Error('Failed to export logs');
+    throw new Error(t('Failed to export logs'));
   }
 
   return response.blob();
@@ -103,5 +104,5 @@ export const getSystemLogs = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch logs');
+  throw new Error(response.error || t('Failed to fetch logs'));
 };

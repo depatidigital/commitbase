@@ -23,6 +23,7 @@ import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { useDomainSearch, useRegisterDomain } from "@/hooks/useDomains";
 import type { DomainOffer } from "@/lib/domains";
 import { APP_NAME } from "@/lib/branding";
+import { locale, t } from "@/lib/i18n";
 
 /** Periods the registrar sells this extension for, cheapest first. */
 const periodOptions = (offer: DomainOffer): number[] => {
@@ -38,8 +39,8 @@ const periodOptions = (offer: DomainOffer): number[] => {
 
 const money = (amount: number | null, currency: string) =>
   amount === null
-    ? "Price on request"
-    : new Intl.NumberFormat("id-ID", {
+    ? t("Price on request")
+    : new Intl.NumberFormat(locale, {
         style: "currency",
         currency,
         maximumFractionDigits: 0,
@@ -85,18 +86,22 @@ const OfferRow = ({
           {checking ? (
             <span className="flex items-center gap-1.5">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Checking availability…
+              {t("Checking availability…")}
             </span>
           ) : offer.owned ? (
-            `Already managed in ${APP_NAME}`
+            t("Already managed in {app}", { app: APP_NAME })
           ) : offer.available === true ? (
-            "Available"
+            t("Available")
           ) : offer.available === false ? (
-            `Taken${offer.registrar ? ` — ${offer.registrar}` : ""}`
+            offer.registrar ? (
+              t("Taken — {registrar}", { registrar: offer.registrar })
+            ) : (
+              t("Taken")
+            )
           ) : offer.checkFailed ? (
-            "Could not reach the availability check — search again"
+            t("Could not reach the availability check — search again")
           ) : (
-            "No registry answered — cannot register here"
+            t("No registry answered — cannot register here")
           )}
         </div>
       </div>
@@ -105,7 +110,7 @@ const OfferRow = ({
           <div className="text-sm font-medium">
             {money(offer.periods[1] ?? null, offer.currency)}
           </div>
-          <div className="text-xs text-muted-foreground">for 1 year</div>
+          <div className="text-xs text-muted-foreground">{t("for 1 year")}</div>
         </div>
       )}
     </button>
@@ -167,32 +172,35 @@ const DomainRegister = () => {
 
   return (
     <PageLayout
-      title="Register a domain"
+      title={t("Register a domain")}
       backTo="/domains"
       icon={Globe}
-      description={`Search the registry, then register through the ${APP_NAME} registrar account.`}
+      description={t(
+        "Search the registry, then register through the {app} registrar account.",
+        { app: APP_NAME },
+      )}
     >
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Tabs defaultValue="search" className="space-y-4">
           <TabsList>
             <TabsTrigger value="search" className="gap-2">
               <Search className="h-4 w-4" />
-              Search
+              {t("Search")}
             </TabsTrigger>
             <TabsTrigger value="suggest" className="gap-2">
               <Sparkles className="h-4 w-4" />
-              AI suggestions
+              {t("AI suggestions")}
             </TabsTrigger>
           </TabsList>
 
           {/* exact name, across the extensions we sell */}
           <TabsContent value="search" className="space-y-4">
             <form onSubmit={runSearch} className="space-y-2">
-              <Label htmlFor="domain-search">Search for a domain</Label>
+              <Label htmlFor="domain-search">{t("Search for a domain")}</Label>
               <div className="flex gap-2">
                 <Input
                   id="domain-search"
-                  placeholder="mycompany or mycompany.com"
+                  placeholder={t("mycompany or mycompany.com")}
                   value={term}
                   onChange={(e) => setTerm(e.target.value)}
                 />
@@ -205,11 +213,11 @@ const DomainRegister = () => {
                   ) : (
                     <Search className="h-4 w-4" />
                   )}
-                  <span className="ml-2">Check</span>
+                  <span className="ml-2">{t("Check")}</span>
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Availability comes from the domain registry.
+                {t("Availability comes from the domain registry.")}
               </p>
             </form>
 
@@ -233,7 +241,7 @@ const DomainRegister = () => {
                     disabled={lookup.searching}
                     onClick={() => lookup.search(term.trim(), true)}
                   >
-                    Show all extensions
+                    {t("Show all extensions")}
                   </Button>
                 )}
               </div>
@@ -244,7 +252,7 @@ const DomainRegister = () => {
           <TabsContent value="suggest" className="space-y-4">
             <form onSubmit={runSuggest} className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="domain-idea">Keyword or theme</Label>
+                <Label htmlFor="domain-idea">{t("Keyword or theme")}</Label>
                 <Input
                   id="domain-idea"
                   placeholder="desa digital"
@@ -255,9 +263,9 @@ const DomainRegister = () => {
 
               <div className="space-y-1.5">
                 <Label htmlFor="domain-context" className="text-sm">
-                  Brief{" "}
+                  {t("Brief")}{" "}
                   <span className="font-normal text-muted-foreground">
-                    (optional) — describe it, or say how to build the names
+                    {t("(optional) — describe it, or say how to build the names")}
                   </span>
                 </Label>
                 <Textarea
@@ -284,12 +292,12 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                 ) : (
                   <Sparkles className="mr-2 h-4 w-4" />
                 )}
-                Suggest names
+                {t("Suggest names")}
               </Button>
               <p className="text-xs text-muted-foreground">
-                The brief is followed over the default naming rules, so you can
-                ask for a specific style, length or wording. Every name is still
-                checked against the registry.
+                {t(
+                  "The brief is followed over the default naming rules, so you can ask for a specific style, length or wording. Every name is still checked against the registry.",
+                )}
               </p>
             </form>
 
@@ -315,14 +323,14 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                   {ideas.suggesting && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
-                  Load more ideas
+                  {t("Load more ideas")}
                 </Button>
               </div>
             )}
 
             {ideas.offers && ideas.offers.length === 0 && !ideas.suggesting && (
               <p className="rounded-md border border-dashed border-border/60 p-6 text-center text-sm text-muted-foreground">
-                No names came back. Try a different keyword or description.
+                {t("No names came back. Try a different keyword or description.")}
               </p>
             )}
           </TabsContent>
@@ -330,13 +338,13 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
 
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
           <div className="space-y-2 rounded-md border border-border/60 p-4">
-            <Label className="text-sm">Owning organization</Label>
+            <Label className="text-sm">{t("Owning organization")}</Label>
             <OrganizationCombobox
               value={organizationId || null}
               onChange={(id) => setOrganizationId(id ?? "")}
             />
             <p className="text-xs text-muted-foreground">
-              Only this organization's members can create applications on it.
+              {t("Only this organization's members can create applications on it.")}
             </p>
           </div>
 
@@ -346,7 +354,7 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                 <div className="font-medium">{selected.domain}</div>
                 <div className="flex items-center justify-between gap-3">
                   <Label htmlFor="register-years" className="text-sm">
-                    Registration period
+                    {t("Registration period")}
                   </Label>
                   <select
                     id="register-years"
@@ -356,27 +364,34 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                   >
                     {periodOptions(selected).map((n) => (
                       <option key={n} value={n}>
-                        {n} year{n > 1 ? "s" : ""} —{" "}
-                        {money(selected.periods[n] ?? null, selected.currency)}
+                        {n > 1
+                          ? t("{count} years — {price}", {
+                              count: n,
+                              price: money(selected.periods[n] ?? null, selected.currency),
+                            })
+                          : t("{count} year — {price}", {
+                              count: n,
+                              price: money(selected.periods[n] ?? null, selected.currency),
+                            })}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Total</span>
+                  <span className="text-muted-foreground">{t("Total")}</span>
                   <span className="font-medium">
                     {money(selected.periods[years] ?? null, selected.currency)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Renews at{" "}
-                  {money(selected.renewalPeriods[1] ?? null, selected.currency)}{" "}
-                  for 1 year.
+                  {t("Renews at {price} for 1 year.", {
+                    price: money(selected.renewalPeriods[1] ?? null, selected.currency),
+                  })}
                 </p>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Pick an available domain to continue.
+                {t("Pick an available domain to continue.")}
               </p>
             )}
 
@@ -391,20 +406,31 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
               {registerDomain.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              {selected ? `Register ${selected.domain}` : "Register domain"}
+              {selected
+                ? t("Register {domain}", { domain: selected.domain })
+                : t("Register domain")}
             </Button>
             <AlertDialog open={confirming} onOpenChange={setConfirming}>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>
-                    Register {selected?.domain} for {years} year
-                    {years > 1 ? "s" : ""}?
+                    {years > 1
+                      ? t("Register {domain} for {count} years?", {
+                          domain: selected?.domain ?? "",
+                          count: years,
+                        })
+                      : t("Register {domain} for {count} year?", {
+                          domain: selected?.domain ?? "",
+                          count: years,
+                        })}
                   </AlertDialogTitle>
                   <AlertDialogDescription asChild>
                     <div className="space-y-2">
                       <p>
-                        This buys the domain from the registrar and charges the{" "}
-                        {APP_NAME} account{" "}
+                        {t(
+                          "This buys the domain from the registrar and charges the {app} account",
+                          { app: APP_NAME },
+                        )}{" "}
                         <strong>
                           {selected
                             ? money(
@@ -413,25 +439,26 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                               )
                             : ""}
                         </strong>
-                        . Domain registrations cannot be refunded or cancelled.
+                        .{" "}
+                        {t("Domain registrations cannot be refunded or cancelled.")}
                       </p>
                       <p>
-                        It renews at{" "}
-                        {selected
-                          ? money(
-                              selected.renewalPeriods[1] ?? null,
-                              selected.currency,
-                            )
-                          : ""}{" "}
-                        per year.
+                        {t("It renews at {price} per year.", {
+                          price: selected
+                            ? money(
+                                selected.renewalPeriods[1] ?? null,
+                                selected.currency,
+                              )
+                            : "",
+                        })}
                       </p>
                     </div>
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                   <AlertDialogAction onClick={register}>
-                    Yes, register and pay
+                    {t("Yes, register and pay")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -439,7 +466,7 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
 
             {selected && !organizationId && (
               <p className="text-xs text-muted-foreground">
-                Choose an owning organization first.
+                {t("Choose an owning organization first.")}
               </p>
             )}
           </div>

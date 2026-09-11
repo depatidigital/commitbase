@@ -3,6 +3,19 @@ import { Badge } from "@/components/ui/badge";
 import { Zap, Clock, CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Application } from "@/lib/applications";
 import { useDeploymentHistory } from "@/hooks/useDeployments";
+import { locale, t } from "@/lib/i18n";
+
+/** Displayed word for a deployment status; the raw value stays for logic. */
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: t("Pending"),
+  BUILDING: t("Building"),
+  DEPLOYING: t("Deploying"),
+  SUCCESS: t("Succeeded"),
+  FAILED: t("Failed"),
+  CANCELLED: t("Cancelled"),
+};
+
+export const deploymentStatusLabel = (status: string) => STATUS_LABELS[status] ?? status;
 
 interface DeploymentHistoryProps {
   application: Application;
@@ -56,19 +69,19 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
           <Zap className="h-5 w-5 text-primary" />
-          <span>Deployment History</span>
+          <span>{t("Deployment History")}</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <div className="text-center text-muted-foreground py-8">
             <Loader2 className="h-8 w-8 mx-auto mb-2 animate-spin" />
-            <p>Loading deployment history...</p>
+            <p>{t("Loading deployment history...")}</p>
           </div>
         ) : error ? (
           <div className="text-center text-muted-foreground py-8">
             <AlertCircle className="h-8 w-8 mx-auto mb-2 text-red-500" />
-            <p>Error loading deployment history</p>
+            <p>{t("Error loading deployment history")}</p>
             <p className="text-sm mt-1">{error.message}</p>
           </div>
         ) : deployments.length > 0 ? (
@@ -79,7 +92,7 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                   <div className="flex items-center space-x-3">
                     {getDeploymentIcon(deployment.status)}
                     <Badge variant={getDeploymentBadgeVariant(deployment.status)}>
-                      {deployment.status}
+                      {deploymentStatusLabel(deployment.status)}
                     </Badge>
                     <span className="text-sm text-muted-foreground">
                       #{deployments.length - index}
@@ -87,31 +100,31 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                   </div>
                   <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                     <Clock className="h-4 w-4" />
-                    <span>{new Date(deployment.createdAt).toLocaleString()}</span>
+                    <span>{new Date(deployment.createdAt).toLocaleString(locale)}</span>
                   </div>
                 </div>
 
                 {/* Deployment Details */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div>
-                    <span className="font-medium">Status:</span>
+                    <span className="font-medium">{t("Status:")}</span>
                     <p className="text-muted-foreground">
-                      {deployment.status}
+                      {deploymentStatusLabel(deployment.status)}
                     </p>
                   </div>
                   <div>
-                    <span className="font-medium">Duration:</span>
+                    <span className="font-medium">{t("Duration:")}</span>
                     <p className="text-muted-foreground">
                       {deployment.status === 'SUCCESS' || deployment.status === 'FAILED'
                         ? formatDuration(deployment.createdAt, deployment.updatedAt)
-                        : 'In progress...'
+                        : t('In progress...')
                       }
                     </p>
                   </div>
                   <div>
-                    <span className="font-medium">Created:</span>
+                    <span className="font-medium">{t("Created:")}</span>
                     <p className="text-muted-foreground">
-                      {new Date(deployment.createdAt).toLocaleDateString()}
+                      {new Date(deployment.createdAt).toLocaleDateString(locale)}
                     </p>
                   </div>
                 </div>
@@ -120,7 +133,7 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                 {deployment.buildLogs && (
                   <details className="mt-4">
                     <summary className="cursor-pointer text-sm font-medium hover:text-primary transition-colors">
-                      Build Logs
+                      {t("Build Logs")}
                     </summary>
                     <div className="mt-2 p-3 bg-muted rounded-md">
                       <pre className="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
@@ -137,8 +150,8 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
         ) : (
           <div className="text-center text-muted-foreground py-8">
             <Zap className="h-8 w-8 mx-auto mb-2" />
-            <p>No deployments yet</p>
-            <p className="text-sm mt-1">Deploy your application to see deployment history</p>
+            <p>{t("No deployments yet")}</p>
+            <p className="text-sm mt-1">{t("Deploy your application to see deployment history")}</p>
           </div>
         )}
       </CardContent>

@@ -25,6 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLayout } from "@/components/PageLayout";
 import { useToast } from "@/hooks/use-toast";
+import { locale, t } from "@/lib/i18n";
 import {
   LogSource,
   getServer,
@@ -44,16 +45,16 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = 
 };
 
 const LOG_SOURCES: Array<{ value: LogSource; label: string }> = [
-  { value: "errors", label: "Errors (all units)" },
-  { value: "system", label: "System" },
+  { value: "errors", label: t("Errors (all units)") },
+  { value: "system", label: t("System") },
   { value: "caddy", label: "Caddy" },
-  { value: "apps", label: "Applications" },
+  { value: "apps", label: t("Applications") },
   { value: "php", label: "PHP-FPM" },
   { value: "ssh", label: "SSH" },
 ];
 
 const when = (value: string | null) =>
-  value ? new Date(value).toLocaleString() : "—";
+  value ? new Date(value).toLocaleString(locale) : "—";
 
 /** Two-column key/value line, the shape every overview row here takes. */
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -104,20 +105,20 @@ const ServerDetail = () => {
     mutationFn: () => pingServer(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "Checked" });
+      toast({ title: t("Checked") });
     },
     onError: (error: Error) =>
-      toast({ title: "Check failed", description: error.message, variant: "destructive" }),
+      toast({ title: t("Check failed"), description: error.message, variant: "destructive" }),
   });
 
   const snapshot = useMutation({
     mutationFn: () => snapshotServerCaddy(id),
     onSuccess: (message) => {
       queryClient.invalidateQueries({ queryKey: ["servers", id, "snapshots"] });
-      toast({ title: "Snapshot", description: message });
+      toast({ title: t("Snapshot"), description: message });
     },
     onError: (error: Error) =>
-      toast({ title: "Snapshot failed", description: error.message, variant: "destructive" }),
+      toast({ title: t("Snapshot failed"), description: error.message, variant: "destructive" }),
   });
 
   const importApps = useMutation({
@@ -126,12 +127,16 @@ const ServerDetail = () => {
       queryClient.invalidateQueries({ queryKey: ["servers", id, "apps"] });
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       toast({
-        title: "Sites imported",
-        description: `${result.discovered} found — ${result.created} new, ${result.updated} updated`,
+        title: t("Sites imported"),
+        description: t("{discovered} found — {created} new, {updated} updated", {
+          discovered: result.discovered,
+          created: result.created,
+          updated: result.updated,
+        }),
       });
     },
     onError: (error: Error) =>
-      toast({ title: "Import failed", description: error.message, variant: "destructive" }),
+      toast({ title: t("Import failed"), description: error.message, variant: "destructive" }),
   });
 
   // hosts that already have an application row, so the sites list can say which
@@ -160,47 +165,47 @@ const ServerDetail = () => {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Check now
+            {t("Check now")}
           </Button>
           <Button variant="outline" disabled={snapshot.isPending} onClick={() => snapshot.mutate()}>
             <Camera className="mr-2 h-4 w-4" />
-            Snapshot Caddy
+            {t("Snapshot Caddy")}
           </Button>
         </div>
       }
     >
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="sites">Caddy sites</TabsTrigger>
-          <TabsTrigger value="apps">Applications</TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
-          <TabsTrigger value="snapshots">Snapshots</TabsTrigger>
+          <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+          <TabsTrigger value="sites">{t("Caddy sites")}</TabsTrigger>
+          <TabsTrigger value="apps">{t("Applications")}</TabsTrigger>
+          <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
+          <TabsTrigger value="snapshots">{t("Snapshots")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Node</CardTitle>
+                <CardTitle className="text-base">{t("Node")}</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <Row label="Status">
+                <Row label={t("Status")}>
                   <Badge variant={STATUS_VARIANT[server.status] ?? "secondary"}>
                     {server.status}
                   </Badge>
                 </Row>
-                <Row label="Last seen">{when(server.lastSeenAt)}</Row>
-                <Row label="Public IP">
+                <Row label={t("Last seen")}>{when(server.lastSeenAt)}</Row>
+                <Row label={t("Public IP")}>
                   <span className="font-mono text-xs">{server.publicIp}</span>
                 </Row>
-                <Row label="Authentication">
-                  {server.authMethod === "PASSWORD" ? "password" : "SSH key"}
+                <Row label={t("Authentication")}>
+                  {server.authMethod === "PASSWORD" ? t("password") : t("SSH key")}
                 </Row>
-                <Row label="Key path">
+                <Row label={t("Key path")}>
                   <span className="font-mono text-xs">{server.sshKeyPath ?? "—"}</span>
                 </Row>
-                <Row label="Tags">
+                <Row label={t("Tags")}>
                   {server.tags?.length ? (
                     <span className="flex flex-wrap justify-end gap-1">
                       {server.tags.map((tag) => (
@@ -214,7 +219,7 @@ const ServerDetail = () => {
                   )}
                 </Row>
                 {server.lastError && (
-                  <Row label="Last error">
+                  <Row label={t("Last error")}>
                     <span className="text-xs text-destructive">{server.lastError}</span>
                   </Row>
                 )}
@@ -224,7 +229,7 @@ const ServerDetail = () => {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  Organizations ({server.organizations?.length ?? 0})
+                  {t("Organizations ({count})", { count: server.organizations?.length ?? 0 })}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -236,7 +241,7 @@ const ServerDetail = () => {
                   ))
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Nothing placed here yet. Apps deploy to the node their organization sits on.
+                    {t("Nothing placed here yet. Apps deploy to the node their organization sits on.")}
                   </p>
                 )}
               </CardContent>
@@ -248,8 +253,7 @@ const ServerDetail = () => {
         <TabsContent value="sites" className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              Read live from this node's Caddy. Importing turns each site into an application
-              row — additive, and nothing is removed when a route disappears.
+              {t("Read live from this node's Caddy. Importing turns each site into an application row — additive, and nothing is removed when a route disappears.")}
             </p>
             <Button
               variant="outline"
@@ -262,7 +266,7 @@ const ServerDetail = () => {
               ) : (
                 <Download className="mr-2 h-4 w-4" />
               )}
-              Import as applications
+              {t("Import as applications")}
             </Button>
           </div>
 
@@ -287,16 +291,16 @@ const ServerDetail = () => {
                         <span className="truncate font-medium">{site.host}</span>
                         {!site.managed ? (
                           <Badge variant="secondary" className="shrink-0">
-                            infrastructure
+                            {t("infrastructure")}
                           </Badge>
                         ) : known.has(site.host) ? (
                           <Badge variant="outline" className="shrink-0 gap-1">
                             <Check className="h-3 w-3" />
-                            imported
+                            {t("imported")}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="shrink-0 border-warning text-warning">
-                            not imported
+                            {t("not imported")}
                           </Badge>
                         )}
                       </span>
@@ -312,7 +316,7 @@ const ServerDetail = () => {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Caddy is serving nothing here.</p>
+                <p className="text-sm text-muted-foreground">{t("Caddy is serving nothing here.")}</p>
               )}
             </CardContent>
           </Card>
@@ -333,7 +337,7 @@ const ServerDetail = () => {
                       <span className="min-w-0">
                         <span className="block truncate font-medium">{app.domain}</span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {app.organization?.name ?? "Unassigned"} · {app.type.toLowerCase()}
+                          {app.organization?.name ?? t("Unassigned")} · {app.type.toLowerCase()}
                           {app.port ? ` · :${app.port}` : ""}
                         </span>
                       </span>
@@ -345,7 +349,7 @@ const ServerDetail = () => {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No applications on this node yet.
+                  {t("No applications on this node yet.")}
                 </p>
               )}
             </CardContent>
@@ -368,7 +372,7 @@ const ServerDetail = () => {
             </Select>
             <Button variant="outline" size="sm" onClick={() => logs.refetch()}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
+              {t("Refresh")}
             </Button>
             {logs.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
@@ -382,22 +386,23 @@ const ServerDetail = () => {
           <Card>
             <CardContent className="pt-6">
               <p className="mb-3 text-xs text-muted-foreground">
-                Caddy holds its routes in memory. These are the copies the platform keeps, so
-                a reload cannot lose the sites on this node.
+                {t("Caddy holds its routes in memory. These are the copies the platform keeps, so a reload cannot lose the sites on this node.")}
               </p>
               {snapshots.isLoading ? (
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               ) : snapshots.data?.length ? (
                 snapshots.data.map((snap) => (
-                  <Row key={snap.id} label={new Date(snap.createdAt).toLocaleString()}>
+                  <Row key={snap.id} label={new Date(snap.createdAt).toLocaleString(locale)}>
                     <span className="text-xs text-muted-foreground">
-                      {snap.hosts.length} route{snap.hosts.length === 1 ? "" : "s"}
+                      {snap.hosts.length === 1
+                        ? t("{count} route", { count: snap.hosts.length })
+                        : t("{count} routes", { count: snap.hosts.length })}
                     </span>
                   </Row>
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No snapshot yet — take one before anything reloads Caddy on this box.
+                  {t("No snapshot yet — take one before anything reloads Caddy on this box.")}
                 </p>
               )}
             </CardContent>

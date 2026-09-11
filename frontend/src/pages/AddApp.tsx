@@ -50,6 +50,7 @@ import {
   getGitlabAuthUrl,
   getGitConnectionStatus,
 } from "@/lib/git";
+import { t } from "@/lib/i18n";
 
 // Function to slugify text (convert to URL-friendly format)
 const slugify = (text: string): string => {
@@ -159,7 +160,7 @@ export default function AddApp() {
       } catch (error) {
         if (!cancelled)
           setDetectError(
-            error instanceof Error ? error.message : "Detection failed",
+            error instanceof Error ? error.message : t("Detection failed"),
           );
       } finally {
         if (!cancelled) setDetecting(false);
@@ -240,7 +241,7 @@ export default function AddApp() {
                   ...prev,
                   uploading: false,
                   uploadFailed:
-                    error instanceof Error ? error.message : "Upload failed",
+                    error instanceof Error ? error.message : t("Upload failed"),
                 }
               : prev,
           );
@@ -254,7 +255,7 @@ export default function AddApp() {
         await startApplication(created.id).catch((error: Error) =>
           toast({
             variant: "destructive",
-            title: "Deployment did not start",
+            title: t("Deployment did not start"),
             description: error.message,
           }),
         );
@@ -264,7 +265,7 @@ export default function AddApp() {
       if (error instanceof Error && error.message.includes("upload")) {
         toast({
           variant: "destructive",
-          title: "Upload failed",
+          title: t("Upload failed"),
           description: error.message,
         });
       }
@@ -278,25 +279,25 @@ export default function AddApp() {
   const appTypeOptions = [
     {
       value: "STATIC",
-      label: "Static site",
-      description: "HTML, CSS and JS files served from object storage.",
+      label: t("Static site"),
+      description: t("HTML, CSS and JS files served from object storage."),
       icon: Globe,
     },
     {
       value: "PHP",
       label: "PHP",
-      description: "PHP application served by the platform runtime.",
+      description: t("PHP application served by the platform runtime."),
       icon: FileCode,
     },
     {
       value: "NODEJS",
       label: "Node.js",
-      description: "Node app built and run as a service on the server.",
+      description: t("Node app built and run as a service on the server."),
       icon: Server,
     },
   ];
 
-  const steps = ["App type", "Source", "Name & domain"];
+  const steps = [t("App type"), t("Source"), t("Name & domain")];
 
   const stepComplete = (value: number) => {
     if (value === 1) return !!formData.type;
@@ -417,11 +418,11 @@ export default function AddApp() {
     } catch (error: any) {
       const message =
         error?.message === "GitHub OAuth is not configured"
-          ? "GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
-          : "Could not start GitHub OAuth flow.";
+          ? t("GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.")
+          : t("Could not start GitHub OAuth flow.");
       toast({
         variant: "destructive",
-        title: "GitHub connection failed",
+        title: t("GitHub connection failed"),
         description: message,
       });
     }
@@ -434,11 +435,11 @@ export default function AddApp() {
     } catch (error: any) {
       const message =
         error?.message === "GitLab OAuth is not configured"
-          ? "GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET."
-          : "Could not start GitLab OAuth flow.";
+          ? t("GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET.")
+          : t("Could not start GitLab OAuth flow.");
       toast({
         variant: "destructive",
-        title: "GitLab connection failed",
+        title: t("GitLab connection failed"),
         description: message,
       });
     }
@@ -448,8 +449,8 @@ export default function AddApp() {
   if (launch) {
     return (
       <PageLayout
-        title="Deploying"
-        description={`${launch.domain} is being set up.`}
+        title={t("Deploying")}
+        description={t("{domain} is being set up.", { domain: launch.domain })}
         icon={Zap}
         backTo="/"
       >
@@ -469,7 +470,7 @@ export default function AddApp() {
       <div className="flex items-center justify-center h-64">
         <div className="flex flex-col items-center space-y-4">
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-current border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Loading domains...</p>
+          <p className="text-sm text-muted-foreground">{t("Loading domains...")}</p>
         </div>
       </div>
     );
@@ -480,9 +481,9 @@ export default function AddApp() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Error Loading Domains</h3>
+          <h3 className="text-lg font-semibold mb-2">{t("Error Loading Domains")}</h3>
           <p className="text-muted-foreground">
-            Failed to load domains. Please try again.
+            {t("Failed to load domains. Please try again.")}
           </p>
         </div>
       </div>
@@ -499,24 +500,25 @@ export default function AddApp() {
             className="hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Apps
+            {t("Back to Apps")}
           </Button>
         </div>
 
         <Card className="bg-gradient-card border-border/50">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Globe className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Active Domains</h3>
+            <h3 className="text-lg font-semibold mb-2">{t("No Active Domains")}</h3>
             <p className="text-muted-foreground text-center max-w-md mb-4">
-              You need to have at least one active domain to deploy
-              applications. Please add a domain first.
+              {t(
+                "You need to have at least one active domain to deploy applications. Please add a domain first.",
+              )}
             </p>
             <Button
               onClick={() => navigate("/domains")}
               className="bg-gradient-primary"
             >
               <Globe className="h-4 w-4 mr-2" />
-              Manage Domains
+              {t("Manage Domains")}
             </Button>
           </CardContent>
         </Card>
@@ -527,8 +529,8 @@ export default function AddApp() {
   return (
     <PageLayout
       backTo="/"
-      title="Add App"
-      description="Pick a type, point at the code, then name it."
+      title={t("Add App")}
+      description={t("Pick a type, point at the code, then name it.")}
     >
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Wizard progress */}
@@ -565,7 +567,7 @@ export default function AddApp() {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Zap className="h-5 w-5 text-primary" />
-                <span>What are you deploying?</span>
+                <span>{t("What are you deploying?")}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-3">
@@ -607,7 +609,7 @@ export default function AddApp() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <GitBranch className="h-5 w-5 text-primary" />
-                  <span>Where does the code come from?</span>
+                  <span>{t("Where does the code come from?")}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -623,10 +625,10 @@ export default function AddApp() {
                   >
                     <div className="flex items-center gap-2 font-medium">
                       <GitBranch className="h-4 w-4 text-primary" />
-                      Git repository
+                      {t("Git repository")}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Clone from GitHub, GitLab, or any repository URL.
+                      {t("Clone from GitHub, GitLab, or any repository URL.")}
                     </p>
                   </button>
                   <button
@@ -640,11 +642,10 @@ export default function AddApp() {
                   >
                     <div className="flex items-center gap-2 font-medium">
                       <Upload className="h-4 w-4 text-primary" />
-                      Upload files or folder
+                      {t("Upload files or folder")}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Send files straight from this machine. No repository
-                      needed.
+                      {t("Send files straight from this machine. No repository needed.")}
                     </p>
                   </button>
                 </div>
@@ -653,7 +654,7 @@ export default function AddApp() {
                   <div className="space-y-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="upload-files">Files</Label>
+                        <Label htmlFor="upload-files">{t("Files")}</Label>
                         <Input
                           id="upload-files"
                           type="file"
@@ -664,7 +665,7 @@ export default function AddApp() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="upload-folder">Folder</Label>
+                        <Label htmlFor="upload-folder">{t("Folder")}</Label>
                         <Input
                           id="upload-folder"
                           type="file"
@@ -679,27 +680,32 @@ export default function AddApp() {
                     </div>
                     {uploadFiles.length > 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        {uploadFiles.length} file
-                        {uploadFiles.length === 1 ? "" : "s"} ready
-                        {" — "}
-                        {(
-                          uploadFiles.reduce(
-                            (sum, file) => sum + file.size,
-                            0,
-                          ) /
-                          (1024 * 1024)
-                        ).toFixed(1)}{" "}
-                        MB
+                        {(() => {
+                          const vars = {
+                            count: uploadFiles.length,
+                            size: (
+                              uploadFiles.reduce(
+                                (sum, file) => sum + file.size,
+                                0,
+                              ) /
+                              (1024 * 1024)
+                            ).toFixed(1),
+                          };
+                          return uploadFiles.length === 1
+                            ? t("{count} file ready — {size} MB", vars)
+                            : t("{count} files ready — {size} MB", vars);
+                        })()}
                       </p>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        Pick the files or the folder to deploy.
+                        {t("Pick the files or the folder to deploy.")}
                       </p>
                     )}
                     {formData.type === "STATIC" && (
                       <p className="text-xs text-muted-foreground">
-                        Static uploads go straight to object storage and are
-                        served from there — nothing is built.
+                        {t(
+                          "Static uploads go straight to object storage and are served from there — nothing is built.",
+                        )}
                       </p>
                     )}
                   </div>
@@ -717,7 +723,7 @@ export default function AddApp() {
                         onClick={() => setRepoSource("manual")}
                       >
                         <GitBranch className="h-4 w-4 mr-2" />
-                        Manual URL
+                        {t("Manual URL")}
                       </Button>
                       <Button
                         type="button"
@@ -749,8 +755,8 @@ export default function AddApp() {
                       >
                         <Github className="h-3 w-3 mr-1" />
                         {githubConnected
-                          ? "GitHub connected"
-                          : "GitHub not connected"}
+                          ? t("GitHub connected")
+                          : t("GitHub not connected")}
                       </Badge>
                       <Badge
                         variant={gitlabConnected ? "outline" : "secondary"}
@@ -758,8 +764,8 @@ export default function AddApp() {
                       >
                         <Gitlab className="h-3 w-3 mr-1" />
                         {gitlabConnected
-                          ? "GitLab connected"
-                          : "GitLab not connected"}
+                          ? t("GitLab connected")
+                          : t("GitLab not connected")}
                       </Badge>
                     </div>
                   </div>
@@ -768,7 +774,7 @@ export default function AddApp() {
                 {sourceMode === "git" && repoSource === "manual" && (
                   <>
                     <div className="space-y-2">
-                      <Label htmlFor="repository">Git Repository URL</Label>
+                      <Label htmlFor="repository">{t("Git Repository URL")}</Label>
                       <Input
                         id="repository"
                         placeholder="https://github.com/username/repo.git"
@@ -780,7 +786,7 @@ export default function AddApp() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="branch">Branch</Label>
+                      <Label htmlFor="branch">{t("Branch")}</Label>
                       <Input
                         id="branch"
                         placeholder="main"
@@ -796,7 +802,7 @@ export default function AddApp() {
                 {sourceMode === "git" && repoSource === "github" && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="github-account">GitHub account</Label>
+                      <Label htmlFor="github-account">{t("GitHub account")}</Label>
                       {githubAccounts && githubAccounts.length > 0 ? (
                         <Select
                           value={selectedGithubAccountId}
@@ -809,7 +815,7 @@ export default function AddApp() {
                           }}
                         >
                           <SelectTrigger id="github-account">
-                            <SelectValue placeholder="Select a GitHub account" />
+                            <SelectValue placeholder={t("Select a GitHub account")} />
                           </SelectTrigger>
                           <SelectContent>
                             {githubAccounts.map((account) => (
@@ -824,7 +830,7 @@ export default function AddApp() {
                       ) : githubConnected ? (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
-                            No GitHub accounts connected.
+                            {t("No GitHub accounts connected.")}
                           </p>
                           <Button
                             type="button"
@@ -833,13 +839,14 @@ export default function AddApp() {
                             onClick={handleConnectGithub}
                           >
                             <Github className="h-4 w-4 mr-2" />
-                            Connect GitHub
+                            {t("Connect GitHub")}
                           </Button>
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          GitHub is not connected. Click the GitHub button above
-                          to connect and manage repositories.
+                          {t(
+                            "GitHub is not connected. Click the GitHub button above to connect and manage repositories.",
+                          )}
                         </p>
                       )}
                     </div>
@@ -847,7 +854,7 @@ export default function AddApp() {
                     {githubProjects && githubProjects.length > 0 && (
                       <div className="space-y-2">
                         <Label htmlFor="github-workspace">
-                          GitHub workspace
+                          {t("GitHub workspace")}
                         </Label>
                         <Select
                           value={selectedGithubWorkspace}
@@ -859,11 +866,11 @@ export default function AddApp() {
                           }}
                         >
                           <SelectTrigger id="github-workspace">
-                            <SelectValue placeholder="All workspaces" />
+                            <SelectValue placeholder={t("All workspaces")} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value={ALL_WORKSPACES}>
-                              All workspaces
+                              {t("All workspaces")}
                             </SelectItem>
                             {githubWorkspaces.map((workspace) => (
                               <SelectItem key={workspace} value={workspace}>
@@ -877,20 +884,19 @@ export default function AddApp() {
 
                     <div className="space-y-2">
                       <Label htmlFor="github-repo">
-                        Select GitHub repository
+                        {t("Select GitHub repository")}
                       </Label>
                       {githubLoading ? (
                         <p className="text-sm text-muted-foreground">
-                          Loading GitHub repositories...
+                          {t("Loading GitHub repositories...")}
                         </p>
                       ) : !selectedGithubAccountId ? (
                         <p className="text-sm text-muted-foreground">
-                          Select a GitHub account above to list its
-                          repositories.
+                          {t("Select a GitHub account above to list its repositories.")}
                         </p>
                       ) : githubError ? (
                         <p className="text-sm text-destructive">
-                          Failed to load GitHub repositories.
+                          {t("Failed to load GitHub repositories.")}
                         </p>
                       ) : filteredGithubProjects &&
                         filteredGithubProjects.length > 0 ? (
@@ -907,7 +913,7 @@ export default function AddApp() {
                           }}
                         >
                           <SelectTrigger id="github-repo">
-                            <SelectValue placeholder="Select a GitHub repository" />
+                            <SelectValue placeholder={t("Select a GitHub repository")} />
                           </SelectTrigger>
                           <SelectContent>
                             {filteredGithubProjects.map((repo) => (
@@ -929,8 +935,9 @@ export default function AddApp() {
                       ) : (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
-                            No GitHub repositories found or your GitHub account
-                            is not connected.
+                            {t(
+                              "No GitHub repositories found or your GitHub account is not connected.",
+                            )}
                           </p>
                           <Button
                             type="button"
@@ -939,21 +946,21 @@ export default function AddApp() {
                             onClick={handleConnectGithub}
                           >
                             <Github className="h-4 w-4 mr-2" />
-                            Connect GitHub
+                            {t("Connect GitHub")}
                           </Button>
                         </div>
                       )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="github-branch">Branch</Label>
+                      <Label htmlFor="github-branch">{t("Branch")}</Label>
                       {githubBranchesLoading ? (
                         <p className="text-sm text-muted-foreground">
-                          Loading branches...
+                          {t("Loading branches...")}
                         </p>
                       ) : githubBranchesError ? (
                         <p className="text-sm text-destructive">
-                          Failed to load GitHub branches.
+                          {t("Failed to load GitHub branches.")}
                         </p>
                       ) : githubBranches && githubBranches.length > 0 ? (
                         <Select
@@ -963,7 +970,7 @@ export default function AddApp() {
                           }
                         >
                           <SelectTrigger id="github-branch">
-                            <SelectValue placeholder="Select a branch" />
+                            <SelectValue placeholder={t("Select a branch")} />
                           </SelectTrigger>
                           <SelectContent>
                             {githubBranches.map((branch) => (
@@ -975,7 +982,7 @@ export default function AddApp() {
                         </Select>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          No branches found for this repository.
+                          {t("No branches found for this repository.")}
                         </p>
                       )}
                     </div>
@@ -985,7 +992,7 @@ export default function AddApp() {
                 {sourceMode === "git" && repoSource === "gitlab" && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="gitlab-account">GitLab account</Label>
+                      <Label htmlFor="gitlab-account">{t("GitLab account")}</Label>
                       {gitlabAccounts && gitlabAccounts.length > 0 ? (
                         <Select
                           value={selectedGitlabAccountId}
@@ -998,7 +1005,7 @@ export default function AddApp() {
                           }}
                         >
                           <SelectTrigger id="gitlab-account">
-                            <SelectValue placeholder="Select a GitLab account" />
+                            <SelectValue placeholder={t("Select a GitLab account")} />
                           </SelectTrigger>
                           <SelectContent>
                             {gitlabAccounts.map((account) => (
@@ -1013,7 +1020,7 @@ export default function AddApp() {
                       ) : gitlabConnected ? (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
-                            No GitLab accounts connected.
+                            {t("No GitLab accounts connected.")}
                           </p>
                           <Button
                             type="button"
@@ -1022,13 +1029,14 @@ export default function AddApp() {
                             onClick={handleConnectGitlab}
                           >
                             <Gitlab className="h-4 w-4 mr-2" />
-                            Connect GitLab
+                            {t("Connect GitLab")}
                           </Button>
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          GitLab is not connected. Click the GitLab button above
-                          to connect and manage repositories.
+                          {t(
+                            "GitLab is not connected. Click the GitLab button above to connect and manage repositories.",
+                          )}
                         </p>
                       )}
                     </div>
@@ -1036,7 +1044,7 @@ export default function AddApp() {
                     {gitlabProjects && gitlabProjects.length > 0 && (
                       <div className="space-y-2">
                         <Label htmlFor="gitlab-workspace">
-                          GitLab workspace
+                          {t("GitLab workspace")}
                         </Label>
                         <Select
                           value={selectedGitlabWorkspace}
@@ -1048,11 +1056,11 @@ export default function AddApp() {
                           }}
                         >
                           <SelectTrigger id="gitlab-workspace">
-                            <SelectValue placeholder="All workspaces" />
+                            <SelectValue placeholder={t("All workspaces")} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value={ALL_WORKSPACES}>
-                              All workspaces
+                              {t("All workspaces")}
                             </SelectItem>
                             {gitlabWorkspaces.map((workspace) => (
                               <SelectItem key={workspace} value={workspace}>
@@ -1066,19 +1074,19 @@ export default function AddApp() {
 
                     <div className="space-y-2">
                       <Label htmlFor="gitlab-project">
-                        Select GitLab project
+                        {t("Select GitLab project")}
                       </Label>
                       {gitlabLoading ? (
                         <p className="text-sm text-muted-foreground">
-                          Loading GitLab projects...
+                          {t("Loading GitLab projects...")}
                         </p>
                       ) : !selectedGitlabAccountId ? (
                         <p className="text-sm text-muted-foreground">
-                          Select a GitLab account above to list its projects.
+                          {t("Select a GitLab account above to list its projects.")}
                         </p>
                       ) : gitlabError ? (
                         <p className="text-sm text-destructive">
-                          Failed to load GitLab projects.
+                          {t("Failed to load GitLab projects.")}
                         </p>
                       ) : filteredGitlabProjects &&
                         filteredGitlabProjects.length > 0 ? (
@@ -1095,7 +1103,7 @@ export default function AddApp() {
                           }}
                         >
                           <SelectTrigger id="gitlab-project">
-                            <SelectValue placeholder="Select a GitLab project" />
+                            <SelectValue placeholder={t("Select a GitLab project")} />
                           </SelectTrigger>
                           <SelectContent>
                             {filteredGitlabProjects.map((repo) => (
@@ -1117,8 +1125,9 @@ export default function AddApp() {
                       ) : (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
-                            No GitLab projects found or your GitLab account is
-                            not connected.
+                            {t(
+                              "No GitLab projects found or your GitLab account is not connected.",
+                            )}
                           </p>
                           <Button
                             type="button"
@@ -1127,21 +1136,21 @@ export default function AddApp() {
                             onClick={handleConnectGitlab}
                           >
                             <Gitlab className="h-4 w-4 mr-2" />
-                            Connect GitLab
+                            {t("Connect GitLab")}
                           </Button>
                         </div>
                       )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="gitlab-branch">Branch</Label>
+                      <Label htmlFor="gitlab-branch">{t("Branch")}</Label>
                       {gitlabBranchesLoading ? (
                         <p className="text-sm text-muted-foreground">
-                          Loading branches...
+                          {t("Loading branches...")}
                         </p>
                       ) : gitlabBranchesError ? (
                         <p className="text-sm text-destructive">
-                          Failed to load GitLab branches.
+                          {t("Failed to load GitLab branches.")}
                         </p>
                       ) : gitlabBranches && gitlabBranches.length > 0 ? (
                         <Select
@@ -1151,7 +1160,7 @@ export default function AddApp() {
                           }
                         >
                           <SelectTrigger id="gitlab-branch">
-                            <SelectValue placeholder="Select a branch" />
+                            <SelectValue placeholder={t("Select a branch")} />
                           </SelectTrigger>
                           <SelectContent>
                             {gitlabBranches.map((branch) => (
@@ -1163,7 +1172,7 @@ export default function AddApp() {
                         </Select>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          No branches found for this project.
+                          {t("No branches found for this project.")}
                         </p>
                       )}
                     </div>
@@ -1180,14 +1189,14 @@ export default function AddApp() {
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Zap className="h-5 w-5 text-primary" />
-                  <span>Basic Information</span>
+                  <span>{t("Basic Information")}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="name">
-                      App Name <span className="text-red-500">*</span>
+                      {t("App Name")} <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       id="name"
@@ -1202,7 +1211,7 @@ export default function AddApp() {
 
                   <div className="space-y-2">
                     <Label htmlFor="subdomain">
-                      Domain Configuration{" "}
+                      {t("Domain Configuration")}{" "}
                       <span className="text-red-500">*</span>
                     </Label>
                     <div className="space-y-3">
@@ -1224,7 +1233,7 @@ export default function AddApp() {
                           }
                         >
                           <SelectTrigger id="domain-select">
-                            <SelectValue placeholder="Select a domain" />
+                            <SelectValue placeholder={t("Select a domain")} />
                           </SelectTrigger>
                           <SelectContent>
                             {availableDomains.map((domain) => (
@@ -1240,7 +1249,7 @@ export default function AddApp() {
                       </div>
                       {formData.selectedDomain && (
                         <div className="text-xs text-muted-foreground">
-                          Full domain:{" "}
+                          {t("Full domain:")}{" "}
                           <span className="font-mono">
                             {formData.subdomain}.{formData.selectedDomain}
                           </span>
@@ -1259,18 +1268,20 @@ export default function AddApp() {
                   {detecting ? (
                     <p className="flex items-center gap-2 text-sm text-muted-foreground">
                       <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
-                      Inspecting the project…
+                      {t("Inspecting the project…")}
                     </p>
                   ) : detectError ? (
                     <p className="flex items-center gap-2 text-sm text-destructive">
                       <AlertCircle className="h-4 w-4" />
-                      {detectError} — fill the build settings by hand.
+                      {t("{error} — fill the build settings by hand.", {
+                        error: detectError,
+                      })}
                     </p>
                   ) : detected ? (
                     <div className="space-y-2">
                       <p className="flex items-center gap-2 text-sm font-medium">
                         <CheckCircle className="h-4 w-4 text-primary" />
-                        Detected: {detected.label}
+                        {t("Detected: {label}", { label: detected.label })}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline">{detected.packageManager}</Badge>
@@ -1280,17 +1291,18 @@ export default function AddApp() {
                         <Badge variant="outline">{detected.type}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Install: <code>{detected.installCommand}</code>
+                        {t("Install:")} <code>{detected.installCommand}</code>
                         {detected.buildCommand && (
-                          <> · Build: <code>{detected.buildCommand}</code></>
+                          <> · {t("Build:")} <code>{detected.buildCommand}</code></>
                         )}
                         {detected.startCommand && (
-                          <> · Start: <code>{detected.startCommand}</code></>
+                          <> · {t("Start:")} <code>{detected.startCommand}</code></>
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        App type and commands below were filled from this. Change
-                        them if the guess is wrong.
+                        {t(
+                          "App type and commands below were filled from this. Change them if the guess is wrong.",
+                        )}
                       </p>
                     </div>
                   ) : null}
@@ -1303,13 +1315,13 @@ export default function AddApp() {
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Terminal className="h-5 w-5 text-primary" />
-                    <span>Build & Runtime Configuration</span>
+                    <span>{t("Build & Runtime Configuration")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="buildCommand">Build Command</Label>
+                      <Label htmlFor="buildCommand">{t("Build Command")}</Label>
                       <Input
                         id="buildCommand"
                         placeholder={
@@ -1327,7 +1339,7 @@ export default function AddApp() {
                     {formData.type === "NODEJS" && (
                       <>
                         <div className="space-y-2">
-                          <Label htmlFor="startCommand">Start Command</Label>
+                          <Label htmlFor="startCommand">{t("Start Command")}</Label>
                           <Input
                             id="startCommand"
                             placeholder="npm start"
@@ -1340,16 +1352,15 @@ export default function AddApp() {
 
                         <div className="space-y-2">
                           <Label htmlFor="port">
-                            Port{" "}
+                            {t("Port")}{" "}
                             <span className="text-xs text-muted-foreground">
-                              (assigned automatically — set only if the app
-                              ignores $PORT)
+                              {t("(assigned automatically — set only if the app ignores $PORT)")}
                             </span>
                           </Label>
                           <Input
                             id="port"
                             type="number"
-                            placeholder="auto"
+                            placeholder={t("auto")}
                             value={formData.port}
                             onChange={(e) =>
                               handleInputChange("port", e.target.value)
@@ -1361,7 +1372,7 @@ export default function AddApp() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="envVars">Environment Variables</Label>
+                    <Label htmlFor="envVars">{t("Environment Variables")}</Label>
                     <Textarea
                       id="envVars"
                       placeholder="NODE_ENV=production&#10;API_URL=https://api.example.com"
@@ -1372,7 +1383,7 @@ export default function AddApp() {
                       rows={4}
                     />
                     <p className="text-xs text-muted-foreground">
-                      One variable per line in KEY=value format
+                      {t("One variable per line in KEY=value format")}
                     </p>
                   </div>
                 </CardContent>
@@ -1389,7 +1400,7 @@ export default function AddApp() {
             onClick={() => (step === 1 ? navigate("/") : setStep(step - 1))}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            {step === 1 ? "Cancel" : "Back"}
+            {step === 1 ? t("Cancel") : t("Back")}
           </Button>
 
           {step < 3 ? (
@@ -1399,7 +1410,7 @@ export default function AddApp() {
               onClick={() => setStep(step + 1)}
               className="bg-gradient-primary min-w-[140px]"
             >
-              Continue
+              {t("Continue")}
             </Button>
           ) : (
             <Button
@@ -1410,12 +1421,12 @@ export default function AddApp() {
               {createApp.isPending ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent mr-2" />
-                  Deploying...
+                  {t("Deploying...")}
                 </>
               ) : (
                 <>
                   <Zap className="h-4 w-4 mr-2" />
-                  Deploy App
+                  {t("Deploy App")}
                 </>
               )}
             </Button>

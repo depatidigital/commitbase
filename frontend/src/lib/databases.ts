@@ -1,6 +1,7 @@
 import apiRequest, { PaginatedResponse } from './api';
 import { ListParams, listQuery } from './admin';
 import type { Paginated } from '@/components/DataTable';
+import { t } from './i18n';
 
 export interface Database {
   id: string;
@@ -35,7 +36,7 @@ export const getDatabases = async (applicationId: string, page = 1, limit = 10):
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to fetch databases');
+  throw new Error(response.error || t('Failed to fetch databases'));
 };
 
 // Get single database
@@ -46,7 +47,7 @@ export const getDatabase = async (id: string): Promise<Database> => {
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to fetch database');
+  throw new Error(response.error || t('Failed to fetch database'));
 };
 
 // Create new database
@@ -60,7 +61,7 @@ export const createDatabase = async (applicationId: string, data: CreateDatabase
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to create database');
+  throw new Error(response.error || t('Failed to create database'));
 };
 
 // Update database
@@ -74,7 +75,7 @@ export const updateDatabase = async (id: string, data: UpdateDatabaseData): Prom
     return response.data;
   }
   
-  throw new Error(response.error || 'Failed to update database');
+  throw new Error(response.error || t('Failed to update database'));
 };
 
 // Delete database
@@ -84,7 +85,7 @@ export const deleteDatabase = async (id: string): Promise<void> => {
   });
   
   if (!response.success) {
-    throw new Error(response.error || 'Failed to delete database');
+    throw new Error(response.error || t('Failed to delete database'));
   }
 }; 
 export interface DatabaseWithApplication extends Database {
@@ -112,5 +113,5 @@ export const getAllDatabases = async (
     return response.data;
   }
 
-  throw new Error(response.error || 'Failed to fetch databases');
+  throw new Error(response.error || t('Failed to fetch databases'));
 };

@@ -51,6 +51,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
+import { t } from "@/lib/i18n";
 import {
   LogSource,
   Server,
@@ -82,12 +83,12 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = 
 };
 
 const ago = (iso: string | null) => {
-  if (!iso) return "never";
+  if (!iso) return t("never");
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
+  if (seconds < 60) return t("{n}s ago", { n: seconds });
+  if (seconds < 3600) return t("{n}m ago", { n: Math.floor(seconds / 60) });
+  if (seconds < 86400) return t("{n}h ago", { n: Math.floor(seconds / 3600) });
+  return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
 export default function Servers() {
@@ -120,7 +121,7 @@ export default function Servers() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["servers"] });
   const fail = (error: Error) =>
-    toast({ title: "Error", description: error.message, variant: "destructive" });
+    toast({ title: t("Error"), description: error.message, variant: "destructive" });
 
   const openNew = () => {
     setEditing(null);
@@ -162,9 +163,9 @@ export default function Servers() {
       refresh();
       setOpen(false);
       toast({
-        title: editing ? "Server updated" : "Server registered",
+        title: editing ? t("Server updated") : t("Server registered"),
         // A new node is pinged on create, so its verdict is already meaningful.
-        description: editing ? undefined : `Reachability: ${server.status}`,
+        description: editing ? undefined : t("Reachability: {status}", { status: server.status }),
       });
     },
     onError: fail,
@@ -175,7 +176,7 @@ export default function Servers() {
     onSuccess: (result) => {
       refresh();
       toast({
-        title: `${result.name} is ${result.status}`,
+        title: t("{name} is {status}", { name: result.name, status: result.status }),
         description: result.error,
         variant: result.status === "ONLINE" ? undefined : "destructive",
       });
@@ -188,7 +189,7 @@ export default function Servers() {
     onSuccess: () => {
       refresh();
       setConfirmDelete(null);
-      toast({ title: "Server deleted" });
+      toast({ title: t("Server deleted") });
     },
     onError: (error: Error) => {
       setConfirmDelete(null);
@@ -198,7 +199,7 @@ export default function Servers() {
 
   const columns: Column<Server>[] = [
     {
-      header: "Name",
+      header: t("Name"),
       className: "w-[20%]",
       cell: (s) => (
         <div className="min-w-0">
@@ -218,13 +219,13 @@ export default function Servers() {
             {s.sshUser}@{s.hostname}:{s.sshPort}
           </span>
           <span className="block text-xs text-muted-foreground">
-            {s.authMethod === "PASSWORD" ? "password" : "key"}
+            {s.authMethod === "PASSWORD" ? t("password") : t("key")}
           </span>
         </div>
       ),
     },
     {
-      header: "Tags",
+      header: t("Tags"),
       className: "w-[18%]",
       cell: (s) =>
         s.tags?.length ? (
@@ -246,7 +247,7 @@ export default function Servers() {
         ),
     },
     {
-      header: "Status",
+      header: t("Status"),
       className: "w-44",
       cell: (s) => (
         <div className="space-y-1">
@@ -255,16 +256,16 @@ export default function Servers() {
               has a completely different fix, so it gets its own badge */}
           {s.status === "ONLINE" && !s.provisioned && (
             <Badge variant="outline" className="text-xs">
-              not provisioned
+              {t("not provisioned")}
             </Badge>
           )}
           <span className="block text-xs text-muted-foreground">{ago(s.lastSeenAt)}</span>
         </div>
       ),
     },
-    { header: "Orgs", className: "w-20", cell: (s) => s._count.organizations },
+    { header: t("Orgs"), className: "w-20", cell: (s) => s._count.organizations },
     {
-      header: "Last error",
+      header: t("Last error"),
       className: "w-[22%]",
       cell: (s) =>
         s.lastError ? (
@@ -281,21 +282,21 @@ export default function Servers() {
       cell: (s) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Actions for ${s.name}`}>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t("Actions for {name}", { name: s.name })}>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem onClick={() => navigate(`/servers/${s.id}`)}>
               <Eye className="mr-2 h-4 w-4" />
-              Manage
+              {t("Manage")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={pingMutation.isPending}
               onClick={() => pingMutation.mutate(s.id)}
             >
               <RefreshCw className="mr-2 h-4 w-4" />
-              Check now
+              {t("Check now")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
@@ -304,11 +305,11 @@ export default function Servers() {
               }}
             >
               <ScrollText className="mr-2 h-4 w-4" />
-              Logs
+              {t("Logs")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openEdit(s)}>
               <Pencil className="mr-2 h-4 w-4" />
-              Edit
+              {t("Edit")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -316,7 +317,7 @@ export default function Servers() {
               onClick={() => setConfirmDelete(s)}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              {t("Delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -337,20 +338,20 @@ export default function Servers() {
   return (
     <PageLayout
       icon={HardDrive}
-      title="Servers"
-      description="Provisioning nodes. Organizations are placed on a node from their organization page."
+      title={t("Servers")}
+      description={t("Provisioning nodes. Organizations are placed on a node from their organization page.")}
       actions={
         <Button onClick={openNew}>
-          <Plus className="mr-2 h-4 w-4" /> Register server
+          <Plus className="mr-2 h-4 w-4" /> {t("Register server")}
         </Button>
       }
     >
       {tagFilter && (
         <div className="mb-3 flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Filtered by tag</span>
+          <span className="text-muted-foreground">{t("Filtered by tag")}</span>
           <Badge variant="secondary">{tagFilter}</Badge>
           <Button size="sm" variant="ghost" className="h-7" onClick={() => setTagFilter("")}>
-            Clear
+            {t("Clear")}
           </Button>
         </div>
       )}
@@ -362,8 +363,8 @@ export default function Servers() {
         query={query}
         pagination={data?.pagination}
         isLoading={isFetching}
-        searchPlaceholder="Search name, hostname or IP…"
-        empty="No servers registered yet."
+        searchPlaceholder={t("Search name, hostname or IP…")}
+        empty={t("No servers registered yet.")}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -375,19 +376,17 @@ export default function Servers() {
             }}
           >
             <DialogHeader>
-              <DialogTitle>{editing ? `Edit ${editing.name}` : "Register server"}</DialogTitle>
+              <DialogTitle>{editing ? t("Edit {name}", { name: editing.name }) : t("Register server")}</DialogTitle>
               <DialogDescription>
-                The control plane reaches this node over SSH as{" "}
-                {form.sshUser || "the SSH user"}
                 {form.authMethod === "KEY"
-                  ? " — the key must already be authorized on the box."
-                  : " — the box must allow password authentication."}
+                  ? t("The control plane reaches this node over SSH as {user} — the key must already be authorized on the box.", { user: form.sshUser || t("the SSH user") })
+                  : t("The control plane reaches this node over SSH as {user} — the box must allow password authentication.", { user: form.sshUser || t("the SSH user") })}
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 py-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="srv-name">Name</Label>
+                <Label htmlFor="srv-name">{t("Name")}</Label>
                 <Input
                   id="srv-name"
                   autoFocus
@@ -397,7 +396,7 @@ export default function Servers() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="srv-public-ip">Public IP</Label>
+                <Label htmlFor="srv-public-ip">{t("Public IP")}</Label>
                 <Input
                   id="srv-public-ip"
                   placeholder="203.0.113.10"
@@ -405,11 +404,11 @@ export default function Servers() {
                   onChange={(e) => setForm({ ...form, publicIp: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Becomes the Cloudflare A record target for apps on this node.
+                  {t("Becomes the Cloudflare A record target for apps on this node.")}
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="srv-hostname">SSH host</Label>
+                <Label htmlFor="srv-hostname">{t("SSH host")}</Label>
                 <Input
                   id="srv-hostname"
                   placeholder="203.0.113.10"
@@ -419,7 +418,7 @@ export default function Servers() {
               </div>
               <div className="grid grid-cols-[1fr_100px] gap-2">
                 <div className="space-y-2">
-                  <Label htmlFor="srv-ssh-user">SSH user</Label>
+                  <Label htmlFor="srv-ssh-user">{t("SSH user")}</Label>
                   <Input
                     id="srv-ssh-user"
                     value={form.sshUser}
@@ -427,7 +426,7 @@ export default function Servers() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="srv-ssh-port">Port</Label>
+                  <Label htmlFor="srv-ssh-port">{t("Port")}</Label>
                   <Input
                     id="srv-ssh-port"
                     type="number"
@@ -437,7 +436,7 @@ export default function Servers() {
                 </div>
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="srv-auth">Authentication</Label>
+                <Label htmlFor="srv-auth">{t("Authentication")}</Label>
                 <Select
                   value={form.authMethod}
                   onValueChange={(value) =>
@@ -448,14 +447,14 @@ export default function Servers() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="KEY">SSH key</SelectItem>
-                    <SelectItem value="PASSWORD">Password</SelectItem>
+                    <SelectItem value="KEY">{t("SSH key")}</SelectItem>
+                    <SelectItem value="PASSWORD">{t("Password")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="srv-tags">Tags</Label>
+                <Label htmlFor="srv-tags">{t("Tags")}</Label>
                 <Input
                   id="srv-tags"
                   placeholder="production, jakarta, php8.3"
@@ -473,13 +472,13 @@ export default function Servers() {
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Comma separated. Your own labels — used to group and filter nodes.
+                  {t("Comma separated. Your own labels — used to group and filter nodes.")}
                 </p>
               </div>
 
               {form.authMethod === "KEY" ? (
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="srv-key">SSH key path</Label>
+                  <Label htmlFor="srv-key">{t("SSH key path")}</Label>
                   <Input
                     id="srv-key"
                     placeholder="/home/commitbase/.ssh/id_ed25519"
@@ -487,26 +486,24 @@ export default function Servers() {
                     onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Path on the control plane, inside the configured key directory. Key
-                    material is never stored in the database.
+                    {t("Path on the control plane, inside the configured key directory. Key material is never stored in the database.")}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="srv-password">SSH password</Label>
+                  <Label htmlFor="srv-password">{t("SSH password")}</Label>
                   <Input
                     id="srv-password"
                     type="password"
                     autoComplete="new-password"
                     placeholder={
-                      editing?.hasPassword ? "Unchanged — type to replace" : "The node's SSH password"
+                      editing?.hasPassword ? t("Unchanged — type to replace") : t("The node's SSH password")
                     }
                     value={form.sshPassword ?? ""}
                     onChange={(e) => setForm({ ...form, sshPassword: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Encrypted before it is stored and never returned by the API. Prefer a
-                    key where you can: a password does not work on a box with
+                    {t("Encrypted before it is stored and never returned by the API. Prefer a key where you can: a password does not work on a box with")}
                     <code className="mx-1">PasswordAuthentication no</code>.
                   </p>
                 </div>
@@ -516,7 +513,7 @@ export default function Servers() {
             <DialogFooter>
               <Button type="submit" disabled={incomplete || saveMutation.isPending}>
                 {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editing ? "Save" : "Register"}
+                {editing ? t("Save") : t("Register")}
               </Button>
             </DialogFooter>
           </form>
@@ -526,10 +523,9 @@ export default function Servers() {
       <Dialog open={!!logsFor} onOpenChange={(o) => !o && setLogsFor(null)}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Logs — {logsFor?.name}</DialogTitle>
+            <DialogTitle>{t("Logs — {name}", { name: logsFor?.name ?? "" })}</DialogTitle>
             <DialogDescription>
-              Read over the same SSH connection the panel provisions with. Nothing is
-              stored on the control plane.
+              {t("Read over the same SSH connection the panel provisions with. Nothing is stored on the control plane.")}
             </DialogDescription>
           </DialogHeader>
 
@@ -539,12 +535,12 @@ export default function Servers() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="errors">Errors (all units)</SelectItem>
-                <SelectItem value="system">System journal</SelectItem>
+                <SelectItem value="errors">{t("Errors (all units)")}</SelectItem>
+                <SelectItem value="system">{t("System journal")}</SelectItem>
                 <SelectItem value="caddy">Caddy</SelectItem>
                 <SelectItem value="ssh">SSH</SelectItem>
                 <SelectItem value="php">PHP-FPM</SelectItem>
-                <SelectItem value="apps">App units</SelectItem>
+                <SelectItem value="apps">{t("App units")}</SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -558,14 +554,14 @@ export default function Servers() {
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
               )}
-              Refresh
+              {t("Refresh")}
             </Button>
           </div>
 
           {/* the journal is wide; it scrolls inside its own box rather than
               stretching the dialog */}
           <pre className="max-h-[55vh] overflow-auto rounded-md bg-muted p-3 text-xs leading-relaxed">
-            {logsLoading && !logs ? "Loading…" : logs?.output || "(no output)"}
+            {logsLoading && !logs ? t("Loading…") : logs?.output || t("(no output)")}
           </pre>
         </DialogContent>
       </Dialog>
@@ -573,18 +569,17 @@ export default function Servers() {
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {confirmDelete?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>{t("Delete {name}?", { name: confirmDelete?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
-              Only removes the node from the panel — nothing on the box is touched. A node
-              with organizations placed on it cannot be deleted.
+              {t("Only removes the node from the panel — nothing on the box is touched. A node with organizations placed on it cannot be deleted.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => confirmDelete && deleteMutation.mutate(confirmDelete)}
             >
-              Delete
+              {t("Delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

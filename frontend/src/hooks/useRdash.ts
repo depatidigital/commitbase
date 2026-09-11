@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { t } from '@/lib/i18n';
 import { getRdashSummary, getCloudflareZones, getRdashConfigStatus, getCloudflareConfigStatus, updateRdashConfig, updateCloudflareConfig, RdashSummary, RdashConfigStatus, CloudflareConfigStatus, RdashConfigUpdatePayload, CloudflareConfigUpdatePayload } from '@/lib/rdash';
 
 export const useRdashSummary = (enabled: boolean = true) => {
@@ -12,8 +13,8 @@ export const useRdashSummary = (enabled: boolean = true) => {
         return await getRdashSummary();
       } catch (error: any) {
         toast({
-          title: 'Failed to load RDASH summary',
-          description: error.message || 'Unable to fetch RDASH account and domains',
+          title: t('Failed to load RDASH summary'),
+          description: error.message || t('Unable to fetch RDASH account and domains'),
           variant: 'destructive',
         });
         throw error;
@@ -33,8 +34,8 @@ export const useCloudflareZones = (page?: number, perPage?: number, enabled: boo
         return await getCloudflareZones(page, perPage);
       } catch (error: any) {
         toast({
-          title: 'Failed to load Cloudflare zones',
-          description: error.message || 'Unable to fetch Cloudflare domains',
+          title: t('Failed to load Cloudflare zones'),
+          description: error.message || t('Unable to fetch Cloudflare domains'),
           variant: 'destructive',
         });
         throw error;
@@ -54,8 +55,8 @@ export const useRdashConfigStatus = () => {
         return await getRdashConfigStatus();
       } catch (error: any) {
         toast({
-          title: 'Failed to load RDASH config',
-          description: error.message || 'Unable to fetch RDASH configuration',
+          title: t('Failed to load RDASH config'),
+          description: error.message || t('Unable to fetch RDASH configuration'),
           variant: 'destructive',
         });
         throw error;
@@ -74,8 +75,8 @@ export const useCloudflareConfigStatus = () => {
         return await getCloudflareConfigStatus();
       } catch (error: any) {
         toast({
-          title: 'Failed to load Cloudflare config',
-          description: error.message || 'Unable to fetch Cloudflare configuration',
+          title: t('Failed to load Cloudflare config'),
+          description: error.message || t('Unable to fetch Cloudflare configuration'),
           variant: 'destructive',
         });
         throw error;
@@ -92,15 +93,15 @@ export const useUpdateRdashConfig = () => {
     mutationFn: (payload: RdashConfigUpdatePayload) => updateRdashConfig(payload),
     onSuccess: () => {
       toast({
-        title: 'RDASH config updated',
-        description: 'RDASH configuration has been saved.',
+        title: t('RDASH config updated'),
+        description: t('RDASH configuration has been saved.'),
       });
       queryClient.invalidateQueries({ queryKey: ['integrations', 'rdash-config'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to update RDASH config',
-        description: error.message || 'Unable to save RDASH configuration',
+        title: t('Failed to update RDASH config'),
+        description: error.message || t('Unable to save RDASH configuration'),
         variant: 'destructive',
       });
     },
@@ -115,15 +116,15 @@ export const useUpdateCloudflareConfig = () => {
     mutationFn: (payload: CloudflareConfigUpdatePayload) => updateCloudflareConfig(payload),
     onSuccess: () => {
       toast({
-        title: 'Cloudflare config updated',
-        description: 'Cloudflare configuration has been saved.',
+        title: t('Cloudflare config updated'),
+        description: t('Cloudflare configuration has been saved.'),
       });
       queryClient.invalidateQueries({ queryKey: ['integrations', 'cloudflare-config'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to update Cloudflare config',
-        description: error.message || 'Unable to save Cloudflare configuration',
+        title: t('Failed to update Cloudflare config'),
+        description: error.message || t('Unable to save Cloudflare configuration'),
         variant: 'destructive',
       });
     },

@@ -37,7 +37,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { getCurrentUser, isSuperAdmin } from "@/lib/auth";
-import { OrgRole } from "@/lib/admin";
+import { ORG_ROLE_LABEL, OrgRole } from "@/lib/admin";
+import { locale, t } from "@/lib/i18n";
 import {
   createInvite,
   isMemberAdded,
@@ -70,7 +71,7 @@ export default function OrganizationDetail() {
 
   const onError = (error: Error) =>
     toast({
-      title: "Error",
+      title: t("Error"),
       description: error.message,
       variant: "destructive",
     });
@@ -110,11 +111,11 @@ export default function OrganizationDetail() {
     mutationFn: (serverId: string) => setOrganizationServer(id, serverId),
     onSuccess: (updated) => {
       refresh();
-      toast({ title: `Placed on ${updated.server?.name ?? "server"}` });
+      toast({ title: t("Placed on {server}", { server: updated.server?.name ?? t("server") }) });
     },
     onError: (error: Error) => {
       setPlacement("");
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: t("Error"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -127,7 +128,7 @@ export default function OrganizationDetail() {
       // the email already had an account — the backend joined them, no link to copy
       if (isMemberAdded(result)) {
         setInviteOpen(false);
-        toast({ title: "Member added", description: "That account already existed." });
+        toast({ title: t("Member added"), description: t("That account already existed.") });
         return;
       }
 
@@ -135,8 +136,8 @@ export default function OrganizationDetail() {
       if (result.emailed) {
         setInviteOpen(false);
         toast({
-          title: "Invite sent",
-          description: `An email is on its way to ${result.email}.`,
+          title: t("Invite sent"),
+          description: t("An email is on its way to {email}.", { email: result.email }),
         });
         return;
       }
@@ -144,8 +145,8 @@ export default function OrganizationDetail() {
       // the invite row exists either way, but without mail nobody can act on it
       setInviteOpen(false);
       toast({
-        title: "Invite created, but the email failed",
-        description: "Check the SMTP settings, then revoke and re-send the invite.",
+        title: t("Invite created, but the email failed"),
+        description: t("Check the SMTP settings, then revoke and re-send the invite."),
         variant: "destructive",
       });
     },
@@ -157,7 +158,7 @@ export default function OrganizationDetail() {
       updateMemberRole(id, userId, role),
     onSuccess: () => {
       refresh();
-      toast({ title: "Member updated" });
+      toast({ title: t("Member updated") });
     },
     onError,
   });
@@ -167,7 +168,7 @@ export default function OrganizationDetail() {
     onSuccess: () => {
       refresh();
       setPendingRemove(null);
-      toast({ title: "Member removed" });
+      toast({ title: t("Member removed") });
     },
     onError: (error: Error) => {
       setPendingRemove(null);
@@ -179,14 +180,14 @@ export default function OrganizationDetail() {
     mutationFn: (inviteId: string) => revokeInvite(id, inviteId),
     onSuccess: () => {
       refresh();
-      toast({ title: "Invite revoked" });
+      toast({ title: t("Invite revoked") });
     },
     onError,
   });
 
   const memberColumns: Column<(typeof members)[number]>[] = [
     {
-      header: "User",
+      header: t("User"),
       className: "w-[45%]",
       cell: (m) => (
         <>
@@ -200,7 +201,7 @@ export default function OrganizationDetail() {
       ),
     },
     {
-      header: "Role",
+      header: t("Role"),
       className: "w-44",
       cell: (m) => (
         <Select
@@ -215,7 +216,7 @@ export default function OrganizationDetail() {
           <SelectContent>
             {ROLES.map((r) => (
               <SelectItem key={r} value={r}>
-                {r}
+                {ORG_ROLE_LABEL[r]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -230,7 +231,7 @@ export default function OrganizationDetail() {
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Remove ${m.user.email}`}
+            aria-label={t("Remove {email}", { email: m.user.email })}
             onClick={() =>
               setPendingRemove({
                 userId: m.user.id,
@@ -246,25 +247,25 @@ export default function OrganizationDetail() {
 
   const inviteColumns: Column<(typeof invites)[number]>[] = [
     {
-      header: "Email",
+      header: t("Email"),
       className: "w-[45%]",
       cell: (i) => <span className="block truncate">{i.email}</span>,
     },
     {
-      header: "Role",
-      cell: (i) => <Badge variant="secondary">{i.role}</Badge>,
+      header: t("Role"),
+      cell: (i) => <Badge variant="secondary">{ORG_ROLE_LABEL[i.role]}</Badge>,
     },
     {
-      header: "Status",
+      header: t("Status"),
       className: "w-48",
       cell: (i) =>
         i.acceptedAt ? (
-          <Badge>Accepted</Badge>
+          <Badge>{t("Accepted")}</Badge>
         ) : new Date(i.expiresAt) < new Date() ? (
-          <Badge variant="destructive">Expired</Badge>
+          <Badge variant="destructive">{t("Expired")}</Badge>
         ) : (
           <Badge variant="outline">
-            Expires {new Date(i.expiresAt).toLocaleDateString()}
+            {t("Expires {date}", { date: new Date(i.expiresAt).toLocaleDateString(locale) })}
           </Badge>
         ),
     },
@@ -276,7 +277,7 @@ export default function OrganizationDetail() {
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Revoke invite for ${i.email}`}
+            aria-label={t("Revoke invite for {email}", { email: i.email })}
             onClick={() => revokeMutation.mutate(i.id)}
           >
             <Trash2 className="h-4 w-4" />
@@ -297,7 +298,7 @@ export default function OrganizationDetail() {
     return (
       <Card>
         <CardContent className="py-10 text-center text-muted-foreground">
-          Organization not found.
+          {t("Organization not found.")}
         </CardContent>
       </Card>
     );
@@ -307,87 +308,16 @@ export default function OrganizationDetail() {
     <PageLayout
       backTo="/organizations"
       title={org.name}
-      description={`${org.slug} · ${org._count.members} members · ${org._count.domains} domains · ${org._count.applications} apps`}
-      actions={
-        <>
-          <Dialog
-            open={inviteOpen}
-            onOpenChange={setInviteOpen}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <Mail className="mr-2 h-4 w-4" /> Invite
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  inviteMutation.mutate();
-                }}
-              >
-                <DialogHeader>
-                  <DialogTitle>Invite to {org.name}</DialogTitle>
-                  <DialogDescription>
-                    An existing account joins {org.name} straight away. Anyone
-                    else is emailed an invite link.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="invite-email">Email</Label>
-                    <Input
-                      id="invite-email"
-                      type="email"
-                      value={form.email}
-                      onChange={(e) =>
-                        setForm({ ...form, email: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Role</Label>
-                    <Select
-                      value={form.role}
-                      onValueChange={(v) =>
-                        setForm({ ...form, role: v as OrgRole })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                </div>
-                <DialogFooter>
-                  <Button
-                    type="submit"
-                    disabled={!form.email || inviteMutation.isPending}
-                  >
-                    {inviteMutation.isPending && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    Send invite
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </>
-      }
+      description={`${org.slug} · ${t("{members} members · {domains} domains · {apps} apps", {
+        members: org._count.members,
+        domains: org._count.domains,
+        apps: org._count.applications,
+      })}`}
     >
       {superadmin && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Server placement</CardTitle>
+            <CardTitle className="text-base">{t("Server placement")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {org.server ? (
@@ -408,7 +338,7 @@ export default function OrganizationDetail() {
                   disabled={placeMutation.isPending}
                 >
                   <SelectTrigger className="w-64">
-                    <SelectValue placeholder="Choose a server…" />
+                    <SelectValue placeholder={t("Choose a server…")} />
                   </SelectTrigger>
                   <SelectContent>
                     {servers.map((s) => (
@@ -423,18 +353,88 @@ export default function OrganizationDetail() {
             )}
             <p className="text-xs text-muted-foreground">
               {org.server
-                ? "Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files."
-                : "Provisioning and deploys refuse to run until this organization is placed on a node."}
+                ? t("Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files.")
+                : t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
             </p>
           </CardContent>
         </Card>
       )}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">
-            Members ({members.length})
+            {t("Members ({count})", { count: members.length })}
           </CardTitle>
+          <Dialog
+            open={inviteOpen}
+            onOpenChange={setInviteOpen}
+          >
+            <DialogTrigger asChild>
+              <Button>
+                <Mail className="mr-2 h-4 w-4" /> {t("Invite")}
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  inviteMutation.mutate();
+                }}
+              >
+                <DialogHeader>
+                  <DialogTitle>{t("Invite to {name}", { name: org.name })}</DialogTitle>
+                  <DialogDescription>
+                    {t("An existing account joins {name} straight away. Anyone else is emailed an invite link.", { name: org.name })}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="invite-email">{t("Email")}</Label>
+                    <Input
+                      id="invite-email"
+                      type="email"
+                      value={form.email}
+                      onChange={(e) =>
+                        setForm({ ...form, email: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("Role")}</Label>
+                    <Select
+                      value={form.role}
+                      onValueChange={(v) =>
+                        setForm({ ...form, role: v as OrgRole })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {ORG_ROLE_LABEL[r]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="submit"
+                    disabled={!form.email || inviteMutation.isPending}
+                  >
+                    {inviteMutation.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    {t("Send invite")}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -447,8 +447,8 @@ export default function OrganizationDetail() {
                 .toLowerCase()
                 .includes(q.toLowerCase())
             }
-            searchPlaceholder="Search members…"
-            empty="No members yet."
+            searchPlaceholder={t("Search members…")}
+            empty={t("No members yet.")}
           />
         </CardContent>
       </Card>
@@ -456,7 +456,7 @@ export default function OrganizationDetail() {
       {invites.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Pending invites</CardTitle>
+            <CardTitle className="text-base">{t("Pending invites")}</CardTitle>
           </CardHeader>
           <CardContent>
             <DataTable
@@ -465,8 +465,8 @@ export default function OrganizationDetail() {
               rowKey={(i) => i.id}
               query={inviteQuery}
               filter={(i, q) => i.email.toLowerCase().includes(q.toLowerCase())}
-              searchPlaceholder="Search invites…"
-              empty="No invites."
+              searchPlaceholder={t("Search invites…")}
+              empty={t("No invites.")}
             />
           </CardContent>
         </Card>
@@ -478,20 +478,22 @@ export default function OrganizationDetail() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove this member?</AlertDialogTitle>
+            <AlertDialogTitle>{t("Remove this member?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingRemove?.label} will lose access to {org.name}, including
-              its domains and applications. They can be added back later.
+              {t("{member} will lose access to {name}, including its domains and applications. They can be added back later.", {
+                member: pendingRemove?.label ?? "",
+                name: org.name,
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() =>
                 pendingRemove && removeMutation.mutate(pendingRemove.userId)
               }
             >
-              Remove member
+              {t("Remove member")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

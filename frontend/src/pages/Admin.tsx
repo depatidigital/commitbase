@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Select,
@@ -37,6 +38,8 @@ import {
   unassignDomain,
 } from "@/lib/admin";
 import { getOrganizations } from "@/lib/organizations";
+import { isSuperAdmin } from "@/lib/auth";
+import { locale, t } from "@/lib/i18n";
 
 const UNASSIGNED = "__none__";
 
@@ -46,6 +49,7 @@ export default function Admin() {
   const query = useTableQuery();
   const orgQuery = useTableQuery();
   const logQuery = useTableQuery(20);
+  const superadmin = isSuperAdmin();
 
   // moving a domain moves every application under it between tenants — confirm first
   const [pendingAssign, setPendingAssign] = useState<{
@@ -62,7 +66,7 @@ export default function Admin() {
 
   const onError = (error: Error) =>
     toast({
-      title: "Error",
+      title: t("Error"),
       description: error.message,
       variant: "destructive",
     });
@@ -104,8 +108,8 @@ export default function Admin() {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       setPendingAssign(null);
       toast({
-        title: "Domain ownership updated",
-        description: "Its applications moved with it.",
+        title: t("Domain ownership updated"),
+        description: t("Its applications moved with it."),
       });
     },
     onError: (error: Error) => {
@@ -122,10 +126,10 @@ export default function Admin() {
       const org = orgData?.data.find((o) => o.id === organizationId);
       setPendingProvision(null);
       toast({
-        title: "Provisioned",
+        title: t("Provisioned"),
         description: org
-          ? `cb-${org.slug} now has its own OS user, home and cgroup slice.`
-          : "OS user provisioned.",
+          ? t("{user} now has its own OS user, home and cgroup slice.", { user: `cb-${org.slug}` })
+          : t("OS user provisioned."),
       });
     },
     onError: (error: Error) => {
@@ -139,13 +143,13 @@ export default function Admin() {
 
   const columns: Column<AdminDomain>[] = [
     {
-      header: "Domain",
+      header: t("Domain"),
       className: "w-[40%]",
       cell: (d) => <span className="block truncate font-medium">{d.name}</span>,
     },
-    { header: "Apps", className: "w-20", cell: (d) => d._count.applications },
+    { header: t("Apps"), className: "w-20", cell: (d) => d._count.applications },
     {
-      header: "Owning organization",
+      header: t("Owning organization"),
       className: "w-[40%]",
       cell: (d) => (
         <Select
@@ -158,7 +162,7 @@ export default function Admin() {
               organizationId,
               organizationName:
                 organizations.find((o) => o.id === organizationId)?.name ??
-                "no organization",
+                t("no organization"),
             })
           }
         >
@@ -166,7 +170,7 @@ export default function Admin() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+            <SelectItem value={UNASSIGNED}>{t("Unassigned")}</SelectItem>
             {organizations.map((o) => (
               <SelectItem key={o.id} value={o.id}>
                 {o.name}
@@ -180,7 +184,7 @@ export default function Admin() {
 
   const orgColumns: Column<AdminOrganization>[] = [
     {
-      header: "Organization",
+      header: t("Organization"),
       className: "w-[30%]",
       cell: (o) => (
         <div className="min-w-0">
@@ -192,19 +196,19 @@ export default function Admin() {
       ),
     },
     {
-      header: "Isolation",
+      header: t("Isolation"),
       className: "w-40",
       cell: (o) => {
         const p = o.provisioning;
-        if (!p) return <Badge variant="outline">Unknown</Badge>;
-        if (!p.enabled) return <Badge variant="outline">Disabled</Badge>;
-        if (!p.provisioned) return <Badge variant="destructive">Not provisioned</Badge>;
-        if (!p.sliceInstalled) return <Badge variant="secondary">No resource limits</Badge>;
-        return <Badge>Provisioned</Badge>;
+        if (!p) return <Badge variant="outline">{t("Unknown")}</Badge>;
+        if (!p.enabled) return <Badge variant="outline">{t("Disabled")}</Badge>;
+        if (!p.provisioned) return <Badge variant="destructive">{t("Not provisioned")}</Badge>;
+        if (!p.sliceInstalled) return <Badge variant="secondary">{t("No resource limits")}</Badge>;
+        return <Badge>{t("Provisioned")}</Badge>;
       },
     },
     {
-      header: "Home",
+      header: t("Home"),
       className: "w-[25%]",
       cell: (o) => (
         <span className="block truncate font-mono text-xs text-muted-foreground">
@@ -213,7 +217,29 @@ export default function Admin() {
       ),
     },
     {
-      header: "Apps",
+      header: t("Server"),
+      className: "w-36",
+      cell: (o) =>
+        !o.server ? (
+          <Link to={`/organizations/${o.id}`}>
+            <Badge
+              variant="outline"
+              className="border-warning/40 text-warning"
+              title={t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
+            >
+              {t("Not placed")}
+            </Badge>
+          </Link>
+        ) : superadmin ? (
+          <Link to={`/servers/${o.server.id}`} className="block truncate hover:underline">
+            {o.server.name}
+          </Link>
+        ) : (
+          <span className="block truncate">{o.server.name}</span>
+        ),
+    },
+    {
+      header: t("Apps"),
       className: "w-20",
       cell: (o) => o._count.applications,
     },
@@ -231,9 +257,9 @@ export default function Admin() {
           provisionMutation.variables === o.id ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : o.provisioning?.provisioned ? (
-            "Re-provision"
+            t("Re-provision")
           ) : (
-            "Provision"
+            t("Provision")
           )}
         </Button>
       ),
@@ -249,21 +275,21 @@ export default function Admin() {
 
   const logColumns: Column<ProvisionLog>[] = [
     {
-      header: "When",
+      header: t("When"),
       className: "w-44",
       cell: (l) => (
         <span className="text-xs text-muted-foreground">
-          {new Date(l.timestamp).toLocaleString()}
+          {new Date(l.timestamp).toLocaleString(locale)}
         </span>
       ),
     },
     {
-      header: "Level",
+      header: t("Level"),
       className: "w-24",
       cell: (l) => <Badge variant={levelVariant(l.level)}>{l.level}</Badge>,
     },
     {
-      header: "Message",
+      header: t("Message"),
       cell: (l) => (
         <div className="min-w-0">
           <span className="block truncate">{l.message}</span>
@@ -276,7 +302,7 @@ export default function Admin() {
       ),
     },
     {
-      header: "Trigger",
+      header: t("Trigger"),
       className: "w-28",
       cell: (l) => (
         <span className="text-xs text-muted-foreground">
@@ -285,7 +311,7 @@ export default function Admin() {
       ),
     },
     {
-      header: "By",
+      header: t("By"),
       className: "w-48",
       cell: (l) => (
         <span className="block truncate text-xs text-muted-foreground">
@@ -298,14 +324,14 @@ export default function Admin() {
   return (
     <PageLayout
       icon={ShieldCheck}
-      title="Platform administration"
-      description="Domain ownership and per-organization OS isolation."
+      title={t("Platform administration")}
+      description={t("Domain ownership and per-organization OS isolation.")}
     >
       <Tabs defaultValue="domains" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="domains">Domains</TabsTrigger>
-          <TabsTrigger value="organizations">Organizations</TabsTrigger>
-          <TabsTrigger value="logs">Provisioning log</TabsTrigger>
+          <TabsTrigger value="domains">{t("Domains")}</TabsTrigger>
+          <TabsTrigger value="organizations">{t("Organizations")}</TabsTrigger>
+          <TabsTrigger value="logs">{t("Provisioning log")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="domains">
@@ -316,8 +342,8 @@ export default function Admin() {
             query={query}
             pagination={data?.pagination}
             isLoading={isFetching}
-            searchPlaceholder="Search domain…"
-            empty="No domains yet."
+            searchPlaceholder={t("Search domain…")}
+            empty={t("No domains yet.")}
           />
         </TabsContent>
 
@@ -326,9 +352,10 @@ export default function Admin() {
             <Alert>
               <TerminalSquare className="h-4 w-4" />
               <AlertDescription>
-                OS isolation is switched off on this server. Set{" "}
-                <code className="font-mono">ORG_OS_ISOLATION=true</code> in the
-                backend environment and restart it before provisioning.
+                {t("OS isolation is switched off on this server.")}{" "}
+                {t("Set {setting} in the backend environment and restart it before provisioning.", {
+                  setting: "ORG_OS_ISOLATION=true",
+                })}
               </AlertDescription>
             </Alert>
           )}
@@ -340,8 +367,8 @@ export default function Admin() {
             query={orgQuery}
             pagination={orgData?.pagination}
             isLoading={orgsFetching}
-            searchPlaceholder="Search organization…"
-            empty="No organizations yet."
+            searchPlaceholder={t("Search organization…")}
+            empty={t("No organizations yet.")}
           />
         </TabsContent>
 
@@ -353,7 +380,7 @@ export default function Admin() {
             query={logQuery}
             pagination={logData?.pagination}
             isLoading={logsFetching}
-            empty="Nothing provisioned yet."
+            empty={t("Nothing provisioned yet.")}
           />
         </TabsContent>
       </Tabs>
@@ -365,22 +392,29 @@ export default function Admin() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Move this domain to another organization?
+              {t("Move this domain to another organization?")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingAssign && (
                 <>
-                  <strong>{pendingAssign.domainName}</strong> and its{" "}
-                  {pendingAssign.appCount} application
-                  {pendingAssign.appCount === 1 ? "" : "s"} will move to{" "}
-                  <strong>{pendingAssign.organizationName}</strong>. The
-                  previous organization loses access immediately.
+                  {pendingAssign.appCount === 1
+                    ? t("{domain} and its {count} application will move to {organization}.", {
+                        domain: pendingAssign.domainName,
+                        count: pendingAssign.appCount,
+                        organization: pendingAssign.organizationName,
+                      })
+                    : t("{domain} and its {count} applications will move to {organization}.", {
+                        domain: pendingAssign.domainName,
+                        count: pendingAssign.appCount,
+                        organization: pendingAssign.organizationName,
+                      })}{" "}
+                  {t("The previous organization loses access immediately.")}
                 </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() =>
                 pendingAssign &&
@@ -390,7 +424,7 @@ export default function Admin() {
                 })
               }
             >
-              Move domain
+              {t("Move domain")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -404,29 +438,28 @@ export default function Admin() {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pendingProvision?.provisioning?.provisioned
-                ? "Re-run provisioning?"
-                : "Provision this organization?"}
+                ? t("Re-run provisioning?")
+                : t("Provision this organization?")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingProvision && (
                 <>
-                  Creates the OS user{" "}
-                  <strong>cb-{pendingProvision.slug}</strong>, its home, disk
-                  quota, cgroup slice and PHP-FPM pool. Re-running also repairs
-                  file ownership and re-applies the resource limits — it does
-                  not restart running applications.
+                  {t("Creates the OS user {user}, its home, disk quota, cgroup slice and PHP-FPM pool.", {
+                    user: `cb-${pendingProvision.slug}`,
+                  })}{" "}
+                  {t("Re-running also repairs file ownership and re-applies the resource limits — it does not restart running applications.")}
                 </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() =>
                 pendingProvision && provisionMutation.mutate(pendingProvision.id)
               }
             >
-              Provision
+              {t("Provision")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -10,6 +10,7 @@ import {
   type UpdateDatabaseData
 } from '@/lib/databases';
 import { useToast } from '@/hooks/use-toast';
+import { t } from '@/lib/i18n';
 
 export const useDatabases = (applicationId: string, page = 1, limit = 10) => {
   return useQuery({
@@ -38,14 +39,14 @@ export const useCreateDatabase = () => {
       createDatabase(applicationId, data),
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'Database created successfully',
+        title: t('Success'),
+        description: t('Database created successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['databases', variables.applicationId] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -62,15 +63,15 @@ export const useUpdateDatabase = () => {
       updateDatabase(id, data),
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'Database updated successfully',
+        title: t('Success'),
+        description: t('Database updated successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['databases'] });
       queryClient.invalidateQueries({ queryKey: ['database', variables.id] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -86,15 +87,15 @@ export const useDeleteDatabase = () => {
     mutationFn: deleteDatabase,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'Database deleted successfully',
+        title: t('Success'),
+        description: t('Database deleted successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['databases'] });
       queryClient.removeQueries({ queryKey: ['database', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });

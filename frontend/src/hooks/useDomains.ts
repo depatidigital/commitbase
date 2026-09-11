@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { t } from "@/lib/i18n";
 import {
   getDomains,
   getDomainsPage,
@@ -90,14 +91,14 @@ export const useCreateDomain = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: "Domain Created",
-        description: "Domain has been created successfully.",
+        title: t("Domain Created"),
+        description: t("Domain has been created successfully."),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to create domain.",
+        title: t("Error"),
+        description: error.message || t("Failed to create domain."),
         variant: "destructive",
       });
     },
@@ -139,7 +140,7 @@ export const useSyncDomains = () => {
 
     if (state.error) {
       toast({
-        title: "Sync failed",
+        title: t("Sync failed"),
         description: state.error,
         variant: "destructive",
       });
@@ -151,10 +152,18 @@ export const useSyncDomains = () => {
 
     const failed = result.errors ? Object.values(result.errors).join(" ") : "";
     toast({
-      title: failed ? "Sync finished with errors" : "Sync complete",
+      title: failed ? t("Sync finished with errors") : t("Sync complete"),
       description:
-        `${result.total} domains — ${result.created} added, ${result.updated} updated ` +
-        `(${result.rdashOnly} registrar-only, ${result.cfOnly} Cloudflare-only). ${failed}`.trim(),
+        `${t(
+          "{total} domains — {created} added, {updated} updated ({rdashOnly} registrar-only, {cfOnly} Cloudflare-only).",
+          {
+            total: result.total,
+            created: result.created,
+            updated: result.updated,
+            rdashOnly: result.rdashOnly,
+            cfOnly: result.cfOnly,
+          },
+        )} ${failed}`.trim(),
       variant: failed ? "destructive" : undefined,
     });
   }, [status.data, polling, queryClient, toast]);
@@ -164,15 +173,15 @@ export const useSyncDomains = () => {
     onSuccess: () => {
       setPolling(true);
       toast({
-        title: "Sync started",
+        title: t("Sync started"),
         description:
-          "Running in the background — the list updates when it finishes.",
+          t("Running in the background — the list updates when it finishes."),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to start the domain sync.",
+        title: t("Error"),
+        description: error.message || t("Failed to start the domain sync."),
         variant: "destructive",
       });
     },
@@ -201,14 +210,14 @@ export const useBulkAssignDomains = () => {
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: "Domains Assigned",
-        description: `${count} domain(s) updated.`,
+        title: t("Domains Assigned"),
+        description: t("{count} domain(s) updated.", { count }),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to assign domains.",
+        title: t("Error"),
+        description: error.message || t("Failed to assign domains."),
         variant: "destructive",
       });
     },
@@ -234,16 +243,16 @@ export const useEnableCloudflare = () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
         title: data.warnings.length
-          ? "Cloudflare enabled with warnings"
-          : "Cloudflare enabled",
+          ? t("Cloudflare enabled with warnings")
+          : t("Cloudflare enabled"),
         description: [...data.steps, ...data.warnings].join(" · "),
         variant: data.warnings.length ? "destructive" : undefined,
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to enable Cloudflare.",
+        title: t("Error"),
+        description: error.message || t("Failed to enable Cloudflare."),
         variant: "destructive",
       });
     },
@@ -259,15 +268,15 @@ export const useDisableCloudflare = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: "Cloudflare detached",
+        title: t("Cloudflare detached"),
         description:
-          "The zone still exists in Cloudflare. Repoint the nameservers at your registrar before deleting it.",
+          t("The zone still exists in Cloudflare. Repoint the nameservers at your registrar before deleting it."),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to disable Cloudflare.",
+        title: t("Error"),
+        description: error.message || t("Failed to disable Cloudflare."),
         variant: "destructive",
       });
     },
@@ -293,7 +302,7 @@ const useDnsRecordMutation = <TArgs>(
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
+        title: t("Error"),
         description: error.message,
         variant: "destructive",
       });
@@ -305,21 +314,21 @@ export const useCreateDnsRecord = (domainId: string) =>
   useDnsRecordMutation<DnsRecordInput>(
     domainId,
     (record) => createDnsRecord(domainId, record),
-    "DNS record created",
+    t("DNS record created"),
   );
 
 export const useUpdateDnsRecord = (domainId: string) =>
   useDnsRecordMutation<{ recordId: string; record: DnsRecordInput }>(
     domainId,
     ({ recordId, record }) => updateDnsRecord(domainId, recordId, record),
-    "DNS record updated",
+    t("DNS record updated"),
   );
 
 export const useDeleteDnsRecord = (domainId: string) =>
   useDnsRecordMutation<string>(
     domainId,
     (recordId) => deleteDnsRecord(domainId, recordId),
-    "DNS record deleted",
+    t("DNS record deleted"),
   );
 
 export const useImportRegistrarDns = (domainId: string) => {
@@ -334,15 +343,18 @@ export const useImportRegistrarDns = (domainId: string) => {
       });
       toast({
         title:
-          data.imported === 0 ? "Nothing to import" : "Registrar DNS imported",
+          data.imported === 0 ? t("Nothing to import") : t("Registrar DNS imported"),
         description:
           (data as any).note ||
-          `${data.imported} record(s) copied, ${data.skipped} already present.`,
+          t("{imported} record(s) copied, {skipped} already present.", {
+            imported: data.imported,
+            skipped: data.skipped,
+          }),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
+        title: t("Error"),
         description: error.message,
         variant: "destructive",
       });
@@ -362,14 +374,14 @@ export const useUpdateDomain = () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       queryClient.invalidateQueries({ queryKey: ["domains", id] });
       toast({
-        title: "Domain Updated",
-        description: "Domain has been updated successfully.",
+        title: t("Domain Updated"),
+        description: t("Domain has been updated successfully."),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to update domain.",
+        title: t("Error"),
+        description: error.message || t("Failed to update domain."),
         variant: "destructive",
       });
     },
@@ -386,14 +398,14 @@ export const useDeleteDomain = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: "Domain Deleted",
-        description: "Domain has been deleted successfully.",
+        title: t("Domain Deleted"),
+        description: t("Domain has been deleted successfully."),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to delete domain.",
+        title: t("Error"),
+        description: error.message || t("Failed to delete domain."),
         variant: "destructive",
       });
     },
@@ -411,22 +423,22 @@ export const useVerifyDomain = () => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       if (data.verified) {
         toast({
-          title: "Domain Verified",
-          description: "Domain DNS has been verified successfully.",
+          title: t("Domain Verified"),
+          description: t("Domain DNS has been verified successfully."),
         });
       } else {
         toast({
-          title: "Verification Failed",
+          title: t("Verification Failed"),
           description:
-            "Domain DNS verification failed. Please check your DNS settings.",
+            t("Domain DNS verification failed. Please check your DNS settings."),
           variant: "destructive",
         });
       }
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to verify domain.",
+        title: t("Error"),
+        description: error.message || t("Failed to verify domain."),
         variant: "destructive",
       });
     },
@@ -443,12 +455,12 @@ export const useRenewDomain = () => {
       renewDomain(id, years),
     onSuccess: (message) => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
-      toast({ title: "Renewal submitted", description: message });
+      toast({ title: t("Renewal submitted"), description: message });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to renew domain.",
+        title: t("Error"),
+        description: error.message || t("Failed to renew domain."),
         variant: "destructive",
       });
     },
@@ -543,8 +555,8 @@ export const useDomainSearch = () => {
       if (runId.current !== run) return;
       setOffers(null);
       toast({
-        title: "Search failed",
-        description: error?.message || "Could not check that domain.",
+        title: t("Search failed"),
+        description: error?.message || t("Could not check that domain."),
         variant: "destructive",
       });
     } finally {
@@ -595,8 +607,8 @@ export const useDomainSearch = () => {
     } catch (error: any) {
       if (runId.current !== run) return;
       toast({
-        title: "Suggestions unavailable",
-        description: error?.message || "Could not get domain ideas.",
+        title: t("Suggestions unavailable"),
+        description: error?.message || t("Could not get domain ideas."),
         variant: "destructive",
       });
     } finally {
@@ -638,14 +650,17 @@ export const useRegisterDomain = () => {
     onSuccess: (domain) => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       toast({
-        title: "Registration started",
-        description: `${domain.name} is being registered — follow it in the domains list.`,
+        title: t("Registration started"),
+        description: t(
+          "{name} is being registered — follow it in the domains list.",
+          { name: domain.name },
+        ),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Registration failed",
-        description: error.message || "The registrar refused the registration.",
+        title: t("Registration failed"),
+        description: error.message || t("The registrar refused the registration."),
         variant: "destructive",
       });
     },
@@ -662,11 +677,11 @@ export const useSetupWildcard = () => {
     onSuccess: (result, id) => {
       queryClient.invalidateQueries({ queryKey: ["domains"] });
       queryClient.invalidateQueries({ queryKey: ["domains", id, "dns-zone"] });
-      toast({ title: "Wildcard record ready", description: result.detail });
+      toast({ title: t("Wildcard record ready"), description: result.detail });
     },
     onError: (error: Error) => {
       toast({
-        title: "Could not create the wildcard record",
+        title: t("Could not create the wildcard record"),
         description: error.message,
         variant: "destructive",
       });

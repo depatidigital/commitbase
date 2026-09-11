@@ -11,6 +11,7 @@ import {
   type UpdateDeploymentData
 } from '@/lib/deployments';
 import { useToast } from '@/hooks/use-toast';
+import { t } from '@/lib/i18n';
 
 export const useDeploymentHistory = (appId: string, page = 1, limit = 10) => {
   return useQuery({
@@ -48,15 +49,15 @@ export const useCreateDeployment = () => {
       createDeployment(appId, data),
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'Deployment created successfully',
+        title: t('Success'),
+        description: t('Deployment created successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['deployments', variables.appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -73,15 +74,15 @@ export const useUpdateDeployment = () => {
       updateDeployment(deploymentId, data),
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'Deployment updated successfully',
+        title: t('Success'),
+        description: t('Deployment updated successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['deployment', variables.deploymentId] });
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -97,15 +98,15 @@ export const useDeleteDeployment = () => {
     mutationFn: deleteDeployment,
     onSuccess: (data, variables) => {
       toast({
-        title: 'Success',
-        description: 'Deployment deleted successfully',
+        title: t('Success'),
+        description: t('Deployment deleted successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       queryClient.removeQueries({ queryKey: ['deployment', variables] });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Error',
+        title: t('Error'),
         description: error.message,
         variant: 'destructive',
       });
