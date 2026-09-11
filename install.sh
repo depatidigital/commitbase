@@ -128,14 +128,25 @@ fi
 # VM is an ordinary Server row, so it authorizes its own key like any node. One
 # transport, one code path, nothing special about being local.
 say "SSH access for the control plane"
-SSH_DIR="$CB_HOME/.ssh"
-CB_KEY="$SSH_DIR/id_ed25519"
-install -d -m 0700 -o "$CB_USER" -g "$CB_GROUP" "$SSH_DIR"
+# The key pair belongs to the panel process ($CB_USER); the login it opens is
+# $SSH_USER, who is in $CB_GROUP so it can reach tenant homes (mode 2770).
+CB_KEY="$CB_HOME/.ssh/id_ed25519"
+install -d -m 0700 -o "$CB_USER" -g "$CB_GROUP" "$CB_HOME/.ssh"
 
 if [ "$ROLE" = panel ] && [ ! -f "$CB_KEY" ]; then
   sudo -u "$CB_USER" ssh-keygen -q -t ed25519 -N '' -C 'commitbase-panel' -f "$CB_KEY"
   note "generated $CB_KEY"
 fi
+
+if ! id -u "$SSH_USER" >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash --groups "$CB_GROUP" "$SSH_USER"
+  note "created SSH user $SSH_USER"
+else
+  usermod -aG "$CB_GROUP" "$SSH_USER"
+fi
+SSH_HOME="$(getent passwd "$SSH_USER" | cut -d: -f6)"
+SSH_DIR="$SSH_HOME/.ssh"
+install -d -m 0700 -o "$SSH_USER" -g "$SSH_USER" "$SSH_DIR"
 
 # The panel authorizes itself; a node authorizes the panel it was given.
 if [ "$ROLE" = panel ]; then AUTHORIZE="$(cat "$CB_KEY.pub")"; else AUTHORIZE="$PANEL_SSH_PUBKEY"; fi
@@ -151,7 +162,7 @@ else
   printf '%s\n' "$AUTHORIZE" >> "$AUTH_KEYS"
   note "authorized the panel key"
 fi
-chown -R "$CB_USER:$CB_GROUP" "$SSH_DIR"
+chown -R "$SSH_USER:$SSH_USER" "$SSH_DIR"
 chmod 0600 "$AUTH_KEYS"
 
 # A box with no sshd is unreachable in exactly the way that is hardest to
