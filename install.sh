@@ -246,9 +246,6 @@ FRONTEND_URL="https://${PANEL_DOMAIN}"
 APP_URL="https://${PANEL_DOMAIN}"
 SERVER_IP="${SERVER_IP}"
 
-CADDY_API_URL="http://127.0.0.1:2019"
-CADDY_SITES_DIR="/etc/caddy/sites"
-
 ORG_OS_ISOLATION="true"
 CB_HOME_ROOT="/home"
 ORG_DISK_QUOTA="20G"
@@ -298,7 +295,6 @@ install -m 0644 "$APP_DIR/runner/commitbase.logrotate" /etc/logrotate.d/commitba
 visudo -cf /etc/sudoers.d/commitbase >/dev/null || die "sudoers file did not validate"
 # Left over from when the scripts were installed; a stale copy would only mislead.
 rm -f /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit
-mkdir -p /etc/caddy/sites; chown caddy:caddy /etc/caddy/sites
 usermod -aG "$CB_GROUP" caddy
 
 if findmnt -no OPTIONS "$(findmnt -T /home -no TARGET)" | tr ',' ' ' | grep -qwE 'usrquota|uquota'; then
@@ -344,12 +340,18 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 systemctl enable commitbase >/dev/null 2>&1
-systemctl restart commitbase
+# Started after Caddy (section 9): on boot it pushes every tenant route through
+# the admin API, and a Caddy reload after that would throw them away again.
 fi
 
 # ------------------------------------------------------------------ 9. caddy
+# The Caddyfile is only the boot config: global options, plus the panel vhost on
+# a panel box. Tenant sites never touch it - the panel pushes them through the
+# admin API over SSH, and they live in Caddy's memory. A reload re-reads this
+# file and drops them, so Caddy is only reloaded when the file actually changed.
 say "Caddy"
 CADDYFILE=/etc/caddy/Caddyfile
+CADDY_CHANGED=0
 PANEL_BLOCK="$PANEL_DOMAIN {
     encode gzip
 
@@ -367,22 +369,20 @@ PANEL_BLOCK="$PANEL_DOMAIN {
 if [ "$ROLE" = node ]; then
   # A node runs its own Caddy because tenant PHP is served from a local FPM
   # socket and a local docroot - neither can be reverse-proxied from the panel.
-  # It gets the admin API and the tenant import, and no panel vhost.
-  if [ -f "$CADDYFILE" ] && grep -q '/etc/caddy/sites/\*.caddy' "$CADDYFILE"; then
-    note "$CADDYFILE already imports the tenant sites - left untouched"
+  # It gets the admin API and no panel vhost.
+  if [ -f "$CADDYFILE" ] && grep -qE '^\s*admin\s+(127\.0\.0\.1|localhost):2019' "$CADDYFILE"; then
+    note "$CADDYFILE already has the admin API on loopback - left untouched"
   else
     [ -f "$CADDYFILE" ] && cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%s)"
     cat > "$CADDYFILE" <<EOF
 {
     # Reached by the control plane over the SSH connection, never from the
-    # public internet. Keep it on loopback.
+    # public internet. Keep it on loopback. Tenant sites arrive through it.
     admin 127.0.0.1:2019
     email $ACME_EMAIL
 }
-
-# Tenant sites are written here by the panel
-import /etc/caddy/sites/*.caddy
 EOF
+    CADDY_CHANGED=1
   fi
 elif [ -f "$CADDYFILE" ] && grep -q "$PANEL_DOMAIN" "$CADDYFILE"; then
   note "$CADDYFILE already serves $PANEL_DOMAIN — left untouched"
@@ -391,19 +391,10 @@ elif [ -f "$CADDYFILE" ] && grep -qE '^[^#]*\{' "$CADDYFILE" && ! grep -qE '^\s*
   cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%s)"
   note "existing sites found — appending the panel block, nothing removed (backup: $CADDYFILE.bak.*)"
   if ! grep -qE '^\s*admin\s' "$CADDYFILE"; then
-    note "no explicit admin address; Caddy's default is localhost:2019, which is what CADDY_API_URL expects"
+    note "no explicit admin address; Caddy's default is localhost:2019, which is what the panel tunnels to"
   fi
-  {
-    printf '
-# --- Larika panel (added by install.sh) ---
-'
-    printf '%s
-' "$PANEL_BLOCK"
-    grep -q '/etc/caddy/sites/\*.caddy' "$CADDYFILE" || printf '
-# Tenant sites written by the panel
-import /etc/caddy/sites/*.caddy
-'
-  } >> "$CADDYFILE"
+  printf '\n# --- Larika panel (added by install.sh) ---\n%s\n' "$PANEL_BLOCK" >> "$CADDYFILE"
+  CADDY_CHANGED=1
 else
   # Package default or empty: replace.
   [ -f "$CADDYFILE" ] && cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%s)"
@@ -415,15 +406,22 @@ else
 }
 
 $PANEL_BLOCK
-
-# Tenant sites are written here by the panel
-import /etc/caddy/sites/*.caddy
 EOF
+  CADDY_CHANGED=1
 fi
 caddy validate --config "$CADDYFILE" >/dev/null || die "Caddyfile did not validate — restore from $CADDYFILE.bak.* and check"
-systemctl enable caddy >/dev/null 2>&1
-# reload, not restart: existing sites keep serving, no dropped connections
-systemctl reload caddy || systemctl restart caddy
+systemctl enable --now caddy >/dev/null 2>&1
+if [ "$CADDY_CHANGED" = 1 ]; then
+  # reload, not restart: existing sites keep serving, no dropped connections.
+  # Tenant routes do drop - the panel re-pushes them (below on a panel box; the
+  # caddy-routes watchdog within five minutes on a node).
+  systemctl reload caddy || systemctl restart caddy
+else
+  note "Caddyfile unchanged - not reloading, tenant routes stay live"
+fi
+
+# Backend last: it pushes every tenant route through the admin API on start.
+[ "$ROLE" = panel ] && systemctl restart commitbase
 
 # --------------------------------------------------------------- 10. firewall
 if command -v ufw >/dev/null; then
@@ -458,7 +456,6 @@ if [ "$ROLE" = node ]; then
       ssh user   $SSH_USER
       ssh key    the panel's /opt/commitbase/.ssh/id_ed25519
       public ip  ${SERVER_IP:-$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}
-      caddy api  http://127.0.0.1:2019
 
     Verify from the panel:  sudo -u $CB_USER ssh $SSH_USER@<this-host> sudo -n true
     The runner scripts come from the panel on every call - nothing to upgrade here.

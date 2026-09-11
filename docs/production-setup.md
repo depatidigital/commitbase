@@ -28,15 +28,14 @@ the panel or in `.env` afterwards.
 An existing `commitbase` database owned by another role is handed over
 automatically (step 3 explains what that does).
 
-**Caddy already running other sites**: the script appends the panel block and
-the `import /etc/caddy/sites/*.caddy` line to your Caddyfile and reloads (not
-restarts) Caddy. Nothing already in the file is changed; a timestamped backup
-sits next to it. One thing to know from then on: tenant sites are added
-through Caddy's admin API, in memory. A later `systemctl reload caddy` or
-`caddy reload` re-reads the Caddyfile and drops them until each app is
-redeployed or restarted from the panel. Keep hand edits to your own sites in
-the Caddyfile, and after reloading, restart the affected apps from the panel
-(or restart `commitbase.service`, which re-applies them — see step 9).
+**Caddy already running other sites**: the script appends the panel block to
+your Caddyfile and reloads (not restarts) Caddy. Nothing already in the file is
+changed; a timestamped backup sits next to it. A re-run that finds the file
+already correct does not reload at all. One thing to know from then on: tenant
+sites are added through Caddy's admin API, in memory — no site files. A later
+`systemctl reload caddy` or `caddy reload` re-reads the Caddyfile and drops
+them until the `caddy-routes` watchdog restores them (within five minutes) or
+you restart `commitbase.service`, which re-applies them — see step 9.
 
 The rest of this document is the same procedure by hand, for reading what the
 script does or for boxes that differ from the assumptions.
@@ -317,7 +316,7 @@ Write `/opt/commitbase/app/backend/.env`, owned `commitbase:commitbase`, mode
 | Variable | Default | Notes |
 |---|---|---|
 | ~~`CADDY_API_URL`~~ | *removed* | The admin API is unauthenticated, so it is never addressed directly: each node's own `127.0.0.1:2019` is reached through that node's SSH connection |
-| `CADDY_SITES_DIR` | `/etc/caddy/sites` | Read by the server-inventory sync |
+| `CADDY_SITES_DIR` | `/etc/caddy/sites` | Legacy only: where the inventory sync and `caddy/adopt` look for pre-API `.caddy` files. Nothing writes there any more |
 | `APPS_ROOT_DIR` | `/var/www/html` | Document root guessed for synced sites |
 | `APPS_DIR` | `./apps_dir` | Legacy flat app directory — used only for apps with no organization |
 
@@ -548,14 +547,12 @@ panel.example.com {
         file_server
     }
 }
-
-# Tenant sites are written here by the panel
-import /etc/caddy/sites/*.caddy
 ```
 
+That is the whole file. Tenant sites are not in it and there is no sites
+directory to import — they are added through the admin API.
+
 ```bash
-mkdir -p /etc/caddy/sites
-chown caddy:caddy /etc/caddy/sites
 caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy
 ```

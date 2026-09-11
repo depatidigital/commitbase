@@ -186,7 +186,6 @@ yarn db:studio
 | `S3_SECRET_ACCESS_KEY` | S3 secret key | Required for S3 features |
 | `S3_BUCKET_NAME` | S3 bucket name | Required for S3 features |
 | `S3_ROOT_DIR` | S3 base prefix for objects | Empty |
-| `CADDY_API_URL` | Caddy admin API base URL | http://localhost:2019 |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token | Optional |
 | `CLOUDFLARE_ZONE_ID` | Cloudflare zone ID for managed domains | Optional |
 | `CLOUDFLARE_API_BASE` | Cloudflare API base URL | https://api.cloudflare.com/client/v4 |
