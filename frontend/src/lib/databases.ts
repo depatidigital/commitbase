@@ -9,16 +9,38 @@ export interface Database {
   type: 'POSTGRESQL' | 'MYSQL' | 'MONGODB' | 'REDIS' | 'SQLITE';
   version?: string;
   config?: Record<string, any>;
-  applicationId: string;
+  applicationId: string | null;
+  organizationId?: string | null;
+  /** the real name on the server, <org-slug>_<name> */
+  dbName?: string | null;
+  /** found on the server by the inventory sync rather than created by the panel */
+  discovered?: boolean;
+  sizeBytes?: number | null;
+  /** why the last create or drop failed */
+  lastError?: string | null;
+  connectionString?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CreateDatabaseData {
+  /** the part after the org prefix: lowercase letters, digits, underscores */
   name: string;
-  type: Database['type'];
-  version?: string;
-  config?: Record<string, any>;
+  type: 'POSTGRESQL' | 'MYSQL';
+  /** owner — or leave it to the app's organization */
+  organizationId?: string;
+  applicationId?: string;
+}
+
+export interface DatabaseCredentials {
+  engine: 'POSTGRESQL' | 'MYSQL';
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  tls: boolean;
+  url: string;
 }
 
 export interface UpdateDatabaseData {
@@ -50,11 +72,11 @@ export const getDatabase = async (id: string): Promise<Database> => {
   throw new Error(response.error || t('Failed to fetch database'));
 };
 
-// Create new database
-export const createDatabase = async (applicationId: string, data: CreateDatabaseData): Promise<Database> => {
+// Create a database on the organization's database server
+export const createDatabase = async (data: CreateDatabaseData): Promise<Database> => {
   const response = await apiRequest<Database>('/databases', {
     method: 'POST',
-    body: JSON.stringify({ ...data, applicationId }),
+    body: JSON.stringify(data),
   });
   
   if (response.success && response.data) {
@@ -78,10 +100,26 @@ export const updateDatabase = async (id: string, data: UpdateDatabaseData): Prom
   throw new Error(response.error || t('Failed to update database'));
 };
 
-// Delete database
-export const deleteDatabase = async (id: string): Promise<void> => {
+/** Retry a create that failed on the server. */
+export const provisionDatabase = async (id: string): Promise<Database> => {
+  const response = await apiRequest<Database>(`/databases/${id}/provision`, { method: 'POST' });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to create database'));
+};
+
+/** The password — every read is written to the audit log. */
+export const getDatabaseCredentials = async (id: string): Promise<DatabaseCredentials> => {
+  const response = await apiRequest<DatabaseCredentials>(`/databases/${id}/credentials`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to fetch the credentials'));
+};
+
+// Delete database. A database the panel created is dropped on its server, so
+// the caller types its name to confirm.
+export const deleteDatabase = async (id: string, confirm?: string): Promise<void> => {
   const response = await apiRequest(`/databases/${id}`, {
     method: 'DELETE',
+    body: JSON.stringify({ confirm }),
   });
   
   if (!response.success) {

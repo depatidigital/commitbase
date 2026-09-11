@@ -361,6 +361,10 @@ export async function configureCaddyForStaticApplication(
   });
 }
 
+/** A static site whose files uploaded but whose route did not: it is down. */
+export const staticRouteError = (error: any): string =>
+  `Files are in Cloudflare R2, but the Caddy route could not be set: ${error?.message ?? String(error)}`;
+
 export async function configureCaddyForRuntimeApplication(
   node: SshTarget,
   domain: string,

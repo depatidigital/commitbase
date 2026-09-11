@@ -200,17 +200,77 @@ export const detectProject = async (
   throw new Error(response.error || t("Could not inspect the project"));
 };
 
-/** Pull the detection files out of a picked folder (root level only). */
-export const readDetectFiles = async (files: File[]): Promise<Record<string, string>> => {
+/** Branches of a pasted repository URL. Fails for private repos. */
+export const listRepositoryBranches = async (
+  repository: string
+): Promise<{ defaultBranch: string | null; branches: string[] }> => {
+  const response = await apiRequest<{ defaultBranch: string | null; branches: string[] }>(
+    '/applications/branches',
+    { method: 'POST', body: JSON.stringify({ repository }) }
+  );
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not read the branches"));
+};
+
+/**
+ * A file to upload and its path inside the upload. Kept apart from the File
+ * because dropped files carry no webkitRelativePath.
+ */
+export type UploadEntry = { file: File; path: string };
+
+/**
+ * Tidy a raw selection: skip .git and node_modules (never deployed, and
+ * node_modules alone can blow the upload limit), and drop the single folder
+ * everything sits in — a picked or dropped "mysite/" deploys its contents at
+ * the root, index.html rather than mysite/index.html.
+ */
+export const toUploadEntries = (raw: UploadEntry[]): UploadEntry[] => {
+  const items = raw.filter(({ path }) => !path.split('/').some((part) => part === '.git' || part === 'node_modules'));
+  const top = items[0]?.path.split('/')[0];
+  const wrapped = items.length > 0 && items.every(({ path }) => path.includes('/') && path.split('/')[0] === top);
+  return wrapped ? items.map((item) => ({ ...item, path: item.path.slice(top.length + 1) })) : items;
+};
+
+/** From an <input type="file">, folder picker or not. */
+export const entriesFromInput = (files: FileList | null): UploadEntry[] =>
+  toUploadEntries(Array.from(files ?? []).map((file) => ({ file, path: file.webkitRelativePath || file.name })));
+
+/**
+ * From a drop, walking into any folders. The entries must be taken before the
+ * first await — the browser empties the DataTransfer once the event returns.
+ */
+export const entriesFromDrop = async (items: DataTransferItemList): Promise<UploadEntry[]> => {
+  const roots = Array.from(items)
+    .map((item) => item.webkitGetAsEntry())
+    .filter((entry): entry is FileSystemEntry => entry !== null);
+  const out: UploadEntry[] = [];
+
+  const walk = async (entry: FileSystemEntry): Promise<void> => {
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+      out.push({ file, path: entry.fullPath.replace(/^\//, '') });
+    } else if (entry.isDirectory && entry.name !== '.git' && entry.name !== 'node_modules') {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      // readEntries hands back one batch at a time; empty means done
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+        if (batch.length === 0) break;
+        for (const child of batch) await walk(child);
+      }
+    }
+  };
+
+  for (const root of roots) await walk(root);
+  return toUploadEntries(out);
+};
+
+/** Pull the detection files out of an upload (root level only). */
+export const readDetectFiles = async (entries: UploadEntry[]): Promise<Record<string, string>> => {
   const out: Record<string, string> = {};
-  for (const file of files) {
-    const rel = ((file as any).webkitRelativePath as string) || file.name;
-    const parts = rel.split('/');
-    // folder picks are "<folder>/<name>"; single files are just "<name>"
-    const name = parts.length === 2 ? parts[1] : parts.length === 1 ? parts[0] : null;
-    if (!name || !DETECT_FILES.includes(name)) continue;
+  for (const { file, path } of entries) {
+    if (path.includes('/') || !DETECT_FILES.includes(path)) continue;
     // lockfiles: presence is all that matters
-    out[name] = /lock/.test(name) ? '' : await file.slice(0, 256 * 1024).text();
+    out[path] = /lock/.test(path) ? '' : await file.slice(0, 256 * 1024).text();
   }
   return out;
 };
@@ -221,13 +281,12 @@ export const readDetectFiles = async (files: File[]): Promise<Record<string, str
  */
 export const uploadApplicationSource = async (
   id: string,
-  files: File[]
+  entries: UploadEntry[]
 ): Promise<{ files: number }> => {
   const body = new FormData();
-  files.forEach((file) => {
+  entries.forEach(({ file, path }) => {
     body.append('files', file);
-    // folder picks carry their path inside the folder; a plain file has none
-    body.append('paths', (file as any).webkitRelativePath || file.name);
+    body.append('paths', path);
   });
 
   const token = localStorage.getItem('authToken');

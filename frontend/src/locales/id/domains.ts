@@ -160,7 +160,9 @@ export default {
     "Pilih organisasi pemilik {name}. Hanya anggotanya yang dapat membuat aplikasi di domain ini.",
 
   // register page
-  "Price on request": "Harga saat pemesanan",
+  "Price unavailable": "Harga belum tersedia",
+  "The price could not be loaded, so this cannot be registered yet. Try again shortly.":
+    "Harga gagal dimuat, jadi domain ini belum bisa didaftarkan. Coba lagi sebentar lagi.",
   "Checking availability…": "Memeriksa ketersediaan…",
   "Already managed in {app}": "Sudah dikelola di {app}",
   Available: "Tersedia",

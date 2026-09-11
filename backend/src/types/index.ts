@@ -118,10 +118,12 @@ export const UpdateApplicationSchema = z.object({
 
 // Database schemas
 export const CreateDatabaseSchema = z.object({
-  name: z.string().min(1, 'Database name is required'),
+  // the part after the org prefix; databaseName() holds it to identifier rules
+  name: z.string().trim().min(1, 'Database name is required').max(41),
   type: z.enum(['POSTGRESQL', 'MYSQL', 'MONGODB', 'REDIS', 'SQLITE']),
-  version: z.string().optional(),
-  config: z.record(z.any()).optional(),
+  // who owns it: the app's organization when an app is given, else this one
+  organizationId: z.string().min(1).optional(),
+  applicationId: z.string().min(1).optional(),
 });
 
 export const UpdateDatabaseSchema = z.object({

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -26,11 +26,25 @@ import {
   Gitlab,
   Upload,
   FileCode,
+  FileUp,
+  FolderUp,
   Server,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { AppLaunchProgress } from "@/components/AppLaunchProgress";
+import { UploadTree } from "@/components/UploadTree";
 import { useDomains } from "@/hooks/useDomains";
 import { PageLayout } from "@/components/PageLayout";
 import {
@@ -40,7 +54,11 @@ import {
   readDetectFiles,
   uploadApplicationSource,
   startApplication,
+  entriesFromInput,
+  entriesFromDrop,
+  listRepositoryBranches,
   type DnsOutcome,
+  type UploadEntry,
 } from "@/lib/applications";
 import { useGitProjects } from "@/hooks/useGitProjects";
 import { useGitBranches } from "@/hooks/useGitBranches";
@@ -51,16 +69,6 @@ import {
   getGitConnectionStatus,
 } from "@/lib/git";
 import { t } from "@/lib/i18n";
-
-// Function to slugify text (convert to URL-friendly format)
-const slugify = (text: string): string => {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "") // Remove special characters except hyphens
-    .replace(/[\s_-]+/g, "-") // Replace spaces and underscores with hyphens
-    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
-};
 
 // Radix Select forbids an empty-string item value, so "no filter" needs a sentinel.
 const ALL_WORKSPACES = "__all__";
@@ -90,7 +98,7 @@ export default function AddApp() {
   const [repoSource, setRepoSource] = useState<"manual" | "github" | "gitlab">(
     "manual",
   );
-  // 1 = what kind of app, 2 = where its code comes from, 3 = name and domain
+  // 1 = where the code comes from, 2 = type, name and domain
   const [step, setStep] = useState(1);
   // set once the app exists — the wizard turns into a progress view rather than
   // dumping the user on the dashboard while the deploy is still running
@@ -102,7 +110,20 @@ export default function AddApp() {
     uploadFailed: string | null;
   } | null>(null);
   const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
-  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  // everything picked, and the paths unticked in the preview; what detection
+  // and the upload see is the difference
+  const [pickedFiles, setPickedFiles] = useState<UploadEntry[]>([]);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const uploadFiles = useMemo(
+    () => pickedFiles.filter(({ path }) => !excluded.has(path)),
+    [pickedFiles, excluded],
+  );
+  const setUploadFiles = (entries: UploadEntry[]) => {
+    setPickedFiles(entries);
+    setExcluded(new Set());
+  };
+  const [dragging, setDragging] = useState(false);
+  const [domainOpen, setDomainOpen] = useState(false);
   const [detected, setDetected] = useState<DetectedProject | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState("");
@@ -115,19 +136,70 @@ export default function AddApp() {
   const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] =
     useState(ALL_WORKSPACES);
 
+  // an empty subdomain means the root domain
+  const fullDomain = formData.subdomain
+    ? `${formData.subdomain}.${formData.selectedDomain}`
+    : formData.selectedDomain;
+
+  // The domain is picked first and the app name follows it until the user
+  // edits the name — the name is only a label, so it may then differ.
+  const [nameTouched, setNameTouched] = useState(false);
   useEffect(() => {
-    if (formData.name && !formData.subdomain) {
-      const sluggedName = slugify(formData.name);
-      if (sluggedName) {
-        setFormData((prev) => ({ ...prev, subdomain: sluggedName }));
-      }
+    if (!nameTouched) {
+      setFormData((prev) => ({
+        ...prev,
+        name: prev.selectedDomain ? fullDomain : "",
+      }));
     }
-  }, [formData.name, formData.subdomain]);
+  }, [fullDomain, nameTouched]);
+
+  // A pasted URL: read its branches and switch to the default one (not every
+  // repo uses "main"). null = not read, which leaves the branch as free text.
+  const [remoteBranches, setRemoteBranches] = useState<string[] | null>(null);
+  const [remoteDefault, setRemoteDefault] = useState<string | null>(null);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState("");
+  const manualRepo = sourceMode === "git" && repoSource === "manual";
+  useEffect(() => {
+    setRemoteBranches(null);
+    setBranchesError("");
+    const url = formData.repository.trim();
+    if (!manualRepo || !url) return;
+
+    let cancelled = false;
+    // shorter than detection's 800ms, so detection sees the lookup start and waits
+    const timer = setTimeout(async () => {
+      setBranchesLoading(true);
+      try {
+        const { defaultBranch, branches } = await listRepositoryBranches(url);
+        if (cancelled) return;
+        setRemoteBranches(branches);
+        setRemoteDefault(defaultBranch);
+        setFormData((prev) => ({
+          ...prev,
+          branch: defaultBranch || branches[0] || prev.branch,
+        }));
+      } catch (error) {
+        if (!cancelled)
+          setBranchesError(error instanceof Error ? error.message : "");
+      } finally {
+        if (!cancelled) setBranchesLoading(false);
+      }
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      setBranchesLoading(false);
+    };
+  }, [manualRepo, formData.repository]);
 
   // Auto-detect the framework from the source (Vercel-style) and prefill the
   // build settings. Everything stays editable.
   useEffect(() => {
     const isGit = sourceMode === "git";
+    // wait for the branch lookup — detecting "main" on a "master" repo just fails
+    if (isGit && branchesLoading) return;
     const canDetect = isGit
       ? !!formData.repository.trim()
       : uploadFiles.length > 0;
@@ -152,16 +224,25 @@ export default function AddApp() {
         setDetected(result);
         setFormData((prev) => ({
           ...prev,
+          // an unrecognised project leaves the type blank, so the user has
+          // to pick one instead of deploying a wrong guess
           type:
-            result.type === "PYTHON" ? "NODEJS" : result.type,
+            result.framework === null
+              ? ""
+              : result.type === "PYTHON"
+                ? "NODEJS"
+                : result.type,
           buildCommand: result.buildCommand || "",
           startCommand: result.startCommand || "",
         }));
       } catch (error) {
-        if (!cancelled)
+        if (!cancelled) {
           setDetectError(
             error instanceof Error ? error.message : t("Detection failed"),
           );
+          // whatever an earlier source detected no longer applies
+          setFormData((prev) => ({ ...prev, type: "" }));
+        }
       } finally {
         if (!cancelled) setDetecting(false);
       }
@@ -172,17 +253,12 @@ export default function AddApp() {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceMode, formData.repository, formData.branch, uploadFiles]);
+  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // Enter on an earlier step must not fire the deploy
-    if (step < 3) return;
-
-    // Construct full domain from selected domain and subdomain
-    const fullDomain = formData.subdomain
-      ? `${formData.subdomain}.${formData.selectedDomain}`
-      : formData.selectedDomain;
+    if (step < 2) return;
 
     // Parse environment variables
     const envVars: Record<string, string> = {};
@@ -297,15 +373,16 @@ export default function AddApp() {
     },
   ];
 
-  const steps = [t("App type"), t("Source"), t("Name & domain")];
+  // no type step: detection fills it from the source, and it is corrected
+  // on the configure step next to the detection result
+  const steps = [t("Source"), t("Configure")];
 
   const stepComplete = (value: number) => {
-    if (value === 1) return !!formData.type;
-    if (value === 2)
+    if (value === 1)
       return sourceMode === "upload"
         ? uploadFiles.length > 0
         : !!formData.repository;
-    return !!formData.name && !!formData.selectedDomain;
+    return !!formData.name && !!formData.selectedDomain && !!formData.type;
   };
 
   const availableDomains =
@@ -530,7 +607,7 @@ export default function AddApp() {
     <PageLayout
       backTo="/"
       title={t("Add App")}
-      description={t("Pick a type, point at the code, then name it.")}
+      description={t("Point at the code, then name it — the type is detected.")}
     >
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Wizard progress */}
@@ -563,47 +640,6 @@ export default function AddApp() {
         </ol>
 
         {step === 1 && (
-          <Card className="bg-gradient-card border-border/50 shadow-elegant">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Zap className="h-5 w-5 text-primary" />
-                <span>{t("What are you deploying?")}</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-3">
-              {appTypeOptions.map((option) => {
-                const Icon = option.icon;
-                const selected = formData.type === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      handleInputChange("type", option.value);
-                      // uploading is the usual route for a static site, git for the rest
-                      setSourceMode(
-                        option.value === "STATIC" ? "upload" : "git",
-                      );
-                    }}
-                    className={`rounded-lg border p-5 text-left transition-colors ${
-                      selected
-                        ? "border-primary bg-primary/5"
-                        : "border-border/60 hover:border-primary/40"
-                    }`}
-                  >
-                    <Icon className="mb-3 h-6 w-6 text-primary" />
-                    <div className="font-medium">{option.label}</div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {option.description}
-                    </p>
-                  </button>
-                );
-              })}
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 2 && (
           <>
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardHeader>
@@ -652,40 +688,86 @@ export default function AddApp() {
 
                 {sourceMode === "upload" && (
                   <div className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="upload-files">{t("Files")}</Label>
-                        <Input
-                          id="upload-files"
-                          type="file"
-                          multiple
-                          onChange={(e) =>
-                            setUploadFiles(Array.from(e.target.files || []))
-                          }
-                        />
+                    {/* one target for both: drop anything, or pick — a file
+                        input can open files or a folder, never both, hence two buttons */}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragging(true);
+                      }}
+                      // moving over the buttons inside also fires dragleave
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node))
+                          setDragging(false);
+                      }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        setDragging(false);
+                        setUploadFiles(await entriesFromDrop(e.dataTransfer.items));
+                      }}
+                      className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+                        dragging
+                          ? "border-primary bg-primary/5"
+                          : "border-border/60"
+                      }`}
+                    >
+                      <Upload className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm font-medium">
+                        {t("Drop files or a folder here")}
+                      </p>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <Button asChild type="button" variant="outline" size="sm">
+                          <label htmlFor="upload-files" className="cursor-pointer">
+                            <FileUp className="mr-2 h-4 w-4" />
+                            {t("Choose files")}
+                          </label>
+                        </Button>
+                        <Button asChild type="button" variant="outline" size="sm">
+                          <label htmlFor="upload-folder" className="cursor-pointer">
+                            <FolderUp className="mr-2 h-4 w-4" />
+                            {t("Choose folder")}
+                          </label>
+                        </Button>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="upload-folder">{t("Folder")}</Label>
-                        <Input
-                          id="upload-folder"
-                          type="file"
-                          multiple
-                          // folder picking is a non-standard attribute, hence the cast
-                          {...({ webkitdirectory: "", directory: "" } as any)}
-                          onChange={(e) =>
-                            setUploadFiles(Array.from(e.target.files || []))
-                          }
-                        />
-                      </div>
+                      <input
+                        id="upload-files"
+                        type="file"
+                        multiple
+                        hidden
+                        onChange={(e) => {
+                          setUploadFiles(entriesFromInput(e.target.files));
+                          // picking the same thing again must fire onChange again
+                          e.target.value = "";
+                        }}
+                      />
+                      <input
+                        id="upload-folder"
+                        type="file"
+                        multiple
+                        hidden
+                        // folder picking is a non-standard attribute, hence the cast
+                        {...({ webkitdirectory: "", directory: "" } as any)}
+                        onChange={(e) => {
+                          setUploadFiles(entriesFromInput(e.target.files));
+                          e.target.value = "";
+                        }}
+                      />
                     </div>
-                    {uploadFiles.length > 0 ? (
+                    {pickedFiles.length > 0 && (
+                      <UploadTree
+                        entries={pickedFiles}
+                        excluded={excluded}
+                        onExcludedChange={setExcluded}
+                      />
+                    )}
+                    {pickedFiles.length > 0 ? (
                       <p className="text-sm text-muted-foreground">
                         {(() => {
                           const vars = {
                             count: uploadFiles.length,
                             size: (
                               uploadFiles.reduce(
-                                (sum, file) => sum + file.size,
+                                (sum, { file }) => sum + file.size,
                                 0,
                               ) /
                               (1024 * 1024)
@@ -787,14 +869,50 @@ export default function AddApp() {
 
                     <div className="space-y-2">
                       <Label htmlFor="branch">{t("Branch")}</Label>
-                      <Input
-                        id="branch"
-                        placeholder="main"
-                        value={formData.branch}
-                        onChange={(e) =>
-                          handleInputChange("branch", e.target.value)
-                        }
-                      />
+                      {remoteBranches && remoteBranches.length > 0 ? (
+                        <Select
+                          value={formData.branch}
+                          onValueChange={(value) =>
+                            handleInputChange("branch", value)
+                          }
+                        >
+                          <SelectTrigger id="branch">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {remoteBranches.map((branch) => (
+                              <SelectItem key={branch} value={branch}>
+                                {branch}
+                                {branch === remoteDefault && (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    {t("default")}
+                                  </span>
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          id="branch"
+                          placeholder="main"
+                          value={formData.branch}
+                          disabled={branchesLoading}
+                          onChange={(e) =>
+                            handleInputChange("branch", e.target.value)
+                          }
+                        />
+                      )}
+                      {branchesLoading ? (
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
+                          {t("Reading branches…")}
+                        </p>
+                      ) : branchesError ? (
+                        <p className="text-xs text-muted-foreground">
+                          {t("Could not read the branches (private repository?) — type the branch name.")}
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 )}
@@ -1183,132 +1301,195 @@ export default function AddApp() {
           </>
         )}
 
-        {step === 3 && (
+        {step === 2 && (
           <>
+            {/* one card: domain first, then the name it prefills, then the
+                type — which lives next to what detection guessed, so a wrong
+                guess is fixed where it is shown */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Zap className="h-5 w-5 text-primary" />
-                  <span>{t("Basic Information")}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <CardContent className="space-y-5 pt-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="subdomain">
+                      {t("Domain Configuration")}{" "}
+                      <span className="text-red-500">*</span>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Globe className="min-w-4 min-h-4 text-muted-foreground" />
+                      <Input
+                        id="subdomain"
+                        placeholder="app"
+                        value={formData.subdomain}
+                        onChange={(e) =>
+                          handleInputChange("subdomain", e.target.value.trim().toLowerCase())
+                        }
+                      />
+                      <span className="text-muted-foreground">.</span>
+                      <Popover open={domainOpen} onOpenChange={setDomainOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            id="domain-select"
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={domainOpen}
+                            aria-invalid={!formData.selectedDomain}
+                            // red until picked — the deploy button stays disabled without it
+                            className={`w-full justify-between bg-card font-normal ${
+                              formData.selectedDomain
+                                ? ""
+                                : "border-destructive text-destructive hover:text-destructive"
+                            }`}
+                          >
+                            <span className="truncate">
+                              {formData.selectedDomain || t("Select a domain")}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 p-0" align="end">
+                          {/* the whole list is already loaded, so cmdk filters it locally */}
+                          <Command>
+                            <CommandInput placeholder={t("Search domains…")} />
+                            <CommandList>
+                              <CommandEmpty>{t("No domains found.")}</CommandEmpty>
+                              <CommandGroup>
+                                {availableDomains.map((domain) => {
+                                  const apps = domain._count?.applications ?? 0;
+                                  return (
+                                    <CommandItem
+                                      key={domain.id}
+                                      value={domain.name}
+                                      onSelect={() => {
+                                        handleInputChange("selectedDomain", domain.name);
+                                        setDomainOpen(false);
+                                      }}
+                                    >
+                                      <Check
+                                        className={`mr-2 h-4 w-4 shrink-0 ${
+                                          formData.selectedDomain === domain.name
+                                            ? "opacity-100"
+                                            : "opacity-0"
+                                        }`}
+                                      />
+                                      <span className="flex-1 truncate">{domain.name}</span>
+                                      <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                                        {apps === 0
+                                          ? t("Unused")
+                                          : apps === 1
+                                            ? t("{count} app", { count: apps })
+                                            : t("{count} apps", { count: apps })}
+                                      </span>
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    {/* the result and the hint on one line */}
+                    <p className="text-xs text-muted-foreground">
+                      {formData.selectedDomain && (
+                        <>
+                          <span className="font-mono text-foreground">{fullDomain}</span>
+                          {" · "}
+                        </>
+                      )}
+                      {t("Leave the subdomain empty to use the root domain.")}
+                    </p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="name">
                       {t("App Name")} <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       id="name"
-                      placeholder="my-awesome-app"
+                      placeholder={t("Filled from the domain")}
                       value={formData.name}
-                      onChange={(e) =>
-                        handleInputChange("name", e.target.value)
-                      }
+                      onChange={(e) => {
+                        setNameTouched(true);
+                        handleInputChange("name", e.target.value);
+                      }}
                       required
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {t("Follows the domain — change it for a friendlier label.")}
+                    </p>
                   </div>
+                </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="subdomain">
-                      {t("Domain Configuration")}{" "}
-                      <span className="text-red-500">*</span>
+                <div className="space-y-2">
+                  {/* what detection found sits on the heading line */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Label>
+                      {t("App type")} <span className="text-red-500">*</span>
                     </Label>
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <Globe className="min-w-4 min-h-4 text-muted-foreground" />
-                        <Input
-                          id="subdomain"
-                          placeholder="app"
-                          value={formData.subdomain}
-                          onChange={(e) =>
-                            handleInputChange("subdomain", e.target.value)
-                          }
-                        />
-                        <span className="text-muted-foreground">.</span>
-                        <Select
-                          value={formData.selectedDomain}
-                          onValueChange={(value) =>
-                            handleInputChange("selectedDomain", value)
-                          }
-                        >
-                          <SelectTrigger id="domain-select">
-                            <SelectValue placeholder={t("Select a domain")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableDomains.map((domain) => (
-                              <SelectItem key={domain.id} value={domain.name}>
-                                <div className="flex items-center space-x-2">
-                                  <CheckCircle className="h-4 w-4 text-green-500" />
-                                  <span>{domain.name}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {formData.selectedDomain && (
-                        <div className="text-xs text-muted-foreground">
-                          {t("Full domain:")}{" "}
-                          <span className="font-mono">
-                            {formData.subdomain}.{formData.selectedDomain}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                    {detecting ? (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
+                        {t("Inspecting the project…")}
+                      </span>
+                    ) : detectError ? (
+                      <span className="flex items-center gap-1.5 text-xs text-destructive">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        {t("{error} — fill the build settings by hand.", {
+                          error: detectError,
+                        })}
+                      </span>
+                    ) : detected ? (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                        {t("Detected: {label}", { label: detected.label })}
+                        {" · "}
+                        {detected.packageManager}
+                        {detected.nodeVersion && ` · Node ${detected.nodeVersion}`}
+                      </span>
+                    ) : null}
                   </div>
+                  <div className="flex flex-wrap gap-2">
+                    {appTypeOptions.map((option) => {
+                      const Icon = option.icon;
+                      const selected = formData.type === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={selected}
+                          title={option.description}
+                          onClick={() => handleInputChange("type", option.value)}
+                          className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                            selected
+                              ? "border-primary bg-primary/5 font-medium text-primary"
+                              : "border-border/60 hover:border-primary/40"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!formData.type && !detecting ? (
+                    <p className="text-xs text-destructive">
+                      {t("Could not tell what this project is — pick its type.")}
+                    </p>
+                  ) : detected ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("Install:")} <code>{detected.installCommand}</code>
+                      {detected.buildCommand && (
+                        <> · {t("Build:")} <code>{detected.buildCommand}</code></>
+                      )}
+                      {detected.startCommand && (
+                        <> · {t("Start:")} <code>{detected.startCommand}</code></>
+                      )}
+                    </p>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>
-
-            {/* Uploaded sources deploy as-is, so there is nothing to build */}
-            {(detecting || detected || detectError) && (
-              <Card className="bg-gradient-card border-border/50 shadow-elegant">
-                <CardContent className="pt-6">
-                  {detecting ? (
-                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
-                      {t("Inspecting the project…")}
-                    </p>
-                  ) : detectError ? (
-                    <p className="flex items-center gap-2 text-sm text-destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      {t("{error} — fill the build settings by hand.", {
-                        error: detectError,
-                      })}
-                    </p>
-                  ) : detected ? (
-                    <div className="space-y-2">
-                      <p className="flex items-center gap-2 text-sm font-medium">
-                        <CheckCircle className="h-4 w-4 text-primary" />
-                        {t("Detected: {label}", { label: detected.label })}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{detected.packageManager}</Badge>
-                        {detected.nodeVersion && (
-                          <Badge variant="outline">Node {detected.nodeVersion}</Badge>
-                        )}
-                        <Badge variant="outline">{detected.type}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {t("Install:")} <code>{detected.installCommand}</code>
-                        {detected.buildCommand && (
-                          <> · {t("Build:")} <code>{detected.buildCommand}</code></>
-                        )}
-                        {detected.startCommand && (
-                          <> · {t("Start:")} <code>{detected.startCommand}</code></>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {t(
-                          "App type and commands below were filled from this. Change them if the guess is wrong.",
-                        )}
-                      </p>
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
-            )}
 
             {!(sourceMode === "upload" && formData.type === "STATIC") && (
               <Card className="bg-gradient-card border-border/50 shadow-elegant">
@@ -1403,7 +1584,7 @@ export default function AddApp() {
             {step === 1 ? t("Cancel") : t("Back")}
           </Button>
 
-          {step < 3 ? (
+          {step < 2 ? (
             <Button
               type="button"
               disabled={!stepComplete(step)}
@@ -1415,7 +1596,7 @@ export default function AddApp() {
           ) : (
             <Button
               type="submit"
-              disabled={!stepComplete(3) || createApp.isPending}
+              disabled={!stepComplete(2) || createApp.isPending}
               className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300 min-w-[140px]"
             >
               {createApp.isPending ? (

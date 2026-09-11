@@ -36,7 +36,7 @@ export const useCreateDatabase = () => {
 
   return useMutation({
     mutationFn: ({ applicationId, data }: { applicationId: string; data: CreateDatabaseData }) =>
-      createDatabase(applicationId, data),
+      createDatabase({ ...data, applicationId }),
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
@@ -84,7 +84,7 @@ export const useDeleteDatabase = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: deleteDatabase,
+    mutationFn: (id: string) => deleteDatabase(id),
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),

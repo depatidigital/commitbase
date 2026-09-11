@@ -93,7 +93,17 @@ function cacheControlFor(key: string): string {
   return 'public, max-age=31536000, immutable';
 }
 
-export async function uploadSiteObject(bucket: string, key: string, body: Buffer): Promise<void> {
+/**
+ * Buckets are public. A site published straight from a repository or a picked
+ * folder would otherwise hand out .git/, .env and node_modules/ to anyone.
+ */
+export const isPublishable = (key: string): boolean =>
+  key.split('/').every((part) => part !== 'node_modules' && (!part.startsWith('.') || part === '.well-known'));
+
+/** Returns false, uploading nothing, for a path that must stay private. */
+export async function uploadSiteObject(bucket: string, key: string, body: Buffer): Promise<boolean> {
+  if (!isPublishable(key)) return false;
+
   const config = getR2Config();
   if (!config) {
     throw new Error('R2 is not configured');
@@ -108,6 +118,7 @@ export async function uploadSiteObject(bucket: string, key: string, body: Buffer
       CacheControl: cacheControlFor(key),
     })
   );
+  return true;
 }
 
 /**
@@ -186,11 +197,11 @@ export async function uploadSiteDirectory(bucket: string, localDir: string): Pro
       const fullPath = path.join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
-        await walk(fullPath);
+        // don't even descend into .git / node_modules
+        if (isPublishable(entry.name)) await walk(fullPath);
       } else if (entry.isFile()) {
         const key = path.relative(localDir, fullPath).split(path.sep).join('/');
-        await uploadSiteObject(bucket, key, await fs.readFile(fullPath));
-        count += 1;
+        if (await uploadSiteObject(bucket, key, await fs.readFile(fullPath))) count += 1;
       }
     }
   }

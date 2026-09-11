@@ -32,14 +32,14 @@ const periodOptions = (offer: DomainOffer): number[] => {
     .filter((n) => Number.isFinite(n) && n > 0)
     .sort((a, b) => a - b);
 
-  // an extension with no price list can still be registered — the registrar
-  // quotes it at purchase time, so offer a plain one-year default
+  // no price list (RDASH unreachable): keep a one-year row so the panel still
+  // renders — registering stays blocked until a price comes back
   return periods.length > 0 ? periods : [1];
 };
 
 const money = (amount: number | null, currency: string) =>
   amount === null
-    ? t("Price on request")
+    ? t("Price unavailable")
     : new Intl.NumberFormat(locale, {
         style: "currency",
         currency,
@@ -134,6 +134,8 @@ const DomainRegister = () => {
   const ideas = useDomainSearch();
 
   const registerDomain = useRegisterDomain();
+  // never ask the admin to approve a charge they cannot see
+  const priced = selected?.periods[years] != null;
 
   const pick = (offer: DomainOffer) => {
     setSelected(offer);
@@ -400,7 +402,7 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
               className="w-full bg-gradient-primary"
               onClick={() => setConfirming(true)}
               disabled={
-                registerDomain.isPending || !selected || !organizationId
+                registerDomain.isPending || !selected || !priced || !organizationId
               }
             >
               {registerDomain.isPending && (
@@ -463,6 +465,14 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            {selected && !priced && (
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  "The price could not be loaded, so this cannot be registered yet. Try again shortly.",
+                )}
+              </p>
+            )}
 
             {selected && !organizationId && (
               <p className="text-xs text-muted-foreground">

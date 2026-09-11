@@ -11,7 +11,7 @@ export default {
   "Node app built and run as a service on the server.": "Aplikasi Node yang di-build dan dijalankan sebagai layanan di server.",
   "App type": "Tipe aplikasi",
   Source: "Sumber",
-  "Name & domain": "Nama & domain",
+  Configure: "Konfigurasi",
   "GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.":
     "OAuth GitHub belum dikonfigurasi di server. Silakan atur GITHUB_CLIENT_ID dan GITHUB_CLIENT_SECRET.",
   "Could not start GitHub OAuth flow.": "Tidak dapat memulai alur OAuth GitHub.",
@@ -28,16 +28,25 @@ export default {
   "You need to have at least one active domain to deploy applications. Please add a domain first.":
     "Anda memerlukan setidaknya satu domain aktif untuk men-deploy aplikasi. Silakan tambahkan domain terlebih dahulu.",
   "Manage Domains": "Kelola Domain",
-  "Pick a type, point at the code, then name it.": "Pilih tipe, tentukan sumber kode, lalu beri nama.",
-  "What are you deploying?": "Apa yang ingin Anda deploy?",
+  "Point at the code, then name it — the type is detected.":
+    "Tentukan sumber kode, lalu beri nama — tipenya terdeteksi otomatis.",
   "Where does the code come from?": "Dari mana asal kodenya?",
   "Git repository": "Repositori Git",
   "Clone from GitHub, GitLab, or any repository URL.": "Clone dari GitHub, GitLab, atau URL repositori apa pun.",
   "Upload files or folder": "Unggah file atau folder",
   "Send files straight from this machine. No repository needed.":
     "Kirim file langsung dari perangkat ini. Tidak perlu repositori.",
-  Files: "File",
-  Folder: "Folder",
+  "Drop files or a folder here": "Tarik file atau folder ke sini",
+  "Choose files": "Pilih file",
+  "Choose folder": "Pilih folder",
+  "Reading branches…": "Membaca branch…",
+  "Could not read the branches": "Gagal membaca branch",
+  "Could not read the branches (private repository?) — type the branch name.":
+    "Branch tidak bisa dibaca (repositori privat?) — ketik nama branch-nya.",
+  default: "default",
+  "{count} files": "{count} file",
+  Collapse: "Tutup",
+  Expand: "Buka",
   "{count} file ready — {size} MB": "{count} file siap — {size} MB",
   "{count} files ready — {size} MB": "{count} file siap — {size} MB",
   "Pick the files or the folder to deploy.": "Pilih file atau folder yang akan di-deploy.",
@@ -89,14 +98,25 @@ export default {
   "Domain Configuration": "Konfigurasi Domain",
   "Select a domain": "Pilih domain",
   "Full domain:": "Domain lengkap:",
+  "No domains found.": "Domain tidak ditemukan.",
+  Unused: "Belum dipakai",
+  "{count} app": "{count} aplikasi",
+  "{count} apps": "{count} aplikasi",
+  "Filled from the domain": "Terisi dari domain",
+  "Follows the domain — change it for a friendlier label.":
+    "Mengikuti domain — ubah jika ingin label yang lebih mudah dibaca.",
+  "Leave the subdomain empty to use the root domain.":
+    "Kosongkan subdomain untuk memakai domain utama (root).",
   "Inspecting the project…": "Memeriksa proyek…",
   "{error} — fill the build settings by hand.": "{error} — isi pengaturan build secara manual.",
   "Detected: {label}": "Terdeteksi: {label}",
   "Install:": "Instal:",
   "Build:": "Build:",
   "Start:": "Start:",
-  "App type and commands below were filled from this. Change them if the guess is wrong.":
-    "Tipe aplikasi dan perintah di bawah diisi berdasarkan hasil ini. Ubah jika tebakannya salah.",
+  "App type and commands were filled from this. Change them if the guess is wrong.":
+    "Tipe aplikasi dan perintah diisi berdasarkan hasil ini. Ubah jika tebakannya salah.",
+  "Could not tell what this project is — pick its type.":
+    "Jenis proyek ini tidak terdeteksi — pilih tipenya.",
   "Build & Runtime Configuration": "Konfigurasi Build & Runtime",
   "(assigned automatically — set only if the app ignores $PORT)":
     "(ditetapkan otomatis — isi hanya jika aplikasi mengabaikan $PORT)",

@@ -3,8 +3,15 @@ import { prisma } from '../lib/prisma';
 import { CreateDatabaseSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { orgScope } from '../lib/scope';
+import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
+import {
+  ProvisionError,
+  databaseCredentials,
+  databaseName,
+  dropDatabase,
+  provisionDatabase,
+} from '../services/databaseProvisionService';
 
 const router = Router();
 
@@ -235,6 +242,70 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
+  }
+});
+
+/** A database the caller may manage (owner/admin of its org, or a platform admin), or null. */
+async function manageable(req: AuthenticatedRequest, id: string) {
+  const database = await prisma.database.findFirst({
+    where: { id, ...(await databaseScope(req)) },
+    include: { application: { select: { organizationId: true } } },
+  });
+  if (!database) return null;
+  const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
+  const allowed = ownerOrg ? await canManageOrg(req, ownerOrg) : isPlatformAdmin(req);
+  return allowed ? database : null;
+}
+
+// Retry a create that failed on the server. Safe to repeat.
+router.post('/:id/provision', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const database = await manageable(req, req.params.id as string);
+    if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
+    if (database.discovered) {
+      return res.status(400).json({ success: false, error: 'An imported database is not provisioned by the panel' } as ApiResponse);
+    }
+
+    const result = await provisionDatabase(database.id);
+    const fresh = await prisma.database.findUnique({ where: { id: database.id } });
+    return res.status(result.ok ? 200 : 502).json({
+      success: result.ok,
+      data: fresh,
+      ...(result.ok ? { message: 'Database is ready' } : { error: result.error }),
+    } as ApiResponse);
+  } catch (error) {
+    if (error instanceof ProvisionError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Provision database error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// The password, for the people who manage the org. Every read is logged.
+router.get('/:id/credentials', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const database = await manageable(req, req.params.id as string);
+    if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
+
+    const credentials = await databaseCredentials(database.id);
+    await prisma.log.create({
+      data: {
+        level: 'INFO',
+        message: `Credentials revealed for database ${credentials.database}`,
+        userId: req.user!.userId,
+        applicationId: database.applicationId,
+        metadata: { databaseId: database.id, username: credentials.username },
+      },
+    });
+
+    return res.json({ success: true, data: credentials } as ApiResponse);
+  } catch (error) {
+    if (error instanceof ProvisionError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Database credentials error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 

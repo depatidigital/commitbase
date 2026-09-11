@@ -18,6 +18,8 @@ export interface Domain {
   cfZoneId?: string | null;
   expiresAt?: string | null;
   lastSyncedAt?: string | null;
+  /** list endpoint only */
+  _count?: { applications: number };
   createdAt: string;
   updatedAt: string;
   userId: string;

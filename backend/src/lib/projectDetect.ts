@@ -1,10 +1,13 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+// execFile, never a shell: the repository URL is user input, and inside a
+// shell string `$(...)` or backticks in it would run
+const execFileAsync = promisify(execFile);
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 
 /**
  * Framework / package-manager detection, the way Vercel and Nixpacks do it:
@@ -249,26 +252,65 @@ export async function detectProject(dir: string): Promise<DetectedProject> {
  * Detect straight from a git remote without a full clone: blobless shallow
  * clone, then check out only the detection files. Works with any host.
  */
+const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
+
 export async function detectFromRepo(repository: string, branch = 'main'): Promise<DetectedProject> {
-  if (!/^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/.test(repository)) throw new Error('Invalid repository URL');
-  if (!/^[A-Za-z0-9._\/-]+$/.test(branch)) throw new Error('Invalid branch name');
+  if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) throw new Error('Invalid branch name');
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-detect-'));
   try {
-    await execAsync(
-      `git clone --quiet --depth 1 --filter=blob:none --no-checkout --branch "${branch}" "${repository}" "${tmp}"`,
-      { timeout: 60000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }
+    await execFileAsync(
+      'git',
+      ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--branch', branch, repository, tmp],
+      { timeout: 60000, env: GIT_ENV }
     );
     // One checkout per file: a missing file fails the command, the others still land.
     await Promise.all(
       DETECT_FILES.map((name) =>
-        execAsync(`git -C "${tmp}" checkout --quiet HEAD -- "${name}"`, { timeout: 30000 }).catch(() => {})
+        execFileAsync('git', ['-C', tmp, 'checkout', '--quiet', 'HEAD', '--', name], { timeout: 30000 }).catch(() => {})
       )
     );
     return detectProject(tmp);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+export type RemoteBranches = { defaultBranch: string | null; branches: string[] };
+
+/**
+ * Parse `git ls-remote --symref <url>`: the `ref: refs/heads/X\tHEAD` line
+ * names the default branch, every `refs/heads/*` line is a branch.
+ */
+export function parseLsRemote(output: string): RemoteBranches {
+  let defaultBranch: string | null = null;
+  const branches: string[] = [];
+
+  for (const line of output.split(/\r?\n/)) {
+    const symref = line.match(/^ref: refs\/heads\/(.+)\tHEAD$/);
+    if (symref?.[1]) {
+      defaultBranch = symref[1];
+      continue;
+    }
+    const head = line.match(/^[0-9a-f]+\trefs\/heads\/(.+)$/);
+    if (head?.[1]) branches.push(head[1]);
+  }
+
+  // default first, the rest alphabetical
+  branches.sort((a, b) => Number(b === defaultBranch) - Number(a === defaultBranch) || a.localeCompare(b));
+  return { defaultBranch, branches };
+}
+
+/** Branches of any remote, without cloning. Private repos fail — no credentials are sent. */
+export async function listRemoteBranches(repository: string): Promise<RemoteBranches> {
+  if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
+  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', repository], {
+    timeout: 30000,
+    env: GIT_ENV,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  return parseLsRemote(stdout);
 }
 
 /**

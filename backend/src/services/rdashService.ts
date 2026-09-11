@@ -394,7 +394,9 @@ export async function getRdashPricing(): Promise<Record<string, TldPrice>> {
     console.error('RDASH pricing unavailable:', (error as Error).message);
   }
 
-  priceCache = { at: Date.now(), prices };
+  // an empty list is a failed read — caching it would hide prices for an hour
+  // after RDASH recovers
+  if (Object.keys(prices).length > 0) priceCache = { at: Date.now(), prices };
   return prices;
 }
 

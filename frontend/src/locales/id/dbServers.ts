@@ -89,6 +89,38 @@ export default {
   "No logins found. MySQL needs SELECT on the mysql schema to list them.":
     "Tidak ada login. MySQL memerlukan SELECT pada skema mysql untuk menampilkannya.",
 
+  // databases page: create, credentials, delete
+  "Create database": "Buat database",
+  "No databases yet.": "Belum ada database.",
+  "Created on the organization's database server and owned by its own login there — nobody else can connect to it.":
+    "Dibuat di server database organisasi dan dimiliki login organisasi itu sendiri — tidak ada pihak lain yang bisa terhubung.",
+  "Lowercase letters, digits and underscores, starting with a letter.":
+    "Huruf kecil, angka, dan garis bawah, diawali huruf.",
+  "Created on the server as {name}": "Dibuat di server sebagai {name}",
+  "The organization's name is added in front, so tenants never collide.":
+    "Nama organisasi ditambahkan di depan, jadi antar-tenant tidak pernah bentrok.",
+  "Database {name} created": "Database {name} dibuat",
+  "Database is ready": "Database siap",
+  "Database deleted": "Database dihapus",
+  Retry: "Coba lagi",
+  Credentials: "Kredensial",
+  "Credentials for {name}": "Kredensial untuk {name}",
+  "Viewing these is recorded in the audit log.": "Melihat kredensial ini tercatat di log audit.",
+  Username: "Nama pengguna",
+  Hide: "Sembunyikan",
+  "Connection URL": "URL koneksi",
+  "This server is reached over the network — connect with TLS.":
+    "Server ini dijangkau lewat jaringan — hubungkan dengan TLS.",
+  "Failed to fetch the credentials": "Gagal memuat kredensial",
+  "Remove from panel": "Hapus dari panel",
+  "Removed from the panel": "Dihapus dari panel",
+  "Remove {name} from the panel?": "Hapus {name} dari panel?",
+  "It was imported from its server and stays there untouched. The next sync lists it again, unassigned.":
+    "Database ini diimpor dari servernya dan tetap utuh di sana. Sinkronisasi berikutnya akan menampilkannya lagi, belum ditetapkan.",
+  "The database and all its data are dropped on the server. This cannot be undone.":
+    "Database beserta seluruh datanya dihapus di server. Tindakan ini tidak dapat dibatalkan.",
+  "Type {name} to confirm": "Ketik {name} untuk mengonfirmasi",
+
   // organization placement
   "Database placement": "Penempatan database",
   "Database placement saved": "Penempatan database disimpan",

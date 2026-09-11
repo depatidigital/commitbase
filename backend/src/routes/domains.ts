@@ -105,6 +105,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
         where,
         include: {
           organization: { select: { id: true, name: true, slug: true } },
+          // how many apps already sit on it — shown in the add-app domain picker
+          _count: { select: { applications: true } },
         },
         orderBy: sortOrder(req.query.sort, req.query.order),
         ...(paged && { skip, take: limit }),
@@ -317,10 +319,17 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
       return res.status(400).json({ success: false, error: 'Domain name and owning organization are required' } as ApiResponse);
     }
 
-    // RDASH prices whole periods, and only sells the ones it lists
+    // RDASH prices whole periods, and only sells the ones it lists. No price
+    // means the admin never saw what this costs, so it is refused, not bought blind.
     const tld = domainName.split('.').slice(1).join('.');
     const pricing = (await getRdashPricing())[tld];
-    if (pricing && !pricing.registration[years]) {
+    if (!pricing) {
+      return res.status(400).json({
+        success: false,
+        error: `The price for .${tld} is not available right now — try again shortly`,
+      } as ApiResponse);
+    }
+    if (!pricing.registration[years]) {
       return res.status(400).json({
         success: false,
         error: `.${tld} is not sold for ${years} year${years > 1 ? 's' : ''}`,

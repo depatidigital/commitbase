@@ -5,7 +5,7 @@ import * as path from 'path';
 import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
-import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication } from './caddyService';
+import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication, staticRouteError } from './caddyService';
 import { appUnit, appBuild, OS_ISOLATION_ENABLED } from './orgProvisionService';
 import { orgSlugForApp, appDirFor } from '../lib/appPaths';
 import { serverForApplication } from '../lib/servers';
@@ -663,7 +663,6 @@ export class DeploymentService {
         // nothing to build, so keep the deployment green instead of running a
         // build command against an empty sources tree.
         const prebuilt = !application.repository && !application.buildCommand;
-        const buildCommand = application.buildCommand || 'npm run build';
 
         if (prebuilt) {
           const uploadTimestamp = new Date().toISOString();
@@ -673,6 +672,20 @@ export class DeploymentService {
           await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
 
           const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+
+          // the files are fine, but without its route the site is down — say
+          // so instead of reporting green. Redeploying retries just this step.
+          try {
+            await configureCaddyForStaticApplication(
+              await serverForApplication(application.id),
+              application.id,
+              application.domain,
+              (application as any).staticOrigin
+            );
+          } catch (error: any) {
+            const message = staticRouteError(error);
+            return { success: false, error: message, buildLogs, deployLogs: message };
+          }
 
           await prisma.deployment.update({
             where: { id: deployment.id },
@@ -688,16 +701,6 @@ export class DeploymentService {
             data: { status: 'RUNNING', lastDeployment: new Date() },
           });
 
-          try {
-            await configureCaddyForStaticApplication(
-              await serverForApplication(application.id),
-              application.id,
-              application.domain,
-              (application as any).staticOrigin
-            );
-          } catch {
-          }
-
           return {
             success: true,
             buildLogs,
@@ -705,27 +708,49 @@ export class DeploymentService {
           };
         }
 
+        // NODE_ENV stays unset: production would make the install skip the
+        // devDependencies that vite / react-scripts live in
         const staticBuildEnv = {
           ...process.env,
           ...envVars,
-          NODE_ENV: 'production',
         };
 
         try {
           const staticStartTimestamp = new Date().toISOString();
           await fs.appendFile(buildLogPath, `[${staticStartTimestamp}] STATIC BUILD STARTED\n`);
 
-          const { stdout, stderr } = await execAsync(buildCommand, {
-            cwd: sourcesDir,
-            timeout: 600000,
-            env: staticBuildEnv,
-          });
+          // Same detection the create screen showed: install before building,
+          // take the framework's output folder, and let a plain HTML repo
+          // (no package.json, no build) ship as-is.
+          const detected = await detectProject(sourcesDir);
+          const hasPackageJson = await fs
+            .access(path.join(sourcesDir, 'package.json'))
+            .then(() => true)
+            .catch(() => false);
+          const steps = [
+            hasPackageJson ? detected.installCommand : '',
+            application.buildCommand || detected.buildCommand || '',
+          ].filter(Boolean);
 
-          const staticCompletionTimestamp = new Date().toISOString();
-          const staticBuildLogEntry = `[${staticCompletionTimestamp}] STATIC BUILD COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
-          await fs.appendFile(buildLogPath, staticBuildLogEntry);
+          await fs.appendFile(buildLogPath, `Detected: ${detected.label}\n`);
 
-          const distCandidates = ['dist', 'build'];
+          if (steps.length > 0) {
+            const { stdout, stderr } = await execAsync(steps.join(' && '), {
+              cwd: sourcesDir,
+              timeout: 600000,
+              env: staticBuildEnv,
+            });
+
+            const staticCompletionTimestamp = new Date().toISOString();
+            const staticBuildLogEntry = `[${staticCompletionTimestamp}] STATIC BUILD COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
+            await fs.appendFile(buildLogPath, staticBuildLogEntry);
+          } else {
+            await fs.appendFile(buildLogPath, 'No build step — publishing the repository as-is\n');
+          }
+
+          const distCandidates = [detected.outputDir, 'dist', 'build', 'out'].filter(
+            (candidate): candidate is string => Boolean(candidate)
+          );
           let distDir: string | null = null;
           for (const candidate of distCandidates) {
             const candidatePath = path.join(sourcesDir, candidate);
@@ -740,7 +765,7 @@ export class DeploymentService {
           }
 
           if (!distDir) {
-            throw new Error('Static build directory not found (expected dist/ or build/)');
+            throw new Error(`Static build directory not found (looked for ${distCandidates.join(', ')})`);
           }
 
           const { bucket, origin } = await ensureSiteBucket(application.domain);
@@ -755,6 +780,18 @@ export class DeploymentService {
           await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
 
           const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+
+          try {
+            await configureCaddyForStaticApplication(
+              await serverForApplication(application.id),
+              application.id,
+              application.domain,
+              (application as any).staticOrigin
+            );
+          } catch (error: any) {
+            const message = staticRouteError(error);
+            return { success: false, error: message, buildLogs, deployLogs: message };
+          }
 
           await prisma.deployment.update({
             where: { id: deployment.id },
@@ -772,16 +809,6 @@ export class DeploymentService {
               lastDeployment: new Date(),
             },
           });
-
-          try {
-            await configureCaddyForStaticApplication(
-              await serverForApplication(application.id),
-              application.id,
-              application.domain,
-              (application as any).staticOrigin
-            );
-          } catch {
-          }
 
           return {
             success: true,

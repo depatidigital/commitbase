@@ -9,13 +9,13 @@ import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { ensureSiteBucket, uploadSiteObject } from '../services/r2Service';
-import { configureCaddyForStaticApplication, removeCaddySite } from '../services/caddyService';
+import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { resolveAppDir } from '../lib/appPaths';
-import { detectFromFiles, detectFromRepo, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { adoptCaddySites } from '../services/caddyMigrationService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
@@ -262,6 +262,23 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
     return res.status(400).json({
       success: false,
       error: `Could not inspect the project: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    } as ApiResponse);
+  }
+});
+
+/** Branches and the default branch of a pasted repository URL, for the add-app form. */
+router.post('/branches', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const repository = String(req.body?.repository ?? '').trim();
+  if (!repository) {
+    return res.status(400).json({ success: false, error: 'Repository URL is required' } as ApiResponse);
+  }
+
+  try {
+    return res.json({ success: true, data: await listRemoteBranches(repository) } as ApiResponse);
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      error: `Could not read the branches: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
     } as ApiResponse);
   }
 });
@@ -612,36 +629,50 @@ router.post(
           const relative = safeRelativePath(paths[index] || file.originalname);
           if (!relative) continue;
 
-          await uploadSiteObject(bucket, relative, file.buffer);
-          uploaded += 1;
+          if (await uploadSiteObject(bucket, relative, file.buffer)) uploaded += 1;
         }
 
         if (uploaded === 0) {
           return res.status(400).json({ success: false, error: 'No usable files in the upload' } as ApiResponse);
         }
 
+        // the bucket is recorded either way, so a redeploy can retry the route
+        // without asking for the files again
         await prisma.application.update({
           where: { id: application.id },
-          data: {
-            status: 'RUNNING',
-            lastDeployment: new Date(),
-            staticBucket: bucket,
-            staticOrigin: origin,
-          },
+          data: { staticBucket: bucket, staticOrigin: origin },
         });
 
-        await configureCaddyForStaticApplication(
-          await serverForApplication(application.id),
-          application.id,
-          application.domain,
-          origin,
-        ).catch(() => {});
-        await ensureAppHostname(application).catch(() => {});
+        try {
+          await configureCaddyForStaticApplication(
+            await serverForApplication(application.id),
+            application.id,
+            application.domain,
+            origin,
+          );
+        } catch (error: any) {
+          await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
+          return res.status(502).json({ success: false, error: staticRouteError(error) } as ApiResponse);
+        }
+
+        await prisma.application.update({
+          where: { id: application.id },
+          data: { status: 'RUNNING', lastDeployment: new Date() },
+        });
+
+        // DNS is a warning, not a failure: the hostname may live in a zone
+        // someone else runs, and the site itself is up
+        const dns = await ensureAppHostname(application).catch(
+          (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+        );
 
         return res.json({
           success: true,
-          data: { files: uploaded },
-          message: 'Static files uploaded to Cloudflare R2',
+          data: { files: uploaded, dns },
+          message:
+            dns.state === 'conflict' || dns.state === 'unavailable'
+              ? `Static files uploaded, but DNS was not set up: ${dns.detail}`
+              : 'Static files uploaded to Cloudflare R2',
         } as ApiResponse);
       }
 
@@ -994,7 +1025,12 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     // Heal the DNS record before the build runs — someone may have removed it,
     // and a deploy that finishes into a hostname that does not resolve is worse
     // than one that says so.
-    await ensureAppHostname(application).catch(() => {});
+    const dns = await ensureAppHostname(application).catch(
+      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+    );
+    // does not fail the deploy — the hostname may be in a zone we do not run
+    const dnsWarning =
+      dns.state === 'conflict' || dns.state === 'unavailable' ? `DNS was not set up: ${dns.detail}\n\n` : '';
 
     // Start deployment in background
     deploymentService.deploy({
@@ -1008,7 +1044,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         data: {
           status: result.success ? 'SUCCESS' : 'FAILED',
           buildLogs: result.buildLogs || '',
-          deployLogs: result.deployLogs || '',
+          deployLogs: dnsWarning + (result.deployLogs || ''),
         },
       });
 

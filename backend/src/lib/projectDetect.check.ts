@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { detectFromFiles, nvmPreamble } from './projectDetect';
+import { detectFromFiles, nvmPreamble, parseLsRemote } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -66,5 +66,13 @@ assert.ok(!nvmPreamble('20.11', false).join(NL).includes('nvm install'));
 assert.ok(nvmPreamble('>=18', true).join(NL).includes('nvm use default'));
 assert.ok(nvmPreamble(null, false).join(NL).includes('nvm use default'));
 assert.ok(nvmPreamble('lts/*', false).join(NL).includes("nvm use 'lts/*'"));
+
+// ls-remote: default branch from the HEAD symref, listed first; tags ignored
+const remote = parseLsRemote(
+  ['ref: refs/heads/master\tHEAD', 'aaa\tHEAD', 'bbb\trefs/heads/dev', 'aaa\trefs/heads/master', 'ccc\trefs/tags/v1', 'ddd\trefs/heads/feat/x'].join(NL)
+);
+assert.strictEqual(remote.defaultBranch, 'master');
+assert.deepStrictEqual(remote.branches, ['master', 'dev', 'feat/x']);
+assert.strictEqual(parseLsRemote('').defaultBranch, null);
 
 console.log('projectDetect: ok');
