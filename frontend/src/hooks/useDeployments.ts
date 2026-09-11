@@ -13,12 +13,17 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { t } from '@/lib/i18n';
 
+const IN_PROGRESS = ['PENDING', 'BUILDING', 'DEPLOYING'];
+
 export const useDeploymentHistory = (appId: string, page = 1, limit = 10) => {
   return useQuery({
     queryKey: ['deployments', appId, page, limit],
     queryFn: () => getDeploymentHistory(appId, page, limit),
     enabled: !!appId,
     staleTime: 30000, // 30 seconds
+    // follow a deploy while it runs, then settle
+    refetchInterval: (query) =>
+      query.state.data?.data.some((d) => IN_PROGRESS.includes(d.status)) ? 3000 : false,
   });
 };
 

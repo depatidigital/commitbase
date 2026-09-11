@@ -1,0 +1,9 @@
+# Install as /etc/sudoers.d/commitbase (mode 0440, root:root).
+# Validate before reloading:  visudo -cf /etc/sudoers.d/commitbase
+#
+# The panel runs its runner scripts by sending their text over SSH
+# (`sudo -n bash -c <script> ...`), so nothing is installed on the node and
+# the SSH user needs full passwordless root. A panel compromise is therefore
+# root on every node — the same trust model as logging the panel in as root.
+larika ALL=(root) NOPASSWD: ALL
+Defaults:larika !requiretty

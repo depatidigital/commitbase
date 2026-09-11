@@ -2,8 +2,8 @@
 # cb-provision-org — create the isolated OS user, home, cgroup slice and PHP-FPM
 # pool for one CommitBase organization.
 #
-# Install to /usr/local/bin/cb-provision-org, owned root:root, mode 0755.
-# Runs as root via a single NOPASSWD sudoers entry (runner/cb-provision-org.sudoers).
+# Not installed on the node: the panel sends this file's text over SSH and runs
+# it as root with `bash -c <text> cb-provision-org <args>` (orgProvisionService).
 # Idempotent: re-run to repair ownership or change quota / resource limits.
 #
 #   cb-provision-org <org-slug> [quota] [cpu-quota] [memory-max]
@@ -30,14 +30,21 @@ MEM_MAX="${4-1G}"
 CB_GROUP="${CB_GROUP:-commitbase}"
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
-# Validate here as well as in the caller — this script runs as root and a
-# sudoers entry cannot constrain arguments.
+# Validate here as well as in the caller — this script runs as root.
 [[ "$SLUG"      =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]] || { echo "cb-provision-org: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$QUOTA"     =~ ^[0-9]+[MG]$ ]]                      || { echo "cb-provision-org: invalid quota: '$QUOTA'" >&2; exit 2; }
 [[ "$CPU_QUOTA" =~ ^[0-9]+%$ ]]                         || { echo "cb-provision-org: invalid cpu quota: '$CPU_QUOTA'" >&2; exit 2; }
 [[ "$MEM_MAX"   =~ ^[0-9]+[MG]$ ]]                      || { echo "cb-provision-org: invalid memory max: '$MEM_MAX'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-provision-org: must run as root" >&2; exit 2; }
-getent group "$CB_GROUP" >/dev/null || { echo "cb-provision-org: backend group '$CB_GROUP' does not exist" >&2; exit 2; }
+
+# A bare node has no install step, so the backend's group and user are made
+# here: the group grants the panel file access, the user runs builds (cb-app-unit).
+CB_USER="${CB_USER:-commitbase}"
+getent group "$CB_GROUP" >/dev/null || { groupadd --system "$CB_GROUP"; echo "created group $CB_GROUP"; }
+if ! id -u "$CB_USER" >/dev/null 2>&1; then
+  useradd --system --gid "$CB_GROUP" --no-create-home --shell /usr/sbin/nologin "$CB_USER"
+  echo "created user $CB_USER"
+fi
 
 OS_USER="cb-$SLUG"
 HOME_DIR="$HOME_ROOT/$OS_USER"

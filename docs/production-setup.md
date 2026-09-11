@@ -54,12 +54,14 @@ Five Linux users are involved. Nothing that serves traffic runs as root.
 | `postgres` | the `postgresql` package | The database | its own data dir |
 
 How root is used at runtime: the backend runs as `commitbase` and needs root
-for exactly two things — creating a tenant user (`cb-provision-org`) and
-managing a tenant's systemd unit or build cgroup (`cb-app-unit`). Both are
-scripts installed in `/usr/local/bin`, listed by name in
-`/etc/sudoers.d/commitbase` as NOPASSWD for the `commitbase` user, and each one
-validates its own arguments before doing anything. That file is the whole
-privilege boundary of the platform; nothing else may be added to it.
+for two things — creating a tenant user (`cb-provision-org`) and managing a
+tenant's systemd unit or build cgroup (`cb-app-unit`). Neither script is
+installed on the box: the panel sends the script text from `runner/` over SSH
+on every call (`sudo -n bash -c <script> ...`), and each script validates its
+own arguments before doing anything. That requires the nodes' SSH user
+(`larika`) to have **full** passwordless root (`/etc/sudoers.d/commitbase`), so a
+compromised panel is root on every node — the same trust model as a panel that
+logs in as `root`, which also works (set the server's SSH user to `root`).
 
 Which shell to use per step:
 
@@ -319,14 +321,12 @@ Write `/opt/commitbase/app/backend/.env`, owned `commitbase:commitbase`, mode
 |---|---|---|
 | `ORG_OS_ISOLATION` | `false` | Set `true` in production |
 | `CB_HOME_ROOT` | `/home` | |
-| `ORG_PROVISION_SCRIPT` | `/usr/local/bin/cb-provision-org` | |
-| `APP_UNIT_SCRIPT` | `/usr/local/bin/cb-app-unit` | |
 | `ORG_DISK_QUOTA` | `20G` | Per organization |
 | `ORG_CPU_QUOTA` | `50%` | Per organization; `100%` = one full core |
 | `ORG_MEMORY_MAX` | `1G` | Per organization, swap disabled |
 
 These are the defaults every organization gets. A single org can be given
-different limits through the admin API or `cb-provision-org` — see
+different limits through the admin API — see
 [per-org-os-isolation.md](per-org-os-isolation.md#different-limits-per-organization);
 note that the admin UI and `provision:orgs` reset custom values to these
 defaults until per-org storage lands.
@@ -425,10 +425,9 @@ what this depends on.
 
 ```bash
 cd /opt/commitbase/app
-install -m 0755 runner/cb-provision-org.sh /usr/local/bin/cb-provision-org
-install -m 0755 runner/cb-app-unit.sh      /usr/local/bin/cb-app-unit
-install -m 0440 runner/cb-provision-org.sudoers /etc/sudoers.d/commitbase
-install -m 0644 runner/commitbase.logrotate     /etc/logrotate.d/commitbase
+# The runner scripts are not installed - the panel sends them over SSH.
+install -m 0440 runner/commitbase.sudoers   /etc/sudoers.d/commitbase
+install -m 0644 runner/commitbase.logrotate /etc/logrotate.d/commitbase
 visudo -cf /etc/sudoers.d/commitbase        # must print "parsed OK"
 
 # Caddy serves PHP tenants' files and talks to their FPM sockets, both of which
@@ -503,8 +502,8 @@ WantedBy=multi-user.target
 
 `NoNewPrivileges` must stay **false** here: the backend calls `sudo` to provision
 tenants, and `NoNewPrivileges=true` blocks setuid, which is how sudo works. This
-is the one place the panel is deliberately allowed to escalate, and it is why
-the sudoers file lists exactly two commands.
+is the one place the panel is deliberately allowed to escalate — to run the
+runner scripts it sends over SSH.
 
 ```bash
 systemctl daemon-reload
@@ -687,12 +686,10 @@ sudo -u commitbase -H bash -c '
   cd backend && npm ci && npx prisma generate && npx prisma db push && npm run build &&
   cd ../frontend && npm ci && npm run build'
 systemctl restart commitbase
-
-# The runner scripts are not picked up by git pull — reinstall them every upgrade.
-cd /opt/commitbase/app
-install -m 0755 runner/cb-provision-org.sh /usr/local/bin/cb-provision-org
-install -m 0755 runner/cb-app-unit.sh      /usr/local/bin/cb-app-unit
 ```
+
+The runner scripts ship with the panel and are sent to the node on every call,
+so upgrading the panel upgrades them on every node — nothing to reinstall.
 
 Apps deployed before the release layout existed keep running from `sources/`
 until their next deploy, which moves them to `releases/` + `current`.
@@ -708,7 +705,7 @@ are independent of the backend process.
 
 | Symptom | Cause |
 |---|---|
-| Org creation returns *Could not provision isolated OS user* | sudoers not installed, group `commitbase` missing, or the scripts are not in `/usr/local/bin`. Check `journalctl -u commitbase` |
+| Org creation returns *Could not provision isolated OS user* | The node's SSH user has no passwordless root (`sudo -n true` fails — install `runner/commitbase.sudoers` or log in as `root`), or the org has no server assigned. Check `journalctl -u commitbase` |
 | Tenant sites get no TLS, or never appear | The node's SSH connection is failing, the admin endpoint is not on `127.0.0.1:2019`, or the org has no server assigned |
 | A node shows OFFLINE and its host is `127.0.0.1` | The control plane's own key is not in `~commitbase/.ssh/authorized_keys` on that box — see section 2. The panel says exactly this in the server's last error |
 | `warning: quota not applied` during provisioning | `/home` is not mounted with `usrquota`, or `quotaon` was never run |

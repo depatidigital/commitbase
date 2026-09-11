@@ -28,17 +28,21 @@ build and read logs.
 
 ## Install
 
+Nothing from `runner/` is installed on a node. The panel reads
+`runner/cb-provision-org.sh` and `runner/cb-app-unit.sh` from its own checkout
+and runs them over SSH as `bash -c <script> <name> <args...>`, as root. A node
+needs only:
+
 ```bash
-sudo install -m 0755 runner/cb-provision-org.sh /usr/local/bin/cb-provision-org
-sudo install -m 0755 runner/cb-app-unit.sh      /usr/local/bin/cb-app-unit
-sudo install -m 0440 runner/cb-provision-org.sudoers /etc/sudoers.d/commitbase
-sudo install -m 0644 runner/commitbase.logrotate     /etc/logrotate.d/commitbase
+sudo install -m 0440 runner/commitbase.sudoers   /etc/sudoers.d/commitbase
+sudo install -m 0644 runner/commitbase.logrotate /etc/logrotate.d/commitbase
 sudo visudo -cf /etc/sudoers.d/commitbase
 ```
 
-The sudoers file assumes the backend runs as the user `commitbase` and that a
-group of the same name exists. Change both names together if yours differ
-(`CB_GROUP` in the scripts' environment).
+The sudoers file grants the SSH user `larika` full passwordless root.
+Alternatively set the server's SSH user to `root` and skip it. The
+`commitbase` group and user on the node are created by `cb-provision-org` on
+first run if missing.
 
 Disk quotas need the filesystem holding `/home` mounted with `usrquota` and
 `quotaon` run against it; without that the scripts warn and continue.
@@ -134,10 +138,10 @@ Until the UI and the columns exist, set a custom limit through the API:
 curl -X POST https://panel.example.com/api/admin/organizations/<orgId>/provision   -H "Authorization: Bearer <admin-token>" -H "Content-Type: application/json"   -d '{"diskQuota":"50G","cpuQuota":"100%","memoryMax":"2G"}'
 ```
 
-or on the box, which is the same script:
+or on the box, from a checkout of the same version, which is the same script:
 
 ```bash
-sudo cb-provision-org acme 50G 100% 2G
+sudo bash runner/cb-provision-org.sh acme 50G 100% 2G
 ```
 
 Formats: disk `20G` / `500M`, CPU `50%` (`200%` = two cores), memory `1G`.
@@ -182,9 +186,11 @@ Static sites also get no unit; they are served from R2 through Caddy.
 ## Security notes
 
 - Nothing from the database is ever interpolated into a shell string on the way
-  to a root command. `orgProvisionService` uses `execFile` with an argument
-  array, and both scripts revalidate their arguments because a sudoers entry
-  cannot constrain them.
+  to a root command. `orgProvisionService` passes an argument array that
+  `runner.ts` single-quotes element by element (the script text included),
+  and both scripts revalidate their arguments.
+- The SSH user has full passwordless root on every node, so the panel host and
+  its SSH key are root-equivalent for the whole fleet. Guard them accordingly.
 - Units run with `NoNewPrivileges=true`, `ProtectSystem=strict`,
   `PrivateTmp=true` and a writable path list of exactly one directory.
 - Env vars reach the app through `run.sh`, written with single-quote escaping,
@@ -222,9 +228,5 @@ Ports come from a pool (`APP_PORT_POOL_START`..`APP_PORT_POOL_END`, default
 20000-29999), one per app for life, bound to localhost and proxied by Caddy.
 Apps must listen on `$PORT`; the health check is what enforces it.
 
-After pulling this change, reinstall the runner script — the unit's
-`WorkingDirectory` changed:
-
-```bash
-sudo install -m 0755 runner/cb-app-unit.sh /usr/local/bin/cb-app-unit
-```
+The unit's `WorkingDirectory` changed with this layout; nodes pick up the new
+`cb-app-unit` automatically because the panel sends it on every call.

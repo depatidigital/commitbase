@@ -11,9 +11,9 @@ import { decrypt } from './secretBox';
  * other and is reached the same way, so there is exactly one code path to get
  * right.
  *
- * The node side is unchanged — same two sudo scripts, same sudoers file. Its
- * `!requiretty` entries were already written for a non-tty caller, which is
- * what an SSH exec channel is.
+ * Nothing is installed on the node for this: root work is done by sending the
+ * runner script's text over the channel (see orgProvisionService), so the node
+ * only has to accept the key and grant passwordless root.
  */
 
 /** The subset of a Server row needed to reach it. Structural, so this file does not import Prisma. */
@@ -81,6 +81,14 @@ export function shellQuote(arg: string): string {
 }
 
 export const buildCommand = (argv: string[]): string => argv.map(shellQuote).join(' ');
+
+/**
+ * Prefix argv so it runs as root on the node. Logging in as root needs nothing;
+ * any other SSH user needs `NOPASSWD: ALL` — `-n` makes a password prompt fail
+ * fast instead of hanging a channel that has no tty to answer it.
+ */
+export const rootArgv = (server: Pick<SshTarget, 'sshUser'>, argv: string[]): string[] =>
+  server.sshUser === 'root' ? argv : ['sudo', '-n', ...argv];
 
 // One live connection per server, reused across execs. A deploy fires many
 // commands back to back and an SSH handshake per command would dominate.

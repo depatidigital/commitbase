@@ -42,7 +42,8 @@ import {
   AlertTriangle,
   Zap,
   Wifi,
-  WifiOff
+  WifiOff,
+  Upload
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
@@ -50,6 +51,8 @@ import { useApplicationLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/
 import { useQueryClient } from "@tanstack/react-query";
 import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/applications";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
+import { ReuploadDialog } from "@/components/ReuploadDialog";
+import { ReleasesCard } from "@/components/ReleasesCard";
 import { locale, t } from "@/lib/i18n";
 import {
   Tooltip,
@@ -110,6 +113,7 @@ export default function ApplicationDetail() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showRawLogs, setShowRawLogs] = useState(false);
   const [logs, setLogs] = useState<ApplicationLogs>({});
+  const [reuploadOpen, setReuploadOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     type: 'start' | 'start-existing' | 'stop' | 'restart' | 'delete';
     appName: string;
@@ -336,6 +340,16 @@ export default function ApplicationDetail() {
               {t("Refresh")}
             </Button>
             
+            {/* deployed from an upload: new files are how it is redeployed,
+                and the only way back after a failed upload */}
+            {!application.repository && (
+              <Button variant="outline" onClick={() => setReuploadOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                {t("Upload files again")}
+              </Button>
+            )}
+            <ReuploadDialog application={application} open={reuploadOpen} onOpenChange={setReuploadOpen} />
+
             {/* Application Action Buttons */}
             {application.status === 'RUNNING' ? (
               // Running application - Stop, or redeploy without downtime
@@ -895,6 +909,7 @@ export default function ApplicationDetail() {
 
           {/* Deployments Tab */}
           <TabsContent value="deployments" className="space-y-6">
+            <ReleasesCard appId={application.id} />
             <DeploymentHistory application={application} />
           </TabsContent>
 

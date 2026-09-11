@@ -58,7 +58,7 @@ export default {
   Edit: "Ubah",
   "Edit {name}": "Ubah {name}",
   Email: "Email",
-  "Environment Variables": "Variabel Lingkungan",
+  "Environment Variables": "Environment Variables",
   Error: "Error",
   Expired: "Kedaluwarsa",
   "Failed to fetch applications": "Gagal memuat aplikasi",

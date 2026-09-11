@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { recordBeat } from './heartbeatService';
-import { exec, RemoteExecError, type SshTarget } from '../lib/runner';
+import { exec, rootArgv, RemoteExecError, type SshTarget } from '../lib/runner';
 
 /**
  * Node heartbeat.
@@ -10,18 +10,17 @@ import { exec, RemoteExecError, type SshTarget } from '../lib/runner';
  * panel serves happily, and the first sign would be a tenant's failed deploy.
  *
  * The check is deliberately the thing the control plane actually needs, not a
- * ping: it asks whether the provisioning script is present and executable over
- * the same SSH channel provisioning uses. That covers the whole chain in one
- * round trip — network, sshd, key authorization, and a correctly installed node.
+ * ping: it asks for passwordless root over the same SSH channel provisioning
+ * uses. That covers the whole chain in one round trip — network, sshd, key
+ * authorization, and the root grant the runner scripts are executed under.
  *
- * It reports those as two facts, not one. A node that answers `test -x` with
- * exit 1 has already proved the hard half works: the network, sshd and the
- * credential are all fine, and only the runner scripts are missing. Calling
- * that OFFLINE sends an operator hunting a network fault that does not exist,
- * and makes an unprovisioned box untestable.
+ * It reports those as two facts, not one. A node that answers with a non-zero
+ * exit has already proved the hard half works: the network, sshd and the
+ * credential are all fine, and only the root grant is missing. Calling that
+ * OFFLINE sends an operator hunting a network fault that does not exist, and
+ * makes an unprovisioned box untestable.
  */
 
-const PROVISION_SCRIPT = process.env.ORG_PROVISION_SCRIPT || '/usr/local/bin/cb-provision-org';
 const PING_TIMEOUT_MS = 10_000;
 
 export type ServerStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
@@ -72,7 +71,7 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
   const startedAt = Date.now();
 
   try {
-    await exec(server, ['test', '-x', PROVISION_SCRIPT], { timeout: PING_TIMEOUT_MS });
+    await exec(server, rootArgv(server, ['true']), { timeout: PING_TIMEOUT_MS });
     await prisma.server.update({
       where: { id: server.id },
       data: { status: 'ONLINE', provisioned: true, lastSeenAt: new Date(), lastError: null },
@@ -90,7 +89,7 @@ export async function pingServer(server: SshTarget & { name: string }): Promise<
     // A RemoteExecError carrying an exit code means the command ran, so the
     // node answered — it is up, just not set up.
     if (err instanceof RemoteExecError && err.code !== null) {
-      const note = `Reachable, but ${PROVISION_SCRIPT} is not installed — run install.sh on this node before placing organizations on it`;
+      const note = `Reachable, but ${server.sshUser} has no passwordless root — log in as root or grant NOPASSWD: ALL (install.sh ROLE=node does) before placing organizations on it`;
       await prisma.server
         .update({
           where: { id: server.id },

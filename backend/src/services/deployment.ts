@@ -1,4 +1,5 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
+import { createWriteStream } from 'fs';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -46,6 +47,41 @@ async function withBuildSlot<T>(fn: () => Promise<T>): Promise<T> {
 const execAsync = promisify(exec);
 
 const NL = '\n';
+
+/**
+ * Run a command with stdout and stderr appended to a log file as they arrive,
+ * so the log can be read while it runs. Rejects on a non-zero exit or when the
+ * timeout kills it; the output is already in the file either way.
+ */
+export function streamToLog(
+  command: string,
+  args: string[],
+  logPath: string,
+  timeoutMs: number,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const out = createWriteStream(logPath, { flags: 'a' });
+    const child = spawn(command, args, options);
+    child.stdout.pipe(out, { end: false });
+    child.stderr.pipe(out, { end: false });
+
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      out.end();
+      reject(error);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      out.end(() =>
+        code === 0
+          ? resolve()
+          : reject(new Error(signal ? `Build killed (${signal}) after ${timeoutMs / 60000} minutes` : `Build exited with code ${code}`))
+      );
+    });
+  });
+}
 
 export interface DeploymentConfig {
   application: Application;
@@ -361,18 +397,20 @@ export class DeploymentService {
         await fs.writeFile(buildScript, script, { mode: 0o660 });
 
         const slug = await orgSlugForApp(application.id);
-        try {
-          const output =
-            OS_ISOLATION_ENABLED && slug
-              ? await appBuild(slug, application.id)
-              : await execAsync(`bash "${buildScript}"`, { timeout: 900000, maxBuffer: 64 * 1024 * 1024 }).then(
-                  ({ stdout, stderr }) => stdout + (stderr ? NL + stderr : '')
-                );
-          await log(output);
-        } catch (error: any) {
-          // Keep what the build printed before it died.
-          if (error?.stdout) await log(error.stdout);
-          throw error;
+        if (OS_ISOLATION_ENABLED && slug) {
+          // ponytail: the isolated build runs through the sudo helper and hands
+          // its output back at the end, so it is not live. Stream it too if
+          // watching isolated builds matters.
+          try {
+            await log(await appBuild(slug, application.id));
+          } catch (error: any) {
+            // Keep what the build printed before it died.
+            if (error?.stdout) await log(error.stdout);
+            throw error;
+          }
+        } else {
+          // written to build.log as it prints, so the app page can follow along
+          await streamToLog('bash', [buildScript], buildLogPath, 900000);
         }
       }
 
@@ -742,15 +780,13 @@ export class DeploymentService {
           await fs.appendFile(buildLogPath, `Detected: ${detected.label}\n`);
 
           if (steps.length > 0) {
-            const { stdout, stderr } = await execAsync(steps.join(' && '), {
+            // streamed into build.log as it prints, so the app page can follow it
+            await fs.appendFile(buildLogPath, `$ ${steps.join(' && ')}\n`);
+            await streamToLog('sh', ['-c', steps.join(' && ')], buildLogPath, 600000, {
               cwd: sourcesDir,
-              timeout: 600000,
               env: staticBuildEnv,
             });
-
-            const staticCompletionTimestamp = new Date().toISOString();
-            const staticBuildLogEntry = `[${staticCompletionTimestamp}] STATIC BUILD COMPLETED:\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}\n\n`;
-            await fs.appendFile(buildLogPath, staticBuildLogEntry);
+            await fs.appendFile(buildLogPath, `\n[${new Date().toISOString()}] STATIC BUILD COMPLETED\n`);
           } else {
             await fs.appendFile(buildLogPath, 'No build step — publishing the repository as-is\n');
           }

@@ -99,94 +99,43 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
   }
 });
 
-// Get real-time logs (stream)
-router.get('/application/:appId/stream', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+/**
+ * The build log of the deploy in progress, read straight from disk so it can
+ * be followed while the build runs (the S3 copy only lands at the end). The
+ * last 64 KB is plenty for a live view; the full log is on the deployment.
+ */
+router.get('/application/:appId/build-live', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { appId } = req.params;
-    const logType = (req.query.type as string) || 'combined';
-
-    if (!appId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Application ID is required',
-      } as ApiResponse);
-    }
-
-    // Verify application belongs to user
     const application = await prisma.application.findFirst({
-      where: {
-        id: appId,
-        ...(await orgScope(req)),
-      },
+      where: { id: req.params.appId as string, ...(await orgScope(req)) },
       include: { organization: { select: { slug: true } } },
     });
-
     if (!application) {
-      return res.status(404).json({
-        success: false,
-        error: 'Application not found',
-      } as ApiResponse);
+      return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    // Set up SSE headers
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control',
-    });
-
-    // Send initial connection message
-    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Log stream started' })}\n\n`);
-
-    // Get logs based on type
-    if (!application.domain) {
-      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Application domain not found' })}\n\n`);
-      return;
-    }
-
-    // Both build logs and the unit's stdout are files on disk — tail whichever
-    // the client asked for.
-    const appDir = appDirFor(application.id, (application as any).organization?.slug ?? null);
-    const logFile = path.join(appDir, 'logs', logType === 'build' ? 'build.log' : 'out.log');
-
-    let lastSize = 0;
-    const interval = setInterval(async () => {
+    const logFile = path.join(appDirFor(application.id, application.organization?.slug ?? null), 'logs', 'build.log');
+    const TAIL = 64 * 1024;
+    let text = '';
+    try {
+      const handle = await fs.open(logFile, 'r');
       try {
-        const stats = await fs.stat(logFile);
-        if (stats.size > lastSize) {
-          const stream = require('fs').createReadStream(logFile, {
-            start: lastSize,
-            end: stats.size,
-          });
-
-          stream.on('data', (chunk: Buffer) => {
-            const lines = chunk.toString().split('\n').filter(line => line.trim());
-            lines.forEach(line => {
-              res.write(`data: ${JSON.stringify({ type: 'log', message: line })}\n\n`);
-            });
-          });
-
-          lastSize = stats.size;
-        }
-      } catch (error) {
-        // Log file doesn't exist or other error
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Log file not available' })}\n\n`);
+        const { size } = await handle.stat();
+        const start = Math.max(0, size - TAIL);
+        const buffer = Buffer.alloc(size - start);
+        await handle.read(buffer, 0, buffer.length, start);
+        text = (start > 0 ? '…\n' : '') + buffer.toString('utf-8');
+      } finally {
+        await handle.close();
       }
-    }, 1000);
+    } catch {
+      // no build has run on this box yet
+    }
 
-    // Clean up on client disconnect
-    req.on('close', () => {
-      clearInterval(interval);
-    });
-
-    return;
-
+    return res.json({ success: true, data: { logs: text } } as ApiResponse);
   } catch (error) {
-    console.error('Error setting up log stream:', error);
-    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to setup log stream' })}\n\n`);
-    return;
+    console.error('Error reading live build log:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 

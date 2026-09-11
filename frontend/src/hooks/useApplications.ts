@@ -231,6 +231,8 @@ export const useStartApplication = () => {
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
+      // the new deploy's row — the history then polls itself until it settles
+      queryClient.invalidateQueries({ queryKey: ['deployments', variables] });
     },
     onError: (error: Error) => {
       toast({

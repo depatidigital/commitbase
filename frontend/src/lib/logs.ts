@@ -43,13 +43,6 @@ export const getLogs = async (
   throw new Error(response.error || t('Failed to fetch logs'));
 };
 
-// Get real-time logs (for WebSocket or SSE)
-export const getRealTimeLogs = async (applicationId: string): Promise<EventSource> => {
-  const token = localStorage.getItem('authToken');
-  const eventSource = new EventSource(`${API_BASE_URL}/logs/${applicationId}/stream?token=${token}`);
-  return eventSource;
-};
-
 // Clear logs for an application
 export const clearLogs = async (applicationId: string): Promise<void> => {
   const response = await apiRequest(`/logs/${applicationId}/clear`, {

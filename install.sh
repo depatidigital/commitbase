@@ -13,7 +13,7 @@
 # Knobs (env vars):
 #   ROLE            panel|node   panel (default) runs the control plane; node is
 #                   a provisioning box that only runs tenant apps. A node gets
-#                   the two runner scripts, sudoers, logrotate and Caddy, and
+#                   a root sudoers grant, logrotate and Caddy, and
 #                   nothing else: no backend, no frontend, no Postgres. The
 #                   control plane reaches it over SSH.
 #   PANEL_DOMAIN    required for ROLE=panel   hostname of the panel, DNS already pointing here
@@ -192,7 +192,7 @@ fi
 
 # -------------------------------------------------------------- 4. code+build
 # Both roles check the code out - a node uses it only as the source of the
-# four files section 7 installs, and re-running this script upgrades them.
+# files section 7 installs, and re-running this script upgrades them.
 say "Code: $REPO ($BRANCH)"
 if [ -e "$APP_DIR" ] && [ ! -d "$APP_DIR/.git" ]; then
   die "$APP_DIR exists but is not a git checkout. Move it away (mv $APP_DIR $APP_DIR.old) and re-run; the installer clones fresh."
@@ -273,12 +273,14 @@ sudo -u "$CB_USER" -H bash -c "cd '$APP_DIR/backend' && npx prisma db push --ski
 fi
 
 # --------------------------------------------------------- 7. isolation bits
-say "Runner scripts, sudoers, logrotate"
-install -m 0755 "$APP_DIR/runner/cb-provision-org.sh" /usr/local/bin/cb-provision-org
-install -m 0755 "$APP_DIR/runner/cb-app-unit.sh"      /usr/local/bin/cb-app-unit
-install -m 0440 "$APP_DIR/runner/cb-provision-org.sudoers" /etc/sudoers.d/commitbase
-install -m 0644 "$APP_DIR/runner/commitbase.logrotate"     /etc/logrotate.d/commitbase
+# The runner scripts are not installed: the panel sends them over SSH on every
+# call. This box only grants the SSH user passwordless root to run them.
+say "Sudoers, logrotate"
+install -m 0440 "$APP_DIR/runner/commitbase.sudoers"   /etc/sudoers.d/commitbase
+install -m 0644 "$APP_DIR/runner/commitbase.logrotate" /etc/logrotate.d/commitbase
 visudo -cf /etc/sudoers.d/commitbase >/dev/null || die "sudoers file did not validate"
+# Left over from when the scripts were installed; a stale copy would only mislead.
+rm -f /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit
 mkdir -p /etc/caddy/sites; chown caddy:caddy /etc/caddy/sites
 usermod -aG "$CB_GROUP" caddy
 
@@ -315,7 +317,7 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# sudo needs setuid; this is the one place the panel escalates (two scripts, see sudoers)
+# sudo needs setuid; the panel escalates to run its runner scripts (see runner/commitbase.sudoers)
 NoNewPrivileges=false
 ProtectSystem=full
 PrivateTmp=true
@@ -424,13 +426,9 @@ say "Verify"
 if [ "$ROLE" = node ]; then
   # Everything the control plane will actually invoke, checked here so a broken
   # node fails at install time rather than on someone's first deploy.
-  for f in /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit; do
-    [ -x "$f" ] || die "$f is missing or not executable"
-  done
-  sudo -n -u "$CB_USER" true 2>/dev/null || true
-  sudo -u "$CB_USER" sudo -n /usr/local/bin/cb-provision-org 2>&1 | grep -q 'invalid slug' \
-    || die "$CB_USER cannot run cb-provision-org via sudo - check /etc/sudoers.d/commitbase"
-  note "runner scripts installed and reachable via sudo"
+  sudo -u "$CB_USER" sudo -n true \
+    || die "$CB_USER has no passwordless root - check /etc/sudoers.d/commitbase"
+  note "$CB_USER has passwordless root for the runner scripts"
   systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
 
   say "Done"
@@ -444,8 +442,8 @@ if [ "$ROLE" = node ]; then
       public ip  ${SERVER_IP:-$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}
       caddy api  http://127.0.0.1:2019
 
-    Verify from the panel:  sudo -u $CB_USER ssh $CB_USER@<this-host> cb-provision-org
-    Re-run this script any time to upgrade the runner scripts.
+    Verify from the panel:  sudo -u $CB_USER ssh $CB_USER@<this-host> sudo -n true
+    The runner scripts come from the panel on every call - nothing to upgrade here.
 EOF
   exit 0
 fi

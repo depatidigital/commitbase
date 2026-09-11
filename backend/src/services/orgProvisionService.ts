@@ -1,5 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { prisma } from '../lib/prisma';
-import { exec, remoteExists, remoteReadDir, type SshTarget } from '../lib/runner';
+import { exec, remoteExists, remoteReadDir, rootArgv, type SshTarget, type ExecOptions } from '../lib/runner';
 import { serverForOrg } from '../lib/servers';
 import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } from '../lib/appPaths';
 
@@ -10,16 +12,32 @@ import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } 
  * node the organization is placed on. The control plane's own VM is a Server
  * row like any other — there is no local shortcut, so there is one code path.
  *
+ * Nothing is installed on the node: the runner scripts live in this repo and
+ * their text is sent with every call as `bash -c <script> <name> <args...>`.
+ * A node therefore always runs the script that matches this panel's version.
+ * The price is that the SSH user needs passwordless root (root itself, or
+ * NOPASSWD: ALL) — see rootArgv in runner.ts.
+ *
  * Arguments are still passed as an array, never as a shell string; runner.ts
- * quotes each element, so nothing from the database can be read as a shell
- * metacharacter on the way to a root command. The scripts revalidate their own
- * arguments because the sudoers entry cannot.
+ * quotes each element (the script text included), so nothing from the database
+ * can be read as a shell metacharacter on the way to a root command. The
+ * scripts revalidate their own arguments as well.
  */
 
 export const OS_ISOLATION_ENABLED = process.env.ORG_OS_ISOLATION === 'true';
 
-const PROVISION_SCRIPT = process.env.ORG_PROVISION_SCRIPT || '/usr/local/bin/cb-provision-org';
-const APP_UNIT_SCRIPT = process.env.APP_UNIT_SCRIPT || '/usr/local/bin/cb-app-unit';
+// Same depth from src/services (tsx) and dist/services (node): backend/<x>/services → repo root.
+const RUNNER_DIR = path.resolve(__dirname, '../../../runner');
+const scripts = new Map<string, string>();
+
+function script(name: 'cb-provision-org' | 'cb-app-unit'): string {
+  let text = scripts.get(name);
+  if (!text) {
+    text = fs.readFileSync(path.join(RUNNER_DIR, `${name}.sh`), 'utf8');
+    scripts.set(name, text);
+  }
+  return text;
+}
 
 const DEFAULT_DISK_QUOTA = process.env.ORG_DISK_QUOTA || '20G';
 const DEFAULT_CPU_QUOTA = process.env.ORG_CPU_QUOTA || '50%';
@@ -32,8 +50,13 @@ function assertSlug(slug: string) {
   if (!ORG_SLUG_RE.test(slug)) throw new Error(`Invalid organization slug: ${slug}`);
 }
 
-async function sudo(server: SshTarget, script: string, args: string[], timeout = 60_000): Promise<string> {
-  const { stdout } = await exec(server, ['sudo', '-n', script, ...args], { timeout });
+/** Run one runner script as root on the node, its text sent inline. $0 is the script name. */
+function runScript(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', args: string[], opts: ExecOptions = {}) {
+  return exec(server, rootArgv(server, ['bash', '-c', script(name), name, ...args]), opts);
+}
+
+async function sudo(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', args: string[], timeout = 60_000): Promise<string> {
+  const { stdout } = await runScript(server, name, args, { timeout });
   return stdout.trim();
 }
 
@@ -66,7 +89,7 @@ export async function provisionOrg(
   if (!QUOTA_RE.test(memoryMax)) throw new Error(`Invalid memory max: ${memoryMax}`);
 
   const server = await serverForOrg(slug);
-  const output = await sudo(server, PROVISION_SCRIPT, [slug, diskQuota, cpuQuota, memoryMax]);
+  const output = await sudo(server, 'cb-provision-org', [slug, diskQuota, cpuQuota, memoryMax]);
   return { provisioned: true, osUser: osUserFor(slug), home: orgHome(slug), output };
 }
 
@@ -79,7 +102,7 @@ export async function appUnit(action: AppUnitAction, slug: string, applicationId
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
-  return sudo(await serverForOrg(slug), APP_UNIT_SCRIPT, [action, slug, applicationId]);
+  return sudo(await serverForOrg(slug), 'cb-app-unit', [action, slug, applicationId]);
 }
 
 /**
@@ -93,9 +116,10 @@ export async function appBuild(slug: string, applicationId: string): Promise<str
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
 
   const server = await serverForOrg(slug);
-  const { stdout, stderr } = await exec(
+  const { stdout, stderr } = await runScript(
     server,
-    ['sudo', '-n', APP_UNIT_SCRIPT, 'build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
+    'cb-app-unit',
+    ['build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
     { timeout: 900_000, maxBuffer: 64 * 1024 * 1024 }
   );
   return stdout + (stderr ? '\n' + stderr : '');

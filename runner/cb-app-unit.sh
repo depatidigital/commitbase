@@ -2,8 +2,8 @@
 # cb-app-unit — manage the systemd unit that runs one CommitBase application as
 # its organization's OS user, inside that organization's cgroup slice.
 #
-# Install to /usr/local/bin/cb-app-unit, owned root:root, mode 0755.
-# Runs as root via the NOPASSWD sudoers entry (runner/cb-provision-org.sudoers).
+# Not installed on the node: the panel sends this file's text over SSH and runs
+# it as root with `bash -c <text> cb-app-unit <args>` (orgProvisionService).
 #
 #   cb-app-unit install <org-slug> <app-id>
 #   cb-app-unit start|stop|restart|remove|status <org-slug> <app-id>

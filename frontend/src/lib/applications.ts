@@ -200,6 +200,37 @@ export const detectProject = async (
   throw new Error(response.error || t("Could not inspect the project"));
 };
 
+export type Release = {
+  id: string;
+  status: 'PENDING' | 'READY' | 'FAILED' | string;
+  commitSha?: string | null;
+  createdAt: string;
+};
+
+/** Built releases, newest first, and which one is serving. */
+export const getReleases = async (
+  id: string
+): Promise<{ activeReleaseId: string | null; releases: Release[] }> => {
+  const response = await apiRequest<{ activeReleaseId: string | null; releases: Release[] }>(
+    `/applications/${id}/releases`
+  );
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Failed to load releases"));
+};
+
+/** Roll back (or forward) to an already-built release — no rebuild. */
+export const activateRelease = async (id: string, releaseId: string): Promise<void> => {
+  const response = await apiRequest(`/applications/${id}/releases/${releaseId}/activate`, { method: 'POST' });
+  if (!response.success) throw new Error(response.error || t("Could not switch to that release"));
+};
+
+/** The build log of the deploy in progress, as far as it has got. */
+export const getLiveBuildLog = async (id: string): Promise<string> => {
+  const response = await apiRequest<{ logs: string }>(`/logs/application/${id}/build-live`);
+  if (response.success && response.data) return response.data.logs;
+  throw new Error(response.error || t("Could not read the build log"));
+};
+
 /** Branches of a pasted repository URL. Fails for private repos. */
 export const listRepositoryBranches = async (
   repository: string

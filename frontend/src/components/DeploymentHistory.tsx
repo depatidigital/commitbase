@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Zap, Clock, CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-react";
-import { Application } from "@/lib/applications";
+import { Application, getLiveBuildLog } from "@/lib/applications";
 import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { locale, t } from "@/lib/i18n";
 
@@ -16,6 +18,37 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export const deploymentStatusLabel = (status: string) => STATUS_LABELS[status] ?? status;
+
+const IN_PROGRESS = ["PENDING", "BUILDING", "DEPLOYING"];
+
+/** Polls the on-disk build log while the deploy runs, pinned to the newest line. */
+function LiveBuildLog({ appId }: { appId: string }) {
+  const { data: logs } = useQuery({
+    queryKey: ["build-live", appId],
+    queryFn: () => getLiveBuildLog(appId),
+    refetchInterval: 2000,
+  });
+  const box = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [logs]);
+
+  return (
+    <div className="mt-4 space-y-2">
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {t("Build log (live)")}
+      </p>
+      <pre
+        ref={box}
+        className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs"
+      >
+        {logs || t("Waiting for output…")}
+      </pre>
+    </div>
+  );
+}
 
 interface DeploymentHistoryProps {
   application: Application;
@@ -128,6 +161,26 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                     </p>
                   </div>
                 </div>
+
+                {/* the one running: its build log as it prints */}
+                {IN_PROGRESS.includes(deployment.status) && index === 0 && (
+                  <LiveBuildLog appId={application.id} />
+                )}
+
+                {/* deploy result: route errors, DNS warnings, upload summary —
+                    open when it failed, since that is where the reason is */}
+                {deployment.deployLogs && (
+                  <details className="mt-4" open={deployment.status === "FAILED"}>
+                    <summary className="cursor-pointer text-sm font-medium hover:text-primary transition-colors">
+                      {t("Deploy Logs")}
+                    </summary>
+                    <div className="mt-2 p-3 bg-muted rounded-md">
+                      <pre className="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
+                        {deployment.deployLogs}
+                      </pre>
+                    </div>
+                  </details>
+                )}
 
                 {/* Build Logs */}
                 {deployment.buildLogs && (
