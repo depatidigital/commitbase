@@ -96,6 +96,20 @@ export function candidateParents(fqdn: string): string[] {
 }
 
 /**
+ * The Domain a hostname sits under, from an already-loaded list — no org
+ * check, for background jobs. candidateParents runs longest first, so
+ * sub.client.com beats client.com, as in resolveOwnedDomain.
+ */
+export function parentDomainOf<T extends { name: string }>(fqdn: string, domains: T[]): T | null {
+  const byName = new Map(domains.map((domain) => [domain.name.toLowerCase(), domain]));
+  for (const name of candidateParents(fqdn)) {
+    const match = byName.get(name);
+    if (match) return match;
+  }
+  return null;
+}
+
+/**
  * Resolve the Domain row that `fqdn` must live under, enforcing that the caller's
  * organization owns it. Returns null when the caller may not use this hostname.
  */

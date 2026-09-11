@@ -3,6 +3,7 @@
  */
 import assert from 'assert';
 import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp, parseListeners } from './appSyncService';
+import { parentDomainOf } from '../lib/scope';
 
 const sample = `
 # a comment
@@ -161,4 +162,12 @@ assert.strictEqual(listeners.get(1600), 4242);
 assert.strictEqual(listeners.has(22), true);
 assert.strictEqual(listeners.get(22), undefined);
 
-console.log('appSyncService: parseCaddyfile + classifyRoute + parseListeners OK');
+// synced apps link to their Domain: longest suffix wins, root counts, lookalikes don't
+const doms = [{ id: 'a', name: 'client.com' }, { id: 'b', name: 'staging.client.com' }, { id: 'c', name: 'larika.id' }];
+assert.strictEqual(parentDomainOf('app.larika.id', doms)?.id, 'c');
+assert.strictEqual(parentDomainOf('larika.id', doms)?.id, 'c');
+assert.strictEqual(parentDomainOf('api.staging.client.com', doms)?.id, 'b');
+assert.strictEqual(parentDomainOf('notclient.com', doms), null);
+assert.strictEqual(parentDomainOf('web.pm2.local', doms), null);
+
+console.log('appSyncService: parseCaddyfile + classifyRoute + parseListeners + parentDomainOf OK');

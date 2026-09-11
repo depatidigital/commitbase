@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { getCloudflareConfigFromDb } from './integrationConfigService';
 
 /**
@@ -16,21 +17,57 @@ interface R2Config {
   bucketPrefix: string;
 }
 
-export function getR2Config(): R2Config | null {
+const bucketPrefix = () => process.env.R2_BUCKET_PREFIX || 'site-';
+
+/**
+ * R2's S3 credentials can be derived from a Cloudflare API token: the access
+ * key id is the token's id, the secret is the SHA-256 of the token value
+ * (developers.cloudflare.com/r2/api/tokens). So the Cloudflare integration's
+ * token is enough — it needs "Workers R2 Storage: Edit" and "Account: Read".
+ */
+let derived: { token: string; config: R2Config } | null = null;
+
+async function r2ConfigFromCloudflare(): Promise<R2Config | null> {
+  const cloudflare = await getCloudflareConfigFromDb();
+  if (!cloudflare?.apiToken) return null;
+  if (derived?.token === cloudflare.apiToken) return derived.config;
+
+  const call = async (pathname: string) => {
+    const response = await fetch(`${cloudflare.apiBase}${pathname}`, {
+      headers: { Authorization: `Bearer ${cloudflare.apiToken}` },
+    });
+    const payload: any = await response.json().catch(() => null);
+    return response.ok && payload?.success ? payload.result : null;
+  };
+
+  const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || (await call('/accounts'))?.[0]?.id;
+  if (!accountId) return null;
+
+  // user tokens verify at /user, account-owned tokens at /accounts/:id
+  const token = (await call('/user/tokens/verify')) ?? (await call(`/accounts/${accountId}/tokens/verify`));
+  if (!token?.id) return null;
+
+  const config: R2Config = {
+    accountId,
+    accessKeyId: token.id,
+    secretAccessKey: createHash('sha256').update(cloudflare.apiToken).digest('hex'),
+    bucketPrefix: bucketPrefix(),
+  };
+  derived = { token: cloudflare.apiToken, config };
+  return config;
+}
+
+/** Dedicated R2_* env keys win; otherwise fall back to the Cloudflare integration's token. */
+export async function getR2Config(): Promise<R2Config | null> {
   const accountId = process.env.R2_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 
-  if (!accountId || !accessKeyId || !secretAccessKey) {
-    return null;
+  if (accountId && accessKeyId && secretAccessKey) {
+    return { accountId, accessKeyId, secretAccessKey, bucketPrefix: bucketPrefix() };
   }
 
-  return {
-    accountId,
-    accessKeyId,
-    secretAccessKey,
-    bucketPrefix: process.env.R2_BUCKET_PREFIX || 'site-',
-  };
+  return r2ConfigFromCloudflare();
 }
 
 const client = (config: R2Config) =>
@@ -104,7 +141,7 @@ export const isPublishable = (key: string): boolean =>
 export async function uploadSiteObject(bucket: string, key: string, body: Buffer): Promise<boolean> {
   if (!isPublishable(key)) return false;
 
-  const config = getR2Config();
+  const config = await getR2Config();
   if (!config) {
     throw new Error('R2 is not configured');
   }
@@ -126,7 +163,7 @@ export async function uploadSiteObject(bucket: string, key: string, body: Buffer
  * return it. That host is what Caddy proxies to; visitors never see it.
  */
 async function enablePublicHost(bucket: string): Promise<string | null> {
-  const config = getR2Config();
+  const config = await getR2Config();
   const cloudflare = await getCloudflareConfigFromDb();
 
   if (!config || !cloudflare?.apiToken) {
@@ -161,9 +198,11 @@ async function enablePublicHost(bucket: string): Promise<string | null> {
  * time. Returns what Caddy and the database need to point at it.
  */
 export async function ensureSiteBucket(domain: string): Promise<{ bucket: string; origin: string }> {
-  const config = getR2Config();
+  const config = await getR2Config();
   if (!config) {
-    throw new Error('R2 is not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY');
+    throw new Error(
+      'R2 is not configured — give the Cloudflare integration token "Workers R2 Storage: Edit" and "Account: Read", or set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY'
+    );
   }
 
   const bucket = bucketNameFor(config, domain);

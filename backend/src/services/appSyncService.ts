@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { prisma } from '../lib/prisma';
+import { parentDomainOf } from '../lib/scope';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
@@ -497,6 +498,8 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   const discovered = await scanNode(node);
   const result: AppSyncResult = { discovered: discovered.length, created: 0, updated: 0, apps: [] };
   const errors: string[] = [];
+  // link each app to the Domain it sits under, so the domain knows its apps
+  const domains = await prisma.domain.findMany({ select: { id: true, name: true } });
 
   for (const app of discovered) {
     const fields = {
@@ -517,16 +520,21 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
 
     try {
       const existing = await prisma.application.findUnique({ where: { domain: app.domain } });
+      const domainId = parentDomainOf(app.domain, domains)?.id ?? null;
       let applicationId: string;
 
       if (existing) {
-        await prisma.application.update({ where: { id: existing.id }, data: fields });
+        await prisma.application.update({
+          where: { id: existing.id },
+          // fills rows synced before the link existed; never moves a set one
+          data: { ...fields, ...(!existing.domainId && domainId && { domainId }) },
+        });
         applicationId = existing.id;
         result.updated += 1;
         result.apps.push({ ...app, action: 'updated' });
       } else {
         const created = await prisma.application.create({
-          data: { name: app.name, domain: app.domain, type: app.type, userId, ...fields },
+          data: { name: app.name, domain: app.domain, type: app.type, userId, domainId, ...fields },
         });
         applicationId = created.id;
         result.created += 1;

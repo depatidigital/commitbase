@@ -49,7 +49,8 @@ const sortOrder = (sort: unknown, order: unknown): any[] => {
     case 'server':
       return [{ server: { name: direction } }, byName];
     case 'createdAt':
-      return [{ createdAt: direction }];
+      // a sync creates a batch within the same moment
+      return [{ createdAt: direction }, byName];
     default:
       return [{ status: 'desc' }, byName];
   }

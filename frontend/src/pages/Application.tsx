@@ -99,7 +99,8 @@ export default function Application() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   // an inventory screen, not a dashboard: show a useful page of it at once
-  const query = useTableQuery(25);
+  // newest first, so an app just added is at the top
+  const query = useTableQuery(25, { sort: "createdAt", order: "desc" });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
@@ -457,6 +458,20 @@ export default function Application() {
           <span title={t("Successful checks in the last 24 hours")}>{uptime}%</span>
         );
       },
+    },
+    {
+      header: t("Created"),
+      className: "w-28 text-xs",
+      sortKey: "createdAt",
+      cell: (app) => (
+        <span title={new Date(app.createdAt).toLocaleString(locale)}>
+          {new Date(app.createdAt).toLocaleDateString(locale, {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })}
+        </span>
+      ),
     },
     {
       header: t("Last deploy"),

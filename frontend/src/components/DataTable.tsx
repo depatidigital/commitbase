@@ -53,14 +53,18 @@ const PAGE_SIZES = [10, 25, 50, 100];
  * Server-side table state. `params` goes straight to the list endpoint;
  * `search` is debounced so typing does not fire a request per keystroke.
  */
-export function useTableQuery(initialLimit = 10) {
+export function useTableQuery(
+  initialLimit = 10,
+  /** the order a list opens in; omit for the endpoint's own default */
+  initialSort?: { sort: string; order: "asc" | "desc" },
+) {
   const [page, setPage] = useState(1);
   const [limit, setLimitState] = useState(initialLimit);
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
   const [organizationId, setOrganizationIdState] = useState("");
-  const [sort, setSort] = useState("");
-  const [order, setOrder] = useState<"asc" | "desc">("asc");
+  const [sort, setSort] = useState(initialSort?.sort ?? "");
+  const [order, setOrder] = useState<"asc" | "desc">(initialSort?.order ?? "asc");
 
   useEffect(() => {
     const t = setTimeout(() => {
