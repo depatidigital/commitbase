@@ -109,14 +109,14 @@ export const setupServer = async (id: string) =>
     t('Failed to queue server setup'),
   );
 
-/** Place an organization on a node. `null` unplaces it. */
+/** Set an organization's default server (where its new apps go). `null` clears it. Also provisions the org there. */
 export const setOrganizationServer = async (orgId: string, serverId: string | null): Promise<Organization> =>
   unwrap(
     await apiRequest<Organization>(`/organizations/${orgId}/server`, {
       method: 'PUT',
       body: JSON.stringify({ serverId }),
     }),
-    t('Failed to place organization')
+    t('Failed to set the default server')
   );
 
 /** One hostname this node's Caddy is serving, as the route describes it. */

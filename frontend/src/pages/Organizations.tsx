@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
-import { ProvisionBadge } from "@/components/ProvisionBadge";
+import { OrgNodeBadges, OrgNodeLogDialog, anyNodePending } from "@/components/OrgNodes";
 import {
   CreatedInvite,
   Organization,
@@ -25,7 +25,6 @@ import {
   isInviteResult,
   createOrganization,
   getOrganizationsPage,
-  isProvisionPending,
 } from "@/lib/organizations";
 import { Label } from "@/components/ui/label";
 import { t } from "@/lib/i18n";
@@ -40,26 +39,18 @@ export default function Organizations() {
   const query = useTableQuery();
   const superadmin = isSuperAdmin();
 
-  // id of the org whose provisioning output is open — an id, so the dialog
+  // the org node whose provisioning output is open — ids, so the dialog
   // follows the polled row and the output grows while it runs
-  const [logFor, setLogFor] = useState<string | null>(null);
-  const logRef = useRef<HTMLPreElement>(null);
+  const [logFor, setLogFor] = useState<{ orgId: string; nodeId: string } | null>(null);
 
   const { data, isFetching } = useQuery({
     queryKey: ["organizations", "page", query.params],
     queryFn: () => getOrganizationsPage(query.params),
-    // every 2s while an output is open, otherwise every 5s while a placed org
-    // is still in the provisioning queue
-    refetchInterval: (q) =>
-      logFor ? 2000 : q.state.data?.data.some((o) => o.server && isProvisionPending(o.provisionState)) ? 5000 : false,
+    // every 2s while an output is open, otherwise every 5s while a node is provisioning
+    refetchInterval: (q) => (logFor ? 2000 : anyNodePending(q.state.data?.data) ? 5000 : false),
   });
-  const logOrg = data?.data.find((o) => o.id === logFor) ?? null;
-
-  // follow the tail, unless the reader scrolled up to look at something
-  useEffect(() => {
-    const el = logRef.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
-  }, [logOrg?.provisionLog]);
+  const logOrg = data?.data.find((o) => o.id === logFor?.orgId) ?? null;
+  const logNode = logOrg?.nodes.find((n) => n.id === logFor?.nodeId) ?? null;
 
   const orgMutation = useMutation({
     mutationFn: async () => {
@@ -109,40 +100,25 @@ export default function Organizations() {
       ),
     },
     {
-      header: t("Server"),
+      header: t("Default server"),
       className: "w-36",
       cell: (o) =>
-        !o.server ? (
-          <Link to={`/organizations/${o.id}`}>
-            <Badge
-              variant="outline"
-              className="border-warning/40 text-warning"
-              title={t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
-            >
-              {t("Not placed")}
-            </Badge>
-          </Link>
+        !o.defaultServer ? (
+          <span className="text-xs text-muted-foreground" title={t("New apps of this organization have to pick a server.")}>
+            —
+          </span>
         ) : superadmin ? (
-          <Link to={`/servers/${o.server.id}`} className="block truncate hover:underline">
-            {o.server.name}
+          <Link to={`/servers/${o.defaultServer.id}`} className="block truncate hover:underline">
+            {o.defaultServer.name}
           </Link>
         ) : (
-          <span className="block truncate">{o.server.name}</span>
+          <span className="block truncate">{o.defaultServer.name}</span>
         ),
     },
     {
-      header: t("Provisioning"),
-      className: "w-36",
-      cell: (o) => (
-        <ProvisionBadge
-          state={o.provisionState}
-          error={o.provisionError}
-          at={o.provisionedAt}
-          // runs once the organization is placed on a server
-          waiting={o.server ? undefined : t("Waiting for server")}
-          onClick={o.provisionLog || (o.server && isProvisionPending(o.provisionState)) ? () => setLogFor(o.id) : undefined}
-        />
-      ),
+      header: t("Provisioned on"),
+      className: "w-56",
+      cell: (o) => <OrgNodeBadges nodes={o.nodes} onOpen={(node) => setLogFor({ orgId: o.id, nodeId: node.id })} />,
     },
     {
       header: t("Databases"),
@@ -256,23 +232,7 @@ export default function Organizations() {
         empty={t("No organizations yet.")}
       />
 
-      <Dialog open={!!logFor} onOpenChange={(o) => !o && setLogFor(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {t("Provisioning output — {name}", { name: logOrg?.name ?? "" })}
-              {logOrg && <ProvisionBadge state={logOrg.provisionState} />}
-            </DialogTitle>
-            {logOrg?.provisionError && (
-              <DialogDescription className="text-destructive">{logOrg.provisionError}</DialogDescription>
-            )}
-          </DialogHeader>
-          <pre ref={logRef} className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
-            {logOrg?.provisionLog ||
-              (logOrg?.provisionState === "QUEUED" ? t("Waiting to start…") : t("Waiting for output…"))}
-          </pre>
-        </DialogContent>
-      </Dialog>
+      <OrgNodeLogDialog orgName={logOrg?.name ?? ""} node={logNode} onClose={() => setLogFor(null)} />
     </PageLayout>
   );
 }
