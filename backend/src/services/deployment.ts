@@ -945,6 +945,11 @@ export class DeploymentService {
         data: { activeReleaseId: release.id },
       });
 
+      // The app is up; without its route the hostname is not. Said first in the
+      // deploy log (the line the history shows), not swallowed. It stays RUNNING
+      // on purpose: the watchdog re-applies routes of running apps, so a Caddy
+      // that was briefly unreachable heals on its own; an ERROR app never would.
+      let routeWarning = '';
       if (application.type !== 'PHP') {
         try {
           await configureCaddyForRuntimeApplication(
@@ -952,14 +957,22 @@ export class DeploymentService {
             application.domain,
             port,
           );
-        } catch {
+        } catch (error: any) {
+          routeWarning =
+            `The app is running, but its Caddy route could not be set — ${application.domain} is not served yet: ` +
+            `${error?.message ?? String(error)}. The watchdog retries it; redeploy to try now.` + NL;
+          console.error(`Caddy route for ${application.domain} not set:`, error?.message ?? error);
+          await afs.appendFile(deployLogPath, routeWarning).catch(() => {});
+          await prisma.deployment
+            .update({ where: { id: deployment.id }, data: { deployLogs: routeWarning + deployLogs } })
+            .catch(() => {});
         }
       }
 
       return {
         success: true,
         buildLogs,
-        deployLogs,
+        deployLogs: routeWarning + deployLogs,
       };
 
     } catch (error: any) {
