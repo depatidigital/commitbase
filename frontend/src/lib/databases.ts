@@ -338,7 +338,9 @@ export const sniffDump = async (file: File): Promise<{ engine: 'POSTGRESQL' | 'M
   const LIMIT = 64 * 1024;
   let head = '';
   try {
-    const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    const magic = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+    // pg_dump -Fc (what DBeaver's backup writes): binary, the server reads it with pg_restore
+    if (String.fromCharCode(...magic) === 'PGDMP') return { engine: 'POSTGRESQL', otherDatabase: null };
     if (magic[0] === 0x1f && magic[1] === 0x8b) {
       const reader = file.stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream()).getReader();
       while (head.length < LIMIT) {

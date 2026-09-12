@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getDatabaseImports, getDatabaseTables, importDatabase, sniffDump } from "@/lib/databases";
+import { type DatabaseImport, getDatabaseImports, getDatabaseTables, importDatabase, sniffDump } from "@/lib/databases";
 import { locale, t } from "@/lib/i18n";
 
 /** Just what the dialog shows about its target — both the Databases page's rows and an app's list fit. */
@@ -78,6 +78,8 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
     queryFn: () => getDatabaseImports(database!.id),
     enabled: open,
     refetchInterval: (query) => (query.state.data?.[0]?.status === "RUNNING" ? 2000 : false),
+    // the run goes on in the background; so does following it
+    refetchIntervalInBackground: true,
   });
   const latest = imports?.[0];
   const current = latest && (latest.status === "RUNNING" || latest.id === startedId) ? latest : null;
@@ -96,7 +98,11 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
     mutationFn: () => importDatabase(database!.id, file!, { confirm: tables ? confirm : undefined, onProgress: setProgress }),
     onSuccess: (row) => {
       setStartedId(row.id);
-      queryClient.invalidateQueries({ queryKey: ["databases", database?.id, "imports"] });
+      // shown straight away from the answer, not after a refetch — the polling takes it from there
+      queryClient.setQueryData<DatabaseImport[]>(["databases", database?.id, "imports"], (prev) => [
+        row,
+        ...(prev ?? []).filter((item) => item.id !== row.id),
+      ]);
     },
     onSettled: () => setProgress(0),
   });
@@ -202,10 +208,10 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
               <Input
                 id="import-file"
                 type="file"
-                accept=".sql,.gz,application/sql,application/gzip"
+                accept=".sql,.gz,.dump,.backup,application/sql,application/gzip"
                 onChange={(e) => pick(e.target.files?.[0] ?? null)}
               />
-              {!file && <p className="text-xs text-muted-foreground">{t("A backup downloaded here, or another .sql file.")}</p>}
+              {!file && <p className="text-xs text-muted-foreground">{t("A backup downloaded here, a .sql file, or a PostgreSQL backup (e.g. from DBeaver).")}</p>}
               {file && (
                 <p className="text-xs text-muted-foreground">
                   {size(file.size)}

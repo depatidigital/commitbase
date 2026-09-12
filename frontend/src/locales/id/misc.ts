@@ -87,7 +87,8 @@ export default {
   "Use a custom URL": "Pakai URL sendiri",
   "Download backup": "Unduh backup",
   "Backup failed": "Backup gagal",
-  "A backup downloaded here, or another .sql file.": "Backup yang diunduh dari sini, atau berkas .sql lain.",
+  "A backup downloaded here, a .sql file, or a PostgreSQL backup (e.g. from DBeaver).":
+    "Backup yang diunduh dari sini, berkas .sql, atau backup PostgreSQL (mis. dari DBeaver).",
   "What this app stores its data in": "Tempat aplikasi ini menyimpan datanya",
   "Named in this app's environment variables": "Disebut di variabel lingkungan aplikasi ini",
   "in use": "dipakai",

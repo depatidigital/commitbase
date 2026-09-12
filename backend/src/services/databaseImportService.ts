@@ -417,7 +417,7 @@ export async function listImports(databaseId: string) {
  * The node has the server's own client tools, so its pg_restore can read
  * archives from that version.
  */
-async function archiveToScript(databaseId: string, filePath: string, importId: string) {
+export async function archiveToScript(databaseId: string, filePath: string, importId: string) {
   const db = await prisma.database.findUnique({
     where: { id: databaseId },
     include: { databaseServer: { include: { server: true } } },
@@ -542,6 +542,7 @@ export async function runImport(importId: string, databaseId: string, filePath: 
       const splitter = new SqlSplitter(engine);
       let copy: CopyStreamQuery | null = null;
       let copyLine = 0;
+      let copyTable = '';
       let lastProgress = Date.now();
 
       const run = async (events: SqlEvent[]) => {
@@ -563,6 +564,7 @@ export async function runImport(importId: string, databaseId: string, filePath: 
           } else if (event.type === 'copy') {
             copy = session.copyFrom!(event.sql);
             copyLine = event.line;
+            copyTable = /^COPY\s+(\S+)/i.exec(event.sql)?.[1] ?? 'COPY';
             // kept until end(): an early error surfaces on the next write or on finished()
             copy.on('error', noop);
             statements++;
@@ -581,6 +583,8 @@ export async function runImport(importId: string, databaseId: string, filePath: 
             } catch (error) {
               throw new ImportError(`COPY at line ${copyLine}: ${errorText(error)}`);
             }
+            // what actually landed where — "done" alone does not say whether the data came along
+            live.push(`${copyTable}: ${copy!.rowCount.toLocaleString('en')} rows\n`);
             copy = null;
           }
         }
