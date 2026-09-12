@@ -70,6 +70,7 @@ import { getServers } from "@/lib/servers";
 
 // Radix Select forbids an empty-string item value, so "no filter" needs a sentinel.
 const ALL_WORKSPACES = "__all__";
+const PENDING_REPOSITORY = "addApp.pendingRepository";
 
 export default function AddApp() {
   const navigate = useNavigate();
@@ -504,7 +505,19 @@ export default function AddApp() {
     selectedGitlabAccountId,
   );
 
+  // The OAuth round trip reloads the page; keep the pasted URL across it.
+  const rememberRepository = () => {
+    if (formData.repository.trim()) sessionStorage.setItem(PENDING_REPOSITORY, formData.repository.trim());
+  };
+  useEffect(() => {
+    const pending = sessionStorage.getItem(PENDING_REPOSITORY);
+    if (!pending) return;
+    sessionStorage.removeItem(PENDING_REPOSITORY);
+    setFormData((prev) => ({ ...prev, repository: pending }));
+  }, []);
+
   const handleConnectGithub = async () => {
+    rememberRepository();
     try {
       const url = await getGithubAuthUrl();
       window.location.href = url;
@@ -522,6 +535,7 @@ export default function AddApp() {
   };
 
   const handleConnectGitlab = async () => {
+    rememberRepository();
     try {
       const url = await getGitlabAuthUrl();
       window.location.href = url;
