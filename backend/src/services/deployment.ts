@@ -972,7 +972,20 @@ export class DeploymentService {
         }
       }
 
-      const buildResult = await this.runBuild(afs, application, deployment, envVars);
+      // Same commit, build settings and env as a build still on disk: that tree
+      // is this deploy's build — nothing to install or compile again.
+      const buildKey = commitSha ? buildKeyOf(application, commitSha, envVars) : null;
+      const reused = buildKey && application.type !== 'PHP' ? await this.reusableRelease(afs, application.id, buildKey) : null;
+      if (reused) {
+        await afs.appendFile(
+          buildLogPath,
+          `[${new Date().toISOString()}] Nothing changed since the build of ${commitSha!.slice(0, 7)} ` +
+            `(same commit, build settings and environment) — reusing it, no rebuild.` + NL,
+        );
+      }
+      const buildResult: BuildResult = reused
+        ? { success: true, releaseDir: reused.path! }
+        : await this.runBuild(afs, application, deployment, envVars);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(application.id);
@@ -1014,7 +1027,8 @@ export class DeploymentService {
         await afs.appendFile(deployLogPath, `Rolling back to ${previousRelease}` + NL);
         await this.activateRelease(afs, previousRelease);
         rolledBack = await this.startApplication(application.domain).catch(() => false);
-        await afs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
+        // a reused tree is a kept release — never this deploy's to delete
+        if (!reused) await afs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
       }
 
       const deployLogs = await readLog(deployLogPath, 'Deploy logs not available');
@@ -1049,18 +1063,23 @@ export class DeploymentService {
 
       const port = application.port || this.getDefaultPort(application.type);
 
-      const release = await prisma.release.create({
-        data: {
-          applicationId: application.id,
-          commitSha: commitSha ?? null,
-          status: 'READY',
-          ports: { port },
-          health: 'HEALTHY',
-          logsRef: logsDir,
-          path: buildResult.releaseDir ?? null,
-          deploymentId: deployment.id,
-        },
-      });
+      // a reused build is already a release — one row per tree, or pruning the
+      // older row would delete the tree the newer one serves from
+      const release =
+        reused ??
+        (await prisma.release.create({
+          data: {
+            applicationId: application.id,
+            commitSha: commitSha ?? null,
+            status: 'READY',
+            ports: { port },
+            health: 'HEALTHY',
+            logsRef: logsDir,
+            path: buildResult.releaseDir ?? null,
+            deploymentId: deployment.id,
+            buildKey,
+          },
+        }));
 
       // the new release is live and recorded: whatever fell out of the rollback window goes
       await cleanupAppReleases(afs, application.id).catch(() => {});

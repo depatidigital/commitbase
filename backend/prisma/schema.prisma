@@ -453,6 +453,9 @@ model Release {
   // the deploy that produced it, so the history shows one row per version.
   // ponytail: plain id, no relation — null for releases from before this column
   deploymentId  String?
+  // sha256 of what went into the build (commit, build settings, env): a deploy
+  // with the same key reuses this tree instead of installing and building again
+  buildKey      String?
 
   @@map("releases")
 
