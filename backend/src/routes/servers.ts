@@ -13,6 +13,7 @@ import { snapshotNode } from '../services/caddySnapshotService';
 import { syncServerApps, classifyRoute, routeHosts, isNotAnApp } from '../services/appSyncService';
 import { getCaddyConfig, allRoutesOf } from '../services/caddyService';
 import { canEncrypt, encrypt } from '../lib/secretBox';
+import { appsOnServer } from '../lib/servers';
 
 const router = Router();
 
@@ -65,7 +66,8 @@ const ServerSchema = z.object({
 
 const UpdateServerSchema = ServerSchema.partial();
 
-const withCounts = { _count: { select: { organizations: true } } } as const;
+// organizations provisioned on the node — an org can be on several
+const withCounts = { _count: { select: { orgNodes: true } } } as const;
 
 /**
  * The stored password is ciphertext, but it is still the credential for a shell
@@ -148,11 +150,18 @@ router.get('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req: A
       where: { id: req.params.id as string },
       include: {
         ...withCounts,
-        organizations: { select: { id: true, name: true, slug: true }, orderBy: { name: 'asc' } },
+        orgNodes: {
+          select: { state: true, organization: { select: { id: true, name: true, slug: true } } },
+          orderBy: { organization: { name: 'asc' } },
+        },
       },
     });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
-    return res.json({ success: true, data: redact(server) } as ApiResponse);
+    const { orgNodes, ...rest } = server;
+    return res.json({
+      success: true,
+      data: redact({ ...rest, organizations: orgNodes.map(({ organization, state }) => ({ ...organization, state })) }),
+    } as ApiResponse);
   } catch (error) {
     console.error('Error fetching server:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -359,7 +368,7 @@ router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (r
     const apps = await prisma.application.findMany({
       // discovered on this node, or owned by an organization placed on it —
       // an imported app has no organization until a superadmin assigns one
-      where: { OR: [{ serverId: id }, { organization: { serverId: id } }] },
+      where: appsOnServer(id),
       select: {
         id: true,
         name: true,
@@ -415,20 +424,25 @@ router.post('/:id/caddy/snapshot', authenticateToken, requireRole(['SUPERADMIN']
 });
 
 /**
- * Delete a node. Refused while organizations still sit on it: their homes and
- * apps live on that box, and a row with no server is an org whose next deploy
- * fails with no way to find where its files went.
+ * Delete a node. Refused while apps or organization homes are still on it.
  */
 router.delete('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    const placed = await prisma.organization.count({ where: { serverId: id } });
-    if (placed > 0) {
+    // Apps and org homes live on the box; a row with no server is an app whose
+    // next deploy fails with no way to find where its files went.
+    const [apps, orgs] = await Promise.all([
+      prisma.application.count({ where: { serverId: id } }),
+      prisma.orgNode.count({ where: { serverId: id } }),
+    ]);
+    if (apps > 0 || orgs > 0) {
       return res.status(400).json({
         success: false,
-        error: `${placed} organization(s) still placed on this server — move them before deleting it`,
+        error: `${apps} app(s) and ${orgs} organization(s) are still on this server — move or delete them before deleting it`,
       } as ApiResponse);
     }
+    // it may still be some organization's default for new apps; that just clears
+    await prisma.organization.updateMany({ where: { defaultServerId: id }, data: { defaultServerId: null } });
 
     await prisma.server.delete({ where: { id } });
     return res.json({ success: true, message: 'Server deleted' } as ApiResponse);

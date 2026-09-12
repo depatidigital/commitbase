@@ -7,7 +7,6 @@ import { prisma } from '../lib/prisma';
 import { CreateUserSchema, LoginSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { queueOrgProvision } from '../services/orgProvisionService';
 
 const router = Router();
 
@@ -68,11 +67,6 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
         createdAt: true,
       },
     });
-
-    // The bootstrap org is created inline above, so it misses the queueing that
-    // POST /api/organizations does. It runs once the org is placed on a server.
-    const bootstrapOrg = await prisma.organization.findUnique({ where: { slug: 'default' }, select: { id: true } });
-    if (bootstrapOrg) await queueOrgProvision(bootstrapOrg.id, { userId: user.id, trigger: 'bootstrap' });
 
     const token = jwt.sign(
       {

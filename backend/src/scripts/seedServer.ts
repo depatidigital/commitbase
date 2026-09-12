@@ -1,6 +1,6 @@
 /**
  * Create the first Server row from the environment this install already has,
- * and place every unplaced organization on it.
+ * and make it the default server of every organization that has none.
  *
  * The VM the control plane runs on is not special — it becomes a Server row
  * like any other, reached over SSH like any other. That is what lets the rest
@@ -41,8 +41,8 @@ async function main() {
   console.log(DRY ? '[dry run] would seed:' : 'seeding:', fields);
 
   const existing = await prisma.server.findFirst({ where: { name: NAME } });
-  const unplaced = await prisma.organization.count({ where: { serverId: null } });
-  console.log(`${existing ? 'server exists' : 'server will be created'}; ${unplaced} unplaced organization(s)`);
+  const unplaced = await prisma.organization.count({ where: { defaultServerId: null } });
+  console.log(`${existing ? 'server exists' : 'server will be created'}; ${unplaced} organization(s) without a default server`);
 
   if (DRY) return;
 
@@ -50,14 +50,15 @@ async function main() {
     ? await prisma.server.update({ where: { id: existing.id }, data: fields })
     : await prisma.server.create({ data: fields });
 
-  // Only unplaced orgs. An org already on another node must never be dragged back.
+  // Only orgs without a default. Nothing is provisioned here — that happens on
+  // each node when an org's first app lands there.
   const { count } = await prisma.organization.updateMany({
-    where: { serverId: null },
-    data: { serverId: server.id },
+    where: { defaultServerId: null },
+    data: { defaultServerId: server.id },
   });
 
   console.log(`server ${server.name} (${server.id}) at ${server.sshUser}@${server.hostname}:${server.sshPort}`);
-  console.log(`placed ${count} organization(s)`);
+  console.log(`default server for ${count} organization(s)`);
 }
 
 main()

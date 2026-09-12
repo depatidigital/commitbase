@@ -5,8 +5,8 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication, staticRouteError } from './caddyService';
-import { appUnit, appBuild } from './orgProvisionService';
-import { serverForApplication } from '../lib/servers';
+import { appUnit, appBuild, ensureOrgOnNode } from './orgProvisionService';
+import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
@@ -116,11 +116,11 @@ export interface StartResult {
 /**
  * Application deployment.
  *
- * Apps build and run natively on their organization's node: each one is a
- * systemd unit owned by the org's OS user, inside that org's cgroup slice (see
- * systemdService and orgProvisionService). Every file and command goes through
- * AppFs, which is that node over SSH — or the panel's own disk for the legacy
- * and static cases (lib/appFs.ts).
+ * Apps build and run natively on their own node: each one is a systemd unit
+ * owned by its organization's OS user, inside that org's cgroup slice on that
+ * node (see systemdService and orgProvisionService). Every file and command
+ * goes through AppFs, which is that node over SSH — or the panel's own disk for
+ * the legacy and static cases (lib/appFs.ts).
  */
 export class DeploymentService {
   /** Load an application with the organization the runtime needs. */
@@ -466,9 +466,7 @@ export class DeploymentService {
       where: {
         status: 'RUNNING',
         runtime: null,
-        ...(serverId && {
-          OR: [{ serverId }, { organization: { serverId } }],
-        }),
+        ...(serverId && appsOnServer(serverId)),
       },
       select: { domain: true },
     });
@@ -635,6 +633,13 @@ export class DeploymentService {
         where: { id: deployment.id },
         data: { status: 'BUILDING' },
       });
+
+      // The org has to exist on this app's node before anything lands there —
+      // provisioned lazily, on the nodes it actually uses. A no-op once done.
+      if (application.organizationId && application.type !== 'STATIC') {
+        const node = await serverForApplication(application.id);
+        await ensureOrgOnNode(application.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
+      }
 
       const afs = await this.prepareAppDirectory(application.id);
       const { appDir } = afs;

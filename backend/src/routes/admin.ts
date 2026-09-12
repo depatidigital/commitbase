@@ -7,8 +7,9 @@ import { validateRequest } from '../middleware/validation';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { paging, paginated, contains } from '../lib/paging';
 import {
-  queueOrgProvision,
-  getProvisionStatus,
+  queueOrgNode,
+  queueOrgEverywhere,
+  orgNodesInclude,
   OS_ISOLATION_ENABLED,
 } from '../services/orgProvisionService';
 
@@ -215,9 +216,10 @@ router.delete('/domains/:id/assign', async (req: AuthenticatedRequest, res: Resp
 
 
 // --- Organization provisioning ----------------------------------------------
-// Provisioning normally runs automatically when an organization is created.
-// These endpoints exist for the cases where that is not enough: isolation was
-// switched on after the fact, the box was rebuilt, or a run failed.
+// Provisioning normally runs on its own: when an org's first app lands on a
+// node, or its default server is set. These endpoints exist for the cases where
+// that is not enough: isolation was switched on after the fact, a box was
+// rebuilt, limits changed, or a run failed.
 
 // Organizations with their OS-isolation state
 router.get('/organizations', async (req: AuthenticatedRequest, res: Response) => {
@@ -233,44 +235,51 @@ router.get('/organizations', async (req: AuthenticatedRequest, res: Response) =>
         orderBy: { createdAt: 'desc' },
         include: {
           _count: { select: { members: true, domains: true, applications: true } },
-          // provisioning refuses to run until an org is placed, so the list says where
+          // per node: an org is provisioned on each node it uses
           defaultServer: { select: { id: true, name: true, status: true } }, nodes: orgNodesInclude, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
         },
       }),
       prisma.organization.count({ where }),
     ]);
 
-    const withStatus = await Promise.all(
-      organizations.map(async (org) => ({
-        ...org,
-        provisioning: await getProvisionStatus(org.slug).catch(() => null),
-      }))
-    );
-
-    return res.json(paginated(withStatus, total, page, limit));
+    // State comes from the org_nodes rows the provisioning worker keeps — no
+    // SSH per org per node on every page load.
+    const rows = organizations.map((org) => ({ ...org, isolationEnabled: OS_ISOLATION_ENABLED }));
+    return res.json(paginated(rows, total, page, limit));
   } catch (error) {
     console.error('Error listing organizations:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 
-// Provisioning state for one organization
+// Provisioning state for one organization, per node
 router.get('/organizations/:id/provision', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const org = await prisma.organization.findUnique({ where: { id: req.params.id as string } });
+    const org = await prisma.organization.findUnique({
+      where: { id: req.params.id as string },
+      select: { slug: true, uid: true, nodes: orgNodesInclude },
+    });
     if (!org) {
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
     }
-    return res.json({ success: true, data: await getProvisionStatus(org.slug) } as ApiResponse);
+    return res.json({ success: true, data: { enabled: OS_ISOLATION_ENABLED, osUser: `cb-${org.slug}`, ...org } } as ApiResponse);
   } catch (error) {
     console.error('Error reading provisioning status:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 
+const ProvisionSchema = z.object({
+  // one node; omitted = every node the org is on (its default server when it is on none yet)
+  serverId: z.string().min(1).optional(),
+  diskQuota: z.string().optional(),
+  cpuQuota: z.string().optional(),
+  memoryMax: z.string().optional(),
+});
+
 // Run (or re-run) provisioning. The script is idempotent, so this doubles as
 // "repair ownership" and "apply new resource limits".
-router.post('/organizations/:id/provision', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/organizations/:id/provision', validateRequest(ProvisionSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!OS_ISOLATION_ENABLED) {
       return res.status(400).json({
@@ -284,20 +293,42 @@ router.post('/organizations/:id/provision', async (req: AuthenticatedRequest, re
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
     }
 
-    // Queued, not run: the list polls provisionState for the outcome.
-    const { diskQuota, cpuQuota, memoryMax } = req.body || {};
-    await queueOrgProvision(org.id, {
+    // Queued, not run: the list polls each node's state for the outcome.
+    const { serverId, diskQuota, cpuQuota, memoryMax } = ProvisionSchema.parse(req.body ?? {});
+    const job = {
       userId: req.user!.userId,
       trigger: 'admin',
-      ...(typeof diskQuota === 'string' && { diskQuota }),
-      ...(typeof cpuQuota === 'string' && { cpuQuota }),
-      ...(typeof memoryMax === 'string' && { memoryMax }),
-    });
+      ...(diskQuota && { diskQuota }),
+      ...(cpuQuota && { cpuQuota }),
+      ...(memoryMax && { memoryMax }),
+    };
+
+    let queued = 0;
+    if (serverId) {
+      if (!(await prisma.server.findUnique({ where: { id: serverId }, select: { id: true } }))) {
+        return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
+      }
+      await queueOrgNode(org.id, serverId, job);
+      queued = 1;
+    } else {
+      queued = await queueOrgEverywhere(org.id, job);
+      if (queued === 0 && org.defaultServerId) {
+        await queueOrgNode(org.id, org.defaultServerId, job);
+        queued = 1;
+      }
+    }
+
+    if (queued === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'This organization is on no server yet — set its default server, or pick one',
+      } as ApiResponse);
+    }
 
     return res.status(202).json({
       success: true,
-      data: { provisionState: 'QUEUED' },
-      message: org.serverId ? `Queued cb-${org.slug}` : `Queued cb-${org.slug} — runs once it is placed on a server`,
+      data: { queued },
+      message: `Queued cb-${org.slug} on ${queued} server(s)`,
     } as ApiResponse);
   } catch (error: any) {
     const message = error?.stderr || error?.message || String(error);
