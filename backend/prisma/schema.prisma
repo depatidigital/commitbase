@@ -40,11 +40,17 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Which provisioning node this org's OS user, home and apps live on.
-  // Nullable only until the backfill has run; treat a null as "not yet placed"
-  // and refuse to provision rather than guessing a node.
-  serverId  String?
-  server    Server?  @relation(fields: [serverId], references: [id])
+  // Where this org's new apps go unless one is picked. Not a placement: each
+  // application carries its own serverId, so an org can span nodes, and it is
+  // provisioned only on the nodes it uses (OrgNode). The column keeps its old
+  // name — this was the one-node-per-org placement before.
+  defaultServerId String?  @map("serverId")
+  defaultServer   Server?  @relation("OrgDefaultServer", fields: [defaultServerId], references: [id])
+
+  /// Linux UID (and GID) of cb-<slug> — the same on every node, so files keep
+  /// their owner when an app is copied or moved between nodes. Assigned on the
+  /// org's first provisioning (adopted from the node when the user already exists).
+  uid             Int?     @unique
 
   // Which database server this org's databases are created on, per engine.
   // Same rule as serverId: null means "not placed", and creating a database
@@ -54,27 +60,43 @@ model Organization {
   mysqlServerId    String?
   mysqlServer      DatabaseServer? @relation("OrgMysqlServer", fields: [mysqlServerId], references: [id])
 
-  // OS provisioning queue (orgProvisionService). Requests only flag the row;
-  // the worker runs cb-provision-org over SSH and records the outcome here.
-  // A QUEUED org with no server waits until it is placed.
-  provisionState ProvisionState @default(NONE)
-  provisionError String?
-  /// Tail of cb-provision-org's output, written while it runs (live view) and kept after
-  provisionLog   String?
-  /// { userId, trigger, diskQuota?, cpuQuota?, memoryMax? } of the pending request
-  provisionJob   Json?
-  provisionedAt  DateTime?
-
   members          Membership[]
   domains          Domain[]
   applications     Application[]
   invites          Invite[]
   databases        Database[]
   databaseAccounts OrgDatabaseAccount[]
+  nodes            OrgNode[]
 
-  @@index([serverId])
-  @@index([provisionState])
+  @@index([defaultServerId])
   @@map("organizations")
+}
+
+/// An organization on one node: its OS user, home, cgroup slice and PHP-FPM
+/// pool there. Created on demand — when the org's first app is placed on the
+/// node, or by an admin — so an org is provisioned only where it runs.
+/// The provisioning queue (orgProvisionService) lives on these rows.
+model OrgNode {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serverId       String
+  server         Server         @relation(fields: [serverId], references: [id], onDelete: Restrict)
+
+  state          ProvisionState @default(NONE)
+  error          String?
+  /// Tail of cb-provision-org's output, written while it runs (live view) and kept after
+  log            String?
+  /// { userId, trigger, diskQuota?, cpuQuota?, memoryMax? } of the pending request
+  job            Json?
+  provisionedAt  DateTime?
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([organizationId, serverId])
+  @@index([state])
+  @@map("org_nodes")
 }
 
 enum ProvisionState {
@@ -147,9 +169,10 @@ model Server {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  organizations   Organization[]
-  applications    Application[]
-  databaseServers DatabaseServer[]
+  defaultForOrganizations Organization[] @relation("OrgDefaultServer")
+  orgNodes                OrgNode[]
+  applications            Application[]
+  databaseServers         DatabaseServer[]
 
   @@map("servers")
 }
@@ -344,9 +367,10 @@ model Application {
   activeReleaseId String?
   activeRelease   Release? @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
 
-  // Which node this app actually runs on. Set by the server sync for apps
-  // discovered on a box; deploys still follow the organization's placement, so
-  // this is "where it was found", not "where it belongs".
+  // The node this app runs on — where it is built, served and routed. Chosen
+  // when the app is created (default: its organization's default server), or
+  // where the server sync found it for imported apps. Moving an app is a
+  // migration (files, DNS), not an edit of this field.
   serverId     String?
   server       Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
