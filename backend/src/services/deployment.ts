@@ -1078,8 +1078,14 @@ export class DeploymentService {
       const afs = await appFsForDomain(domain);
       if (!afs) return `No application found for domain ${domain}`;
 
-      const name = ({ out: 'out.log', error: 'error.log', build: 'build.log' } as Record<string, string>)[logType] ?? 'combined.log';
-      return this.tailLog(afs, join(logsDirFor(afs.appDir), name), lines, logType);
+      const logsDir = logsDirFor(afs.appDir);
+      if (logType === 'combined') {
+        // the unit writes stdout and stderr to separate files; show both, headed like `tail` does
+        const [out, err] = await Promise.all(['out.log', 'error.log'].map((name) => this.tailLog(afs, join(logsDir, name), lines, logType)));
+        return `==> out.log <==\n${out}\n\n==> error.log <==\n${err}`;
+      }
+      const name = ({ out: 'out.log', error: 'error.log', build: 'build.log' } as Record<string, string>)[logType] ?? 'out.log';
+      return this.tailLog(afs, join(logsDir, name), lines, logType);
     } catch (error) {
       return `No logs available for ${logType}: ${error}`;
     }

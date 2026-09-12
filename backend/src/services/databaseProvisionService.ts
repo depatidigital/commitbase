@@ -215,7 +215,7 @@ export async function grantAccess(databaseId: string, accountId: string): Promis
 
   if (db.databaseServer?.engine === 'POSTGRESQL' && !db.ownerRole && db.grants.length > 0) {
     throw new ProvisionError(
-      `${db.dbName} was created before per-app logins — connect it with ${db.grants[0].account.username}`,
+      `${db.dbName} was created before per-app logins — connect it with ${db.grants[0]!.account.username}`,
     );
   }
   await prisma.databaseGrant.upsert({
@@ -244,7 +244,7 @@ export async function provisionDatabase(id: string): Promise<{ ok: boolean; erro
 
       if (dbs.engine === 'POSTGRESQL') {
         // older databases are owned by the org login itself
-        const owner = db.ownerRole ?? logins[0].username;
+        const owner = db.ownerRole ?? logins[0]!.username;
         if (db.ownerRole && !(await roleExists(session, dbs, owner))) {
           await session.query(`CREATE ROLE ${pgIdent(owner)} NOLOGIN`);
         }
@@ -290,7 +290,7 @@ export async function provisionDatabase(id: string): Promise<{ ok: boolean; erro
         status: 'RUNNING',
         lastError: null,
         port: dbs.port,
-        connectionString: connectionUrl(dbs, logins[0].username, dbName),
+        connectionString: connectionUrl(dbs, logins[0]!.username, dbName),
       },
     });
     return { ok: true };

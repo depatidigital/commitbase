@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ProvisionError, connectionUrl, databaseName, loginName } from './databaseProvisionService';
+import { ProvisionError, accountName, connectionUrl, databaseName, loginName, ownerRoleName } from './databaseProvisionService';
 
 // login names: dashes become underscores, and MySQL's 32-char cap is kept
 assert.equal(loginName('acme', 'POSTGRESQL'), 'org_acme');
@@ -25,4 +25,19 @@ assert.equal(
   'mysql://org_acme:p%2Fw%2B@db.example.com:3306/acme_crm?ssl-mode=REQUIRED',
 );
 
-console.log('databaseProvisionService: names + connectionUrl OK');
+// named logins: prefixed with the org slug, held to identifier rules and the engine's cap
+assert.equal(accountName('depati', 'umojati', 'POSTGRESQL'), 'depati_umojati');
+assert.equal(accountName('yayasan-pesona', 'shop', 'MYSQL'), 'yayasan_pesona_shop');
+assert.throws(() => accountName('acme', 'Shop', 'POSTGRESQL'), ProvisionError);
+assert.throws(() => accountName('acme', '1shop', 'POSTGRESQL'), ProvisionError);
+assert.throws(() => accountName('acme', 'x; DROP ROLE admin', 'POSTGRESQL'), ProvisionError);
+assert.throws(() => accountName('yayasan-pesona-kebaikan', 'aplikasi_utama', 'MYSQL'), ProvisionError);
+
+// the database's owner role: <db>_owner, unique and within PostgreSQL's 63
+assert.equal(ownerRoleName('depati_umojati'), 'depati_umojati_owner');
+const longDb = 'a'.repeat(63);
+assert.ok(ownerRoleName(longDb).length <= 63);
+assert.notEqual(ownerRoleName(longDb), ownerRoleName('a'.repeat(62) + 'b'));
+assert.match(ownerRoleName(longDb), /_owner$/);
+
+console.log('databaseProvisionService: names + connectionUrl + logins OK');

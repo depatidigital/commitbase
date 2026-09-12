@@ -65,10 +65,10 @@ export const useApplicationLogs = (
 const MAX_LIVE_LINES = 2000;
 
 /**
- * A pm2 app's log, live over SSE: the last `lines` lines, then each new one.
- * The connection is open only while `enabled`. fetch rather than EventSource,
- * which cannot send the Authorization header. A stream the server ends is
- * reopened after 3s; a refused one (no pm2 app, too many streams) is not.
+ * An app's log (pm2 or its systemd unit), live over SSE: the last `lines`
+ * lines, then each new one. The connection is open only while `enabled`. fetch
+ * rather than EventSource, which cannot send the Authorization header. A stream
+ * the server ends is reopened after 3s; a refused one (too many streams) is not.
  */
 export const useLiveLogs = (applicationId: string, logType: string, lines: number, enabled: boolean) => {
   const [text, setText] = useState('');

@@ -1,7 +1,8 @@
 import * as path from 'path';
 import { Application } from '@prisma/client';
 import { sourcesDirFor, logsDirFor, currentDirFor } from '../lib/appPaths';
-import { appFsFor, type AppFs } from '../lib/appFs';
+import { appFsFor, remoteCommand, type AppFs } from '../lib/appFs';
+import { exec, type SshTarget } from '../lib/runner';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { readEnv } from '../lib/appEnv';
 import { appUnit, OS_ISOLATION_ENABLED } from './orgProvisionService';
@@ -144,6 +145,27 @@ export async function restartApplication(application: AppWithOrg): Promise<void>
 export async function removeApplication(application: AppWithOrg): Promise<void> {
   if (!needsUnit(application.type)) return;
   await appUnit('remove', slugOf(application), application.id);
+}
+
+/**
+ * Follow a unit app's log files on its node: the last `lines` lines, then each
+ * new one, until `signal` aborts. The unit appends stdout to out.log and stderr
+ * to error.log; `combined` tails both, tail marking each switch with
+ * `==> file <==`. -F reopens a file that logrotate truncates or that does not
+ * exist yet (an app never started).
+ */
+export function followLogs(
+  node: SshTarget,
+  logsDir: string,
+  type: 'combined' | 'out' | 'error',
+  lines: number,
+  onOutput: (text: string) => void,
+  signal: AbortSignal
+): Promise<unknown> {
+  const files = type === 'out' ? ['out.log'] : type === 'error' ? ['error.log'] : ['out.log', 'error.log'];
+  const { argv } = remoteCommand(['tail', '-n', String(lines), '-F', ...files], { cwd: logsDir });
+  // backstop only: the route aborts well before this
+  return exec(node, argv, { onOutput, signal, maxBuffer: 0, timeout: 2 * 60 * 60_000 });
 }
 
 export async function getStatus(application: AppWithOrg): Promise<'RUNNING' | 'STOPPED'> {

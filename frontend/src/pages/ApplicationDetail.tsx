@@ -147,8 +147,10 @@ export default function ApplicationDetail() {
   // Logs hooks
   // a static site has no process, so the build log is the only one it has
   const logType = application?.type === 'STATIC' ? 'build' : selectedLogType;
-  // pm2 apps stream live, and only while the Logs tab is open; the rest poll
-  const liveLogs = application?.runtime === 'PM2' && logType !== 'build';
+  // pm2 apps and the panel's own unit apps (not PHP/static) stream live, only
+  // while the Logs tab is open; the rest poll
+  const hasProcess = application?.runtime === 'PM2' || (!application?.runtime && application?.type !== 'PHP' && application?.type !== 'STATIC');
+  const liveLogs = !!application && hasProcess && logType !== 'build';
   const live = useLiveLogs(id!, logType, logLines, liveLogs && activeTab === 'logs');
   const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, logType, logLines, !liveLogs);
   const shownLogs = liveLogs ? live.error ?? live.text : logs[logType as keyof ApplicationLogs];

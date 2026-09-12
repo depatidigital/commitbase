@@ -118,6 +118,66 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 });
 
 // Get single database
+/**
+ * Servers a database can be created on, for the "connect a database" dialog:
+ * every online one (anyone who manages an organization may pick any). Names
+ * and engines only — hosts and admin logins stay with the superadmin pages.
+ * `default`: the organization's own server for that engine.
+ */
+router.get('/servers', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const organizationId = String(req.query.organizationId ?? '');
+    const org = organizationId
+      ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { postgresServerId: true, mysqlServerId: true } })
+      : null;
+    const servers = await prisma.databaseServer.findMany({
+      where: { status: 'ONLINE' },
+      select: { id: true, name: true, engine: true, version: true },
+      orderBy: { name: 'asc' },
+    });
+    return res.json({
+      success: true,
+      data: servers.map((s) => ({ ...s, default: !!org && (s.id === org.postgresServerId || s.id === org.mysqlServerId) })),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('List database server choices error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** An organization's logins on one server, with how many databases each reaches. Managers only. */
+router.get('/logins', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const organizationId = String(req.query.organizationId ?? '');
+    const databaseServerId = String(req.query.databaseServerId ?? '');
+    if (!organizationId || !databaseServerId) {
+      return res.status(400).json({ success: false, error: 'organizationId and databaseServerId are required' } as ApiResponse);
+    }
+    if (!(await canManageOrg(req, organizationId))) {
+      return res.status(403).json({ success: false, error: 'Only owners and admins of the organization can see its logins' } as ApiResponse);
+    }
+    const [accounts, organization] = await Promise.all([
+      prisma.orgDatabaseAccount.findMany({
+        where: { organizationId, databaseServerId },
+        select: { id: true, username: true, createdAt: true, grants: { select: { database: { select: { id: true, dbName: true } } } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { slug: true } }),
+    ]);
+    return res.json({
+      success: true,
+      data: {
+        // what a new login's name starts with (accountName)
+        prefix: `${(organization?.slug ?? '').replace(/-/g, '_')}_`,
+        logins: accounts.map(({ grants, ...account }) => ({ ...account, databases: grants.map((g) => g.database) })),
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('List database logins error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -328,7 +388,27 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
       return res.status(400).json({ success: false, error: 'That database belongs to another organization' } as ApiResponse);
     }
 
-    const credentials = await databaseCredentials(database.id);
+    // which login the app connects as: one the org has, a new one, or (none
+    // given) the login the database already has
+    const parsedLogin = CreateDatabaseSchema.shape.login.safeParse(req.body?.login);
+    if (!parsedLogin.success) return res.status(400).json({ success: false, error: 'Invalid login' } as ApiResponse);
+    let accountId: string | undefined;
+    if (parsedLogin.data) {
+      const full = await prisma.database.findUnique({
+        where: { id: database.id },
+        include: { databaseServer: { include: { server: true } }, organization: { select: { id: true, slug: true } } },
+      });
+      if (!full?.databaseServer || !full.organization) {
+        return res.status(400).json({ success: false, error: 'This database has no server or organization to add a login on' } as ApiResponse);
+      }
+      accountId = (await resolveAccount(full.databaseServer, full.organization, parsedLogin.data)).id;
+      const granted = await grantAccess(database.id, accountId);
+      if (!granted.ok) {
+        return res.status(502).json({ success: false, error: `Could not give the login access on the server: ${granted.error}` } as ApiResponse);
+      }
+    }
+
+    const credentials = await databaseCredentials(database.id, accountId);
     // only names from the list, and only for this engine — never an arbitrary key
     const also = (Array.isArray(req.body?.alsoKeys) ? req.body.alsoKeys : [])
       .map(String)

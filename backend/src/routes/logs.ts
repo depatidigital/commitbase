@@ -8,6 +8,9 @@ import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 import * as path from 'path';
 import { appFsFor } from '../lib/appFs';
 import { followPm2Logs } from '../services/appSyncService';
+import * as systemd from '../services/systemdService';
+import { logsDirFor } from '../lib/appPaths';
+import type { SshTarget } from '../lib/runner';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -142,8 +145,8 @@ const STREAM_MAX_MS = 30 * 60_000;
 const openStreams = new Map<string, number>();
 
 /**
- * A pm2 app's log as Server-Sent Events: the last `lines` lines, then each new
- * one as it is written. The pm2 follow runs only while a client is connected.
+ * An app's log as Server-Sent Events: the last `lines` lines, then each new
+ * one as it is written. The follow runs only while a client is connected.
  */
 router.get('/application/:appId/stream', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -156,15 +159,33 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
-    if (application.runtime !== 'PM2' || !application.processName) {
-      return res.status(400).json({ success: false, error: 'Live logs are only available for pm2 apps' } as ApiResponse);
+
+    // imported pm2 apps follow pm2; apps the panel deployed follow their unit's log files
+    let server: SshTarget;
+    let follow: (send: (text: string) => void, signal: AbortSignal) => Promise<unknown>;
+    if (application.runtime === 'PM2' && application.processName) {
+      const pm2Server = application.serverId
+        ? await prisma.server.findUnique({ where: { id: application.serverId } })
+        : null;
+      if (!pm2Server) {
+        return res.status(409).json({ success: false, error: 'This pm2 app is not linked to a server — re-sync it' } as ApiResponse);
+      }
+      const processName = application.processName;
+      server = pm2Server;
+      follow = (send, signal) => followPm2Logs(pm2Server, processName, type, lines, send, signal);
+    } else if (!application.runtime && systemd.needsUnit(application.type)) {
+      const afs = await appFsFor(application.id);
+      const node = afs.node;
+      if (!node) {
+        // ponytail: the panel's own disk (isolation off, dev) only polls
+        return res.status(400).json({ success: false, error: 'Live logs are only available for apps on a node' } as ApiResponse);
+      }
+      server = node;
+      follow = (send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, send, signal);
+    } else {
+      return res.status(400).json({ success: false, error: 'Live logs are not available for this app' } as ApiResponse);
     }
-    const server = application.serverId
-      ? await prisma.server.findUnique({ where: { id: application.serverId } })
-      : null;
-    if (!server) {
-      return res.status(409).json({ success: false, error: 'This pm2 app is not linked to a server — re-sync it' } as ApiResponse);
-    }
+
     const open = openStreams.get(server.id) ?? 0;
     if (open >= MAX_STREAMS_PER_SERVER) {
       return res.status(429).json({ success: false, error: 'Too many live log streams on this server — close another one' } as ApiResponse);
@@ -187,7 +208,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
     const cap = setTimeout(() => controller.abort(), STREAM_MAX_MS);
 
     try {
-      await followPm2Logs(server, application.processName, type, lines, send, controller.signal);
+      await follow(send, controller.signal);
     } catch (err: any) {
       if (!controller.signal.aborted) send(`\n[log stream ended: ${err?.message || err}]\n`);
     } finally {
@@ -197,7 +218,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
     }
     return res.end();
   } catch (error) {
-    console.error('Error streaming pm2 logs:', error);
+    console.error('Error streaming logs:', error);
     if (!res.headersSent) {
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
     }

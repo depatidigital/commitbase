@@ -13,6 +13,7 @@ export interface Database {
   organizationId?: string | null;
   /** the real name on the server, <org-slug>_<name> */
   dbName?: string | null;
+  databaseServerId?: string | null;
   /** found on the server by the inventory sync rather than created by the panel */
   discovered?: boolean;
   sizeBytes?: number | null;
@@ -23,14 +24,58 @@ export interface Database {
   updatedAt: string;
 }
 
+/** Which login reaches a database: one the org has, a new one (the part after the org prefix), or its default. */
+export type LoginChoice = { accountId: string } | { username: string };
+
 export interface CreateDatabaseData {
   /** the part after the org prefix: lowercase letters, digits, underscores */
   name: string;
-  type: 'POSTGRESQL' | 'MYSQL';
+  /** the engine; taken from the server when one is chosen */
+  type?: 'POSTGRESQL' | 'MYSQL';
+  /** the server to create it on — else the organization's server for the engine */
+  databaseServerId?: string;
+  login?: LoginChoice;
   /** owner — or leave it to the app's organization */
   organizationId?: string;
   applicationId?: string;
 }
+
+/** A server a database can be created on: online, name and engine only. */
+export interface DatabaseServerChoice {
+  id: string;
+  name: string;
+  engine: 'POSTGRESQL' | 'MYSQL';
+  version: string | null;
+  /** the organization's own server for this engine */
+  default: boolean;
+}
+
+/** One of an organization's logins on a server, and the databases it reaches. */
+export interface DatabaseLogin {
+  id: string;
+  username: string;
+  databases: Array<{ id: string; dbName: string | null }>;
+}
+
+export const getDatabaseServerChoices = async (organizationId?: string | null): Promise<DatabaseServerChoice[]> => {
+  const response = await apiRequest<DatabaseServerChoice[]>(
+    `/databases/servers${organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : ''}`,
+  );
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to load database servers'));
+};
+
+/** `prefix`: what a new login's name starts with — the org's slug. */
+export const getDatabaseLogins = async (
+  organizationId: string,
+  databaseServerId: string,
+): Promise<{ prefix: string; logins: DatabaseLogin[] }> => {
+  const response = await apiRequest<{ prefix: string; logins: DatabaseLogin[] }>(
+    `/databases/logins?organizationId=${encodeURIComponent(organizationId)}&databaseServerId=${encodeURIComponent(databaseServerId)}`,
+  );
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to load database logins'));
+};
 
 export interface DatabaseCredentials {
   engine: 'POSTGRESQL' | 'MYSQL';
@@ -73,8 +118,9 @@ export const getDatabase = async (id: string): Promise<Database> => {
 };
 
 // Create a database on the organization's database server
-export const createDatabase = async (data: CreateDatabaseData): Promise<Database> => {
-  const response = await apiRequest<Database>('/databases', {
+/** `accountId`: the login it was made with, for the attach that follows. */
+export const createDatabase = async (data: CreateDatabaseData): Promise<Database & { accountId?: string }> => {
+  const response = await apiRequest<Database & { accountId?: string }>('/databases', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -149,11 +195,13 @@ export const attachDatabase = async (
   applicationId: string,
   envKey = 'DATABASE_URL',
   /** the app's other database variables (DB_HOST, DIRECT_URL…) to fill from the same credentials */
-  alsoKeys: string[] = []
+  alsoKeys: string[] = [],
+  /** the login the app connects as — given access first if it has none; else the database's own */
+  login?: LoginChoice
 ): Promise<{ envKey: string; keys: string[]; database: string }> => {
   const response = await apiRequest<{ envKey: string; keys: string[]; database: string }>(`/databases/${databaseId}/attach`, {
     method: 'POST',
-    body: JSON.stringify({ applicationId, envKey, alsoKeys }),
+    body: JSON.stringify({ applicationId, envKey, alsoKeys, login }),
   });
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Failed to connect the database'));
