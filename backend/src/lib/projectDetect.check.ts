@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { detectFromFiles, nvmPreamble, parseLsRemote, parseEnvFile, presenceOnly } from './projectDetect';
+import { detectFromFiles, nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 

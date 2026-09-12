@@ -36,6 +36,8 @@ export interface DetectedProject {
   env: RepoEnv;
   /** things in the project that will misbehave behind the platform's proxy */
   warnings: DetectWarning[];
+  /** a step after the build, before the release goes live — Prisma's migrations — or null */
+  preDeployCommand: string | null;
 }
 
 export type DetectWarning =
@@ -188,10 +190,38 @@ function repoEnvOf(files: DetectInput): RepoEnv {
   };
 }
 
-/** Pure: takes file contents, returns the preset. Same logic for upload, git and deploy. */
-export function detectFromFiles(files: DetectInput): DetectedProject {
+// runs a package's own binary with the project's package manager
+const EXEC: Record<PackageManager, string> = { npm: 'npx', pnpm: 'pnpm', yarn: 'yarn', bun: 'bunx' };
+
+/**
+ * Prisma's schema step, for the pre-deploy command. Pure. With migrations
+ * in the repo (or not known), apply them; a repo without prisma/migrations
+ * syncs its schema with db push — which refuses changes that would lose data.
+ */
+export function preDeployOf(files: DetectInput, pm: PackageManager, migrations?: boolean): string | null {
+  let deps: Record<string, unknown> = {};
+  try {
+    const pkg = JSON.parse(files['package.json'] || '{}');
+    deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  } catch {
+    return null;
+  }
+  if (!('prisma' in deps) && !('@prisma/client' in deps)) return null;
+  return migrations === false ? `${EXEC[pm]} prisma db push --skip-generate` : `${EXEC[pm]} prisma migrate deploy`;
+}
+
+/**
+ * Pure: takes file contents, returns the preset. Same logic for upload, git and
+ * deploy. `prismaMigrations`: whether the repo has prisma/migrations, when known.
+ */
+export function detectFromFiles(files: DetectInput, prismaMigrations?: boolean): DetectedProject {
   const preset = presetFromFiles(files);
-  return { ...preset, env: repoEnvOf(files), warnings: warningsOf(files, preset) };
+  return {
+    ...preset,
+    env: repoEnvOf(files),
+    warnings: warningsOf(files, preset),
+    preDeployCommand: preset.type === 'NODEJS' ? preDeployOf(files, preset.packageManager, prismaMigrations) : null,
+  };
 }
 
 /** The start script as written — only when Larika runs it rather than its own command. */
@@ -203,7 +233,7 @@ function startScriptOf(files: DetectInput): string {
   }
 }
 
-function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'warnings'>): DetectWarning[] {
+function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'>): DetectWarning[] {
   if (preset.framework !== 'nextjs' || preset.startCommand === NEXT_START) return [];
   const script = startScriptOf(files);
   const warnings: DetectWarning[] = [];
@@ -215,7 +245,7 @@ function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'w
   return warnings;
 }
 
-function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings'> {
+function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'> {
   const nodeVersion = (files['.nvmrc'] || files['.node-version'] || '').trim().replace(/^v/, '') || null;
 
   // PHP first: Laravel ships a package.json for its assets, which must not
@@ -332,8 +362,8 @@ function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'war
 }
 
 function base(
-  partial: Partial<Omit<DetectedProject, 'env' | 'warnings'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
-): Omit<DetectedProject, 'env' | 'warnings'> {
+  partial: Partial<Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
+): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'> {
   return {
     packageManager: 'npm',
     installCommand: 'npm install --no-audit --no-fund',
@@ -375,8 +405,8 @@ export async function readDetectFiles(dir: string, read: ReadText = readLocal): 
   return out;
 }
 
-export async function detectProject(dir: string, read?: ReadText): Promise<DetectedProject> {
-  return detectFromFiles(await readDetectFiles(dir, read));
+export async function detectProject(dir: string, read?: ReadText, prismaMigrations?: boolean): Promise<DetectedProject> {
+  return detectFromFiles(await readDetectFiles(dir, read), prismaMigrations);
 }
 
 /**
@@ -412,7 +442,12 @@ export async function detectFromRepo(repository: string, branch = 'main', auth: 
     // comes back without the blob, so detection never saw a package.json.
     const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', branch, repository, tmp]);
     await execFileAsync('git', clone.argv, { timeout: 60000, env: clone.env });
-    return detectProject(tmp);
+    // the sparse checkout has the root only, but the trees are all there:
+    // whether prisma/migrations exists costs one ls-tree, no download
+    const migrations = await execFileAsync('git', ['-C', tmp, 'ls-tree', '--name-only', 'HEAD', 'prisma/migrations/'], { timeout: 10000 })
+      .then(({ stdout }) => String(stdout).trim().length > 0)
+      .catch(() => undefined);
+    return detectProject(tmp, undefined, migrations);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
