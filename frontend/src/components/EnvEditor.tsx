@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
-import { ClipboardPaste, Eye, EyeOff, FileUp, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ClipboardPaste, Eye, EyeOff, FileUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ENV_NAME, isSecret, mergeRows, parseEnv, type EnvRow } from "@/lib/env";
+import { ENV_NAME, isSecret, mergeRows, parseEnv, pointsAtLocalhost, type EnvRow } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
 /**
@@ -78,16 +78,19 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
 
   return (
     <div className="space-y-2">
+      {/* one grid for every row, so a row with an extra button keeps the same column widths */}
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-start gap-2">
       {list.map((row, index) => {
         const invalid = row.key.trim() !== "" && !ENV_NAME.test(row.key.trim());
         const missing = !!required?.has(row.key) && !row.value;
         // only secrets are masked (and get the eye); a URL or a port is plain text
-        const secret = isSecret(row.key, row.value);
+        const secret = isSecret(row.key);
         const shown = !secret || revealed.has(index);
         const multiline = row.value.includes("\n");
         const fixed = !!locked?.has(row.key);
+        const local = pointsAtLocalhost(row.value);
         return (
-          <div key={index} className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-start gap-2">
+          <div key={index} className="contents">
             <div className="space-y-1">
               <Input
                 {...NO_AUTOFILL}
@@ -112,6 +115,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
                 </p>
               )}
             </div>
+            <div className="space-y-1">
             {multiline && shown ? (
               <Textarea
                 aria-label={t("Value")}
@@ -129,7 +133,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
                 type={shown || CSS_MASK ? "text" : "password"}
                 autoComplete={shown || CSS_MASK ? "off" : "new-password"}
                 style={!shown && CSS_MASK ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
-                className={`font-mono text-xs ${missing ? "border-destructive" : ""}`}
+                className={`font-mono text-xs ${missing ? "border-destructive" : local ? "border-amber-500" : ""}`}
                 placeholder={missing ? t("required") : t("value")}
                 value={multiline && !shown ? "••••••" : row.value}
                 readOnly={multiline && !shown}
@@ -137,6 +141,16 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
                 onChange={(e) => update(index, { value: e.target.value })}
               />
             )}
+            {/* said even when masked — the host is the part that matters here */}
+            {local && (
+              <p className="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+                {row.key === "DATABASE_URL"
+                  ? t("Local address, won't work on the server. Use Connect database.")
+                  : t("Local address, won't work on the server.")}
+              </p>
+            )}
+            </div>
             <div className="flex items-center gap-1">
               {renderAction?.(row)}
               {secret ? (
@@ -168,6 +182,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
           </div>
         );
       })}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onChange([...list, { key: "", value: "" }])}>
           <Plus className="h-4 w-4 mr-2" />

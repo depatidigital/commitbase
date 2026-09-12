@@ -333,6 +333,8 @@ export default {
   "{count} variables imported — review, then save.": "{count} variabel diimpor — periksa, lalu simpan.",
   "No KEY=value lines found.": "Tidak ada baris KEY=value.",
   "The code expects this name": "Nama ini dipakai oleh kode aplikasi",
+  "Local address, won't work on the server. Use Connect database.": "Alamat lokal, tidak jalan di server. Pakai Hubungkan database.",
+  "Local address, won't work on the server.": "Alamat lokal, tidak jalan di server.",
   "The code expects this variable": "Variabel ini dibutuhkan kode aplikasi",
   "Its URL is saved as {key}.": "URL-nya disimpan sebagai {key}.",
   "from {file}": "dari {file}",

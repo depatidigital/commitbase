@@ -28,13 +28,44 @@ export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // shipped to the browser by design — a "KEY" in one of these is a publishable key
 const PUBLIC_PREFIX = /^(NEXT_PUBLIC_|VITE_|PUBLIC_|NUXT_PUBLIC_|EXPO_PUBLIC_|REACT_APP_)/i;
 const SECRET_NAME = /SECRET|KEY|TOKEN|PASSWORD|PASSWD|PASS|PWD|PRIVATE|CREDENTIAL|SALT/i;
-// scheme://user:password@host — a connection string with its password in it
-const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s@]+@/i;
 
-/** Masked in the editor: a secret-sounding name, or a URL carrying a password (DATABASE_URL). */
-export function isSecret(key: string, value = ""): boolean {
-  if (PUBLIC_PREFIX.test(key)) return false;
-  return SECRET_NAME.test(key) || URL_WITH_PASSWORD.test(value.trim());
+/** What the database form accepts as a name: lowercase letters, digits, underscores. */
+export const toDbName = (raw: string) => raw.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 40);
+
+/**
+ * What a DATABASE_URL already says: `postgresql://…/umojati` → PostgreSQL, "umojati".
+ * Usually the URL from .env.example or a local setup — its host is not
+ * reachable from the node, but its engine and database name are the app's.
+ */
+export function parseDatabaseUrl(url?: string): { engine?: "POSTGRESQL" | "MYSQL"; name?: string } {
+  try {
+    const parsed = new URL(url ?? "");
+    const engine = /^postgres(ql)?:$/.test(parsed.protocol)
+      ? "POSTGRESQL"
+      : /^mysql2?:$/.test(parsed.protocol)
+        ? "MYSQL"
+        : undefined;
+    const name = toDbName(decodeURIComponent(parsed.pathname.replace(/^\/+/, "")));
+    return { engine, name: name || undefined };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A value pointing at this machine — `postgres://…@localhost:5432`, `http://127.0.0.1:3000`.
+ * Usually copied from a local .env: on the node, localhost is the node itself.
+ */
+export function pointsAtLocalhost(value: string): boolean {
+  return /(^|[/@=\s])(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1)(?=[:/?#\s]|$)/i.test(value.trim());
+}
+
+/**
+ * Masked in the editor: a secret-sounding name. By name only — a URL such as
+ * DATABASE_URL stays readable, since its host is what needs checking.
+ */
+export function isSecret(key: string): boolean {
+  return !PUBLIC_PREFIX.test(key) && SECRET_NAME.test(key);
 }
 
 /**

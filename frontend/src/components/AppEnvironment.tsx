@@ -132,6 +132,7 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
         open={dbOpen}
         onOpenChange={setDbOpen}
         application={application}
+        currentUrl={rows.find((row) => row.key === "DATABASE_URL")?.value}
         onConnected={async (envKey) => {
           // already saved server-side; put it in the row too, keeping any unsaved edits —
           // otherwise the next Save would write the row's old empty value over it

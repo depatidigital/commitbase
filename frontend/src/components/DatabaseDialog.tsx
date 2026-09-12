@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Database as DatabaseIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,31 +8,44 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { attachDatabase, createDatabase, getAllDatabases } from "@/lib/databases";
+import { parseDatabaseUrl, toDbName } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
 interface DatabaseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   application: { id: string; domain: string; organizationId?: string | null };
+  /** DATABASE_URL as it stands — its engine and name prefill the form */
+  currentUrl?: string;
   /** after the URL is in the app's env */
   onConnected: (envKey: string) => void;
 }
 
 /** a database name from the app's hostname: `shop.acme.id` → `shop` */
-const nameFrom = (domain: string) =>
-  (domain.split(".")[0] || "app").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 40);
+const nameFrom = (domain: string) => toDbName(domain.split(".")[0] || "app");
 
 /**
  * Give an app a database: a new one on its organization's database server, or
  * one the organization already has. Either way its URL lands in the app's env
  * server-side (DATABASE_URL by default) — the password never reaches this page.
  */
-export function DatabaseDialog({ open, onOpenChange, application, onConnected }: DatabaseDialogProps) {
+export function DatabaseDialog({ open, onOpenChange, application, currentUrl, onConnected }: DatabaseDialogProps) {
   const { toast } = useToast();
   const [mode, setMode] = useState<"create" | "existing">("create");
   const [name, setName] = useState(() => nameFrom(application.domain));
   const [engine, setEngine] = useState<"POSTGRESQL" | "MYSQL">("POSTGRESQL");
   const [existingId, setExistingId] = useState("");
+  const fromUrl = parseDatabaseUrl(currentUrl);
+
+  // each opening starts from what DATABASE_URL says, else from the hostname
+  useEffect(() => {
+    if (!open) return;
+    setMode("create");
+    setExistingId("");
+    setName(fromUrl.name || nameFrom(application.domain));
+    setEngine(fromUrl.engine || "POSTGRESQL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const [busy, setBusy] = useState(false);
   // the name every ORM and driver reads by default; the app's code fixes it, not this dialog
   const envKey = "DATABASE_URL";
@@ -43,6 +56,19 @@ export function DatabaseDialog({ open, onOpenChange, application, onConnected }:
     enabled: open && !!application.organizationId,
   });
   const choices = (existing.data?.data ?? []).filter((db) => db.type === "POSTGRESQL" || db.type === "MYSQL");
+
+  // the org already has the database the URL names (<org>_umojati or umojati): offer that one
+  useEffect(() => {
+    if (!open || !fromUrl.name || existingId) return;
+    const match = choices.find(
+      (db) => db.name === fromUrl.name || db.dbName === fromUrl.name || db.dbName?.endsWith(`_${fromUrl.name}`),
+    );
+    if (match) {
+      setMode("existing");
+      setExistingId(match.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, existing.data]);
 
   const valid = mode === "create" ? /^[a-z0-9_]{1,40}$/.test(name) : !!existingId;
 
