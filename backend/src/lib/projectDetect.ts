@@ -227,14 +227,20 @@ function base(partial: Partial<DetectedProject> & Pick<DetectedProject, 'type' |
   };
 }
 
-/** Read the detection files out of a directory on disk (the sources tree). */
-export async function readDetectFiles(dir: string): Promise<DetectInput> {
+type ReadText = (file: string) => Promise<string>;
+const readLocal: ReadText = (file) => fs.readFile(file, 'utf-8');
+
+/**
+ * Read the detection files out of a directory (the sources tree). `read`
+ * defaults to the local disk; pass AppFs.readText for a tree on a node.
+ */
+export async function readDetectFiles(dir: string, read: ReadText = readLocal): Promise<DetectInput> {
   const out: DetectInput = {};
   await Promise.all(
     DETECT_FILES.map(async (name) => {
       try {
         // Lockfiles can be huge and only their presence matters.
-        const content = await fs.readFile(path.join(dir, name), 'utf-8');
+        const content = await read(path.posix.join(dir, name));
         out[name] = name.endsWith('.lock') || name.endsWith('lock.json') || name.endsWith('lock.yaml') || name.endsWith('.lockb') ? '' : content;
       } catch {
         /* absent */
@@ -244,8 +250,8 @@ export async function readDetectFiles(dir: string): Promise<DetectInput> {
   return out;
 }
 
-export async function detectProject(dir: string): Promise<DetectedProject> {
-  return detectFromFiles(await readDetectFiles(dir));
+export async function detectProject(dir: string, read?: ReadText): Promise<DetectedProject> {
+  return detectFromFiles(await readDetectFiles(dir, read));
 }
 
 /**

@@ -1,7 +1,7 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Application } from '@prisma/client';
-import { appDirFor, sourcesDirFor, logsDirFor, currentDirFor } from '../lib/appPaths';
+import { sourcesDirFor, logsDirFor, currentDirFor } from '../lib/appPaths';
+import { appFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { appUnit, OS_ISOLATION_ENABLED } from './orgProvisionService';
 
@@ -51,21 +51,22 @@ function shellQuote(value: string): string {
  * rather than through an EnvironmentFile so that values containing spaces,
  * quotes or newlines survive intact.
  */
-export async function writeRunScript(application: Application, appDir: string): Promise<string> {
-  const runPath = path.join(appDir, 'run.sh');
+export async function writeRunScript(application: Application, afs: AppFs): Promise<string> {
+  const { appDir } = afs;
+  const runPath = path.posix.join(appDir, 'run.sh');
   const port = application.port || defaultPort(application.type);
 
   // Run from the built release when there is one; apps deployed before the
   // releases layout existed still run from sources/.
   const currentDir = currentDirFor(appDir);
-  const runDir = (await fs.stat(currentDir).then((s) => s.isDirectory()).catch(() => false))
+  const runDir = (await afs.isDirectory(currentDir))
     ? currentDir
     : sourcesDirFor(appDir);
 
   let startCommand: string | null = application.startCommand;
   let nodeVersion: string | null = null;
   if (application.type === 'NODEJS') {
-    const detected = await detectProject(runDir);
+    const detected = await detectProject(runDir, afs.readText);
     nodeVersion = detected.nodeVersion;
     if (!startCommand) startCommand = detected.startCommand;
   }
@@ -92,8 +93,8 @@ export async function writeRunScript(application: Application, appDir: string): 
     '',
   ].join('\n');
 
-  await fs.mkdir(logsDirFor(appDir), { recursive: true });
-  await fs.writeFile(runPath, script, { mode: 0o755 });
+  await afs.mkdir(logsDirFor(appDir));
+  await afs.writeFile(runPath, script, { mode: 0o755 });
   return runPath;
 }
 
@@ -116,9 +117,8 @@ export async function startApplication(application: AppWithOrg): Promise<boolean
   if (!needsUnit(application.type)) return true;
 
   const slug = slugOf(application);
-  const appDir = appDirFor(application.id, slug);
 
-  await writeRunScript(application, appDir);
+  await writeRunScript(application, await appFsFor(application.id));
   await appUnit('install', slug, application.id); // also hands the tree to the tenant user
   await appUnit('start', slug, application.id);
 
@@ -134,7 +134,7 @@ export async function restartApplication(application: AppWithOrg): Promise<void>
   if (!needsUnit(application.type)) return;
   const slug = slugOf(application);
   // Env vars live in run.sh — rewrite it so an edit takes effect on restart.
-  await writeRunScript(application, appDirFor(application.id, slug));
+  await writeRunScript(application, await appFsFor(application.id));
   await appUnit('restart', slug, application.id);
 }
 

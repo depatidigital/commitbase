@@ -38,8 +38,8 @@ export function needsRefresh(tokenExpiresAt: Date | null, refreshToken: string |
  * `$CB_GIT_TOKEN` verbatim — it must stay a shell variable reference here, so
  * the secret lives only in the environment.
  */
-export function credentialArgs(username: string): string {
-  return `-c credential.helper='!f(){ echo username=${username}; echo "password=$CB_GIT_TOKEN"; };f'`;
+export function credentialArgs(username: string): string[] {
+  return ['-c', `credential.helper=!f(){ echo username=${username}; echo "password=$CB_GIT_TOKEN"; };f`];
 }
 
 /**
@@ -94,13 +94,13 @@ export async function freshAccessToken(account: Account): Promise<string> {
 }
 
 export interface GitAuth {
-  /** Goes between `git` and the subcommand. Empty string for a public clone. */
-  args: string;
-  /** Merge into the child process environment. */
-  env: NodeJS.ProcessEnv;
+  /** Goes between `git` and the subcommand. Empty for a public clone. */
+  args: string[];
+  /** Give to the git process as environment (AppFs.run keeps it out of argv). */
+  env: Record<string, string>;
 }
 
-const NO_AUTH: GitAuth = { args: '', env: {} };
+const NO_AUTH: GitAuth = { args: [], env: {} };
 
 /**
  * Build the credential arguments for an application's connected git account.

@@ -12,7 +12,7 @@ assert.strictEqual(USERNAME.github, 'x-access-token');
 assert.strictEqual(USERNAME.gitlab, 'oauth2');
 
 // The helper references the environment variable; it does not interpolate a secret.
-const args = credentialArgs('oauth2');
+const args = credentialArgs('oauth2').join(' ');
 assert.ok(args.includes('$CB_GIT_TOKEN'), 'helper must read the token from the environment');
 assert.ok(!args.includes('glpat-'), 'no token may appear in the arguments');
 
