@@ -41,7 +41,7 @@ sudo visudo -cf /etc/sudoers.d/larika
 
 The sudoers file grants the SSH user `larika` full passwordless root.
 Alternatively set the server's SSH user to `root` and skip it. The
-`commitbase` group and user on the node are created by `cb-provision-org` on
+`larika` group and `larika-build` user on the node are created by `cb-provision-org` on
 first run if missing.
 
 Disk quotas need the filesystem holding `/home` mounted with `usrquota` and

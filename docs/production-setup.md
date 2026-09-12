@@ -33,17 +33,18 @@ steps 2's SSH user, 7's sudoers/logrotate and the Caddy group membership.
 
 ## Who runs what
 
-Five Linux users are involved. Nothing that serves traffic runs as root.
+Six Linux users are involved. Nothing that serves traffic runs as root.
 
 | User | Created by | Runs | Can reach |
 |---|---|---|---|
 | `root` | the OS | You, during this guide: package installs, the systemd units, the runner scripts, Caddy config. Never a long-running process of the platform | everything |
-| `commitbase` | step 2 | The backend (`larika.service`), git clones, dependency installs and builds (`cb-build.slice`) | its own `/opt/larika`, every tenant home through the `commitbase` **group**, Postgres over localhost, the Caddy admin API |
+| `larika` | step 2 | The backend (`larika.service`), and the SSH login the panel uses on every node, this box included. Full passwordless root | its own `/opt/larika`, every tenant home through the `larika` **group**, Postgres over localhost, the Caddy admin API — and root, via sudo |
+| `larika-build` | step 2 (`install.sh` / `cb-provision-org` on other nodes) | Tenant builds — `npm install`, `next build`, composer — in `cb-build.slice` | tenant homes through the `larika` group. **No sudo**, and not the panel's key or env file (both owner-only). Tenant build code is untrusted, so it must never run as `larika` |
 | `cb-<slug>` | the panel, one per organization | That org's apps: the systemd units and the PHP-FPM pool | only `/home/cb-<slug>`. Cannot see other tenants, `/opt/larika`, the database or the env file |
-| `caddy` | the `caddy` package | The reverse proxy, TLS | tenant files and FPM sockets read-only, because you add it to the `commitbase` group in step 7 |
+| `caddy` | the `caddy` package | The reverse proxy, TLS | tenant files and FPM sockets read-only, because you add it to the `larika` group in step 7 |
 | `postgres` | the `postgresql` package | The database | its own data dir |
 
-How root is used at runtime: the backend runs as `commitbase` and needs root
+How root is used at runtime: the backend runs as `larika` and needs root
 for two things — creating a tenant user (`cb-provision-org`) and managing a
 tenant's systemd unit or build cgroup (`cb-app-unit`). Neither script is
 installed on the box: the panel sends the script text from `runner/` over SSH
@@ -56,7 +57,7 @@ logs in as `root`, which also works (set the server's SSH user to `root`).
 Which shell to use per step:
 
 - Steps 1–3, 7–10: a root shell (`sudo -i`).
-- Step 4 (build), 5 (env file), 6 (schema), 13 (upgrade): as `commitbase` —
+- Step 4 (build), 5 (env file), 6 (schema), 13 (upgrade): as `larika` —
   `sudo -u larika -H bash`. Running these as root leaves root-owned files
   the service cannot write later.
 - Never log in as `cb-<slug>`; those users have no password and no shell
@@ -142,7 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | PRO
 . $NVM_DIR/nvm.sh
 nvm install --lts && nvm alias default lts/*
 chmod -R a+rX $NVM_DIR                         # tenants read it
-chown -R commitbase:commitbase $NVM_DIR        # after step 2; builds install versions into it
+chown -R larika-build:larika $NVM_DIR     # after step 2; builds install versions into it
 ```
 
 Set `NVM_DIR=/opt/nvm` in the backend env (step 5). Apps that pin nothing
@@ -153,18 +154,24 @@ hardlinked `node_modules`); both are already on any Debian/Ubuntu install.
 
 ---
 
-## 2. Service user
+## 2. Users
 
 **Run as:** `root`.
 
-The backend runs as its own unprivileged user. That user's **group** is what
-gives it access into each tenant's home later, so the name matters — it must
-match `CB_GROUP` in the runner scripts (default `commitbase`).
+`larika` runs the backend and is also the SSH login the panel uses on every
+node (this box included), with full passwordless root. Its **group** is what
+gives access into each tenant's home later, so the name matters — it must match
+`CB_GROUP` in the runner scripts (default `larika`).
+
+`larika-build` runs tenant builds. It shares the group but has no sudo: a
+tenant's `postinstall` script runs as this user, and must not get root.
 
 ```bash
-groupadd --system commitbase
-useradd --system --gid commitbase --create-home --home-dir /opt/larika \
-        --shell /bin/bash commitbase
+groupadd --system larika
+useradd --gid larika --create-home --home-dir /opt/larika --shell /bin/bash larika
+useradd --system --gid larika --create-home --home-dir /var/lib/larika-build \
+        --shell /usr/sbin/nologin larika-build
+chmod 0700 /var/lib/larika-build
 ```
 
 ---
@@ -180,12 +187,12 @@ and is not.
 ```bash
 sudo -u larika ssh-keygen -t ed25519 -N '' -f /opt/larika/.ssh/id_ed25519
 
-# The panel logs in as larika (in the commitbase group, full passwordless root
-# via runner/larika.sudoers), not as commitbase.
-id larika >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --groups commitbase larika
-install -d -m 700 -o larika -g larika ~larika/.ssh
-cat /opt/larika/.ssh/id_ed25519.pub >> ~larika/.ssh/authorized_keys
-chown larika:larika ~larika/.ssh/authorized_keys && chmod 600 ~larika/.ssh/authorized_keys
+# The panel logs in as larika (full passwordless root via runner/larika.sudoers,
+# step 7). Here that is the same user as the backend, so it authorises itself.
+# ~/.ssh stays 0700: larika-build shares the group and must not read the key.
+cat /opt/larika/.ssh/id_ed25519.pub >> /opt/larika/.ssh/authorized_keys
+chown larika:larika /opt/larika/.ssh/authorized_keys && chmod 600 /opt/larika/.ssh/authorized_keys
+chmod 700 /opt/larika/.ssh
 
 # prove it works — and accept the host key while you are here, so the first
 # real connection is not the one that has to answer a prompt
@@ -218,8 +225,8 @@ reads a database backup, and it does not work at all on a box with
 **Run as:** `root` — the commands switch to `postgres` themselves via `sudo -u postgres`.
 
 ```bash
-sudo -u postgres psql -c "CREATE USER commitbase WITH PASSWORD 'change-me-now';"
-sudo -u postgres psql -c "CREATE DATABASE commitbase OWNER commitbase;"
+sudo -u postgres psql -c "CREATE USER larika WITH PASSWORD 'change-me-now';"
+sudo -u postgres psql -c "CREATE DATABASE larika OWNER larika;"
 ```
 
 Keep Postgres on localhost. Nothing outside the box needs it.
@@ -230,10 +237,10 @@ database and everything inside it. Prisma needs the user to own the tables,
 not just have grants on them, or `db push` fails on the next schema change.
 
 ```bash
-sudo -u postgres psql -c "CREATE USER commitbase WITH PASSWORD 'change-me-now';"   # skip if it exists
-sudo -u postgres psql -c "ALTER DATABASE commitbase OWNER TO commitbase;"
-sudo -u postgres psql -d commitbase -c "ALTER SCHEMA public OWNER TO commitbase;"
-sudo -u postgres psql -d commitbase -c "REASSIGN OWNED BY postgres TO commitbase;"
+sudo -u postgres psql -c "CREATE USER larika WITH PASSWORD 'change-me-now';"   # skip if it exists
+sudo -u postgres psql -c "ALTER DATABASE larika OWNER TO larika;"
+sudo -u postgres psql -d larika -c "ALTER SCHEMA public OWNER TO larika;"
+sudo -u postgres psql -d larika -c "REASSIGN OWNED BY postgres TO larika;"
 ```
 
 `REASSIGN OWNED` moves every table, sequence, index and type the old owner
@@ -241,8 +248,8 @@ created in that database. If the old owner was not `postgres`, use that role
 name instead. Check:
 
 ```bash
-sudo -u postgres psql -d commitbase -c "\dt"      # Owner column must read commitbase on every row
-sudo -u postgres psql -c "\l commitbase"          # Owner: commitbase
+sudo -u postgres psql -d larika -c "\dt"      # Owner column must read larika on every row
+sudo -u postgres psql -c "\l larika"          # Owner: larika
 ```
 
 Old rows and data are untouched — this changes ownership only.
@@ -251,10 +258,10 @@ Old rows and data are untouched — this changes ownership only.
 
 ## 4. Get the code and build
 
-**Run as:** `commitbase` — the first line below switches you into that user. Do not build as root: the service could not overwrite root-owned files on the next upgrade.
+**Run as:** `larika` — the first line below switches you into that user. Do not build as root: the service could not overwrite root-owned files on the next upgrade.
 
 The repository is public, so a plain HTTPS clone works with no credentials.
-(Should it go private later: give the `commitbase` user a read-only deploy key
+(Should it go private later: give the `larika` user a read-only deploy key
 — `ssh-keygen` as that user, add the public key under the repo's *Settings →
 Deploy keys* — and clone the `git@github.com:` URL instead.)
 
@@ -285,9 +292,9 @@ exit
 
 ## 5. Backend environment
 
-**Run as:** `commitbase` for the file itself (`sudo -u larika -H nano /opt/larika/app/backend/.env`), so it ends up owned by the right user. `chmod 0600` it afterwards.
+**Run as:** `larika` for the file itself (`sudo -u larika -H nano /opt/larika/app/backend/.env`), so it ends up owned by the right user. `chmod 0600` it afterwards.
 
-Write `/opt/larika/app/backend/.env`, owned `commitbase:commitbase`, mode
+Write `/opt/larika/app/backend/.env`, owned `larika:larika`, mode
 `0600`. Full reference:
 
 ### Required
@@ -374,7 +381,7 @@ VITE_APP_TAGLINE=Self-hosted platform
 
 ## 6. Schema and first account
 
-**Run as:** `commitbase` for the Prisma commands (shown with `sudo -u larika` inline); the `curl` can run from any user.
+**Run as:** `larika` for the Prisma commands (shown with `sudo -u larika` inline); the `curl` can run from any user.
 
 ```bash
 sudo -u larika -H bash -c 'cd /opt/larika/app/backend && npx prisma db push'
@@ -418,7 +425,7 @@ what this depends on.
 
 ## 7. Per-organization OS isolation
 
-**Run as:** `root` for the installs, fstab and quota commands. The `provision:orgs` calls at the end run as `commitbase` and are prefixed accordingly.
+**Run as:** `root` for the installs, fstab and quota commands. The `provision:orgs` calls at the end run as `larika` and are prefixed accordingly.
 
 ```bash
 cd /opt/larika/app
@@ -467,7 +474,7 @@ New organizations are provisioned automatically when they are created.
 
 ## 8. Run the backend
 
-**Run as:** `root` — writing a unit file and `systemctl` need it. The service itself runs as `commitbase`, set by `User=` in the unit.
+**Run as:** `root` — writing a unit file and `systemctl` need it. The service itself runs as `larika`, set by `User=` in the unit.
 
 `/etc/systemd/system/larika.service`:
 
@@ -479,8 +486,8 @@ Wants=postgresql.service
 
 [Service]
 Type=simple
-User=commitbase
-Group=commitbase
+User=larika
+Group=larika
 WorkingDirectory=/opt/larika/app/backend
 EnvironmentFile=/opt/larika/app/backend/.env
 ExecStart=/usr/bin/node dist/index.js
@@ -673,7 +680,7 @@ equivalent to every tenant's repo credentials — encrypt the backups at rest.
 
 ## 13. Upgrades
 
-**Run as:** `root`, which then drops to `commitbase` for the build (the block does this itself).
+**Run as:** `root`, which then drops to `larika` for the build (the block does this itself).
 
 ```bash
 sudo -u larika -H bash -c '
@@ -685,6 +692,22 @@ systemctl restart larika
 
 The runner scripts ship with the panel and are sent to the node on every call,
 so upgrading the panel upgrades them on every node — nothing to reinstall.
+
+### Installs from before the rename (`commitbase` → `larika`)
+
+A box set up under the old names has a `commitbase` user, group, database,
+`/opt/commitbase` and `commitbase.service`. The new runner scripts and
+`install.sh` refuse to run on it until it is migrated, rather than split its
+tenants across two groups. `migrate-to-larika.sh` at the repo root does it —
+the header of that file has the exact order. In short, one maintenance window:
+
+1. panel: `systemctl stop commitbase`, then `git pull` the new code (don't restart)
+2. every other node: copy the script over, `sudo bash migrate-to-larika.sh`
+3. panel: `cp /opt/commitbase/app/migrate-to-larika.sh /root/ && sudo bash /root/migrate-to-larika.sh`
+   — renames the database, moves `/opt/commitbase` to `/opt/larika`, writes
+   `larika.service`, rebuilds and starts the backend
+
+Tenant apps keep serving throughout. Re-runnable if it stops halfway.
 
 Apps deployed before the release layout existed keep running from `sources/`
 until their next deploy, which moves them to `releases/` + `current`.
@@ -702,16 +725,16 @@ are independent of the backend process.
 |---|---|
 | Org creation returns *Could not provision isolated OS user* | The node's SSH user has no passwordless root (`sudo -n true` fails — install `runner/larika.sudoers` or log in as `root`), or the org has no server assigned. Check `journalctl -u larika` |
 | Tenant sites get no TLS, or never appear | The node's SSH connection is failing, the admin endpoint is not on `127.0.0.1:2019`, or the org has no server assigned |
-| A node shows OFFLINE and its host is `127.0.0.1` | The control plane's own key is not in `~commitbase/.ssh/authorized_keys` on that box — see section 2. The panel says exactly this in the server's last error |
+| A node shows OFFLINE and its host is `127.0.0.1` | The control plane's own key is not in `~larika/.ssh/authorized_keys` on that box — see section 2. The panel says exactly this in the server's last error |
 | `warning: quota not applied` during provisioning | `/home` is not mounted with `usrquota`, or `quotaon` was never run |
 | App deploys but will not start | `journalctl -u cb-<slug>-<appId>` and `/home/cb-<slug>/apps/<appId>/logs/error.log` |
 | Deploy fails with *Nothing answered on port N* | The app is not listening on `$PORT`. Next: `next start -p $PORT`; Express: `app.listen(process.env.PORT)`. Or set the port the app hardcodes in its settings. The previous release was put back |
 | Build dies with *Killed* / exit 137 | Hit `BUILD_MEMORY_MAX`. Raise it, or add `NODE_OPTIONS=--max-old-space-size=1536` to the app env |
-| Build log says *nvm: could not install node X* | Optional nvm only: no network from the build, or `/opt/nvm` is not writable by `commitbase` (`chown -R commitbase:commitbase /opt/nvm`). The build continued on the apt Node |
+| Build log says *nvm: could not install node X* | Optional nvm only: no network from the build, or `/opt/nvm` is not writable by `larika-build` (`chown -R larika-build:larika /opt/nvm`). The build continued on the apt Node |
 | Unit fails with *node: not found* | `apt install nodejs` never ran, or the app's `.nvmrc` pins a version and optional nvm is half set up (`/opt/nvm` present but unreadable by tenants — `chmod -R a+rX /opt/nvm`) |
 | *A deployment is already in progress* (409) | One deploy per app at a time; another is running or queued behind `BUILD_CONCURRENCY` |
 | PHP deploy fails with *No PHP-FPM pool socket* | PHP-FPM was installed after the org was provisioned. Re-provision the org from `/admin` |
-| PHP site returns 502 | `caddy` is not in group `commitbase`, or the FPM pool is not running (`systemctl status php8.3-fpm`) |
+| PHP site returns 502 | `caddy` is not in group `larika`, or the FPM pool is not running (`systemctl status php8.3-fpm`) |
 | Laravel shows *No application encryption key* | Only if `APP_KEY` was deleted from the app env — it is generated on the first deploy. Redeploy |
 | PHP tenant hits *open_basedir restriction* | Expected — that is the isolation boundary. Widen the pool's `open_basedir` only with a reason |
 | Everyone logged out after a deploy | `JWT_SECRET` changed, or the env file is not being read |
