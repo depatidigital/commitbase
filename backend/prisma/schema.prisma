@@ -693,6 +693,11 @@ model CaddySnapshot {
   serverId  String
   config    Json
   hosts     String[]
+  /// What produced it: "route larika.id → bucket", "before restore", "health check"…
+  reason    String?
+  /// A baseline the watchdog may restore on its own. History rows (the state
+  /// around each write) are false: restorable only by an admin picking one.
+  checkpoint Boolean @default(true)
   createdAt DateTime @default(now())
 
   @@index([serverId, createdAt])

@@ -152,8 +152,19 @@ export const getServerApps = async (id: string): Promise<ServerApp[]> =>
 export interface CaddySnapshotMeta {
   id: string;
   hosts: string[];
+  /** what produced it: "before route a.com → bucket", "health check"… */
+  reason: string | null;
+  /** a baseline the watchdog restores on its own; the rest is change history */
+  checkpoint: boolean;
   createdAt: string;
 }
+
+/** Roll the node's Caddy back to one snapshot. Resolves to the server's summary. */
+export const restoreServerSnapshot = async (id: string, snapshotId: string): Promise<string> => {
+  const res = await apiRequest(`/servers/${id}/caddy/snapshots/${snapshotId}/restore`, { method: 'POST' });
+  if (res.success) return res.message || t('Snapshot restored');
+  throw new Error(res.error || t('Failed to restore the snapshot'));
+};
 
 export const getServerSnapshots = async (id: string): Promise<CaddySnapshotMeta[]> =>
   unwrap(await apiRequest<CaddySnapshotMeta[]>(`/servers/${id}/caddy/snapshots`), t('Failed to fetch snapshots'));

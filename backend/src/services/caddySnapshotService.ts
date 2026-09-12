@@ -21,48 +21,83 @@ import {
  * good one back when routes go missing. Snapshots are per node — every box runs
  * its own Caddy, and a config is only restorable onto the box it came from.
  *
- * ponytail: keeps the last KEEP snapshots per node and always picks the newest.
- * That is a backup, not a history — add a "restore this one" action if an admin
- * ever needs a specific point rather than the latest.
+ * Two kinds of snapshot:
+ * - checkpoints: the config as found while healthy (health ticks, manual,
+ *   registration) and after a write onto a whole config. The watchdog restores
+ *   the newest checkpoint on its own.
+ * - history: the config before and after every write the platform makes, so
+ *   any change can be rolled back by picking the snapshot from before it.
+ *   Never restored unasked — a write onto a config a reload had emptied would
+ *   otherwise become what the watchdog puts back.
  */
 
-const KEEP = 10;
+const KEEP_CHECKPOINTS = 10;
+const KEEP_HISTORY = 100;
 
-/** Store one node's live config, if there is anything worth storing. */
-export async function snapshotNode(node: SshTarget): Promise<string> {
-  const config = await getCaddyConfig(node);
-  if (config === null) return `${node.hostname}: skipped — Caddy did not answer`;
-
+/**
+ * Store a config unless it matches the newest snapshot of the same kind.
+ * Returns whether it was stored.
+ */
+export async function saveSnapshot(
+  serverId: string,
+  config: any,
+  { reason, checkpoint }: { reason: string; checkpoint: boolean },
+): Promise<boolean> {
   // The whole config is the backup, not just the parts this platform wrote:
   // TLS policies, other app blocks and sites nobody has imported yet all live
   // here, and all of them are lost by the same reload. Only a config with
   // nothing in it at all is worth skipping.
-  const hosts = routeHostsOf(config);
-  if (Object.keys(config).length === 0) return `${node.hostname}: skipped — Caddy has no config`;
+  if (!config || Object.keys(config).length === 0) return false;
 
   const latest = await prisma.caddySnapshot.findFirst({
-    where: { serverId: node.id },
+    where: { serverId, checkpoint },
     orderBy: { createdAt: 'desc' },
+    select: { config: true },
+  });
+  // nothing changed since the last one — a snapshot per tick would be noise
+  if (latest && JSON.stringify(latest.config) === JSON.stringify(config)) return false;
+
+  await prisma.caddySnapshot.create({
+    data: { serverId, config, hosts: routeHostsOf(config), reason, checkpoint },
   });
 
-  // nothing changed since the last one — a snapshot per tick would be noise
-  if (latest && JSON.stringify(latest.config) === JSON.stringify(config)) {
-    return `${node.hostname}: unchanged, ${hosts.length} route(s)`;
-  }
-
-  await prisma.caddySnapshot.create({ data: { serverId: node.id, config, hosts } });
-
   const stale = await prisma.caddySnapshot.findMany({
-    where: { serverId: node.id },
+    where: { serverId, checkpoint },
     orderBy: { createdAt: 'desc' },
-    skip: KEEP,
+    skip: checkpoint ? KEEP_CHECKPOINTS : KEEP_HISTORY,
     select: { id: true },
   });
   if (stale.length > 0) {
     await prisma.caddySnapshot.deleteMany({ where: { id: { in: stale.map((row) => row.id) } } });
   }
+  return true;
+}
 
-  return `${node.hostname}: snapshotted ${hosts.length} route(s)`;
+/**
+ * Whether `config` still serves every host of the newest checkpoint, `except`
+ * the one being changed. A write onto such a config yields the next checkpoint;
+ * a write onto one a reload emptied does not.
+ */
+export async function coversCheckpoint(serverId: string, config: any, except: string): Promise<boolean> {
+  const latest = await prisma.caddySnapshot.findFirst({
+    where: { serverId, checkpoint: true },
+    orderBy: { createdAt: 'desc' },
+    select: { hosts: true },
+  });
+  const live = new Set(routeHostsOf(config));
+  return (latest?.hosts ?? []).every((host) => host === except || live.has(host));
+}
+
+/** Store one node's live config as a checkpoint, if there is anything worth storing. */
+export async function snapshotNode(node: SshTarget, reason = 'health check'): Promise<string> {
+  const config = await getCaddyConfig(node);
+  if (config === null) return `${node.hostname}: skipped — Caddy did not answer`;
+  if (Object.keys(config).length === 0) return `${node.hostname}: skipped — Caddy has no config`;
+
+  const hosts = routeHostsOf(config);
+  return (await saveSnapshot(node.id, config, { reason, checkpoint: true }))
+    ? `${node.hostname}: snapshotted ${hosts.length} route(s)`
+    : `${node.hostname}: unchanged, ${hosts.length} route(s)`;
 }
 
 /** Snapshot every node. */
@@ -81,16 +116,28 @@ export async function snapshotCaddyConfig(): Promise<string> {
   return lines.join('; ');
 }
 
-/** Push a node's newest snapshot back into its Caddy. */
-export async function restoreNode(node: SshTarget): Promise<{ restored: boolean; hosts: string[] }> {
-  const latest = await prisma.caddySnapshot.findFirst({
-    where: { serverId: node.id },
+/**
+ * Push a snapshot back into a node's Caddy: the one picked, else the newest
+ * checkpoint. The config it replaces is kept as history first (replaceCaddyConfig),
+ * so a restore is itself undoable. `dropped`: hosts served before, gone after.
+ */
+export async function restoreNode(
+  node: SshTarget,
+  snapshotId?: string,
+): Promise<{ restored: boolean; hosts: string[]; dropped: string[] }> {
+  const snapshot = await prisma.caddySnapshot.findFirst({
+    where: snapshotId ? { id: snapshotId, serverId: node.id } : { serverId: node.id, checkpoint: true },
     orderBy: { createdAt: 'desc' },
   });
-  if (!latest) return { restored: false, hosts: [] };
+  if (!snapshot) return { restored: false, hosts: [], dropped: [] };
 
-  await replaceCaddyConfig(node, latest.config);
-  return { restored: true, hosts: latest.hosts };
+  const before = (await listCaddyRouteHosts(node)) ?? [];
+  await replaceCaddyConfig(node, snapshot.config, `restore of ${snapshot.createdAt.toISOString()}`);
+  return {
+    restored: true,
+    hosts: snapshot.hosts,
+    dropped: before.filter((host) => !snapshot.hosts.includes(host)),
+  };
 }
 
 /** Restore every node that has a snapshot. */
@@ -135,7 +182,7 @@ export async function healCaddyRoutes(): Promise<string> {
       }
 
       const latest = await prisma.caddySnapshot.findFirst({
-        where: { serverId: node.id },
+        where: { serverId: node.id, checkpoint: true },
         orderBy: { createdAt: 'desc' },
       });
 

@@ -19,7 +19,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 /** One request to a node's admin API, over the pooled SSH connection. */
 async function caddyRequest(
   server: SshTarget,
-  method: 'GET' | 'PUT' | 'POST',
+  method: 'GET' | 'POST' | 'PATCH',
   path: string,
   body?: any,
 ): Promise<{ status: number; body: string }> {
@@ -101,11 +101,18 @@ type FilesTarget = {
 
 type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget;
 
-/** null means the node did not answer — different from an empty config. */
+/**
+ * null means the node did not answer or answered with an error — never an
+ * empty config: an error read as `{}` and written back would wipe every site.
+ */
 async function fetchCaddyConfig(server: SshTarget): Promise<any | null> {
   try {
     const response = await caddyRequest(server, 'GET', '/config/');
-    if (response.status >= 400) return {};
+    if (response.status >= 400) {
+      console.error(`Could not read Caddy config from ${server.hostname}: HTTP ${response.status} ${response.body.slice(0, 200)}`);
+      return null;
+    }
+    // a Caddy with nothing loaded answers `null`
     return JSON.parse(response.body || '{}') || {};
   } catch (error: any) {
     console.error(`Could not read Caddy config from ${server.hostname}:`, error?.message);
@@ -113,11 +120,50 @@ async function fetchCaddyConfig(server: SshTarget): Promise<any | null> {
   }
 }
 
-async function putCaddyConfig(server: SshTarget, config: any): Promise<void> {
-  const response = await caddyRequest(server, 'PUT', '/config/', config);
+async function writeCaddy(server: SshTarget, method: 'POST' | 'PATCH', path: string, body: any): Promise<void> {
+  const response = await caddyRequest(server, method, path, body);
   if (response.status >= 400) {
     throw new Error(`Caddy rejected the config (HTTP ${response.status}): ${response.body.slice(0, 200)}`);
   }
+}
+
+/**
+ * Swap in a whole config — only for a snapshot restore, or a node with no HTTP
+ * server block yet. Not PUT /config/: PUT means "create", and answers 409
+ * "key already exists" on any node that has a config.
+ */
+const loadCaddyConfig = (server: SshTarget, config: any) => writeCaddy(server, 'POST', '/load', config);
+
+// Route changes are read-modify-write: two at once on one node would each drop
+// the other's route. ponytail: in-process lock — a second backend process or a
+// hand edit between the read and the write can still race; add Caddy's
+// ETag/If-Match if that ever happens.
+// imported late: the snapshot service imports this module
+const snapshots = () => import('./caddySnapshotService');
+
+/**
+ * Keep the config a write is about to replace. Throws when it cannot be kept:
+ * a change with no way back is not worth making.
+ */
+async function keepBefore(node: SshTarget, config: any, change: string): Promise<void> {
+  await (await snapshots()).saveSnapshot(node.id, config, { reason: `before ${change}`, checkpoint: false });
+}
+
+/** Keep the config a write produced, read back from Caddy. Best effort. */
+async function keepAfter(node: SshTarget, change: string, checkpoint: boolean): Promise<void> {
+  try {
+    const after = await fetchCaddyConfig(node);
+    if (after) await (await snapshots()).saveSnapshot(node.id, after, { reason: change, checkpoint });
+  } catch (error: any) {
+    console.error(`Caddy config on ${node.hostname} changed (${change}) but was not snapshotted:`, error?.message);
+  }
+}
+
+const nodeLocks = new Map<string, Promise<unknown>>();
+function withNodeLock<T>(node: SshTarget, fn: () => Promise<T>): Promise<T> {
+  const next = (nodeLocks.get(node.hostname) ?? Promise.resolve()).catch(() => {}).then(fn);
+  nodeLocks.set(node.hostname, next.catch(() => {}));
+  return next;
 }
 
 /**
@@ -311,13 +357,26 @@ export function buildRoute(domain: string, target: Target): any {
   return route;
 }
 
-/** Rewrite the route list for one hostname: drop what is there, add `target` if given. */
-async function setRoute(node: SshTarget, domain: string, target: Target | null): Promise<void> {
+/**
+ * Rewrite the route list for one hostname: drop what is there, add `target` if
+ * given. Only the one server block is written back, so TLS, other apps and
+ * other server blocks are never touched.
+ */
+const setRoute = (node: SshTarget, domain: string, target: Target | null) =>
+  withNodeLock(node, () => setRouteUnlocked(node, domain, target));
+
+async function setRouteUnlocked(node: SshTarget, domain: string, target: Target | null): Promise<void> {
   const existing = await fetchCaddyConfig(node);
   if (existing === null) {
-    return;
+    throw new Error(`Caddy on ${node.hostname} did not return its config — route for ${domain} left unchanged`);
   }
 
+  const change = target ? `route ${domain} → ${target.type}` : `route ${domain} removed`;
+  await keepBefore(node, existing, change);
+  // decided on the untouched config: ensureHttpServer below edits it in place
+  const whole = await (await snapshots()).coversCheckpoint(node.id, existing, domain);
+
+  const hadServer = !!existing?.apps?.http?.servers?.[serverNameFor(existing)];
   const config = ensureHttpServer(existing);
   const servers = config.apps.http.servers;
   const serverName = serverNameFor(config);
@@ -338,10 +397,19 @@ async function setRoute(node: SshTarget, domain: string, target: Target | null):
 
   if (target) filteredRoutes.push(buildRoute(domain, target));
   server.routes = filteredRoutes;
-  servers[serverName] = server;
-  config.apps.http.servers = servers;
 
-  await putCaddyConfig(node, config);
+  if (hadServer) {
+    // PATCH replaces just this server block (listen, TLS policies and all,
+    // as read above) — the rest of the config is not in the request at all
+    await writeCaddy(node, 'PATCH', `/config/apps/http/servers/${encodeURIComponent(serverName)}`, server);
+  } else {
+    // no block to patch yet: load the config as read, plus the new block
+    await loadCaddyConfig(node, config);
+  }
+
+  // a write onto a whole config is the new baseline — which is also how a
+  // removed route leaves it, instead of the watchdog putting it back
+  await keepAfter(node, change, whole);
 }
 
 export async function configureCaddyForStaticApplication(
@@ -436,9 +504,18 @@ export async function getCaddyConfig(node: SshTarget): Promise<any | null> {
   return fetchCaddyConfig(node);
 }
 
-/** Push a whole config back — restoring a snapshot, and nothing else. */
-export async function replaceCaddyConfig(node: SshTarget, config: any): Promise<void> {
-  await putCaddyConfig(node, config);
+/**
+ * Push a whole config back — restoring a snapshot, and nothing else. What it
+ * replaces is kept first, so the restore can itself be undone; what it leaves
+ * is the new checkpoint, or the watchdog would heal a chosen rollback away.
+ */
+export async function replaceCaddyConfig(node: SshTarget, config: any, reason: string): Promise<void> {
+  await withNodeLock(node, async () => {
+    const before = await fetchCaddyConfig(node);
+    if (before) await keepBefore(node, before, reason);
+    await loadCaddyConfig(node, config);
+    await keepAfter(node, reason, true);
+  });
 }
 
 /** Hostnames in a config object (live or snapshotted). */

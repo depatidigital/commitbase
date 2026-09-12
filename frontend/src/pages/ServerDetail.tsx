@@ -35,9 +35,21 @@ import {
   getServerLogs,
   getServerSnapshots,
   pingServer,
+  restoreServerSnapshot,
   snapshotServerCaddy,
   syncServerApps,
+  type CaddySnapshotMeta,
 } from "@/lib/servers";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
   ONLINE: "default",
@@ -70,6 +82,7 @@ const ServerDetail = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [logSource, setLogSource] = useState<LogSource>("errors");
+  const [restoring, setRestoring] = useState<CaddySnapshotMeta | null>(null);
 
   const { data: server, isLoading } = useQuery({
     queryKey: ["servers", id],
@@ -120,6 +133,15 @@ const ServerDetail = () => {
     },
     onError: (error: Error) =>
       toast({ title: t("Snapshot failed"), description: error.message, variant: "destructive" }),
+  });
+
+  const restore = useMutation({
+    mutationFn: (snapshotId: string) => restoreServerSnapshot(id, snapshotId),
+    onSuccess: (message) => toast({ title: t("Snapshot restored"), description: message }),
+    onError: (error: Error) =>
+      toast({ title: t("Restore failed"), description: error.message, variant: "destructive" }),
+    // the restore keeps the replaced config as a new snapshot, and routes change
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["servers", id] }),
   });
 
   const importApps = useMutation({
@@ -396,13 +418,39 @@ const ServerDetail = () => {
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               ) : snapshots.data?.length ? (
                 snapshots.data.map((snap) => (
-                  <Row key={snap.id} label={new Date(snap.createdAt).toLocaleString(locale)}>
-                    <span className="text-xs text-muted-foreground">
-                      {snap.hosts.length === 1
-                        ? t("{count} route", { count: snap.hosts.length })
-                        : t("{count} routes", { count: snap.hosts.length })}
-                    </span>
-                  </Row>
+                  <div
+                    key={snap.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 py-2 text-sm last:border-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{new Date(snap.createdAt).toLocaleString(locale)}</span>
+                        {snap.checkpoint && (
+                          <Badge variant="secondary" className="text-xs">
+                            {t("Checkpoint")}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="break-all font-mono text-xs text-muted-foreground">
+                        {snap.reason ?? t("health check")}
+                        {" · "}
+                        {snap.hosts.length === 1
+                          ? t("{count} route", { count: snap.hosts.length })
+                          : t("{count} routes", { count: snap.hosts.length })}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={restore.isPending}
+                      onClick={() => setRestoring(snap)}
+                    >
+                      {restore.isPending && restore.variables === snap.id && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      {t("Restore")}
+                    </Button>
+                  </div>
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">

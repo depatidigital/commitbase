@@ -9,7 +9,7 @@ import { paging, contains } from '../lib/paging';
 import { pingServer } from '../services/serverHealthService';
 import { queueServerSetup } from '../services/serverSetupService';
 import { exec, RemoteExecError } from '../lib/runner';
-import { snapshotNode } from '../services/caddySnapshotService';
+import { restoreNode, snapshotNode } from '../services/caddySnapshotService';
 import { syncServerApps, classifyRoute, routeHosts, isNotAnApp } from '../services/appSyncService';
 import { getCaddyConfig, allRoutesOf } from '../services/caddyService';
 import { canEncrypt, encrypt } from '../lib/secretBox';
@@ -207,7 +207,7 @@ router.post(
       // successful health check instead.
       const reachable = ping?.status === 'ONLINE';
       const snapshot = reachable
-        ? await snapshotNode(server).catch(
+        ? await snapshotNode(server, 'server registered').catch(
             (error: any) => `${server.hostname}: ${error?.message ?? 'snapshot failed'}`,
           )
         : 'not reachable yet — Caddy will be snapshotted once it answers';
@@ -278,7 +278,7 @@ router.put(
       // one was reachable at all — either way its Caddy is worth re-reading.
       const snapshot =
         patch.hostname || patch.sshKeyPath || patch.sshUser || patch.sshPort
-          ? await snapshotNode(server).catch((error: any) => `snapshot failed: ${error?.message}`)
+          ? await snapshotNode(server, 'server updated').catch((error: any) => `snapshot failed: ${error?.message}`)
           : null;
 
       return res.json({
@@ -397,7 +397,7 @@ router.get('/:id/caddy/snapshots', authenticateToken, requireRole(['SUPERADMIN']
       where: { serverId: req.params.id as string },
       orderBy: { createdAt: 'desc' },
       // the config itself can be megabytes — the list only needs its shape
-      select: { id: true, hosts: true, createdAt: true },
+      select: { id: true, hosts: true, reason: true, checkpoint: true, createdAt: true },
     });
 
     return res.json({ success: true, data: snapshots } as ApiResponse);
@@ -407,13 +407,48 @@ router.get('/:id/caddy/snapshots', authenticateToken, requireRole(['SUPERADMIN']
   }
 });
 
+/**
+ * Roll this node's Caddy back to one snapshot. The config it replaces is kept
+ * as history first, so the rollback can itself be undone.
+ */
+router.post(
+  '/:id/caddy/snapshots/:snapshotId/restore',
+  authenticateToken,
+  requireRole(['SUPERADMIN']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+      if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+      const result = await restoreNode(server, req.params.snapshotId as string);
+      if (!result.restored) {
+        return res.status(404).json({ success: false, error: 'Snapshot not found' } as ApiResponse);
+      }
+
+      return res.json({
+        success: true,
+        data: result,
+        message:
+          `Restored ${result.hosts.length} route(s)` +
+          (result.dropped.length ? ` — no longer served: ${result.dropped.join(', ')}` : ''),
+      } as ApiResponse);
+    } catch (error: any) {
+      console.error('Error restoring Caddy snapshot:', error);
+      return res.status(502).json({
+        success: false,
+        error: error?.message || 'Could not restore the Caddy config on this server',
+      } as ApiResponse);
+    }
+  },
+);
+
 /** Re-read this node's Caddy config into a snapshot, now. */
 router.post('/:id/caddy/snapshot', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
 
-    return res.json({ success: true, message: await snapshotNode(server) } as ApiResponse);
+    return res.json({ success: true, message: await snapshotNode(server, 'manual') } as ApiResponse);
   } catch (error: any) {
     console.error('Error snapshotting Caddy config:', error);
     return res.status(502).json({
