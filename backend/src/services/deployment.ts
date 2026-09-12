@@ -273,11 +273,18 @@ export class DeploymentService {
 
   /** A kept build with this key whose tree is still on disk, newest first — or null. */
   private async reusableRelease(afs: AppFs, applicationId: string, buildKey: string): Promise<Release | null> {
-    const release = await prisma.release.findFirst({
-      where: { applicationId, buildKey, status: 'READY', path: { not: null } },
-      orderBy: { createdAt: 'desc' },
-    });
-    return release && (await afs.isDirectory(release.path!)) ? release : null;
+    // an optimisation: whatever goes wrong looking (a schema not migrated yet,
+    // an unreachable node) means build as usual, never a failed deploy
+    try {
+      const release = await prisma.release.findFirst({
+        where: { applicationId, buildKey, status: 'READY', path: { not: null } },
+        orderBy: { createdAt: 'desc' },
+      });
+      return release && (await afs.isDirectory(release.path!)) ? release : null;
+    } catch (error: any) {
+      console.error(`Build cache lookup for ${applicationId} failed, building instead:`, error?.message ?? error);
+      return null;
+    }
   }
 
   /** Point `current` at a release. Symlink + rename, so the switch is atomic. */
