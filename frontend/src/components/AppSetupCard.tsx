@@ -35,7 +35,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
   // the repo uses Prisma and nothing runs its migrations yet: offer the step,
   // one click to set it — the tables have to exist before the app starts
   const suggestedPreDeploy = !application.preDeployCommand ? detected?.preDeployCommand ?? null : null;
-  const usePreDeploy = useMutation({
+  const savePreDeploy = useMutation({
     mutationFn: (command: string) => updateApplication(application.id, { preDeployCommand: command }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
@@ -133,7 +133,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
 
           <Step
             done={!!(build || start)}
-            warn={buildWarnings.length > 0}
+            warn={buildWarnings.length > 0 || !!suggestedPreDeploy}
             title={t("Build")}
             action={
               <Button type="button" variant="ghost" size="sm" onClick={onEditBuild}>
@@ -163,10 +163,10 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
                   variant="outline"
                   size="sm"
                   className="h-6 px-2 text-xs"
-                  disabled={usePreDeploy.isPending}
-                  onClick={() => usePreDeploy.mutate(suggestedPreDeploy)}
+                  disabled={savePreDeploy.isPending}
+                  onClick={() => savePreDeploy.mutate(suggestedPreDeploy)}
                 >
-                  {usePreDeploy.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {savePreDeploy.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                   {t("Use it")}
                 </Button>
               </div>
