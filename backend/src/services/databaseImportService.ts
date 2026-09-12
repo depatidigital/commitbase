@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
-import { Transform, pipeline } from 'stream';
+import { PassThrough, Transform, pipeline, type Readable } from 'stream';
 import { once } from 'events';
 import { finished } from 'stream/promises';
 import zlib from 'zlib';
@@ -10,6 +10,7 @@ import { from as copyFrom, type CopyStreamQuery } from 'pg-copy-streams';
 import mysql from 'mysql2/promise';
 import { prisma } from '../lib/prisma';
 import { liveLog } from '../lib/liveLog';
+import { buildCommand, connect, getSftp } from '../lib/runner';
 import { reach, tlsOptions } from './databaseServerService';
 import { databaseCredentials } from './databaseProvisionService';
 
@@ -408,6 +409,59 @@ export async function listImports(databaseId: string) {
   });
 }
 
+/**
+ * A pg_dump custom-format archive (-Fc, what DBeaver's "Backup" writes) as a
+ * plain SQL script: uploaded to the database's node and turned into SQL there
+ * by `pg_restore -f -`, which only reads the archive — it connects to nothing
+ * and runs nothing. The script then goes through the same path as any .sql.
+ * The node has the server's own client tools, so its pg_restore can read
+ * archives from that version.
+ */
+async function archiveToScript(databaseId: string, filePath: string, importId: string) {
+  const db = await prisma.database.findUnique({
+    where: { id: databaseId },
+    include: { databaseServer: { include: { server: true } } },
+  });
+  const dbs = db?.databaseServer;
+  if (dbs?.engine !== 'POSTGRESQL') throw new ImportError('This is a PostgreSQL backup archive — it cannot go into a MySQL database.');
+  if (dbs.mode !== 'TUNNEL' || !dbs.server) {
+    throw new ImportError('Backup archives can only be restored on our own database servers — export as plain SQL instead.');
+  }
+  const node = dbs.server;
+  const remote = `/tmp/larika-restore-${importId}.dump`;
+
+  const sftp = await getSftp(node);
+  await new Promise<void>((resolve, reject) =>
+    sftp.fastPut(filePath, remote, { mode: 0o600 }, (error) => (error ? reject(new Error(`Upload to ${node.hostname} failed: ${error.message}`)) : resolve())),
+  );
+  const script = new PassThrough();
+  // ends pg_restore if the import stopped before reading it all, then removes the copy
+  const cleanup = () => {
+    script.destroy();
+    return new Promise<void>((resolve) => sftp.unlink(remote, () => resolve()));
+  };
+
+  const client = await connect(node);
+  client.exec(buildCommand(['pg_restore', '--no-owner', '--no-privileges', '--clean', '--if-exists', '-f', '-', remote]), (error, channel) => {
+    if (error) {
+      script.destroy(new Error(`SSH exec on ${node.hostname} failed: ${error.message}`));
+      return;
+    }
+    let stderr = '';
+    channel.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString('utf8')).slice(-2000);
+    });
+    channel.pipe(script, { end: false });
+    channel.on('close', (code: number | null) => {
+      if (code === 0) script.end();
+      else script.destroy(new ImportError(`The archive could not be read: ${stderr.trim() || `pg_restore exited ${code}`}`));
+    });
+    // the import stopped reading (it failed): stop pg_restore too
+    script.on('close', () => channel.close());
+  });
+  return { script, cleanup };
+}
+
 /** PostgreSQL text cannot hold NUL — a dump (or an error quoting it) can. */
 const clean = (text: string) => text.replace(/\u0000/g, '');
 
@@ -440,6 +494,8 @@ export async function runImport(importId: string, databaseId: string, filePath: 
   let statements = 0;
   let skipped = 0;
   let line = 0;
+  // the archive's copy on the node, when one was uploaded
+  let removeRemote: (() => Promise<void>) | null = null;
   const database = await prisma.database
     .findUnique({ where: { id: databaseId }, select: { applicationId: true, dbName: true } })
     .catch(() => null);
@@ -448,10 +504,12 @@ export async function runImport(importId: string, databaseId: string, filePath: 
   try {
     const size = (await fs.promises.stat(filePath)).size;
     const handle = await fs.promises.open(filePath, 'r');
-    const magic = Buffer.alloc(2);
-    await handle.read(magic, 0, 2, 0);
+    const magic = Buffer.alloc(5);
+    await handle.read(magic, 0, 5, 0);
     await handle.close();
     const gzipped = magic[0] === 0x1f && magic[1] === 0x8b;
+    // pg_dump -Fc (DBeaver's backups): binary, turned into SQL on the node first
+    const archive = magic.toString('latin1') === 'PGDMP';
 
     const raw = fs.createReadStream(filePath);
     const tap = new Transform({
@@ -461,11 +519,21 @@ export async function runImport(importId: string, databaseId: string, filePath: 
       },
     });
     const noop = () => {};
-    const text = gzipped ? pipeline(raw, tap, zlib.createGunzip(), noop) : pipeline(raw, tap, noop);
+    let text: Readable;
+    if (archive) {
+      for await (const chunk of raw) hash.update(chunk as Buffer);
+      live.push('Reading the backup archive…\n');
+      const converted = await archiveToScript(databaseId, filePath, importId);
+      removeRemote = converted.cleanup;
+      text = converted.script;
+    } else {
+      text = gzipped ? pipeline(raw, tap, zlib.createGunzip(), noop) : pipeline(raw, tap, noop);
+    }
 
     await withTenant(databaseId, async (session) => {
       const { engine, dbName } = session;
-      live.push(`Importing ${row?.fileName ?? 'file'}${gzipped ? ' (gzip)' : ''} into ${dbName} as ${session.username}\n`);
+      const kind = archive ? ' (backup archive)' : gzipped ? ' (gzip)' : '';
+      live.push(`Importing ${row?.fileName ?? 'file'}${kind} into ${dbName} as ${session.username}\n`);
       if (engine === 'POSTGRESQL') {
         await session.query('BEGIN');
         live.push('Running in one transaction — nothing is kept unless everything succeeds\n');
@@ -552,8 +620,9 @@ export async function runImport(importId: string, databaseId: string, filePath: 
         }
         if (Date.now() - lastProgress > 5_000) {
           lastProgress = Date.now();
-          const percent = size ? Math.min(99, Math.floor((raw.bytesRead / size) * 100)) : 0;
-          live.push(`${percent}% · line ${line.toLocaleString('en')} · ${statements.toLocaleString('en')} statements\n`);
+          // an archive's SQL has no known length — no percentage for it
+          const percent = !archive && size ? `${Math.min(99, Math.floor((raw.bytesRead / size) * 100))}% · ` : '';
+          live.push(`${percent}line ${line.toLocaleString('en')} · ${statements.toLocaleString('en')} statements\n`);
         }
       }
       // a character cut at the very end of the file
@@ -602,5 +671,6 @@ export async function runImport(importId: string, databaseId: string, filePath: 
   } finally {
     releaseImport(databaseId);
     await fs.promises.unlink(filePath).catch(() => {});
+    await removeRemote?.();
   }
 }
