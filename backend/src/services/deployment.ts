@@ -362,7 +362,19 @@ export class DeploymentService {
         // so the app's env is exported here. NODE_ENV stays unset: production
         // would skip the devDependencies most build tools live in.
         const q = (v: string) => `'${String(v).replace(/'/g, `'\\''`)}'`;
-        const exports = Object.entries({ ...envVars, PORT: String(application.port || ''), CI: '1', NEXT_TELEMETRY_DISABLED: '1' })
+        // CI=1: no prompt can ever wait for an answer. pnpm 10 blocks
+        // dependencies' build scripts (prisma engines, esbuild, sharp) until
+        // `pnpm approve-builds` is answered — interactively — and in CI just
+        // skips them, so the app breaks later instead. The build is already
+        // the app's own code in its build cgroup as the build user; its
+        // dependencies' scripts are no less trusted than that.
+        const exports = Object.entries({
+          ...envVars,
+          PORT: String(application.port || ''),
+          CI: '1',
+          NEXT_TELEMETRY_DISABLED: '1',
+          npm_config_dangerously_allow_all_builds: 'true',
+        })
           .filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
           .map(([k, v]) => `export ${k}=${q(v)}`);
         const script = [

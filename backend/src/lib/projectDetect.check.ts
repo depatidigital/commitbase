@@ -130,4 +130,15 @@ assert.deepStrictEqual(parseEnvFile('CERT="-----BEGIN' + NL + 'abc' + NL + '----
 assert.ok(presenceOnly('.env') && presenceOnly('.env.local') && presenceOnly('pnpm-lock.yaml') && presenceOnly('bun.lockb'));
 assert.ok(!presenceOnly('.env.example') && !presenceOnly('package.json'));
 
+// Prisma: migrations applied before the release goes live, with the project's own runner
+const prismaPkg = { 'package.json': JSON.stringify({ dependencies: { '@prisma/client': '6.0.0', next: '15.0.0' }, devDependencies: { prisma: '6.0.0' } }) };
+assert.strictEqual(preDeployOf(prismaPkg, 'pnpm'), 'pnpm prisma migrate deploy');
+assert.strictEqual(preDeployOf(prismaPkg, 'npm'), 'npx prisma migrate deploy');
+assert.strictEqual(preDeployOf(prismaPkg, 'bun', true), 'bunx prisma migrate deploy');
+// no prisma/migrations in the repo: the schema is pushed instead
+assert.strictEqual(preDeployOf(prismaPkg, 'yarn', false), 'yarn prisma db push --skip-generate');
+assert.strictEqual(preDeployOf({ 'package.json': JSON.stringify({ dependencies: { next: '15' } }) }, 'pnpm'), null);
+assert.strictEqual(detectFromFiles({ ...prismaPkg, 'pnpm-lock.yaml': '' }).preDeployCommand, 'pnpm prisma migrate deploy');
+assert.strictEqual(next.preDeployCommand, null);
+
 console.log('projectDetect: ok');
