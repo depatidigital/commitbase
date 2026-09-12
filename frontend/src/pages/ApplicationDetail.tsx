@@ -340,8 +340,9 @@ export default function ApplicationDetail() {
   // the reason is on the deployment row; the banner saying "error" alone
   // leaves the user hunting for it
   const lastDeployment = application.deployments?.[0];
+  // the last attempt failed — whether or not the app is still up on the release before it
   const failureReason =
-    application.status === 'ERROR' && lastDeployment?.status === 'FAILED'
+    lastDeployment?.status === 'FAILED'
       ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-3).join('\n') || '') || undefined
       : undefined;
   // A deploy runs in the background after /start answers, so the request being

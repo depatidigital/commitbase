@@ -1311,10 +1311,15 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         },
       });
 
+      // Only the switch to the new release can take the site down, and it says
+      // how that went (rolledBack). A deploy that failed before it — build,
+      // sync, anything thrown early — never touched what was running.
+      const touched = result.rolledBack !== undefined;
       await prisma.application.update({
         where: { id },
         data: {
-          status: result.success || result.rolledBack ? 'RUNNING' : 'ERROR',
+          status:
+            result.success || result.rolledBack || (!touched && application.status === 'RUNNING') ? 'RUNNING' : 'ERROR',
           // only a deploy that left something running counts — the UI reads
           // lastDeployment as "has a build to start"
           ...(result.success && { lastDeployment: new Date() }),
@@ -1332,9 +1337,10 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         },
       });
 
+      // thrown before anything was switched: what ran before still runs
       await prisma.application.update({
         where: { id },
-        data: { status: 'ERROR' },
+        data: { status: application.status === 'RUNNING' ? 'RUNNING' : 'ERROR' },
       });
     });
 
