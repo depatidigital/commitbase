@@ -14,15 +14,17 @@ let timer: NodeJS.Timeout | null = null;
 let lastCheck: Date | null = null;
 
 export async function checkAllApplications(): Promise<void> {
+  // both ways: an app marked STOPPED whose unit runs is corrected too
   const applications = await prisma.application.findMany({
-    where: { status: 'RUNNING', runtime: null },
+    where: { status: { in: ['RUNNING', 'STOPPED'] }, runtime: null },
     include: { organization: { select: { slug: true } } },
   });
 
   for (const application of applications) {
     try {
       const status = await systemd.getStatus(application);
-      if (status !== 'RUNNING') {
+      // unreachable node: keep what we had rather than guess
+      if (status !== 'UNKNOWN' && status !== application.status) {
         await prisma.application.update({
           where: { id: application.id },
           data: { status },

@@ -57,10 +57,9 @@ export default {
 
   // Databases
   // SQL restore (DatabaseImportDialog, AppDatabasesTab)
-  "Restore DB (.sql)": "Pulihkan DB (.sql)",
+  "Restore DB (.sql)": "Restore DB (.sql)",
   "Restore {name} from a .sql file": "Pulihkan {name} dari berkas .sql",
-  "Runs as this database's own login, which cannot reach any other database.":
-    "Dijalankan dengan login milik database ini, yang tidak bisa menjangkau database lain.",
+  "Only this database is changed.": "Hanya database ini yang diubah.",
   "Tables now": "Tabel saat ini",
   "{count} tables": "{count} tabel",
   Empty: "Kosong",
@@ -78,8 +77,6 @@ export default {
     "MySQL tidak bisa membatalkan perubahan tabel: jika satu perintah gagal, yang sudah berjalan tetap tersimpan. Cadangkan dulu, atau pulihkan ke database kosong.",
   "Runs in one transaction: if any statement fails, nothing is kept.":
     "Berjalan dalam satu transaksi: jika ada perintah yang gagal, tidak ada yang disimpan.",
-  "Export with": "Ekspor dengan",
-  "— gzip is fine too.": "— gzip juga bisa.",
   "{name} already has {count} tables. Type its name to restore into it anyway.":
     "{name} sudah berisi {count} tabel. Ketik namanya untuk tetap memulihkan ke sana.",
   "Uploading… {percent}%": "Mengunggah… {percent}%",
@@ -87,6 +84,7 @@ export default {
   Restore: "Pulihkan",
   "No database connected to this app yet.": "Belum ada database yang terhubung ke aplikasi ini.",
   "Connect a database": "Hubungkan database",
+  "Use a custom URL": "Pakai URL sendiri",
   "What this app stores its data in": "Tempat aplikasi ini menyimpan datanya",
   "Named in this app's environment variables": "Disebut di variabel lingkungan aplikasi ini",
   "in use": "dipakai",

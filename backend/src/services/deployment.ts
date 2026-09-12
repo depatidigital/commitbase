@@ -615,7 +615,8 @@ export class DeploymentService {
 
         // the app's own words on why — without them a failed start says nothing
         if (!started) {
-          await deployLog(`Unit: ${(await systemd.getStatus(application)) === 'RUNNING' ? 'running' : 'not running (crashed or exited)'}`);
+          const unit = await systemd.getStatus(application);
+          await deployLog(`Unit: ${unit === 'RUNNING' ? 'running' : unit === 'UNKNOWN' ? 'unknown (the node did not answer)' : 'not running (crashed or exited)'}`);
           const logsDir = logsDirFor(afs.appDir);
           for (const name of ['error.log', 'out.log']) {
             const tail = await this.tailLog(afs, join(logsDir, name), 30, name);
@@ -1118,7 +1119,7 @@ export class DeploymentService {
   /**
    * Get application status from its systemd unit
    */
-  async getApplicationStatus(domain: string): Promise<'RUNNING' | 'STOPPED' | 'ERROR'> {
+  async getApplicationStatus(domain: string): Promise<'RUNNING' | 'STOPPED' | 'UNKNOWN' | 'ERROR'> {
     try {
       if (!domain) {
         return 'ERROR';

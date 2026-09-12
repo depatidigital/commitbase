@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Database as DatabaseIcon, Loader2, Save } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, ArrowLeftRight, Database as DatabaseIcon, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
@@ -82,6 +81,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
       return undefined;
     }
   };
+  const shownAsManaged = (row: EnvRow) =>
+    row.key === "DATABASE_URL" && !customDb ? managedDatabase(row.value) : undefined;
   // A refetch (a database connected, another tab saved) resets only an untouched
   // form — on a change of what is saved, never on the form turning clean: right
   // after a save the page may still hold the old env, and resetting to it then
@@ -184,9 +185,10 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
         required={required}
         locked={locked}
         hints={hints}
-        // the database is how DATABASE_URL gets its value — so it lives on that row
+        // the database is how DATABASE_URL gets its value — so it lives on that row;
+        // one of ours already shown by name is changed from its own icon instead
         renderAction={(row) =>
-          row.key === databaseAnchor ? (
+          row.key === databaseAnchor && !shownAsManaged(row) ? (
             <Button type="button" variant="outline" size="sm" onClick={() => setDbOpen(true)} disabled={saving}>
               <DatabaseIcon className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">{row.value ? t("Change database") : t("Connect database")}</span>
@@ -194,15 +196,24 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
           ) : null
         }
         renderValue={(row) => {
-          const db = row.key === "DATABASE_URL" && !customDb ? managedDatabase(row.value) : undefined;
+          const db = shownAsManaged(row);
           if (!db) return null;
           return (
             <div className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-muted/40 px-3 text-xs">
               <DatabaseIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate font-mono">{db.dbName}</span>
-              <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">
-                {t("Larika database")}
-              </Badge>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0"
+                disabled={saving}
+                onClick={() => setDbOpen(true)}
+                title={t("Change database")}
+                aria-label={t("Change database")}
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+              </Button>
               <button
                 type="button"
                 className="ml-auto shrink-0 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"

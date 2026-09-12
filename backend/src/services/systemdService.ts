@@ -171,12 +171,18 @@ export function followLogs(
   return exec(node, argv, { onOutput, signal, maxBuffer: 0, timeout: 2 * 60 * 60_000 });
 }
 
-export async function getStatus(application: AppWithOrg): Promise<'RUNNING' | 'STOPPED'> {
+/**
+ * The unit's state. `cb-app-unit status` always exits 0 and prints it, so a
+ * failure here is the node being unreachable — UNKNOWN, never STOPPED: a
+ * status written from a dropped SSH connection sticks until someone notices.
+ */
+export async function getStatus(application: AppWithOrg): Promise<'RUNNING' | 'STOPPED' | 'UNKNOWN'> {
   if (!needsUnit(application.type)) return 'RUNNING';
   try {
-    const out = await appUnit('status', slugOf(application), application.id);
-    return out.trim() === 'active' ? 'RUNNING' : 'STOPPED';
+    const out = (await appUnit('status', slugOf(application), application.id)).trim();
+    // mid-restart counts as running
+    return ['active', 'activating', 'reloading'].includes(out) ? 'RUNNING' : 'STOPPED';
   } catch {
-    return 'STOPPED';
+    return 'UNKNOWN';
   }
 }

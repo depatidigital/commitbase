@@ -111,7 +111,6 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
   const targetRows: Array<[string, string | null | undefined]> = [
     [t("Database"), dbName],
     [t("Engine"), ENGINE_LABEL[engine] ?? engine],
-    [t("Server"), database?.databaseServer?.name],
     [t("Organization"), database?.organization?.name],
     [t("App"), database?.application?.name],
   ];
@@ -121,9 +120,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{t("Restore {name} from a .sql file", { name: dbName })}</DialogTitle>
-          <DialogDescription>
-            {t("Runs as this database's own login, which cannot reach any other database.")}
-          </DialogDescription>
+          <DialogDescription>{t("Only this database is changed.")}</DialogDescription>
         </DialogHeader>
 
         {/* the target, spelled out: this is where "is it the right one?" gets answered */}
@@ -217,16 +214,6 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
                 {engine === "MYSQL"
                   ? t("MySQL can't undo table changes: if a statement fails, what ran before it stays. Back up first, or restore into an empty database.")
                   : t("Runs in one transaction: if any statement fails, nothing is kept.")}
-              </p>
-              <p>
-                {t("Export with")}{" "}
-                <code className="rounded bg-muted px-1">
-                  {engine === "MYSQL"
-                    ? "mysqldump --single-transaction --routines --triggers <db> > dump.sql"
-                    : "pg_dump --no-owner --no-privileges --clean --if-exists <db> > dump.sql"}
-                </code>
-                {" "}
-                {t("— gzip is fine too.")}
               </p>
             </div>
 
