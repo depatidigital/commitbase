@@ -197,6 +197,8 @@ export interface DetectedProject {
   outputDir: string | null;
   port: number | null;
   nodeVersion: string | null;
+  /** a step after the build, before the release goes live — Prisma's migrations — or null */
+  preDeployCommand?: string | null;
   env: {
     /** keys from .env.example / .sample / .template, with defaults when they have one */
     example: { file: string; vars: Array<{ key: string; value: string }> } | null;

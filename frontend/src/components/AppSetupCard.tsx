@@ -1,8 +1,10 @@
-import { AlertTriangle, CheckCircle, Circle, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle, Circle, Database, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
-import { Application, DetectedProject } from "@/lib/applications";
+import { useToast } from "@/hooks/use-toast";
+import { Application, DetectedProject, updateApplication } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 interface AppSetupCardProps {
@@ -28,6 +30,19 @@ interface AppSetupCardProps {
  */
 export function AppSetupCard({ application, detected, detecting, env, dbCheck, deploying, onViewDeploy, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
   const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  // the repo uses Prisma and nothing runs its migrations yet: offer the step,
+  // one click to set it — the tables have to exist before the app starts
+  const suggestedPreDeploy = !application.preDeployCommand ? detected?.preDeployCommand ?? null : null;
+  const usePreDeploy = useMutation({
+    mutationFn: (command: string) => updateApplication(application.id, { preDeployCommand: command }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
+      toast({ title: t("Pre-deploy command set") });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not save"), description: error.message }),
+  });
   const install = application.installCommand || detected?.installCommand;
   const build = application.buildCommand || detected?.buildCommand;
   const start = application.startCommand || detected?.startCommand;
@@ -136,6 +151,26 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
                 </p>
               ))}
             </div>
+            {suggestedPreDeploy && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                <Database className="h-3 w-3 shrink-0" />
+                <span>
+                  {t("The repo uses Prisma — run its migrations before the release goes live:")}{" "}
+                  <code className="font-mono">{suggestedPreDeploy}</code>
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={usePreDeploy.isPending}
+                  onClick={() => usePreDeploy.mutate(suggestedPreDeploy)}
+                >
+                  {usePreDeploy.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {t("Use it")}
+                </Button>
+              </div>
+            )}
             {buildWarnings.map((warning) => (
               <p key={warning.code} className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
