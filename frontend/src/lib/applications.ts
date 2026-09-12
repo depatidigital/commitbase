@@ -32,6 +32,8 @@ export interface Application {
   rootPath?: string | null;
   configPath?: string | null;
   lastSyncedAt?: string | null;
+  /** when the last successful deploy went out */
+  lastDeployment?: string | null;
   deployments?: Deployment[];
   databases?: Database[];
   logs?: Log[];
@@ -53,7 +55,7 @@ export interface Database {
   name: string;
   type: 'POSTGRESQL' | 'MYSQL' | 'MONGODB' | 'REDIS' | 'SQLITE';
   version?: string;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   applicationId: string;
   createdAt: string;
 }
@@ -493,7 +495,7 @@ export const hasBeenDeployed = (application: Application): boolean => {
   }
   
   // Check if lastDeployment exists (from backend)
-  return !!(application as any).lastDeployment;
+  return !!application.lastDeployment;
 }; 
 
 export interface AppSyncResult {

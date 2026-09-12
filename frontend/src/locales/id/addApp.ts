@@ -49,13 +49,20 @@ export default {
   "Pick the files or the folder to deploy.": "Pilih file atau folder yang akan di-deploy.",
   "Static uploads go straight to object storage and are served from there — nothing is built.":
     "Unggahan statis langsung masuk ke object storage dan disajikan dari sana — tidak ada proses build.",
-  "Git Repository URL": "URL Repositori Git",
+  Repository: "Repositori",
+  "Select a repository or paste a URL": "Pilih repositori atau tempel URL",
+  "Search your repositories, or paste a Git URL…": "Cari repositori Anda, atau tempel URL Git…",
+  "Use this URL: {url}": "Pakai URL ini: {url}",
+  "Loading repositories…": "Memuat repositori…",
+  "No repositories found — paste the URL instead.": "Repositori tidak ditemukan — tempel URL-nya saja.",
+  "No GitHub or GitLab account connected. Connect one below, or paste a public repository URL.":
+    "Belum ada akun GitHub atau GitLab yang terhubung. Hubungkan di bawah, atau tempel URL repositori publik.",
+  "Failed to list repositories": "Gagal memuat daftar repositori",
   "Connect GitHub": "Hubungkan GitHub",
   "Connect GitLab": "Hubungkan GitLab",
   "Checking the repository…": "Memeriksa repositori…",
   "This repository cannot be read. Check the URL — a private repository has to be on GitHub or GitLab.":
     "Repositori ini tidak bisa dibaca. Periksa URL-nya — repositori privat harus ada di GitHub atau GitLab.",
-  "Public repository": "Repositori publik",
   "This repository has no branches yet — push a commit first.":
     "Repositori ini belum punya branch — push commit terlebih dahulu.",
   "Private repository": "Repositori privat",

@@ -59,6 +59,7 @@ export default {
   "Check failed": "Pemeriksaan gagal",
   Snapshot: "Snapshot",
   "Snapshot failed": "Snapshot gagal",
+  "Failed to set the default server": "Gagal menetapkan server default",
   "Snapshot restored": "Snapshot dipulihkan",
   "Restore failed": "Pemulihan gagal",
   "Failed to restore the snapshot": "Gagal memulihkan snapshot",

@@ -7,7 +7,11 @@ import { promisify } from 'util';
 // execFile, never a shell: the repository URL is user input, and inside a
 // shell string `$(...)` or backticks in it would run
 const execFileAsync = promisify(execFile);
-const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+// No prompts, and no borrowed login: an editor terminal (VS Code) exports
+// GIT_ASKPASS pointing at its own GitHub session, which answers for git — a
+// private repo would read as public here and then fail to clone at deploy.
+// An empty GIT_ASKPASS switches askpass off (core.askPass/SSH_ASKPASS included).
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' };
 
 /**
  * Framework / package-manager detection, the way Vercel and Nixpacks do it:

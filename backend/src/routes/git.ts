@@ -3,26 +3,7 @@ import jwt from 'jsonwebtoken';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
-
-interface GitRepository {
-  id: string;
-  name: string;
-  fullName: string;
-  cloneUrl: string;
-  sshUrl?: string | null;
-  provider: 'github' | 'gitlab';
-  accountId: string;
-  workspace: string | null;
-}
-
-interface GitBranch {
-  name: string;
-}
-
-interface GitConnectionStatus {
-  githubConnected: boolean;
-  gitlabConnected: boolean;
-}
+import { freshAccessToken } from '../lib/gitCredentials';
 
 const gitAccountClient: any = (prisma as any).gitAccount;
 
@@ -42,46 +23,6 @@ function getBackendRedirectUrl(req: Request, path: string) {
 
   return `${protocol}://${host}${path}`;
 }
-
-router.get(
-  '/status',
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const [githubAccounts, gitlabAccounts] = await Promise.all([
-        gitAccountClient.count({
-          where: {
-            userId: req.user!.userId,
-            provider: 'github',
-          },
-        }),
-        gitAccountClient.count({
-          where: {
-            userId: req.user!.userId,
-            provider: 'gitlab',
-          },
-        }),
-      ]);
-
-      const status: GitConnectionStatus = {
-        githubConnected: githubAccounts > 0,
-        gitlabConnected: gitlabAccounts > 0,
-      };
-
-      return res.json({
-        success: true,
-        data: status,
-        message: 'Git connection status retrieved successfully',
-      } as ApiResponse<GitConnectionStatus>);
-    } catch (error: any) {
-      console.error('Error fetching git connection status:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch git connection status',
-      } as ApiResponse);
-    }
-  },
-);
 
 router.get(
   '/github/accounts',
@@ -774,454 +715,114 @@ router.get(
   },
 );
 
-router.get(
-  '/github/projects',
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { accountId } = req.query as { accountId?: string };
+type ListedRepository = {
+  fullName: string;
+  /** the HTTPS clone URL — what the add-app form takes */
+  cloneUrl: string;
+  provider: 'github' | 'gitlab';
+  accountId: string;
+  account: string;
+  private: boolean;
+};
 
-      const account = accountId
-        ? await gitAccountClient.findFirst({
-            where: {
-              id: accountId,
-              userId: req.user!.userId,
-              provider: 'github',
-            },
-          })
-        : await gitAccountClient.findFirst({
-            where: {
-              userId: req.user!.userId,
-              provider: 'github',
-            },
-            orderBy: {
-              createdAt: 'asc',
-            },
-          });
+type ListedAccount = {
+  id: string;
+  provider: string;
+  username: string;
+  accessToken: string;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
+};
 
-      if (!account) {
-        return res.status(400).json({
-          success: false,
-          error: 'GitHub account not found',
-        } as ApiResponse);
-      }
+// ponytail: the 300 most recently active per account; server-side search if someone has thousands
+const REPOSITORY_PAGES = 3;
 
-      const token = account.accessToken;
+async function githubRepositories(account: ListedAccount): Promise<ListedRepository[]> {
+  const token = await freshAccessToken(account);
+  const repositories: ListedRepository[] = [];
+  for (let page = 1; page <= REPOSITORY_PAGES; page++) {
+    const response = await fetch(`https://api.github.com/user/repos?per_page=100&sort=pushed&page=${page}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'larika' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = (await response.json()) as any[];
+    repositories.push(
+      ...data.map((repo) => ({
+        fullName: String(repo.full_name),
+        cloneUrl: String(repo.clone_url),
+        provider: 'github' as const,
+        accountId: account.id,
+        account: account.username,
+        private: !!repo.private,
+      })),
+    );
+    if (data.length < 100) break;
+  }
+  return repositories;
+}
 
-      const fetchFn: any = (globalThis as any).fetch;
+async function gitlabRepositories(account: ListedAccount): Promise<ListedRepository[]> {
+  // refreshes an expired GitLab token, which lives ~2h
+  const token = await freshAccessToken(account);
+  const apiBase = (process.env.GITLAB_API_BASE || 'https://gitlab.com/api/v4').replace(/\/$/, '');
+  const repositories: ListedRepository[] = [];
+  for (let page = 1; page <= REPOSITORY_PAGES; page++) {
+    const response = await fetch(
+      `${apiBase}/projects?membership=true&simple=true&order_by=last_activity_at&per_page=100&page=${page}`,
+      // an OAuth token is a Bearer token; PRIVATE-TOKEN is only for personal access tokens
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = (await response.json()) as any[];
+    repositories.push(
+      ...data.map((project) => ({
+        fullName: String(project.path_with_namespace),
+        cloneUrl: String(project.http_url_to_repo),
+        provider: 'gitlab' as const,
+        accountId: account.id,
+        account: account.username,
+        private: project.visibility !== 'public',
+      })),
+    );
+    if (data.length < 100) break;
+  }
+  return repositories;
+}
 
-      if (!fetchFn) {
-        return res.status(500).json({
-          success: false,
-          error: 'Fetch API is not available in this runtime',
-        } as ApiResponse);
-      }
+/**
+ * Every repository the caller's connected GitHub and GitLab accounts can see,
+ * for the add-app picker. One account failing (a revoked token) leaves the
+ * others listed and is reported in `errors`.
+ */
+router.get('/repositories', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accounts: ListedAccount[] = await prisma.gitAccount.findMany({
+      where: { userId: req.user!.userId },
+      select: { id: true, provider: true, username: true, accessToken: true, refreshToken: true, tokenExpiresAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
 
-      const response = await fetchFn(
-        'https://api.github.com/user/repos?per_page=100',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'larika',
-          },
-        },
-      );
+    const results = await Promise.allSettled(
+      accounts.map((account) => (account.provider === 'gitlab' ? gitlabRepositories(account) : githubRepositories(account))),
+    );
 
-      const raw = await response.text();
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          success: false,
-          error:
-            raw ||
-            `GitHub request failed with status ${response.status} ${response.statusText}`,
-        } as ApiResponse);
-      }
-
-      let data: any;
-
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = [];
-      }
-
-      const repos: GitRepository[] = Array.isArray(data)
-        ? data.map((repo: any) => {
-            const sshUrl = repo.ssh_url ? String(repo.ssh_url) : null;
-            const fullName = String(repo.full_name || repo.name || '');
-            let workspace: string | null = null;
-
-            if (fullName.includes('/')) {
-              workspace = fullName.split('/')[0] || null;
-            }
-
-            return {
-              id: String(repo.id),
-              name: String(repo.name || ''),
-              fullName,
-              cloneUrl: String(
-                repo.clone_url || repo.ssh_url || repo.svn_url || '',
-              ),
-              sshUrl,
-              provider: 'github',
-              accountId: account.id,
-              workspace,
-            };
-          })
-        : [];
-
-      return res.json({
-        success: true,
-        data: repos,
-        message: 'GitHub repositories retrieved successfully',
-      } as ApiResponse<GitRepository[]>);
-    } catch (error: any) {
-      console.error('Error fetching GitHub repositories:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch GitHub repositories',
-      } as ApiResponse);
-    }
-  },
-);
-
-router.get(
-  '/gitlab/projects',
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { accountId } = req.query as { accountId?: string };
-
-      const account = accountId
-        ? await gitAccountClient.findFirst({
-            where: {
-              id: accountId,
-              userId: req.user!.userId,
-              provider: 'gitlab',
-            },
-          })
-        : await gitAccountClient.findFirst({
-            where: {
-              userId: req.user!.userId,
-              provider: 'gitlab',
-            },
-            orderBy: {
-              createdAt: 'asc',
-            },
-          });
-
-      if (!account) {
-        return res.status(400).json({
-          success: false,
-          error: 'GitLab account not found',
-        } as ApiResponse);
-      }
-
-      const token = account.accessToken;
-      const apiBase =
-        process.env.GITLAB_API_BASE || 'https://gitlab.com/api/v4';
-
-      const fetchFn: any = (globalThis as any).fetch;
-
-      if (!fetchFn) {
-        return res.status(500).json({
-          success: false,
-          error: 'Fetch API is not available in this runtime',
-        } as ApiResponse);
-      }
-
-      const url = `${apiBase.replace(
-        /\/$/,
-        '',
-      )}/projects?membership=true&simple=true&per_page=100`;
-
-      const response = await fetchFn(url, {
-        method: 'GET',
-        headers: {
-          'PRIVATE-TOKEN': token,
-        },
-      });
-
-      const raw = await response.text();
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          success: false,
-          error:
-            raw ||
-            `GitLab request failed with status ${response.status} ${response.statusText}`,
-        } as ApiResponse);
-      }
-
-      let data: any;
-
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = [];
-      }
-
-      const repos: GitRepository[] = Array.isArray(data)
-        ? data.map((project: any) => {
-            const sshUrl = project.ssh_url_to_repo
-              ? String(project.ssh_url_to_repo)
-              : null;
-            const fullName = String(
-              project.path_with_namespace || project.name || '',
-            );
-            const workspace = (() => {
-              const parts = fullName.split('/');
-              return parts.length > 1
-                ? parts.slice(0, parts.length - 1).join('/')
-                : null;
-            })();
-
-            return {
-              id: String(project.id),
-              name: String(project.name || ''),
-              fullName,
-              cloneUrl: String(
-                project.http_url_to_repo ||
-                  project.ssh_url_to_repo ||
-                  project.web_url ||
-                  '',
-              ),
-              sshUrl,
-              provider: 'gitlab',
-              accountId: account.id,
-              workspace,
-            };
-          })
-        : [];
-
-      return res.json({
-        success: true,
-        data: repos,
-        message: 'GitLab projects retrieved successfully',
-      } as ApiResponse<GitRepository[]>);
-    } catch (error: any) {
-      console.error('Error fetching GitLab projects:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch GitLab projects',
-      } as ApiResponse);
-    }
-  },
-);
-
-router.get(
-  '/github/projects/:id/branches',
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { accountId } = req.query as { accountId?: string };
-
-      const account = accountId
-        ? await gitAccountClient.findFirst({
-            where: {
-              id: accountId,
-              userId: req.user!.userId,
-              provider: 'github',
-            },
-          })
-        : await gitAccountClient.findFirst({
-            where: {
-              userId: req.user!.userId,
-              provider: 'github',
-            },
-            orderBy: {
-              createdAt: 'asc',
-            },
-          });
-
-      if (!account) {
-        return res.status(400).json({
-          success: false,
-          error: 'GitHub account not found',
-        } as ApiResponse);
-      }
-
-      const token = account.accessToken;
-
-      const { id } = req.params;
-
-      if (!id) {
-        return res.status(400).json({
-          success: false,
-          error: 'Repository ID is required',
-        } as ApiResponse);
-      }
-
-      const fetchFn: any = (globalThis as any).fetch;
-
-      if (!fetchFn) {
-        return res.status(500).json({
-          success: false,
-          error: 'Fetch API is not available in this runtime',
-        } as ApiResponse);
-      }
-
-      const url = `https://api.github.com/repositories/${encodeURIComponent(
-        id,
-      )}/branches?per_page=100`;
-
-      const response = await fetchFn(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'larika',
-        },
-      });
-
-      const raw = await response.text();
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          success: false,
-          error:
-            raw ||
-            `GitHub request failed with status ${response.status} ${response.statusText}`,
-        } as ApiResponse);
-      }
-
-      let data: any;
-
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = [];
-      }
-
-      const branches: GitBranch[] = Array.isArray(data)
-        ? data.map((branch: any) => ({
-            name: String(branch.name || ''),
-          }))
-        : [];
-
-      return res.json({
-        success: true,
-        data: branches,
-        message: 'GitHub branches retrieved successfully',
-      } as ApiResponse<GitBranch[]>);
-    } catch (error: any) {
-      console.error('Error fetching GitHub branches:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch GitHub branches',
-      } as ApiResponse);
-    }
-  },
-);
-
-router.get(
-  '/gitlab/projects/:id/branches',
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { accountId } = req.query as { accountId?: string };
-
-      const account = accountId
-        ? await gitAccountClient.findFirst({
-            where: {
-              id: accountId,
-              userId: req.user!.userId,
-              provider: 'gitlab',
-            },
-          })
-        : await gitAccountClient.findFirst({
-            where: {
-              userId: req.user!.userId,
-              provider: 'gitlab',
-            },
-            orderBy: {
-              createdAt: 'asc',
-            },
-          });
-
-      if (!account) {
-        return res.status(400).json({
-          success: false,
-          error: 'GitLab account not found',
-        } as ApiResponse);
-      }
-
-      const token = account.accessToken;
-      const apiBase =
-        process.env.GITLAB_API_BASE || 'https://gitlab.com/api/v4';
-
-      const { id } = req.params;
-
-      if (!id) {
-        return res.status(400).json({
-          success: false,
-          error: 'Project ID is required',
-        } as ApiResponse);
-      }
-
-      const fetchFn: any = (globalThis as any).fetch;
-
-      if (!fetchFn) {
-        return res.status(500).json({
-          success: false,
-          error: 'Fetch API is not available in this runtime',
-        } as ApiResponse);
-      }
-
-      const url = `${apiBase.replace(
-        /\/$/,
-        '',
-      )}/projects/${encodeURIComponent(id)}/repository/branches?per_page=100`;
-
-      const response = await fetchFn(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const raw = await response.text();
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          success: false,
-          error:
-            raw ||
-            `GitLab request failed with status ${response.status} ${response.statusText}`,
-        } as ApiResponse);
-      }
-
-      let data: any;
-
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = [];
-      }
-
-      const branches: GitBranch[] = Array.isArray(data)
-        ? data.map((branch: any) => ({
-            name: String(branch.name || ''),
-          }))
-        : [];
-
-      return res.json({
-        success: true,
-        data: branches,
-        message: 'GitLab branches retrieved successfully',
-      } as ApiResponse<GitBranch[]>);
-    } catch (error: any) {
-      console.error('Error fetching GitLab branches:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch GitLab branches',
-      } as ApiResponse);
-    }
-  },
-);
+    return res.json({
+      success: true,
+      data: {
+        accounts: accounts.map(({ id, provider, username }) => ({ id, provider, username })),
+        repositories: results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
+        errors: results.flatMap((result, i) =>
+          result.status === 'rejected'
+            ? [`${accounts[i]!.provider}/${accounts[i]!.username}: ${result.reason?.message ?? 'failed'}`]
+            : [],
+        ),
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error listing repositories:', error);
+    return res.status(500).json({ success: false, error: 'Failed to list repositories' } as ApiResponse);
+  }
+});
 
 export default router;
 

@@ -55,6 +55,27 @@ export const getGitlabAccounts = async (): Promise<GitAccount[]> => {
   throw new Error(response.error || t('Failed to fetch GitLab accounts'));
 };
 
+export type GitRepositoryListing = {
+  accounts: Array<{ id: string; provider: 'github' | 'gitlab'; username: string }>;
+  repositories: Array<{
+    fullName: string;
+    cloneUrl: string;
+    provider: 'github' | 'gitlab';
+    accountId: string;
+    account: string;
+    private: boolean;
+  }>;
+  /** accounts whose listing failed (a revoked token), the rest still listed */
+  errors: string[];
+};
+
+/** Repositories across every connected GitHub and GitLab account, for the add-app picker. */
+export const listGitRepositories = async (): Promise<GitRepositoryListing> => {
+  const response = await apiRequest<GitRepositoryListing>('/git/repositories');
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to list repositories'));
+};
+
 export const getGithubAuthUrl = async (): Promise<string> => {
   const response = await apiRequest<{ url: string }>('/git/github/auth/url');
 
