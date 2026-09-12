@@ -21,9 +21,9 @@ import { locale, t } from "@/lib/i18n";
 import { formatBytes } from "@/lib/utils";
 
 const STATE_LABEL: Record<ReleaseState, string> = {
-  live: t("Live"),
-  rollback: t("Rollback"),
-  unused: t("Unused"),
+  live: t("Serving"),
+  rollback: t("For rollback"),
+  unused: t("Not used"),
 };
 
 /**
@@ -140,7 +140,7 @@ export function AppStorageCard({ appId, deploying }: { appId: string; deploying:
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Clean up this app's storage?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Releases marked Unused are deleted. The live release and the ones kept for rollback stay.")}
+              {t("Releases marked Not used are deleted. The live release and the ones kept for rollback stay.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <label className="flex items-start gap-2 text-sm">
