@@ -9,7 +9,7 @@ Docker is not used at all — apps run as systemd units.
 ## What an organization owns
 
 ```
-/home/cb-<slug>                          cb-<slug>:commitbase  2770
+/home/cb-<slug>                          cb-<slug>:larika  2770
 /home/cb-<slug>/apps/<applicationId>/sources               git checkout or upload (input)
 /home/cb-<slug>/apps/<applicationId>/releases/<stamp>      copy of sources, installed + built
 /home/cb-<slug>/apps/<applicationId>/current -> releases/<stamp>
@@ -34,9 +34,9 @@ and runs them over SSH as `bash -c <script> <name> <args...>`, as root. A node
 needs only:
 
 ```bash
-sudo install -m 0440 runner/commitbase.sudoers   /etc/sudoers.d/commitbase
-sudo install -m 0644 runner/commitbase.logrotate /etc/logrotate.d/commitbase
-sudo visudo -cf /etc/sudoers.d/commitbase
+sudo install -m 0440 runner/larika.sudoers   /etc/sudoers.d/larika
+sudo install -m 0644 runner/larika.logrotate /etc/logrotate.d/larika
+sudo visudo -cf /etc/sudoers.d/larika
 ```
 
 The sudoers file grants the SSH user `larika` full passwordless root.
@@ -174,11 +174,11 @@ overridden), hands the tree to the tenant with `cb-app-unit chown`, and points
 Caddy at `current/<docroot>` — `public/` for Laravel and Symfony, the root
 otherwise — with `*.php` going to the org's FPM socket.
 
-Caddy has to reach both the socket (`0660 cb-<slug>:commitbase`) and the
+Caddy has to reach both the socket (`0660 cb-<slug>:larika`) and the
 tenant's files (`2770`), so the `caddy` user must be in the backend's group:
 
 ```bash
-sudo usermod -aG commitbase caddy && sudo systemctl restart caddy
+sudo usermod -aG larika caddy && sudo systemctl restart caddy
 ```
 
 Static sites also get no unit; they are served from R2 through Caddy.

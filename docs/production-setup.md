@@ -19,7 +19,7 @@ run it yourself: the panel's **Servers → Set up** sends it over SSH and runs i
 as root. By hand, on the node:
 
 ```bash
-sudo PANEL_SSH_PUBKEY="$(cat id_ed25519.pub)" ./install.sh   # the panel's /opt/commitbase/.ssh/id_ed25519.pub
+sudo PANEL_SSH_PUBKEY="$(cat id_ed25519.pub)" ./install.sh   # the panel's /opt/larika/.ssh/id_ed25519.pub
 ```
 
 Knobs, all optional: `WITH_PHP=1` (PHP tenants), `WITH_NVM=1` (per-app Node
@@ -38,8 +38,8 @@ Five Linux users are involved. Nothing that serves traffic runs as root.
 | User | Created by | Runs | Can reach |
 |---|---|---|---|
 | `root` | the OS | You, during this guide: package installs, the systemd units, the runner scripts, Caddy config. Never a long-running process of the platform | everything |
-| `commitbase` | step 2 | The backend (`commitbase.service`), git clones, dependency installs and builds (`cb-build.slice`) | its own `/opt/commitbase`, every tenant home through the `commitbase` **group**, Postgres over localhost, the Caddy admin API |
-| `cb-<slug>` | the panel, one per organization | That org's apps: the systemd units and the PHP-FPM pool | only `/home/cb-<slug>`. Cannot see other tenants, `/opt/commitbase`, the database or the env file |
+| `commitbase` | step 2 | The backend (`larika.service`), git clones, dependency installs and builds (`cb-build.slice`) | its own `/opt/larika`, every tenant home through the `commitbase` **group**, Postgres over localhost, the Caddy admin API |
+| `cb-<slug>` | the panel, one per organization | That org's apps: the systemd units and the PHP-FPM pool | only `/home/cb-<slug>`. Cannot see other tenants, `/opt/larika`, the database or the env file |
 | `caddy` | the `caddy` package | The reverse proxy, TLS | tenant files and FPM sockets read-only, because you add it to the `commitbase` group in step 7 |
 | `postgres` | the `postgresql` package | The database | its own data dir |
 
@@ -49,7 +49,7 @@ tenant's systemd unit or build cgroup (`cb-app-unit`). Neither script is
 installed on the box: the panel sends the script text from `runner/` over SSH
 on every call (`sudo -n bash -c <script> ...`), and each script validates its
 own arguments before doing anything. That requires the nodes' SSH user
-(`larika`) to have **full** passwordless root (`/etc/sudoers.d/commitbase`), so a
+(`larika`) to have **full** passwordless root (`/etc/sudoers.d/larika`), so a
 compromised panel is root on every node — the same trust model as a panel that
 logs in as `root`, which also works (set the server's SSH user to `root`).
 
@@ -57,7 +57,7 @@ Which shell to use per step:
 
 - Steps 1–3, 7–10: a root shell (`sudo -i`).
 - Step 4 (build), 5 (env file), 6 (schema), 13 (upgrade): as `commitbase` —
-  `sudo -u commitbase -H bash`. Running these as root leaves root-owned files
+  `sudo -u larika -H bash`. Running these as root leaves root-owned files
   the service cannot write later.
 - Never log in as `cb-<slug>`; those users have no password and no shell
   session is expected. `sudo -u cb-<slug> ls ...` is only for the cross-tenant
@@ -122,7 +122,7 @@ One Node from apt for the panel, every build and every tenant app. Nothing in
 this guide needs nvm; the platform runs and builds apps with whatever `node`
 is on the default PATH, which `/usr/bin` is for systemd units, `systemd-run`
 builds and tenant users alike. Moving to a newer LTS later is
-`setup_<ver>.x | bash - && apt install nodejs && systemctl restart commitbase`;
+`setup_<ver>.x | bash - && apt install nodejs && systemctl restart larika`;
 tenant apps pick it up on their next deploy or restart.
 
 ### Optional: per-app Node versions with nvm
@@ -163,7 +163,7 @@ match `CB_GROUP` in the runner scripts (default `commitbase`).
 
 ```bash
 groupadd --system commitbase
-useradd --system --gid commitbase --create-home --home-dir /opt/commitbase \
+useradd --system --gid commitbase --create-home --home-dir /opt/larika \
         --shell /bin/bash commitbase
 ```
 
@@ -178,21 +178,21 @@ every provision on the primary node fails with what looks like a network error
 and is not.
 
 ```bash
-sudo -u commitbase ssh-keygen -t ed25519 -N '' -f /opt/commitbase/.ssh/id_ed25519
+sudo -u larika ssh-keygen -t ed25519 -N '' -f /opt/larika/.ssh/id_ed25519
 
 # The panel logs in as larika (in the commitbase group, full passwordless root
-# via runner/commitbase.sudoers), not as commitbase.
+# via runner/larika.sudoers), not as commitbase.
 id larika >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --groups commitbase larika
 install -d -m 700 -o larika -g larika ~larika/.ssh
-cat /opt/commitbase/.ssh/id_ed25519.pub >> ~larika/.ssh/authorized_keys
+cat /opt/larika/.ssh/id_ed25519.pub >> ~larika/.ssh/authorized_keys
 chown larika:larika ~larika/.ssh/authorized_keys && chmod 600 ~larika/.ssh/authorized_keys
 
 # prove it works — and accept the host key while you are here, so the first
 # real connection is not the one that has to answer a prompt
-sudo -u commitbase ssh -o StrictHostKeyChecking=accept-new      -i /opt/commitbase/.ssh/id_ed25519 larika@127.0.0.1 sudo -n true
+sudo -u larika ssh -o StrictHostKeyChecking=accept-new      -i /opt/larika/.ssh/id_ed25519 larika@127.0.0.1 sudo -n true
 ```
 
-`CB_SSH_KEY_PATH` defaults to `/opt/commitbase/.ssh/id_ed25519`, so this path
+`CB_SSH_KEY_PATH` defaults to `/opt/larika/.ssh/id_ed25519`, so this path
 needs nothing in the backend env. Set it only if the key lives elsewhere: it is
 the default `sshKeyPath` for seeded nodes, the `.pub` that Set up authorizes, and
 its directory is where every server row's key must sit.
@@ -259,8 +259,8 @@ The repository is public, so a plain HTTPS clone works with no credentials.
 Deploy keys* — and clone the `git@github.com:` URL instead.)
 
 ```bash
-sudo -u commitbase -H bash
-cd /opt/commitbase
+sudo -u larika -H bash
+cd /opt/larika
 git clone https://github.com/depatidigital/commitbase.git app
 cd app
 
@@ -285,16 +285,16 @@ exit
 
 ## 5. Backend environment
 
-**Run as:** `commitbase` for the file itself (`sudo -u commitbase -H nano /opt/commitbase/app/backend/.env`), so it ends up owned by the right user. `chmod 0600` it afterwards.
+**Run as:** `commitbase` for the file itself (`sudo -u larika -H nano /opt/larika/app/backend/.env`), so it ends up owned by the right user. `chmod 0600` it afterwards.
 
-Write `/opt/commitbase/app/backend/.env`, owned `commitbase:commitbase`, mode
+Write `/opt/larika/app/backend/.env`, owned `commitbase:commitbase`, mode
 `0600`. Full reference:
 
 ### Required
 
 | Variable | Example | Notes |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://commitbase:pw@localhost:5432/commitbase` | |
+| `DATABASE_URL` | `postgresql://larika:pw@localhost:5432/larika` | |
 | `JWT_SECRET` | `openssl rand -hex 48` | Rotating it logs everyone out |
 | `NODE_ENV` | `production` | |
 | `PORT` | `3001` | Behind Caddy, never exposed |
@@ -374,10 +374,10 @@ VITE_APP_TAGLINE=Self-hosted platform
 
 ## 6. Schema and first account
 
-**Run as:** `commitbase` for the Prisma commands (shown with `sudo -u commitbase` inline); the `curl` can run from any user.
+**Run as:** `commitbase` for the Prisma commands (shown with `sudo -u larika` inline); the `curl` can run from any user.
 
 ```bash
-sudo -u commitbase -H bash -c 'cd /opt/commitbase/app/backend && npx prisma db push'
+sudo -u larika -H bash -c 'cd /opt/larika/app/backend && npx prisma db push'
 ```
 
 Upgrading an install that predates organizations? Also run:
@@ -405,8 +405,8 @@ Organizations are placed on a node, and nothing provisions or routes until this
 row exists. It reads the environment this install already has:
 
 ```bash
-sudo -u commitbase -H bash -c 'cd /opt/commitbase/app/backend && npx tsx src/scripts/seedServer.ts --dry-run'
-sudo -u commitbase -H bash -c 'cd /opt/commitbase/app/backend && npx tsx src/scripts/seedServer.ts'
+sudo -u larika -H bash -c 'cd /opt/larika/app/backend && npx tsx src/scripts/seedServer.ts --dry-run'
+sudo -u larika -H bash -c 'cd /opt/larika/app/backend && npx tsx src/scripts/seedServer.ts'
 ```
 
 It creates a `Server` row for `127.0.0.1` (override with `SEED_SERVER_HOSTNAME`)
@@ -421,15 +421,15 @@ what this depends on.
 **Run as:** `root` for the installs, fstab and quota commands. The `provision:orgs` calls at the end run as `commitbase` and are prefixed accordingly.
 
 ```bash
-cd /opt/commitbase/app
+cd /opt/larika/app
 # The runner scripts are not installed - the panel sends them over SSH.
-install -m 0440 runner/commitbase.sudoers   /etc/sudoers.d/commitbase
-install -m 0644 runner/commitbase.logrotate /etc/logrotate.d/commitbase
-visudo -cf /etc/sudoers.d/commitbase        # must print "parsed OK"
+install -m 0440 runner/larika.sudoers   /etc/sudoers.d/larika
+install -m 0644 runner/larika.logrotate /etc/logrotate.d/larika
+visudo -cf /etc/sudoers.d/larika        # must print "parsed OK"
 
 # Caddy serves PHP tenants' files and talks to their FPM sockets, both of which
 # are group-only. Skip if you will never host PHP.
-usermod -aG commitbase caddy && systemctl restart caddy
+usermod -aG larika caddy && systemctl restart caddy
 ```
 
 Turn on quotas for the filesystem holding `/home`. Skip on a VPS that is
@@ -455,10 +455,10 @@ procedure for a server that is already serving is in
 Set `ORG_OS_ISOLATION="true"` in the backend env, then provision:
 
 ```bash
-cd /opt/commitbase/app/backend
-sudo -u commitbase -H npm run provision:orgs -- --dry-run
-sudo -u commitbase -H npm run provision:orgs
-sudo -u commitbase -H npm run check:app-paths
+cd /opt/larika/app/backend
+sudo -u larika -H npm run provision:orgs -- --dry-run
+sudo -u larika -H npm run provision:orgs
+sudo -u larika -H npm run check:app-paths
 ```
 
 New organizations are provisioned automatically when they are created.
@@ -469,7 +469,7 @@ New organizations are provisioned automatically when they are created.
 
 **Run as:** `root` — writing a unit file and `systemctl` need it. The service itself runs as `commitbase`, set by `User=` in the unit.
 
-`/etc/systemd/system/commitbase.service`:
+`/etc/systemd/system/larika.service`:
 
 ```ini
 [Unit]
@@ -481,8 +481,8 @@ Wants=postgresql.service
 Type=simple
 User=commitbase
 Group=commitbase
-WorkingDirectory=/opt/commitbase/app/backend
-EnvironmentFile=/opt/commitbase/app/backend/.env
+WorkingDirectory=/opt/larika/app/backend
+EnvironmentFile=/opt/larika/app/backend/.env
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5
@@ -504,7 +504,7 @@ runner scripts it sends over SSH.
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now commitbase
+systemctl enable --now larika
 curl -s http://127.0.0.1:3001/health
 ```
 
@@ -534,7 +534,7 @@ panel.example.com {
     }
 
     handle {
-        root * /opt/commitbase/app/frontend/dist
+        root * /opt/larika/app/frontend/dist
         try_files {path} /index.html
         file_server
     }
@@ -564,7 +564,7 @@ that what should be live still is, re-applying anything that went missing. To
 force it by hand:
 
 ```bash
-systemctl restart commitbase     # log line: "Caddy routes re-applied: N ok"
+systemctl restart larika     # log line: "Caddy routes re-applied: N ok"
 npm run cron:run caddy-routes    # or just the watchdog
 ```
 
@@ -659,7 +659,7 @@ is worth running once with two client accounts before real customers arrive.
 
 ```bash
 # database
-sudo -u postgres pg_dump commitbase | gzip > /var/backups/commitbase-$(date +%F).sql.gz
+sudo -u postgres pg_dump larika | gzip > /var/backups/larika-$(date +%F).sql.gz
 
 # tenant files and app sources
 tar czf /var/backups/homes-$(date +%F).tar.gz /home/cb-*
@@ -676,11 +676,11 @@ equivalent to every tenant's repo credentials — encrypt the backups at rest.
 **Run as:** `root`, which then drops to `commitbase` for the build (the block does this itself).
 
 ```bash
-sudo -u commitbase -H bash -c '
-  cd /opt/commitbase/app && git pull &&
+sudo -u larika -H bash -c '
+  cd /opt/larika/app && git pull &&
   cd backend && npm ci && npx prisma generate && npx prisma db push && npm run build &&
   cd ../frontend && npm ci && npm run build'
-systemctl restart commitbase
+systemctl restart larika
 ```
 
 The runner scripts ship with the panel and are sent to the node on every call,
@@ -700,7 +700,7 @@ are independent of the backend process.
 
 | Symptom | Cause |
 |---|---|
-| Org creation returns *Could not provision isolated OS user* | The node's SSH user has no passwordless root (`sudo -n true` fails — install `runner/commitbase.sudoers` or log in as `root`), or the org has no server assigned. Check `journalctl -u commitbase` |
+| Org creation returns *Could not provision isolated OS user* | The node's SSH user has no passwordless root (`sudo -n true` fails — install `runner/larika.sudoers` or log in as `root`), or the org has no server assigned. Check `journalctl -u larika` |
 | Tenant sites get no TLS, or never appear | The node's SSH connection is failing, the admin endpoint is not on `127.0.0.1:2019`, or the org has no server assigned |
 | A node shows OFFLINE and its host is `127.0.0.1` | The control plane's own key is not in `~commitbase/.ssh/authorized_keys` on that box — see section 2. The panel says exactly this in the server's last error |
 | `warning: quota not applied` during provisioning | `/home` is not mounted with `usrquota`, or `quotaon` was never run |
@@ -754,7 +754,7 @@ apt install -y quota
 ### A.2 Back up first
 
 ```bash
-sudo -u postgres pg_dump commitbase | gzip > /var/backups/commitbase-pre-quota.sql.gz
+sudo -u postgres pg_dump larika | gzip > /var/backups/larika-pre-quota.sql.gz
 cp /etc/fstab /etc/fstab.pre-quota
 ```
 
@@ -799,7 +799,7 @@ update-grub
 ### A.4 Reboot in a maintenance window
 
 ```bash
-systemctl stop commitbase       # no deploys mid-reboot
+systemctl stop larika       # no deploys mid-reboot
 reboot
 ```
 
@@ -807,7 +807,7 @@ After it comes back:
 
 ```bash
 findmnt -no OPTIONS / | tr ',' ' ' | grep -Eqw 'usrquota|uquota|usrjquota=[^ ]+' && echo "quota option active"
-systemctl status commitbase caddy
+systemctl status larika caddy
 systemctl list-units 'cb-*' --no-pager   # tenant units back up
 ```
 
@@ -826,8 +826,8 @@ xfs needs neither command — quotas are live as soon as the mount option is.
 Provisioning is idempotent and now finds quota support:
 
 ```bash
-cd /opt/commitbase/app/backend
-sudo -u commitbase -H npm run provision:orgs
+cd /opt/larika/app/backend
+sudo -u larika -H npm run provision:orgs
 ```
 
 No *warning: quota not applied* in the output means it took. Verify one org:
