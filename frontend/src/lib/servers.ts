@@ -175,6 +175,25 @@ export const snapshotServerCaddy = async (id: string): Promise<string> => {
   throw new Error(res.error || t('Failed to snapshot the Caddy config'));
 };
 
+/** The node's disk, and each panel app on it: what it uses and what cleaning up frees. */
+export interface ServerDisk {
+  disk: { size: number; used: number; avail: number } | null;
+  apps: Array<{ id: string; name: string; domain: string; totalBytes: number | null; reclaimableBytes: number; cacheBytes: number }>;
+}
+
+export const getServerDisk = async (id: string): Promise<ServerDisk> =>
+  unwrap(await apiRequest<ServerDisk>(`/servers/${id}/disk`), t('Could not read the disk usage'));
+
+/** Clean up every panel app on the node; apps mid-deploy are skipped. */
+export const cleanupServerDisk = async (
+  id: string,
+  cache: boolean,
+): Promise<{ freedBytes: number; skipped: string[] }> =>
+  unwrap(
+    await apiRequest(`/servers/${id}/cleanup`, { method: 'POST', body: JSON.stringify({ cache }) }),
+    t('Could not clean up'),
+  );
+
 /** Turn this node's live Caddy routes into application rows. */
 export const syncServerApps = async (
   id: string,

@@ -60,6 +60,7 @@ import { ReleasesCard } from "@/components/ReleasesCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { SourcePicker } from "@/components/SourcePicker";
 import { DangerZoneCard } from "@/components/DangerZoneCard";
+import { AppStorageCard } from "@/components/AppStorageCard";
 import { locale, t } from "@/lib/i18n";
 import { testDatabaseUrl } from "@/lib/databases";
 import { parseDatabaseUrl } from "@/lib/env";
@@ -1086,6 +1087,8 @@ export default function ApplicationDetail() {
           {/* Deployments Tab */}
           <TabsContent value="deployments" className="space-y-6">
             <ReleasesCard appId={application.id} isStatic={isStatic} />
+            {/* a static site keeps its files in R2, not on a node */}
+            {!isStatic && <AppStorageCard appId={application.id} deploying={deploying} />}
             <DeploymentHistory application={application} />
           </TabsContent>
 
