@@ -1,18 +1,33 @@
-import { useState } from "react";
-import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { ClipboardPaste, Eye, EyeOff, FileUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ENV_NAME, mergeRows, parseEnv, type EnvRow } from "@/lib/env";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ENV_NAME, isSecret, mergeRows, parseEnv, type EnvRow } from "@/lib/env";
 import { t } from "@/lib/i18n";
+
+/**
+ * Mask values with CSS, not type=password: a text field next to a password
+ * field is a login form to every password manager, which then fills a saved
+ * admin email into the name and its password into the value. Without the CSS
+ * (older Firefox) fall back to a password field the browser won't autofill.
+ */
+const CSS_MASK = typeof CSS !== "undefined" && !!CSS.supports?.("-webkit-text-security", "disc");
+// password managers that ignore autocomplete=off honour these
+const NO_AUTOFILL = { autoComplete: "off", "data-1p-ignore": true, "data-lpignore": "true", "data-bwignore": true, "data-form-type": "other", spellCheck: false };
 
 interface EnvEditorProps {
   rows: EnvRow[];
   onChange: (rows: EnvRow[]) => void;
   /** keys the code expects that still have no value — flagged until filled */
   required?: Set<string>;
+  /** names the code expects: renaming one would leave the app without it, so only the value is editable */
+  locked?: Set<string>;
   /** a note under a key, e.g. where it came from */
   hints?: Record<string, string>;
+  /** an extra control on a row, e.g. "Connect database" on DATABASE_URL */
+  renderAction?: (row: EnvRow) => React.ReactNode;
   disabled?: boolean;
 }
 
@@ -21,9 +36,23 @@ interface EnvEditorProps {
  * into any name field splits it into rows, which is how most people arrive
  * with their variables.
  */
-export function EnvEditor({ rows, onChange, required, hints, disabled }: EnvEditorProps) {
+export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, disabled }: EnvEditorProps) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const [pasting, setPasting] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
   const list = rows.length > 0 ? rows : [{ key: "", value: "" }];
+
+  /** a .env from a file or the paste box: its values win over what is there — it is what the user just chose */
+  const importText = (text: string) => {
+    const imported = parseEnv(text);
+    setNotice(
+      imported.length > 0
+        ? t("{count} variables imported — review, then save.", { count: imported.length })
+        : t("No KEY=value lines found."),
+    );
+    if (imported.length > 0) onChange(mergeRows(list, imported, true));
+  };
 
   const update = (index: number, patch: Partial<EnvRow>) =>
     onChange(list.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -52,16 +81,23 @@ export function EnvEditor({ rows, onChange, required, hints, disabled }: EnvEdit
       {list.map((row, index) => {
         const invalid = row.key.trim() !== "" && !ENV_NAME.test(row.key.trim());
         const missing = !!required?.has(row.key) && !row.value;
-        const shown = revealed.has(index);
+        // only secrets are masked (and get the eye); a URL or a port is plain text
+        const secret = isSecret(row.key, row.value);
+        const shown = !secret || revealed.has(index);
         const multiline = row.value.includes("\n");
+        const fixed = !!locked?.has(row.key);
         return (
           <div key={index} className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-start gap-2">
             <div className="space-y-1">
               <Input
+                {...NO_AUTOFILL}
+                name={`env-name-${index}`}
                 aria-label={t("Name")}
                 placeholder="DATABASE_URL"
-                className={`font-mono text-xs ${invalid ? "border-destructive" : ""}`}
+                className={`font-mono text-xs ${invalid ? "border-destructive" : ""} ${fixed ? "bg-muted/50 text-muted-foreground" : ""}`}
                 value={row.key}
+                readOnly={fixed}
+                title={fixed ? t("The code expects this name") : undefined}
                 disabled={disabled}
                 onChange={(e) => update(index, { key: e.target.value.replace(/\s/g, "") })}
                 onPaste={(e) => pasteInto(index, e)}
@@ -87,11 +123,12 @@ export function EnvEditor({ rows, onChange, required, hints, disabled }: EnvEdit
               />
             ) : (
               <Input
+                {...NO_AUTOFILL}
+                name={`env-value-${index}`}
                 aria-label={t("Value")}
-                // masked like a password, but not one the browser should offer to save
-                type={shown ? "text" : "password"}
-                autoComplete="off"
-                data-1p-ignore
+                type={shown || CSS_MASK ? "text" : "password"}
+                autoComplete={shown || CSS_MASK ? "off" : "new-password"}
+                style={!shown && CSS_MASK ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
                 className={`font-mono text-xs ${missing ? "border-destructive" : ""}`}
                 placeholder={missing ? t("required") : t("value")}
                 value={multiline && !shown ? "••••••" : row.value}
@@ -100,22 +137,29 @@ export function EnvEditor({ rows, onChange, required, hints, disabled }: EnvEdit
                 onChange={(e) => update(index, { value: e.target.value })}
               />
             )}
-            <div className="flex">
+            <div className="flex items-center gap-1">
+              {renderAction?.(row)}
+              {secret ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  title={shown ? t("Hide") : t("Show")}
+                  onClick={() => toggle(index)}
+                >
+                  {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              ) : (
+                // keeps the delete buttons in one column
+                <span className="w-10" aria-hidden />
+              )}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                title={shown ? t("Hide") : t("Show")}
-                onClick={() => toggle(index)}
-              >
-                {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                title={t("Remove")}
-                disabled={disabled}
+                // an expected key would only come back — clear its value instead
+                title={fixed ? t("The code expects this variable") : t("Remove")}
+                disabled={disabled || fixed}
                 onClick={() => onChange(list.filter((_, i) => i !== index))}
               >
                 <Trash2 className="h-4 w-4" />
@@ -124,13 +168,66 @@ export function EnvEditor({ rows, onChange, required, hints, disabled }: EnvEdit
           </div>
         );
       })}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onChange([...list, { key: "", value: "" }])}>
           <Plus className="h-4 w-4 mr-2" />
           {t("Add variable")}
         </Button>
-        <span className="text-xs text-muted-foreground">{t("Tip: paste a whole .env file into any name field.")}</span>
+        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => fileRef.current?.click()}>
+          <FileUp className="h-4 w-4 mr-2" />
+          {t("Upload .env")}
+        </Button>
+        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setPasting("")}>
+          <ClipboardPaste className="h-4 w-4 mr-2" />
+          {t("Paste .env")}
+        </Button>
+        {/* no accept filter: ".env" has no extension a picker would match */}
+        <input
+          ref={fileRef}
+          type="file"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = ""; // the same file again is a new pick
+            if (file) importText(await file.slice(0, 256 * 1024).text());
+          }}
+        />
+        {notice && <span className="text-xs text-muted-foreground">{notice}</span>}
       </div>
+
+      <Dialog open={pasting !== null} onOpenChange={(open) => !open && setPasting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("Paste .env")}</DialogTitle>
+            <DialogDescription>
+              {t("Every KEY=value line becomes a variable. Existing names get the pasted value; review before saving.")}
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            {...NO_AUTOFILL}
+            className="font-mono text-xs"
+            rows={10}
+            placeholder={"DATABASE_URL=postgres://…\nBETTER_AUTH_SECRET=…"}
+            value={pasting ?? ""}
+            onChange={(e) => setPasting(e.target.value)}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPasting(null)}>
+              {t("Cancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={!pasting?.trim()}
+              onClick={() => {
+                importText(pasting ?? "");
+                setPasting(null);
+              }}
+            >
+              {t("Import")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

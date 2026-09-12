@@ -25,6 +25,18 @@ export function missingKeys(application: Application, detected?: DetectedProject
 
 export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+// shipped to the browser by design — a "KEY" in one of these is a publishable key
+const PUBLIC_PREFIX = /^(NEXT_PUBLIC_|VITE_|PUBLIC_|NUXT_PUBLIC_|EXPO_PUBLIC_|REACT_APP_)/i;
+const SECRET_NAME = /SECRET|KEY|TOKEN|PASSWORD|PASSWD|PASS|PWD|PRIVATE|CREDENTIAL|SALT/i;
+// scheme://user:password@host — a connection string with its password in it
+const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s@]+@/i;
+
+/** Masked in the editor: a secret-sounding name, or a URL carrying a password (DATABASE_URL). */
+export function isSecret(key: string, value = ""): boolean {
+  if (PUBLIC_PREFIX.test(key)) return false;
+  return SECRET_NAME.test(key) || URL_WITH_PASSWORD.test(value.trim());
+}
+
 /**
  * `.env` text → rows, by dotenv's line rules: `#` comments, `export `,
  * '…' literal, "…" with \n expanded (may span lines), or a bare value up to an

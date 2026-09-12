@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
 import { useToast } from "@/hooks/use-toast";
-import { Application, DetectedProject, hasBeenDeployed, updateApplication } from "@/lib/applications";
+import { Application, DetectedProject, getApplication, hasBeenDeployed, updateApplication } from "@/lib/applications";
 import { mergeRows, requiredKeys, rowsToEnv, type EnvRow } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
@@ -27,6 +27,11 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
   const queryClient = useQueryClient();
   const saved = application.envVars ?? {};
   const required = useMemo(() => requiredKeys(detected), [detected]);
+  // every name the code expects, with or without a default
+  const locked = useMemo(
+    () => new Set([...(detected?.env.example?.vars ?? []).map((v) => v.key), ...required]),
+    [detected, required],
+  );
 
   // the saved env, then every expected key it lacks — with the example's default when there is one
   const initial = useMemo(() => {
@@ -73,7 +78,6 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
     }
   };
 
-  const hasDatabaseUrl = !!saved.DATABASE_URL;
 
   return (
     <div className="space-y-4">
@@ -91,21 +95,20 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
         </p>
       )}
 
-      {/* disabled while editing: connecting rewrites the env, which would drop unsaved rows */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 p-3">
-        <span className="flex items-center gap-2 text-sm">
-          <DatabaseIcon className="h-4 w-4 text-primary" />
-          {hasDatabaseUrl ? t("DATABASE_URL is set.") : t("No database connected yet.")}
-        </span>
-        <Button type="button" variant="outline" size="sm" onClick={() => setDbOpen(true)} disabled={dirty}>
-          {hasDatabaseUrl ? t("Change database") : t("Connect database")}
-        </Button>
-      </div>
-
       <EnvEditor
         rows={rows}
         required={required}
+        locked={locked}
         hints={hints}
+        // the database is how DATABASE_URL gets its value — so it lives on that row
+        renderAction={(row) =>
+          row.key === "DATABASE_URL" ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => setDbOpen(true)} disabled={saving}>
+              <DatabaseIcon className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{row.value ? t("Change database") : t("Connect database")}</span>
+            </Button>
+          ) : null
+        }
         disabled={saving}
         onChange={(next) => {
           setRows(next);
@@ -129,7 +132,14 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
         open={dbOpen}
         onOpenChange={setDbOpen}
         application={application}
-        onConnected={() => queryClient.invalidateQueries({ queryKey: ["application", application.id] })}
+        onConnected={async (envKey) => {
+          // already saved server-side; put it in the row too, keeping any unsaved edits —
+          // otherwise the next Save would write the row's old empty value over it
+          const fresh = await getApplication(application.id).catch(() => null);
+          const value = fresh?.envVars?.[envKey];
+          if (value) setRows((prev) => mergeRows(prev, [{ key: envKey, value }], true));
+          await queryClient.invalidateQueries({ queryKey: ["application", application.id] });
+        }}
       />
     </div>
   );

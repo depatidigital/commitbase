@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { attachDatabase, createDatabase, getAllDatabases } from "@/lib/databases";
-import { ENV_NAME } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
 interface DatabaseDialogProps {
@@ -34,8 +33,9 @@ export function DatabaseDialog({ open, onOpenChange, application, onConnected }:
   const [name, setName] = useState(() => nameFrom(application.domain));
   const [engine, setEngine] = useState<"POSTGRESQL" | "MYSQL">("POSTGRESQL");
   const [existingId, setExistingId] = useState("");
-  const [envKey, setEnvKey] = useState("DATABASE_URL");
   const [busy, setBusy] = useState(false);
+  // the name every ORM and driver reads by default; the app's code fixes it, not this dialog
+  const envKey = "DATABASE_URL";
 
   const existing = useQuery({
     queryKey: ["databases", "org", application.organizationId],
@@ -44,7 +44,7 @@ export function DatabaseDialog({ open, onOpenChange, application, onConnected }:
   });
   const choices = (existing.data?.data ?? []).filter((db) => db.type === "POSTGRESQL" || db.type === "MYSQL");
 
-  const valid = ENV_NAME.test(envKey) && (mode === "create" ? /^[a-z0-9_]{1,40}$/.test(name) : !!existingId);
+  const valid = mode === "create" ? /^[a-z0-9_]{1,40}$/.test(name) : !!existingId;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -143,15 +143,9 @@ export function DatabaseDialog({ open, onOpenChange, application, onConnected }:
             </div>
           )}
 
-          <div className="space-y-1">
-            <Label htmlFor="db-env-key">{t("Environment variable")}</Label>
-            <Input
-              id="db-env-key"
-              className={`font-mono ${ENV_NAME.test(envKey) ? "" : "border-destructive"}`}
-              value={envKey}
-              onChange={(e) => setEnvKey(e.target.value.trim())}
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("Its URL is saved as {key}.", { key: envKey })}
+          </p>
         </form>
 
         <DialogFooter>
