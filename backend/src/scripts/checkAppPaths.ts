@@ -10,9 +10,9 @@ const APP = 'clx1234567890abcdef';
 
 // Layout
 assert.strictEqual(osUserFor('acme'), 'cb-acme');
-assert.strictEqual(orgHome('acme'), path.join('/home', 'cb-acme'));
-assert.strictEqual(orgAppsDir('acme'), path.join('/home', 'cb-acme', 'apps'));
-assert.strictEqual(appDirFor(APP, 'acme'), path.join('/home', 'cb-acme', 'apps', APP));
+assert.strictEqual(orgHome('acme'), path.posix.join('/home', 'cb-acme'));
+assert.strictEqual(orgAppsDir('acme'), path.posix.join('/home', 'cb-acme', 'apps'));
+assert.strictEqual(appDirFor(APP, 'acme'), path.posix.join('/home', 'cb-acme', 'apps', APP));
 
 // No organization -> legacy flat directory, never a path under /home
 assert.ok(!appDirFor(APP, null).startsWith('/home/cb-'));

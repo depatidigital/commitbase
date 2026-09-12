@@ -70,18 +70,3 @@ export async function orgSlugForApp(applicationId: string): Promise<string | nul
   });
   return app?.organization?.slug ?? null;
 }
-
-/** Resolve by application id. One query — deploy paths, not hot loops. */
-export async function resolveAppDir(applicationId: string): Promise<string> {
-  return appDirFor(applicationId, await orgSlugForApp(applicationId));
-}
-
-/** Resolve by hostname, for the log endpoints that only carry a domain. */
-export async function resolveAppDirByDomain(domain: string): Promise<string | null> {
-  const app = await prisma.application.findFirst({
-    where: { domain },
-    select: { id: true, organization: { select: { slug: true } } },
-  });
-  if (!app) return null;
-  return appDirFor(app.id, app.organization?.slug ?? null);
-}

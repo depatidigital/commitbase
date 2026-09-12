@@ -96,6 +96,32 @@ function localAppFs(appDir: string): AppFs {
   };
 }
 
+/**
+ * The argv (and stdin) that runs `argv` on a node: umask 002, then any env
+ * read from stdin, then `cd`, then exec. Exported for the self-check.
+ *
+ * umask 002: the build runs as larika-build, not as the SSH user, and has to
+ * write into what the SSH user just created (releases, caches).
+ */
+export function remoteCommand(argv: string[], opts: RunOptions = {}): { argv: string[]; input?: string } {
+  const env = opts.env ?? {};
+  const names = Object.keys(env);
+  for (const name of names) {
+    if (!ENV_NAME.test(name)) throw new Error(`Invalid environment variable name: ${name}`);
+    if (/[\r\n]/.test(env[name]!)) throw new Error(`Environment variable ${name} cannot contain a newline`);
+  }
+  const script = [
+    'umask 002;',
+    ...names.map((name) => `IFS= read -r ${name}; export ${name};`),
+    opts.cwd ? 'cd -- "$1" || exit 1; shift;' : '',
+    'exec "$@"',
+  ].join(' ');
+  return {
+    argv: ['sh', '-c', script, 'sh', ...(opts.cwd ? [opts.cwd] : []), ...argv],
+    ...(names.length > 0 && { input: names.map((name) => env[name] + '\n').join('') }),
+  };
+}
+
 function remoteAppFs(node: SshTarget, appDir: string): AppFs {
   return {
     node,
@@ -114,24 +140,11 @@ function remoteAppFs(node: SshTarget, appDir: string): AppFs {
     rm: (p, opts) => rfs.rm(node, p, opts),
     // through run, not remoteFs.mkdir: umask 002 keeps new dirs group-writable
     mkdir: (p) => remoteAppFs(node, appDir).run(['mkdir', '-p', '--', p]).then(() => undefined),
-    run: (argv, opts = {}) => {
-      const env = opts.env ?? {};
-      const names = Object.keys(env);
-      for (const name of names) {
-        if (!ENV_NAME.test(name)) throw new Error(`Invalid environment variable name: ${name}`);
-        if (/[\r\n]/.test(env[name]!)) throw new Error(`Environment variable ${name} cannot contain a newline`);
-      }
-      // umask 002: the build runs as larika-build, not as the SSH user, and has
-      // to write into what the SSH user just created (releases, caches).
-      const script = [
-        'umask 002;',
-        ...names.map((name) => `IFS= read -r ${name}; export ${name};`),
-        opts.cwd ? 'cd -- "$1" || exit 1; shift;' : '',
-        'exec "$@"',
-      ].join(' ');
-      return exec(node, ['sh', '-c', script, 'sh', ...(opts.cwd ? [opts.cwd] : []), ...argv], {
+    run: async (argv, opts = {}) => {
+      const wrapped = remoteCommand(argv, opts);
+      return exec(node, wrapped.argv, {
         ...(opts.timeout !== undefined && { timeout: opts.timeout }),
-        ...(names.length > 0 && { input: names.map((name) => env[name] + '\n').join('') }),
+        ...(wrapped.input !== undefined && { input: wrapped.input }),
       });
     },
     // A direct-tcpip channel to a closed port is refused; an open one connects.
