@@ -145,14 +145,14 @@ export default function AddApp() {
   // user's connected accounts can see it; the backend finds that account.
   const [manualAccountId, setManualAccountId] = useState<string | null>(null);
   const [needsAccount, setNeedsAccount] = useState<{ provider: "github" | "gitlab"; tried: number } | null>(null);
-  const manualRepo = sourceMode === "git";
+  const gitSource = sourceMode === "git";
   useEffect(() => {
     setRemoteBranches(null);
     setBranchesError("");
     setManualAccountId(null);
     setNeedsAccount(null);
     const url = formData.repository.trim();
-    if (!manualRepo || !url) return;
+    if (!gitSource || !url) return;
 
     let cancelled = false;
     // shorter than detection's 800ms, so detection sees the lookup start and waits
@@ -186,7 +186,7 @@ export default function AddApp() {
       clearTimeout(timer);
       setBranchesLoading(false);
     };
-  }, [manualRepo, formData.repository]);
+  }, [gitSource, formData.repository]);
 
   // Auto-detect the framework from the source (Vercel-style) and prefill the
   // build settings. Everything stays editable.
@@ -194,10 +194,8 @@ export default function AddApp() {
     const isGit = sourceMode === "git";
     // wait for the branch lookup — detecting "main" on a "master" repo just fails
     if (isGit && branchesLoading) return;
-    const canDetect = isGit
-      ? // a private repo nobody can read yet would only fail detection too
-        !!formData.repository.trim() && !(manualRepo && needsAccount)
-      : uploadFiles.length > 0;
+    // a repository nobody could read yet would only fail detection too
+    const canDetect = isGit ? !!remoteBranches?.length : uploadFiles.length > 0;
     if (!canDetect) {
       setDetected(null);
       setDetectError("");
@@ -213,7 +211,7 @@ export default function AddApp() {
           ? await detectProject({
               repository: formData.repository.trim(),
               branch: formData.branch || "main",
-              gitAccountId: (manualRepo && manualAccountId) || undefined,
+              gitAccountId: (gitSource && manualAccountId) || undefined,
             })
           : await detectProject({ files: await readDetectFiles(uploadFiles) });
         if (cancelled) return;
@@ -249,7 +247,7 @@ export default function AddApp() {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading, manualAccountId, needsAccount]);
+  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading, manualAccountId, remoteBranches]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,7 +369,8 @@ export default function AddApp() {
     if (value === 1)
       return sourceMode === "upload"
         ? uploadFiles.length > 0
-        : !!formData.repository && !(manualRepo && needsAccount);
+        : // read, public or through an account, and has a branch to deploy
+          !!remoteBranches?.length;
     return !!formData.name && !!formData.selectedDomain && !!formData.type;
   };
 
@@ -618,57 +617,22 @@ export default function AddApp() {
                           handleInputChange("repository", e.target.value)
                         }
                       />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="branch">{t("Branch")}</Label>
-                      {remoteBranches && remoteBranches.length > 0 ? (
-                        <Select
-                          value={formData.branch}
-                          onValueChange={(value) =>
-                            handleInputChange("branch", value)
-                          }
-                        >
-                          <SelectTrigger id="branch">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {remoteBranches.map((branch) => (
-                              <SelectItem key={branch} value={branch}>
-                                {branch}
-                                {branch === remoteDefault && (
-                                  <span className="ml-2 text-xs text-muted-foreground">
-                                    {t("default")}
-                                  </span>
-                                )}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          id="branch"
-                          placeholder="main"
-                          value={formData.branch}
-                          disabled={branchesLoading}
-                          onChange={(e) =>
-                            handleInputChange("branch", e.target.value)
-                          }
-                        />
-                      )}
                       {branchesLoading ? (
                         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
-                          {t("Reading branches…")}
+                          {t("Checking the repository…")}
                         </p>
                       ) : branchesError ? (
-                        <p className="text-xs text-muted-foreground">
-                          {t("Could not read the branches (private repository?) — type the branch name.")}
+                        <p className="flex items-center gap-1.5 text-xs text-destructive">
+                          <AlertCircle className="h-3 w-3" />
+                          {t("This repository cannot be read. Check the URL — a private repository has to be on GitHub or GitLab.")}
                         </p>
-                      ) : manualAccountId ? (
+                      ) : remoteBranches ? (
                         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Lock className="h-3 w-3" />
-                          {t("Private repository — read and deployed through your connected account.")}
+                          {manualAccountId ? <Lock className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+                          {manualAccountId
+                            ? t("Private repository — read and deployed through your connected account.")
+                            : t("Public repository")}
                         </p>
                       ) : null}
                     </div>
@@ -702,6 +666,41 @@ export default function AddApp() {
                           {needsAccount.provider === "github" ? t("Connect GitHub") : t("Connect GitLab")}
                         </Button>
                       </div>
+                    )}
+
+                    {/* only once the repository has been read — the branches come from it */}
+                    {remoteBranches && (
+                    <div className="space-y-2">
+                      <Label htmlFor="branch">{t("Branch")}</Label>
+                      {remoteBranches.length > 0 ? (
+                        <Select
+                          value={formData.branch}
+                          onValueChange={(value) =>
+                            handleInputChange("branch", value)
+                          }
+                        >
+                          <SelectTrigger id="branch">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {remoteBranches.map((branch) => (
+                              <SelectItem key={branch} value={branch}>
+                                {branch}
+                                {branch === remoteDefault && (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    {t("default")}
+                                  </span>
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          {t("This repository has no branches yet — push a commit first.")}
+                        </p>
+                      )}
+                    </div>
                     )}
                   </>
                 )}
