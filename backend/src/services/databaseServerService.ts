@@ -153,6 +153,81 @@ export async function withAdmin<T>(dbs: DbServerRow, fn: (session: AdminSession)
   });
 }
 
+/**
+ * Try a database URL the way the app will use it: dialled from the app's own
+ * node (through its SSH connection), logged in with the URL's credentials, one
+ * `SELECT 1`. So `127.0.0.1` passes when the database shares that node and
+ * fails when it does not — no guessing from the text of the URL.
+ * TLS is attempted when the URL asks for it, without checking the certificate:
+ * through the tunnel the name would not match, and this tests reachability and
+ * login, not the chain.
+ */
+export async function testDatabaseUrl(node: SshTarget, raw: string): Promise<{ ok: boolean; message: string }> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { ok: false, message: 'Not a URL' };
+  }
+  const engine = /^postgres(ql)?:$/.test(url.protocol) ? 'POSTGRESQL' : /^mysql2?:$/.test(url.protocol) ? 'MYSQL' : null;
+  if (!engine) return { ok: false, message: `Only PostgreSQL and MySQL URLs can be tested (${url.protocol.replace(':', '')})` };
+
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const port = Number(url.port) || (engine === 'POSTGRESQL' ? 5432 : 3306);
+  const user = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  const database = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+  // no database in the URL: the driver's default (the login's name / none)
+  const inDatabase = database ? { database } : {};
+  const wantsTls = /ssl(mode)?=(require|verify|true)|ssl-mode=(required|verify)/i.test(url.search);
+
+  try {
+    return await withTunnel(node, host, port, async (localPort) => {
+      if (engine === 'POSTGRESQL') {
+        const client = new PgClient({
+          host: '127.0.0.1',
+          port: localPort,
+          user,
+          password,
+          ...inDatabase,
+          ssl: wantsTls ? { rejectUnauthorized: false } : false,
+          connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+          statement_timeout: QUERY_TIMEOUT_MS,
+        });
+        client.on('error', () => {});
+        await client.connect();
+        try {
+          const [row] = (await client.query('SELECT current_user AS who, current_database() AS db')).rows;
+          return { ok: true, message: `Connected as ${row.who} to ${row.db}` };
+        } finally {
+          await client.end().catch(() => {});
+        }
+      }
+      const connection = await mysql.createConnection({
+        host: '127.0.0.1',
+        port: localPort,
+        user,
+        password,
+        ...inDatabase,
+        ...(wantsTls && { ssl: { rejectUnauthorized: false } }),
+        connectTimeout: CONNECT_TIMEOUT_MS,
+      });
+      connection.on('error', () => {});
+      try {
+        const [rows] = await connection.query('SELECT CURRENT_USER() AS who, DATABASE() AS db');
+        const row = (rows as any[])[0];
+        return { ok: true, message: `Connected as ${row.who} to ${row.db}` };
+      } finally {
+        await connection.end().catch(() => {});
+      }
+    });
+  } catch (error: any) {
+    // the driver's reason, minus anything that echoes the password
+    const reason = String(error?.message ?? error ?? 'connection failed').split(password || ' ').join('***');
+    return { ok: false, message: `${host}:${port} from ${node.hostname}: ${reason}` };
+  }
+}
+
 export interface Inspection {
   version: string;
   /** what the admin login can do, among what we need, plus "superuser" */

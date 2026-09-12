@@ -7,6 +7,7 @@ import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { serverForApplication } from '../lib/servers';
+import { testDatabaseUrl } from '../services/databaseServerService';
 import {
   ProvisionError,
   databaseCredentials,
@@ -175,6 +176,39 @@ router.get('/logins', authenticateToken, async (req: AuthenticatedRequest, res: 
     } as ApiResponse);
   } catch (error) {
     console.error('List database logins error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Does this database URL work from where the app runs? Dialled from the app's
+ * node with the URL's own credentials (testDatabaseUrl). The value is the one
+ * being edited when given, else the saved variable `key`. Managers only: it
+ * makes the node dial an address the caller chose.
+ */
+router.post('/test-url', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: String(req.body?.applicationId ?? ''), ...(await orgScope(req)) },
+      select: { id: true, organizationId: true, envVars: true },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    if (!(application.organizationId ? await canManageOrg(req, application.organizationId) : isPlatformAdmin(req))) {
+      return res.status(403).json({ success: false, error: 'Only owners and admins of the organization can test connections' } as ApiResponse);
+    }
+
+    const value = typeof req.body?.value === 'string' && req.body.value.trim()
+      ? req.body.value.trim()
+      : readEnv(application.envVars)[String(req.body?.key ?? '')];
+    if (!value) return res.status(400).json({ success: false, error: 'Nothing to test — the variable is empty' } as ApiResponse);
+
+    const node = await serverForApplication(application.id).catch(() => null);
+    if (!node) return res.status(400).json({ success: false, error: 'The app has no server to test from yet' } as ApiResponse);
+
+    const result = await testDatabaseUrl(node, value);
+    return res.json({ success: true, data: result } as ApiResponse);
+  } catch (error) {
+    console.error('Test database URL error:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
