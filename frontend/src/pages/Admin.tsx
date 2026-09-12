@@ -21,8 +21,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, ShieldCheck, TerminalSquare } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -141,8 +140,6 @@ export default function Admin() {
     },
   });
 
-  // Any row tells us whether the server has isolation switched on at all.
-  const isolationEnabled = orgData?.data[0]?.isolationEnabled ?? true;
 
   const columns: Column<AdminDomain>[] = [
     {
@@ -215,12 +212,7 @@ export default function Admin() {
     {
       header: t("Provisioned on"),
       className: "w-[34%]",
-      cell: (o) =>
-        o.isolationEnabled ? (
-          <OrgNodeBadges nodes={o.nodes} onOpen={(node) => setLogFor({ orgId: o.id, nodeId: node.id })} />
-        ) : (
-          <Badge variant="outline">{t("Disabled")}</Badge>
-        ),
+      cell: (o) => <OrgNodeBadges nodes={o.nodes} onOpen={(node) => setLogFor({ orgId: o.id, nodeId: node.id })} />,
     },
     {
       header: t("Apps"),
@@ -235,7 +227,7 @@ export default function Admin() {
           size="sm"
           variant={o.nodes.length ? "outline" : "default"}
           // nothing to do until the org is on a server or has a default one
-          disabled={!isolationEnabled || provisionMutation.isPending || (!o.nodes.length && !o.defaultServer)}
+          disabled={provisionMutation.isPending || (!o.nodes.length && !o.defaultServer)}
           onClick={() => setPendingProvision(o)}
         >
           {provisionMutation.isPending && provisionMutation.variables === o.id ? (
@@ -332,18 +324,6 @@ export default function Admin() {
         </TabsContent>
 
         <TabsContent value="organizations" className="space-y-4">
-          {!isolationEnabled && (
-            <Alert>
-              <TerminalSquare className="h-4 w-4" />
-              <AlertDescription>
-                {t("OS isolation is switched off on this server.")}{" "}
-                {t("Set {setting} in the backend environment and restart it before provisioning.", {
-                  setting: "ORG_OS_ISOLATION=true",
-                })}
-              </AlertDescription>
-            </Alert>
-          )}
-
           <DataTable
             columns={orgColumns}
             rows={orgData?.data ?? []}

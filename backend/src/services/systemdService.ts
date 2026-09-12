@@ -5,7 +5,7 @@ import { appFsFor, remoteCommand, type AppFs } from '../lib/appFs';
 import { exec, type SshTarget } from '../lib/runner';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { readEnv } from '../lib/appEnv';
-import { appUnit, OS_ISOLATION_ENABLED } from './orgProvisionService';
+import { appUnit } from './orgProvisionService';
 
 /**
  * Application runtime.
@@ -119,7 +119,6 @@ function slugOf(application: AppWithOrg): string {
 }
 
 export async function startApplication(application: AppWithOrg): Promise<boolean> {
-  if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   if (!needsUnit(application.type)) return true;
 
   const slug = slugOf(application);

@@ -26,7 +26,7 @@ import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
-import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
+import { queueOrgNode } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
@@ -598,7 +598,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
     }
     const serverId = requested ?? org?.defaultServerId ?? null;
-    if (!serverId && OS_ISOLATION_ENABLED) {
+    if (!serverId) {
       return res.status(400).json({
         success: false,
         error: "No server for this app — pick one, or ask an administrator to set the organization's default server.",

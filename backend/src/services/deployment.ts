@@ -386,7 +386,9 @@ export class DeploymentService {
           select: { organization: { select: { slug: true } } },
         }))?.organization?.slug;
 
-        if (afs.node && slug) {
+        // there is no building on the panel: appFsFor only hands out a node for tenant apps
+        if (!afs.node || !slug) throw new Error('This app has no organization node to build on');
+        {
           // On the node, in the build cgroup, as the unprivileged build user.
           // Output is appended to build.log as it prints — serially, so chunks
           // land in order — which is what the live log view follows.
@@ -399,9 +401,6 @@ export class DeploymentService {
           } finally {
             await appending;
           }
-        } else {
-          // legacy, on the panel: written to build.log as it prints
-          await streamToLog('bash', [buildScript], buildLogPath, 900000);
         }
       }
 

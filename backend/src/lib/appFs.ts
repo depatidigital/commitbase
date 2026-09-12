@@ -6,17 +6,16 @@ import { appDirFor } from './appPaths';
 import { serverForApplication } from './servers';
 import { exec, forwardTcp, type SshTarget, type ExecResult } from './runner';
 import * as rfs from './remoteFs';
-import { OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 
 /**
  * Where an application's files are, and the one way to touch them.
  *
- * With OS isolation on, an app in an organization lives in that org's home on
- * the app's node, and every file operation and command goes over SSH (SFTP via
- * remoteFs, commands via runner.exec) as the node's SSH user — who reaches the
- * tenant home through the `larika` group. Everything else is the legacy local
- * APPS_DIR on the panel: isolation off (dev), apps without an organization, and
- * static sites, which are built on the panel and served from R2.
+ * A tenant app lives in its organization's home on the app's node, and every
+ * file operation and command goes over SSH (SFTP via remoteFs, commands via
+ * runner.exec) as the node's SSH user — who reaches the tenant home through
+ * the `larika` group. Only static sites use the local APPS_DIR on the panel:
+ * they are built there and served from R2. There is no local fallback for
+ * anything else — an app without an organization cannot be deployed.
  *
  * Deploy code is written once against this interface; `node` says which side
  * it is on when it genuinely differs (health checks, isolated builds).
@@ -168,12 +167,13 @@ export async function appFsFor(applicationId: string): Promise<AppFs> {
   });
   if (!app) throw new Error(`Unknown application: ${applicationId}`);
 
+  // static: built on the panel, served from R2
+  if (app.type === 'STATIC') return localAppFs(appDirFor(applicationId, null));
+
   const slug = app.organization?.slug;
-  if (OS_ISOLATION_ENABLED && slug && app.type !== 'STATIC') {
-    // the app's own node — organizations span nodes (lib/servers.ts)
-    return remoteAppFs(await serverForApplication(applicationId), appDirFor(applicationId, slug));
-  }
-  return localAppFs(appDirFor(applicationId, null));
+  if (!slug) throw new Error('Assign the app to an organization first — apps run on its node');
+  // the app's own node — organizations span nodes (lib/servers.ts)
+  return remoteAppFs(await serverForApplication(applicationId), appDirFor(applicationId, slug));
 }
 
 /** Same, by hostname — for the log endpoints that only carry a domain. */

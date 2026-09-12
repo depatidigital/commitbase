@@ -149,8 +149,6 @@ export interface AdminOrganization extends OrgSummary {
   defaultServer: { id: string; name: string; status: string } | null;
   /** The nodes the org is provisioned on — one per node its apps use. */
   nodes: OrgNode[];
-  /** false when ORG_OS_ISOLATION is off on the server — nothing can be provisioned */
-  isolationEnabled: boolean;
 }
 
 export interface ProvisionLog {

@@ -28,7 +28,10 @@ import { ORG_SLUG_RE, APP_ID_RE, osUserFor } from '../lib/appPaths';
  * revalidate their own arguments as well.
  */
 
-export const OS_ISOLATION_ENABLED = process.env.ORG_OS_ISOLATION === 'true';
+// Tenant apps always run isolated on their organization's node — there is no
+// "build on the panel" mode to fall back to (it built on whatever machine ran
+// the backend, a laptop included). Static sites are the exception: they build
+// on the panel and are served from R2.
 
 // Same depth from src/services (tsx) and dist/services (node): backend/<x>/services → repo root.
 const RUNNER_DIR = path.resolve(__dirname, '../../../runner');
@@ -129,7 +132,6 @@ export async function provisionOrgOnNode(
   node: SshTarget,
   opts: ProvisionLimits & { onOutput?: (text: string) => void } = {},
 ): Promise<string> {
-  if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(org.slug);
 
   const diskQuota = opts.diskQuota || DEFAULT_DISK_QUOTA;
@@ -151,7 +153,6 @@ const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
 
 /** Manage an app's unit on the node the app runs on. */
 export async function appUnit(action: AppUnitAction, slug: string, applicationId: string): Promise<string> {
-  if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
   return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, applicationId]);
@@ -164,7 +165,6 @@ export async function appUnit(action: AppUnitAction, slug: string, applicationId
  * `onOutput` gets the output as it prints, for the live build log.
  */
 export async function appBuild(slug: string, applicationId: string, onOutput?: (text: string) => void): Promise<string> {
-  if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
 
@@ -224,7 +224,6 @@ const running = new Set<string>();
  * the OrgNode the first time. Returns at once; re-queuing replaces the pending request.
  */
 export async function queueOrgNode(organizationId: string, serverId: string, job: ProvisionJob): Promise<string | null> {
-  if (!OS_ISOLATION_ENABLED) return null;
   const row = await prisma.orgNode.upsert({
     where: { organizationId_serverId: { organizationId, serverId } },
     create: { organizationId, serverId, state: 'QUEUED', job: job as any },
@@ -317,7 +316,6 @@ const ENSURE_TIMEOUT_MS = 5 * 60_000;
  * outcome, throwing with the node's error when it fails.
  */
 export async function ensureOrgOnNode(organizationId: string, serverId: string, job: ProvisionJob): Promise<void> {
-  if (!OS_ISOLATION_ENABLED) return;
 
   const existing = await prisma.orgNode.findUnique({
     where: { organizationId_serverId: { organizationId, serverId } },
@@ -341,7 +339,6 @@ export async function ensureOrgOnNode(organizationId: string, serverId: string, 
 
 /** Cron sweep: requeue RUNNING rows a restart orphaned, then run every QUEUED one. */
 export async function provisionQueuedOrgs(): Promise<string> {
-  if (!OS_ISOLATION_ENABLED) return 'skipped — ORG_OS_ISOLATION is off';
 
   // ponytail: "not in this process's set" = orphaned, valid for one replica only (see cron.ts).
   const requeued = await prisma.orgNode.updateMany({
