@@ -9,21 +9,29 @@ export interface Organization {
   slug: string;
   createdAt: string;
   myRole: OrgRole | null;
-  /** The node this tenant's OS user, home and apps live on. null until placed. */
-  server: { id: string; name: string; status: string } | null;
+  /** Where new apps of this org go unless one is picked. Not a placement — apps carry their own server. */
+  defaultServer: { id: string; name: string; status: string } | null;
   /** Where this tenant's databases are created, per engine. null until placed. */
   postgresServer?: { id: string; name: string; status: string } | null;
   mysqlServer?: { id: string; name: string; status: string } | null;
-  /** OS provisioning queue. QUEUED with no server waits for placement. */
-  provisionState: ProvisionState;
-  provisionError: string | null;
-  /** Tail of cb-provision-org's output — grows while RUNNING. */
-  provisionLog: string | null;
-  provisionedAt: string | null;
+  /** The nodes this org is provisioned on (OS user, home, slice, FPM pool) — one per node it uses. */
+  nodes: OrgNode[];
   _count: { members: number; domains: number; applications: number };
 }
 
 export type ProvisionState = 'NONE' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
+
+/** An organization on one node, with that node's provisioning state. */
+export interface OrgNode {
+  id: string;
+  serverId: string;
+  state: ProvisionState;
+  error: string | null;
+  /** Tail of cb-provision-org's output — grows while RUNNING. */
+  log: string | null;
+  provisionedAt: string | null;
+  server: { id: string; name: string; status: string };
+}
 
 export const isProvisionPending = (s: ProvisionState) => s === 'QUEUED' || s === 'RUNNING';
 

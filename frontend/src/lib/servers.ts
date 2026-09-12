@@ -33,11 +33,12 @@ export interface Server {
   setupLog: string | null;
   setupAt: string | null;
   createdAt: string;
-  _count: { organizations: number };
+  /** organizations provisioned on this node */
+  _count: { orgNodes: number };
 }
 
 export interface ServerDetail extends Server {
-  organizations: Array<{ id: string; name: string; slug: string }>;
+  organizations: Array<{ id: string; name: string; slug: string; state: ProvisionState }>;
 }
 
 export type ServerInput = {
