@@ -6,10 +6,12 @@
 # it as root with `bash -c <text> cb-provision-org <args>` (orgProvisionService).
 # Idempotent: re-run to repair ownership or change quota / resource limits.
 #
-#   cb-provision-org <org-slug> [quota] [cpu-quota] [memory-max]
+#   cb-provision-org <org-slug> [quota] [cpu-quota] [memory-max] [uid]
 #     quota       disk, e.g. 20G, 512M      (default 20G)
 #     cpu-quota   cgroup, e.g. 30%, 150%    (default 50%)
 #     memory-max  cgroup, e.g. 512M, 2G     (default 1G)
+#     uid         the org's UID, the same on every node (the panel assigns it).
+#                 Omitted: useradd picks one — fine for a single box by hand.
 #
 # Produces:
 #   /home/cb-<slug>                       cb-<slug>:<backend-group>  2770
@@ -27,6 +29,7 @@ SLUG="${1-}"
 QUOTA="${2-20G}"
 CPU_QUOTA="${3-50%}"
 MEM_MAX="${4-1G}"
+ORG_UID="${5-}"
 CB_GROUP="${CB_GROUP:-larika}"
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
@@ -35,6 +38,7 @@ HOME_ROOT="${CB_HOME_ROOT:-/home}"
 [[ "$QUOTA"     =~ ^[0-9]+[MG]$ ]]                      || { echo "cb-provision-org: invalid quota: '$QUOTA'" >&2; exit 2; }
 [[ "$CPU_QUOTA" =~ ^[0-9]+%$ ]]                         || { echo "cb-provision-org: invalid cpu quota: '$CPU_QUOTA'" >&2; exit 2; }
 [[ "$MEM_MAX"   =~ ^[0-9]+[MG]$ ]]                      || { echo "cb-provision-org: invalid memory max: '$MEM_MAX'" >&2; exit 2; }
+[[ -z "$ORG_UID" || "$ORG_UID" =~ ^[1-9][0-9]{2,9}$ ]]  || { echo "cb-provision-org: invalid uid: '$ORG_UID'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-provision-org: must run as root" >&2; exit 2; }
 # Provisioning onto the old group would split this node's tenants across two.
 if getent group commitbase >/dev/null && find "$HOME_ROOT" -maxdepth 1 -name 'cb-*' -group commitbase -print -quit | grep -q .; then
@@ -58,13 +62,34 @@ SLICE="cb-$SLUG.slice"
 
 # --- 1. OS user -------------------------------------------------------------
 if ! id -u "$OS_USER" >/dev/null 2>&1; then
+  UID_ARGS=()
+  if [ -n "$ORG_UID" ]; then
+    # Same UID (and GID) on every node, so files keep their owner between nodes.
+    # A number already taken here is a local account's — refuse, never share it.
+    OWNER="$(getent passwd "$ORG_UID" | cut -d: -f1 || true)"
+    [ -z "$OWNER" ] || { echo "cb-provision-org: UID $ORG_UID is already used by '$OWNER' on this node" >&2; exit 5; }
+    GROUP_OWNER="$(getent group "$ORG_UID" | cut -d: -f1 || true)"
+    if [ -z "$GROUP_OWNER" ]; then
+      groupadd --gid "$ORG_UID" "$OS_USER"
+    elif [ "$GROUP_OWNER" != "$OS_USER" ]; then
+      echo "cb-provision-org: GID $ORG_UID is already used by group '$GROUP_OWNER' on this node" >&2; exit 5
+    fi
+    UID_ARGS=(--uid "$ORG_UID" --gid "$OS_USER")
+  fi
   # No login shell: this account owns files and runs app processes, it is not
   # for interactive access. Switch to /bin/bash only when deliberately handing
   # a client SFTP/SSH.
-  useradd --create-home --home-dir "$HOME_DIR" --shell /usr/sbin/nologin "$OS_USER"
-  echo "created user $OS_USER"
+  useradd "${UID_ARGS[@]}" --create-home --home-dir "$HOME_DIR" --shell /usr/sbin/nologin "$OS_USER"
+  echo "created user $OS_USER (uid $(id -u "$OS_USER"))"
 else
-  echo "user $OS_USER already exists"
+  CURRENT_UID="$(id -u "$OS_USER")"
+  if [ -n "$ORG_UID" ] && [ "$CURRENT_UID" != "$ORG_UID" ]; then
+    # Renumbering a live user means stopping its apps and re-owning its files:
+    # a deliberate maintenance step, not something to do in passing.
+    echo "cb-provision-org: $OS_USER exists here with UID $CURRENT_UID, but the organization's UID is $ORG_UID — renumber it (usermod -u $ORG_UID $OS_USER, with its apps stopped)" >&2
+    exit 5
+  fi
+  echo "user $OS_USER already exists (uid $CURRENT_UID)"
 fi
 
 mkdir -p "$HOME_DIR/apps"

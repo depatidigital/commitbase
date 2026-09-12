@@ -2,46 +2,27 @@ import { prisma } from './prisma';
 import type { SshTarget } from './runner';
 
 /**
- * Which node an organization lives on.
+ * Which node an application runs on.
  *
- * Placement is per organization, not per application: cb-provision-org creates
- * one OS user, one home and one cgroup slice per org, and every app of that
- * org lives inside that home. Splitting an org across nodes would mean
- * duplicating its user, so the org is the unit.
+ * Placement is per application: an organization can span nodes, and is
+ * provisioned (OS user, home, slice, FPM pool) on each node it uses — see
+ * OrgNode and orgProvisionService. The org's default server only fills in for
+ * an app that has none recorded.
+ *
+ * Refusing beats guessing: an app with no node would be built on the wrong box
+ * and its DNS record would point elsewhere.
  */
-export async function serverForOrg(slug: string): Promise<SshTarget> {
-  const org = await prisma.organization.findUnique({
-    where: { slug },
-    select: { server: true },
-  });
-
-  if (!org) throw new Error(`Unknown organization: ${slug}`);
-  // Refusing beats guessing. Picking a node for an unplaced org would create
-  // the tenant's home on the wrong box, and the DNS record would point elsewhere.
-  if (!org.server) {
-    throw new Error(`Organization "${slug}" is not assigned to a server — assign one before provisioning`);
-  }
-  return org.server;
-}
-
-/**
- * Which node an application's routes and processes live on. Placement is per
- * organization, so this is `serverForOrg` reached through the app's owner —
- * kept here because most call sites have an application, not a slug.
- */
-export async function serverForApplication(applicationId: string): Promise<SshTarget> {
+export async function serverForApplication(applicationId: string): Promise<SshTarget & { id: string; publicIp: string }> {
   const application = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { domain: true, organization: { select: { slug: true, server: true } } },
+    select: { domain: true, server: true, organization: { select: { defaultServer: true } } },
   });
 
   if (!application) throw new Error(`Unknown application: ${applicationId}`);
 
-  const server = application.organization?.server;
+  const server = application.server ?? application.organization?.defaultServer;
   if (!server) {
-    throw new Error(
-      `${application.domain} has no server — assign its organization to one before configuring routes`,
-    );
+    throw new Error(`${application.domain} has no server — pick one for the app, or set its organization's default server`);
   }
   return server;
 }
@@ -61,3 +42,11 @@ export async function allServers(): Promise<SshTarget[]> {
     orderBy: { createdAt: 'asc' },
   });
 }
+
+/**
+ * Apps that run on a node: placed there, or — with no node of their own — in
+ * an organization whose default server it is.
+ */
+export const appsOnServer = (serverId: string) => ({
+  OR: [{ serverId }, { serverId: null, organization: { defaultServerId: serverId } }],
+});

@@ -2,28 +2,30 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { execRoot, remoteExists, remoteReadDir, type SshTarget, type ExecOptions } from '../lib/runner';
-import { serverForOrg } from '../lib/servers';
+import { exec, execRoot, type SshTarget, type ExecOptions } from '../lib/runner';
+import { serverForApplication } from '../lib/servers';
 import { liveLog } from '../lib/liveLog';
-import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } from '../lib/appPaths';
+import { ORG_SLUG_RE, APP_ID_RE, osUserFor } from '../lib/appPaths';
 
 /**
  * Per-organization OS isolation.
  *
- * Provisioning nodes are separate machines, so every call goes over SSH to the
- * node the organization is placed on. The control plane's own VM is a Server
- * row like any other — there is no local shortcut, so there is one code path.
+ * An organization can span nodes: each application has its own node, and the
+ * org is provisioned — OS user, home, disk quota, cgroup slice, PHP-FPM pool —
+ * on each node it uses, and only there. That presence is an OrgNode row, and
+ * the provisioning queue lives on those rows. The OS user is `cb-<slug>` with
+ * the org's one UID on every node, so files keep their owner between nodes.
  *
- * Nothing is installed on the node: the runner scripts live in this repo and
+ * Nothing is installed on a node: the runner scripts live in this repo and
  * their text is sent with every call as `bash -c <script> <name> <args...>`.
  * A node therefore always runs the script that matches this panel's version.
- * The price is that the SSH user needs passwordless root (root itself, or
- * NOPASSWD: ALL, or sudo with the stored login password) — see execRoot in runner.ts.
+ * The price is that the SSH user needs root (root itself, NOPASSWD: ALL, or
+ * sudo with the stored login password) — see execRoot in runner.ts.
  *
- * Arguments are still passed as an array, never as a shell string; runner.ts
- * quotes each element (the script text included), so nothing from the database
- * can be read as a shell metacharacter on the way to a root command. The
- * scripts revalidate their own arguments as well.
+ * Arguments are passed as an array, never as a shell string; runner.ts quotes
+ * each element (the script text included), so nothing from the database can be
+ * read as a shell metacharacter on the way to a root command. The scripts
+ * revalidate their own arguments as well.
  */
 
 export const OS_ISOLATION_ENABLED = process.env.ORG_OS_ISOLATION === 'true';
@@ -44,6 +46,14 @@ function script(name: 'cb-provision-org' | 'cb-app-unit'): string {
 const DEFAULT_DISK_QUOTA = process.env.ORG_DISK_QUOTA || '20G';
 const DEFAULT_CPU_QUOTA = process.env.ORG_CPU_QUOTA || '50%';
 const DEFAULT_MEMORY_MAX = process.env.ORG_MEMORY_MAX || '1G';
+
+/**
+ * Org UIDs come from their own range, far above anything useradd hands out on
+ * its own (1000+) and below the systemd dynamic-user ranges (61184+ are too
+ * close; 200000+ is clear of both), so an org UID never collides with a
+ * node's local accounts.
+ */
+const ORG_UID_BASE = Number(process.env.ORG_UID_BASE || 200_000);
 
 const QUOTA_RE = /^[0-9]+[MG]$/;
 const CPU_RE = /^[0-9]+%$/;
@@ -68,25 +78,59 @@ async function sudo(
   return stdout.trim();
 }
 
-export interface ProvisionResult {
-  provisioned: boolean;
-  osUser?: string;
-  home?: string;
-  output?: string;
-  reason?: string;
+/**
+ * The org's UID, assigned once. An org provisioned before UIDs were tracked
+ * already has cb-<slug> on this node with whatever UID useradd picked — that
+ * one is adopted rather than fought, since its files are already owned by it.
+ * Otherwise the next free number in the org range.
+ */
+async function uidFor(org: { id: string; slug: string; uid: number | null }, node: SshTarget): Promise<number> {
+  if (org.uid !== null) return org.uid;
+
+  const existing = await exec(node, ['id', '-u', osUserFor(org.slug)], { timeout: 15_000 })
+    .then(({ stdout }) => Number(stdout.trim()))
+    .catch(() => null);
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const uid =
+      existing && Number.isInteger(existing)
+        ? existing
+        : Math.max(ORG_UID_BASE - 1, (await prisma.organization.aggregate({ _max: { uid: true } }))._max.uid ?? 0) + 1;
+    try {
+      // conditional on uid still being null: two provisions of one org racing agree on one value
+      const set = await prisma.organization.updateMany({ where: { id: org.id, uid: null }, data: { uid } });
+      if (set.count === 0) return (await prisma.organization.findUniqueOrThrow({ where: { id: org.id }, select: { uid: true } })).uid!;
+      return uid;
+    } catch (err: any) {
+      // P2002: another org took this number first — only possible for a fresh allocation
+      if (err?.code !== 'P2002' || existing) {
+        throw err?.code === 'P2002'
+          ? new Error(`${osUserFor(org.slug)} on this node has UID ${existing}, which another organization already owns — renumber it by hand`)
+          : err;
+      }
+    }
+  }
+  throw new Error('Could not allocate a UID for this organization — retry');
+}
+
+export interface ProvisionLimits {
+  diskQuota?: string;
+  cpuQuota?: string;
+  memoryMax?: string;
 }
 
 /**
- * Create (or repair) the OS user, home, disk quota, cgroup slice and PHP-FPM
- * pool for one organization, on that organization's node. Idempotent — safe to
- * call on every org write, and safe to retry after a dropped connection.
+ * Create (or repair) the org's OS user, home, disk quota, cgroup slice and
+ * PHP-FPM pool on one node. Idempotent — safe to re-run to repair ownership or
+ * apply new limits, and safe to retry after a dropped connection.
  */
-export async function provisionOrg(
-  slug: string,
-  opts: { diskQuota?: string; cpuQuota?: string; memoryMax?: string; onOutput?: (text: string) => void } = {}
-): Promise<ProvisionResult> {
-  if (!OS_ISOLATION_ENABLED) return { provisioned: false, reason: 'ORG_OS_ISOLATION is not enabled' };
-  assertSlug(slug);
+export async function provisionOrgOnNode(
+  org: { id: string; slug: string; uid: number | null },
+  node: SshTarget,
+  opts: ProvisionLimits & { onOutput?: (text: string) => void } = {},
+): Promise<string> {
+  if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
+  assertSlug(org.slug);
 
   const diskQuota = opts.diskQuota || DEFAULT_DISK_QUOTA;
   const cpuQuota = opts.cpuQuota || DEFAULT_CPU_QUOTA;
@@ -96,9 +140,8 @@ export async function provisionOrg(
   if (!CPU_RE.test(cpuQuota)) throw new Error(`Invalid CPU quota: ${cpuQuota}`);
   if (!QUOTA_RE.test(memoryMax)) throw new Error(`Invalid memory max: ${memoryMax}`);
 
-  const server = await serverForOrg(slug);
-  const output = await sudo(server, 'cb-provision-org', [slug, diskQuota, cpuQuota, memoryMax], 60_000, opts.onOutput);
-  return { provisioned: true, osUser: osUserFor(slug), home: orgHome(slug), output };
+  const uid = await uidFor(org, node);
+  return sudo(node, 'cb-provision-org', [org.slug, diskQuota, cpuQuota, memoryMax, String(uid)], 60_000, opts.onOutput);
 }
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown';
@@ -106,17 +149,18 @@ export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' 
 const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
 const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
 
+/** Manage an app's unit on the node the app runs on. */
 export async function appUnit(action: AppUnitAction, slug: string, applicationId: string): Promise<string> {
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
-  return sudo(await serverForOrg(slug), 'cb-app-unit', [action, slug, applicationId]);
+  return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, applicationId]);
 }
 
 /**
  * Run <app-dir>/build.sh inside the build cgroup (memory-capped, low CPU/IO
- * weight). Resolves with the combined output; rejects with it attached when
- * the script fails. Fifteen minutes, same as the in-process build used to get.
+ * weight) on the app's node. Resolves with the combined output; rejects with it
+ * attached when the script fails. Fifteen minutes.
  * `onOutput` gets the output as it prints, for the live build log.
  */
 export async function appBuild(slug: string, applicationId: string, onOutput?: (text: string) => void): Promise<string> {
@@ -124,16 +168,14 @@ export async function appBuild(slug: string, applicationId: string, onOutput?: (
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
 
-  const server = await serverForOrg(slug);
   const { stdout, stderr } = await runScript(
-    server,
+    await serverForApplication(applicationId),
     'cb-app-unit',
     ['build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
     { timeout: 900_000, maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
   );
   return stdout + (stderr ? '\n' + stderr : '');
 }
-
 
 /**
  * Provisioning is recorded in the existing Log model so an admin can see what
@@ -143,9 +185,10 @@ export async function appBuild(slug: string, applicationId: string, onOutput?: (
 async function logProvision(
   level: 'INFO' | 'WARN' | 'ERROR',
   message: string,
-  userId: string,
+  userId: string | undefined,
   metadata: Record<string, unknown>
 ) {
+  if (!userId) return;
   try {
     await prisma.log.create({
       data: { level, message, userId, metadata: { scope: 'provisioning', ...metadata } as any },
@@ -156,259 +199,163 @@ async function logProvision(
   }
 }
 
-export interface ProvisionStatus {
-  enabled: boolean;
-  slug: string;
-  osUser: string;
-  home: string;
-  /** Name of the node this org is placed on, or null when it has none yet. */
-  server: string | null;
-  /** true once the OS user's home exists on the node */
-  provisioned: boolean;
-  /** true once the cgroup slice unit has been written */
-  sliceInstalled: boolean;
-  appCount: number;
-  /** Set when the node could not be reached at all — distinct from "not provisioned". */
-  unreachable?: string;
-}
-
-/**
- * Read-only check — no sudo, no side effects. Safe to call on every page load.
- *
- * These were local fs.access/readdir calls when there was one box. They are the
- * same three questions asked over the same SSH channel, rather than a second
- * transport (SFTP) to keep working.
- */
-export async function getProvisionStatus(slug: string): Promise<ProvisionStatus> {
-  assertSlug(slug);
-  const home = orgHome(slug);
-  const base = {
-    enabled: OS_ISOLATION_ENABLED,
-    slug,
-    osUser: osUserFor(slug),
-    home,
-    provisioned: false,
-    sliceInstalled: false,
-    appCount: 0,
-  };
-
-  const org = await prisma.organization.findUnique({
-    where: { slug },
-    select: {
-      server: {
-        select: {
-          id: true,
-          name: true,
-          hostname: true,
-          sshUser: true,
-          sshPort: true,
-          sshKeyPath: true,
-          authMethod: true,
-          sshPassword: true,
-        },
-      },
-    },
-  });
-  const server = org?.server ?? null;
-  if (!server) return { ...base, server: null };
-
-  try {
-    const [provisioned, sliceInstalled, apps] = await Promise.all([
-      remoteExists(server, home),
-      remoteExists(server, orgSlicePath(slug)),
-      remoteReadDir(server, orgAppsDir(slug)),
-    ]);
-    return { ...base, server: server.name, provisioned, sliceInstalled, appCount: apps.length };
-  } catch (err: any) {
-    // An unreachable node must not read as an unprovisioned org — that would
-    // invite an admin to "repair" a tenant that is perfectly fine.
-    return { ...base, server: server.name, unreachable: err?.message || String(err) };
-  }
-}
-
-/**
- * provisionOrg plus an audit trail. Use this from anything an admin triggers;
- * the bare provisionOrg stays for scripts that have no user to attribute to.
- */
-export async function provisionOrgLogged(
-  slug: string,
-  userId: string,
-  opts: {
-    diskQuota?: string;
-    cpuQuota?: string;
-    memoryMax?: string;
-    organizationId?: string;
-    trigger?: string;
-    onOutput?: (text: string) => void;
-  } = {}
-): Promise<ProvisionResult> {
-  const base = { organizationId: opts.organizationId ?? null, slug, trigger: opts.trigger ?? 'manual' };
-
-  if (!OS_ISOLATION_ENABLED) {
-    await logProvision('WARN', `Provisioning skipped for "${slug}" — ORG_OS_ISOLATION is off`, userId, base);
-    return { provisioned: false, reason: 'ORG_OS_ISOLATION is not enabled' };
-  }
-
-  try {
-    const result = await provisionOrg(slug, opts);
-    await logProvision('INFO', `Provisioned OS user cb-${slug}`, userId, { ...base, output: result.output });
-    return result;
-  } catch (err: any) {
-    const message = err?.stderr || err?.message || String(err);
-    await logProvision('ERROR', `Provisioning failed for "${slug}": ${message}`, userId, base);
-    throw err;
-  }
-}
-
 // --- Queue -------------------------------------------------------------------
 //
 // Provisioning is a root script on a remote node — seconds on a good day, a
-// connect timeout on a bad one. Nothing waits for it: a request flags the org
-// QUEUED, the worker runs it and records DONE or FAILED on the row. Same shape
-// as domainProvisionService: kicked in-process, swept by cron for what a
-// restart or an unplaced org left behind.
+// connect timeout on a bad one. Nothing waits for it: a request flags the
+// OrgNode QUEUED, the worker runs it and records DONE or FAILED on the row.
+// Same shape as domainProvisionService: kicked in-process, swept by cron for
+// what a restart left behind. A deploy that needs the org on its node waits on
+// the same row (ensureOrgOnNode).
 //
 // States: NONE → QUEUED → RUNNING → DONE | FAILED. FAILED is not retried on its
-// own — a broken node would fail every minute; an admin re-queues.
+// own — a broken node would fail every minute; an admin or a deploy re-queues.
 
-export interface ProvisionJob {
-  userId: string;
+export interface ProvisionJob extends ProvisionLimits {
+  userId?: string;
   trigger: string;
-  diskQuota?: string;
-  cpuQuota?: string;
-  memoryMax?: string;
 }
 
-/** Orgs being provisioned by this process. Anything RUNNING that is not here was orphaned by a restart. */
+/** OrgNodes being provisioned by this process. Anything RUNNING that is not here was orphaned by a restart. */
 const running = new Set<string>();
 
 /**
- * Flag an organization for provisioning and kick the worker. Returns at once.
- * Re-queuing an org that is already queued just replaces the pending request.
+ * Flag an organization for provisioning on a node and kick the worker. Creates
+ * the OrgNode the first time. Returns at once; re-queuing replaces the pending request.
  */
-export async function queueOrgProvision(organizationId: string, job: ProvisionJob): Promise<void> {
-  if (!OS_ISOLATION_ENABLED) return;
-  await prisma.organization.update({
-    where: { id: organizationId },
-    data: { provisionState: 'QUEUED', provisionError: null, provisionJob: job as any },
+export async function queueOrgNode(organizationId: string, serverId: string, job: ProvisionJob): Promise<string | null> {
+  if (!OS_ISOLATION_ENABLED) return null;
+  const row = await prisma.orgNode.upsert({
+    where: { organizationId_serverId: { organizationId, serverId } },
+    create: { organizationId, serverId, state: 'QUEUED', job: job as any },
+    update: { state: 'QUEUED', error: null, job: job as any },
+    select: { id: true },
   });
-  void runOrgProvision(organizationId);
+  void runOrgNode(row.id);
+  return row.id;
+}
+
+/** Queue every node an organization is on — re-apply limits, repair ownership. */
+export async function queueOrgEverywhere(organizationId: string, job: ProvisionJob): Promise<number> {
+  const nodes = await prisma.orgNode.findMany({ where: { organizationId }, select: { serverId: true } });
+  for (const node of nodes) await queueOrgNode(organizationId, node.serverId, job);
+  return nodes.length;
 }
 
 /**
- * Run one queued org. Safe to call twice: claiming QUEUED → RUNNING is the guard.
+ * Run one queued OrgNode. Safe to call twice: claiming QUEUED → RUNNING is the guard.
  * Resolves with a one-line outcome (never rejects) so the cron sweep can report it.
  */
-export async function runOrgProvision(organizationId: string): Promise<string> {
-  if (running.has(organizationId)) {
-    console.log(`[org-provision] ${organizationId}: already running in this process — skipped`);
-    return `${organizationId}: already running`;
+export async function runOrgNode(orgNodeId: string): Promise<string> {
+  if (running.has(orgNodeId)) {
+    console.log(`[org-provision] ${orgNodeId}: already running in this process — skipped`);
+    return `${orgNodeId}: already running`;
   }
-  running.add(organizationId);
+  running.add(orgNodeId);
   const started = Date.now();
 
   try {
-    // Unplaced orgs stay QUEUED — placement kicks them.
-    const claimed = await prisma.organization.updateMany({
-      where: { id: organizationId, provisionState: 'QUEUED', serverId: { not: null } },
+    const claimed = await prisma.orgNode.updateMany({
+      where: { id: orgNodeId, state: 'QUEUED' },
       // the previous run's output would read as this run's
-      data: { provisionState: 'RUNNING', provisionLog: null },
+      data: { state: 'RUNNING', log: null },
     });
-    if (claimed.count === 0) {
-      const row = await prisma.organization.findUnique({
-        where: { id: organizationId },
-        select: { slug: true, provisionState: true, serverId: true },
-      });
-      const why = !row ? 'organization not found' : !row.serverId ? 'no server assigned yet' : `state is ${row.provisionState}, not QUEUED`;
-      console.log(`[org-provision] ${row?.slug ?? organizationId}: not claimed — ${why}`);
-      return `${row?.slug ?? organizationId}: not claimed (${why})`;
-    }
+    if (claimed.count === 0) return `${orgNodeId}: not queued`;
 
-    const org = await prisma.organization.findUniqueOrThrow({
-      where: { id: organizationId },
-      select: { slug: true, provisionJob: true, server: { select: { name: true, hostname: true } } },
+    const row = await prisma.orgNode.findUniqueOrThrow({
+      where: { id: orgNodeId },
+      include: { organization: { select: { id: true, slug: true, uid: true } }, server: true },
     });
-    const { userId, trigger, ...limits } = (org.provisionJob ?? {}) as unknown as ProvisionJob;
-    const node = org.server ? `${org.server.name} (${org.server.hostname})` : 'unknown node';
-    console.log(
-      `[org-provision] ${org.slug}: RUNNING on ${node} — trigger=${trigger ?? 'none'} user=${userId ?? 'none'} limits=${JSON.stringify(limits)}`
-    );
-    if (!org.provisionJob) console.warn(`[org-provision] ${org.slug}: provisionJob is empty — running with defaults`);
+    const { organization: org, server } = row;
+    const { userId, trigger, ...limits } = (row.job ?? { trigger: 'none' }) as unknown as ProvisionJob;
+    const label = `${org.slug}@${server.name}`;
+    const where = `${server.name} (${server.hostname})`;
+    console.log(`[org-provision] ${label}: RUNNING — trigger=${trigger ?? 'none'} user=${userId ?? 'none'} limits=${JSON.stringify(limits)}`);
 
     // followed live from the Organizations page
-    const live = liveLog((text) => prisma.organization.update({ where: { id: organizationId }, data: { provisionLog: text } }));
-    live.push(`provisioning ${osUserFor(org.slug)} on ${node}\n`);
+    const live = liveLog((text) => prisma.orgNode.update({ where: { id: orgNodeId }, data: { log: text } }));
+    live.push(`provisioning ${osUserFor(org.slug)} on ${where}\n`);
+    const audit = { organizationId: org.id, slug: org.slug, serverId: server.id, server: server.name, trigger };
 
     try {
-      const result = await provisionOrgLogged(org.slug, userId, {
-        ...limits,
-        organizationId,
-        trigger,
-        onOutput: (text) => live.push(text),
-      });
+      const output = await provisionOrgOnNode(org, server, { ...limits, onOutput: (text) => live.push(text) });
       await live.stop();
-      await prisma.organization.update({
-        where: { id: organizationId },
-        data: {
-          provisionState: 'DONE',
-          provisionError: null,
-          provisionLog: live.text || result.output || null,
-          provisionJob: Prisma.DbNull,
-          provisionedAt: new Date(),
-        },
+      await prisma.orgNode.update({
+        where: { id: orgNodeId },
+        data: { state: 'DONE', error: null, log: live.text || output || null, job: Prisma.DbNull, provisionedAt: new Date() },
       });
-      console.log(`[org-provision] ${org.slug}: DONE in ${Date.now() - started}ms`);
-      if (result.output) console.log(`[org-provision] ${org.slug}: script output:\n${result.output}`);
-      return `${org.slug}: done`;
+      await logProvision('INFO', `Provisioned ${osUserFor(org.slug)} on ${server.name}`, userId, { ...audit, output });
+      console.log(`[org-provision] ${label}: DONE in ${Date.now() - started}ms`);
+      return `${label}: done`;
     } catch (err: any) {
       const message = String(err?.stderr || err?.message || err);
       await live.stop();
       // a failure before any output (no SSH, bad slug) still gets a log line
       if (!live.text.includes(message)) live.push(`\n${message}\n`);
-      await prisma.organization.update({
-        where: { id: organizationId },
-        data: { provisionState: 'FAILED', provisionError: message.slice(0, 1000), provisionLog: live.text },
+      await prisma.orgNode.update({
+        where: { id: orgNodeId },
+        data: { state: 'FAILED', error: message.slice(0, 1000), log: live.text },
       });
-      console.error(`[org-provision] ${org.slug}: FAILED after ${Date.now() - started}ms on ${node} — ${message}`);
-      if (err?.stdout) console.error(`[org-provision] ${org.slug}: script stdout:\n${err.stdout}`);
-      return `${org.slug}: failed (${(message.split('\n')[0] ?? '').slice(0, 200)})`;
+      await logProvision('ERROR', `Provisioning ${org.slug} on ${server.name} failed: ${message}`, userId, audit);
+      console.error(`[org-provision] ${label}: FAILED after ${Date.now() - started}ms on ${where} — ${message}`);
+      return `${label}: failed (${(message.split('\n')[0] ?? '').slice(0, 200)})`;
     }
   } catch (err: any) {
-    console.error(`[org-provision] worker crashed for org ${organizationId}:`, err);
-    return `${organizationId}: worker error (${err?.message || err})`;
+    console.error(`[org-provision] worker crashed for ${orgNodeId}:`, err);
+    return `${orgNodeId}: worker error (${err?.message || err})`;
   } finally {
-    running.delete(organizationId);
+    running.delete(orgNodeId);
   }
 }
 
-/** Cron sweep: requeue RUNNING rows a restart orphaned, then run every placed QUEUED org. */
+const ENSURE_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Make sure an organization is provisioned on a node before something runs
+ * there — the lazy half of "provision only where it is used". Already DONE is
+ * a no-op; otherwise it queues (or joins a run in flight) and waits for the
+ * outcome, throwing with the node's error when it fails.
+ */
+export async function ensureOrgOnNode(organizationId: string, serverId: string, job: ProvisionJob): Promise<void> {
+  if (!OS_ISOLATION_ENABLED) return;
+
+  const existing = await prisma.orgNode.findUnique({
+    where: { organizationId_serverId: { organizationId, serverId } },
+    select: { state: true },
+  });
+  if (existing?.state === 'DONE') return;
+  if (existing?.state !== 'QUEUED' && existing?.state !== 'RUNNING') await queueOrgNode(organizationId, serverId, job);
+
+  const deadline = Date.now() + ENSURE_TIMEOUT_MS;
+  for (;;) {
+    const row = await prisma.orgNode.findUniqueOrThrow({
+      where: { organizationId_serverId: { organizationId, serverId } },
+      select: { state: true, error: true },
+    });
+    if (row.state === 'DONE') return;
+    if (row.state === 'FAILED') throw new Error(`Provisioning the organization on this server failed: ${row.error ?? 'unknown error'}`);
+    if (Date.now() > deadline) throw new Error('Provisioning the organization on this server is taking too long — check its provisioning log');
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+}
+
+/** Cron sweep: requeue RUNNING rows a restart orphaned, then run every QUEUED one. */
 export async function provisionQueuedOrgs(): Promise<string> {
   if (!OS_ISOLATION_ENABLED) return 'skipped — ORG_OS_ISOLATION is off';
 
   // ponytail: "not in this process's set" = orphaned, valid for one replica only (see cron.ts).
-  const requeued = await prisma.organization.updateMany({
-    where: { provisionState: 'RUNNING', id: { notIn: [...running] } },
-    data: { provisionState: 'QUEUED' },
+  const requeued = await prisma.orgNode.updateMany({
+    where: { state: 'RUNNING', id: { notIn: [...running] } },
+    data: { state: 'QUEUED' },
   });
-  if (requeued.count) console.warn(`[org-provision] requeued ${requeued.count} org(s) left RUNNING by a restart`);
+  if (requeued.count) console.warn(`[org-provision] requeued ${requeued.count} node(s) left RUNNING by a restart`);
 
-  const [queued, unplaced] = await Promise.all([
-    prisma.organization.findMany({
-      where: { provisionState: 'QUEUED', serverId: { not: null } },
-      select: { id: true },
-    }),
-    prisma.organization.findMany({
-      where: { provisionState: 'QUEUED', serverId: null },
-      select: { slug: true },
-    }),
-  ]);
-
+  const queued = await prisma.orgNode.findMany({ where: { state: 'QUEUED' }, select: { id: true } });
   const parts: string[] = [];
   if (requeued.count) parts.push(`${requeued.count} requeued`);
-  if (unplaced.length) parts.push(`${unplaced.length} waiting for a server (${unplaced.map((o) => o.slug).join(', ')})`);
   if (queued.length === 0) return ['nothing queued', ...parts].join('; ');
 
   const outcomes: string[] = [];
-  for (const org of queued) outcomes.push(await runOrgProvision(org.id));
-  return [`${queued.length} organization(s) processed`, ...parts, ...outcomes].join('; ');
+  for (const row of queued) outcomes.push(await runOrgNode(row.id));
+  return [`${queued.length} org node(s) processed`, ...parts, ...outcomes].join('; ');
 }
