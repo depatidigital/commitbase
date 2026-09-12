@@ -31,6 +31,7 @@ import {
   Eye,
   ExternalLink,
   MoreHorizontal,
+  Layers,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,8 +42,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { HeartbeatBar, healthLabel } from "@/components/HeartbeatBar";
-import { AppTypeBadge, TYPES as APP_TYPES } from "@/components/AppTypeBadge";
+import { HeartbeatBar } from "@/components/HeartbeatBar";
+import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { getServers } from "@/lib/servers";
 import {
   Select,
@@ -54,7 +55,7 @@ import {
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
 const ALL = "__all__";
-import { getApplicationHealth } from "@/lib/health";
+import { getApplicationHealth, type Health } from "@/lib/health";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 import {
@@ -67,6 +68,7 @@ import {
   useSyncServerApps,
 } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
+import { useDomains } from "@/hooks/useDomains";
 import { bulkAssignApplications, hasBeenDeployed } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
@@ -103,12 +105,48 @@ const ago = (value: string) => {
   return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
+type Tone = "up" | "down" | "warn" | "deploying" | "muted";
+const TONE_DOT: Record<Tone, string> = {
+  up: "bg-success",
+  down: "bg-destructive",
+  warn: "bg-warning",
+  deploying: "",
+  muted: "bg-muted-foreground/40",
+};
+
+/**
+ * One word for "is it OK?", from the app's own status and the uptime checks.
+ * `rank` puts what needs a look first: broken, then in flight, then fine.
+ */
+const appStatus = (status: string, health?: Health): { text: string; tone: Tone; rank: number } => {
+  if (status === "DEPLOYING" || status === "BUILDING") return { text: t("Deploying"), tone: "deploying", rank: 1 };
+  // stopped on purpose — not an outage, whatever the checks say
+  if (status === "STOPPED") return { text: t("Stopped"), tone: "muted", rank: 3 };
+  if (health?.state === "down") return { text: t("Down"), tone: "down", rank: 0 };
+  // failing lately, not yet long enough to call it an outage
+  if (health?.state === "pending") return { text: t("Unstable"), tone: "warn", rank: 0 };
+  if (health?.state === "up") return { text: t("Online"), tone: "up", rank: 2 };
+  if (status === "ERROR") return { text: t("Error"), tone: "down", rank: 0 };
+  return { text: t("Not monitored"), tone: "muted", rank: 4 };
+};
+
+/**
+ * When the current run of failed checks began — beats are stored newest first.
+ * Unknown when every kept beat failed: the oldest one is only where the kept
+ * history ends, not where the outage started.
+ */
+const downSince = (health?: Health) => {
+  const beats = health?.beats ?? [];
+  const lastOk = beats.findIndex((beat) => beat.ok);
+  return lastOk > 0 ? beats[lastOk - 1].at : undefined;
+};
+
 export default function Application() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  // an inventory screen, not a dashboard: show a useful page of it at once
-  // newest first, so an app just added is at the top
-  const query = useTableQuery(25, { sort: "createdAt", order: "desc" });
+  // every app on one page for almost everyone; unsorted, the server puts what
+  // needs attention first (broken, deploying), then by name
+  const query = useTableQuery(100);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
@@ -124,6 +162,12 @@ export default function Application() {
   // to page 1 like the organization filter does
   const [typeFilter, setTypeFilter] = useState("");
   const [serverFilter, setServerFilter] = useState("");
+  const [domainFilter, setDomainFilter] = useState("");
+  // only domains that have an app — the rest would filter to an empty table
+  const { data: allDomains = [] } = useDomains();
+  const domainsWithApps = allDomains
+    .filter((domain) => (domain._count?.applications ?? 0) > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const { data: servers = [] } = useQuery({
     queryKey: ["servers"],
     queryFn: getServers,
@@ -136,7 +180,7 @@ export default function Application() {
     data: applicationsData,
     isLoading,
     error,
-  } = useApplicationsWithRealtime({ ...query.params, type: typeFilter, serverId: serverFilter });
+  } = useApplicationsWithRealtime({ ...query.params, type: typeFilter, serverId: serverFilter, domainId: domainFilter });
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
@@ -258,6 +302,15 @@ export default function Application() {
 
   const dialogContent = getDialogContent();
 
+  // What needs a look comes first. The server orders by the app's own status;
+  // the uptime checks are only known here, so they refine it on the page.
+  // ponytail: sorts within the loaded page — fine at 100 per page
+  const rows = query.sort
+    ? applications
+    : [...applications].sort(
+        (a, b) => appStatus(a.status, healthById[a.id]).rank - appStatus(b.status, healthById[b.id]).rank,
+      );
+
   const columns: Column<(typeof applications)[number]>[] = [
     ...(superAdmin
       ? [
@@ -281,8 +334,35 @@ export default function Application() {
         ]
       : []),
     {
+      // no header text: a column of dots explains itself, and problems sort first anyway
+      header: "",
+      className: "w-10",
+      cell: (app) => {
+        const health = healthById[app.id];
+        const { text, tone } = appStatus(app.status, health);
+        const since = tone === "down" ? downSince(health) : undefined;
+        // the word and the numbers behind the colour, for whoever hovers
+        const detail = [
+          since ? `${text} · ${ago(since)}` : text,
+          health?.uptime24h != null && t("{uptime}% up in the last 24 hours", { uptime: health.uptime24h }),
+          health?.responseMs != null && `${health.responseMs}ms`,
+          health?.state !== "up" && health?.lastError,
+        ].filter(Boolean).join(" · ");
+        return (
+          <span className="flex items-center justify-center" title={detail}>
+            {tone === "deploying" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" />
+            ) : (
+              <span className={`h-2.5 w-2.5 rounded-full ${TONE_DOT[tone]} ${tone === "down" ? "ring-4 ring-destructive/15" : ""}`} />
+            )}
+            <span className="sr-only">{text}</span>
+          </span>
+        );
+      },
+    },
+    {
       header: t("Application"),
-      className: "w-[22%]",
+      // no width: the name takes whatever the other columns leave
       sortKey: "name",
       // name and hostname are the same string for every imported site, so they
       // share one cell: the name leads, the address and the owner sit under it
@@ -290,9 +370,26 @@ export default function Application() {
         // an imported site is named after its hostname, so printing both is
         // printing the same string twice — the second line only earns its
         // place when the app was given a name of its own
-        const named = app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
+        // a sync placeholder like arusflow.pm2.local: nothing a browser can open,
+        // and nothing a client should have to read
+        const internal = app.domain.endsWith(".local");
+        const named = !internal && app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
+        // what kind of app, as its icon — a column of badges said the same thing louder
+        const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
+        const TypeIcon = type.icon;
+        // the operator only: manual = synced from the box, and the loopback port
+        const manual = superAdmin && !!app.runtime;
 
         return (
+          <div className="flex min-w-0 items-center gap-3">
+          {/* icon and name: an icon alone had to be learned. Fixed width, so the app names line up */}
+          <span
+            className="flex w-20 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium"
+            title={superAdmin && app.port ? `${type.label} · 127.0.0.1:${app.port}` : undefined}
+          >
+            <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
+            <span className="truncate">{type.label}</span>
+          </span>
           <div className="min-w-0">
             <span className="flex min-w-0 items-center gap-1.5">
               <Link
@@ -301,41 +398,39 @@ export default function Application() {
               >
                 {app.name}
               </Link>
-              <a
-                href={`https://${app.domain}`}
-                target="_blank"
-                rel="noreferrer"
-                title={t("Open {url}", { url: `https://${app.domain}` })}
-                aria-label={t("Open {url}", { url: app.domain })}
-                className="shrink-0 text-muted-foreground hover:text-primary"
-              >
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              {!internal && (
+                <a
+                  href={`https://${app.domain}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={t("Open {url}", { url: `https://${app.domain}` })}
+                  aria-label={t("Open {url}", { url: app.domain })}
+                  className="shrink-0 text-muted-foreground hover:text-primary"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </span>
-            {(named || app.runtime) && (
+            {(named || manual) && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                 {/* imported by the server sync: set up by hand, run under its own
                     user — the panel watches it but never deploys or provisions it.
                     On the second line so it never costs the name its width. */}
-                {app.runtime && (
+                {manual && (
                   <Badge
                     variant="outline"
                     className="shrink-0 border-warning/40 px-1.5 py-0 text-[10px] font-medium text-warning"
                     title={t("Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.", {
-                      runtime: RUNTIME_LABEL[app.runtime] ?? app.runtime,
+                      runtime: RUNTIME_LABEL[app.runtime!] ?? app.runtime,
                     })}
                   >
                     {t("Manual")}
                   </Badge>
                 )}
-                {named && (
-                  <>
-                    <Globe className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{app.domain}</span>
-                  </>
-                )}
+                {named && <span className="truncate">{app.domain}</span>}
               </span>
             )}
+          </div>
           </div>
         );
       },
@@ -372,91 +467,59 @@ export default function Application() {
           },
         ]
       : []),
-    {
-      header: t("Type"),
-      className: "w-28",
-      sortKey: "type",
-      cell: (app) => <AppTypeBadge type={app.type} port={app.port} />,
-    },
-    {
-      header: t("Server"),
-      className: "w-28 text-xs",
-      sortKey: "server",
-      cell: (app) =>
-        app.server ? (
-          <Link to={`/servers/${app.server.id}`} className="truncate hover:underline">
-            {app.server.name}
-          </Link>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        ),
-    },
-    {
-      header: t("Health"),
-      className: "w-[22%]",
-      // the row's status, not the heartbeat bar — "down" sites the sync marked
-      // ERROR sort with the broken ones
-      sortKey: "status",
-      cell: (app) => {
-        const health = healthById[app.id];
-        const label = healthLabel(health);
-        // a deploy in flight is this platform's own work, not the site's health
-        const deploying = app.status === "DEPLOYING" || app.status === "BUILDING";
-
-        return (
-          <div className="space-y-1">
-            <HeartbeatBar health={health} />
-            <span className="flex min-w-0 items-center gap-1.5 text-xs">
-              {deploying ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin text-warning" />
-                  <span className="text-warning">{app.status === "DEPLOYING" ? t("deploying") : t("building")}</span>
-                </>
+    // what it runs on and how it has been doing: for the operator. A client has
+    // the status word, and no access to the servers anyway.
+    ...(superAdmin
+      ? [
+          {
+            header: t("Server"),
+            className: "w-28 text-xs",
+            sortKey: "server",
+            cell: (app: (typeof applications)[number]) =>
+              app.server ? (
+                <Link to={`/servers/${app.server.id}`} className="truncate hover:underline">
+                  {app.server.name}
+                </Link>
               ) : (
-                <span className={label.className}>{label.text}</span>
-              )}
-              {health?.responseMs != null && (
-                <span className="text-muted-foreground">· {health.responseMs}ms</span>
-              )}
-              {health?.lastError && health.state !== "up" && (
-                <span className="truncate text-muted-foreground" title={health.lastError}>
-                  · {health.lastError}
-                </span>
-              )}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
-      header: t("Uptime"),
-      className: "w-24 text-xs",
-      cell: (app) => {
-        const uptime = healthById[app.id]?.uptime24h;
-        return uptime == null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <span title={t("Successful checks in the last 24 hours")}>{uptime}%</span>
-        );
-      },
-    },
-    {
-      header: t("Created"),
-      className: "w-28 text-xs",
-      sortKey: "createdAt",
-      cell: (app) => (
-        <span title={new Date(app.createdAt).toLocaleString(locale)}>
-          {new Date(app.createdAt).toLocaleDateString(locale, {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          })}
-        </span>
-      ),
-    },
+                <span className="text-muted-foreground">—</span>
+              ),
+          },
+          {
+            header: t("Last 30 checks"),
+            className: "w-[18%]",
+            cell: (app: (typeof applications)[number]) => {
+              const health = healthById[app.id];
+              return (
+                <div className="space-y-0.5">
+                  <HeartbeatBar health={health} />
+                  {health?.uptime24h != null && (
+                    <span className="block text-xs text-muted-foreground" title={t("Successful checks in the last 24 hours")}>
+                      {t("{uptime}% / 24h", { uptime: health.uptime24h })}
+                    </span>
+                  )}
+                </div>
+              );
+            },
+          },
+          {
+            header: t("Created"),
+            className: "w-28 text-xs",
+            sortKey: "createdAt",
+            cell: (app: (typeof applications)[number]) => (
+              <span title={new Date(app.createdAt).toLocaleString(locale)}>
+                {new Date(app.createdAt).toLocaleDateString(locale, {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+            ),
+          },
+        ]
+      : []),
     {
       header: t("Last deploy"),
-      className: "w-28 text-xs",
+      className: "w-32 text-xs",
       cell: (app) => {
         const at = app.deployments?.[0]?.createdAt;
         if (!at) return <span className="text-muted-foreground">—</span>;
@@ -546,47 +609,6 @@ export default function Application() {
         description={t("Manage your applications and services.")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <OrganizationFilter query={query} unassigned />
-            <Select
-              value={typeFilter || ALL}
-              onValueChange={(v) => {
-                setTypeFilter(v === ALL ? "" : v);
-                query.setPage(1);
-              }}
-            >
-              <SelectTrigger className="h-10 w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>{t("All types")}</SelectItem>
-                {Object.entries(APP_TYPES).map(([value, meta]) => (
-                  <SelectItem key={value} value={value}>
-                    {meta.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {superAdmin && (
-              <Select
-                value={serverFilter || ALL}
-                onValueChange={(v) => {
-                  setServerFilter(v === ALL ? "" : v);
-                  query.setPage(1);
-                }}
-              >
-                <SelectTrigger className="h-10 w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>{t("All servers")}</SelectItem>
-                  {servers.map((server) => (
-                    <SelectItem key={server.id} value={server.id}>
-                      {server.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
             {superAdmin && (
               <Button
                 variant="outline"
@@ -612,16 +634,17 @@ export default function Application() {
       >
         <DataTable
           columns={columns}
-          rows={applications}
+          rows={rows}
           rowKey={(app) => app.id}
           query={query}
           pagination={applicationsData?.pagination}
           isLoading={isLoading}
           searchPlaceholder={t("Search name or domain…")}
           empty={t("No applications yet — deploy your first one.")}
+          onRowClick={(app) => navigate(`/application/${app.id}`)}
           toolbar={
             // the imported-sites workflow: fifty unassigned rows, one owner —
-            // beside the search box, only while something is selected
+            // while something is selected the bar is for that, not for filters
             superAdmin && selectedIds.length > 0 ? (
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-medium">
@@ -644,7 +667,74 @@ export default function Application() {
                   {t("Clear")}
                 </Button>
               </div>
-            ) : null
+            ) : (
+          <>
+            <OrganizationFilter query={query} unassigned />
+            <Select
+              value={typeFilter || ALL}
+              onValueChange={(v) => {
+                setTypeFilter(v === ALL ? "" : v);
+                query.setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>{t("All types")}</SelectItem>
+                {Object.entries(APP_TYPES).map(([value, meta]) => (
+                  <SelectItem key={value} value={value}>
+                    {meta.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* an app on shop.example.com is under example.com */}
+            {domainsWithApps.length > 1 && (
+              <Select
+                value={domainFilter || ALL}
+                onValueChange={(v) => {
+                  setDomainFilter(v === ALL ? "" : v);
+                  query.setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-10 w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>{t("All domains")}</SelectItem>
+                  {domainsWithApps.map((domain) => (
+                    <SelectItem key={domain.id} value={domain.id}>
+                      {domain.name}
+                      <span className="ml-2 text-xs text-muted-foreground">{domain._count?.applications}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {superAdmin && (
+              <Select
+                value={serverFilter || ALL}
+                onValueChange={(v) => {
+                  setServerFilter(v === ALL ? "" : v);
+                  query.setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-10 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>{t("All servers")}</SelectItem>
+                  {servers.map((server) => (
+                    <SelectItem key={server.id} value={server.id}>
+                      {server.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </>
+            )
           }
         />
 

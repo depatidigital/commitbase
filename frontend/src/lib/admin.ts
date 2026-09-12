@@ -18,6 +18,7 @@ export interface ListParams {
   /** applications only */
   type?: string;
   serverId?: string;
+  domainId?: string;
 }
 
 export const listQuery = ({
@@ -32,10 +33,12 @@ export const listQuery = ({
   order,
   type,
   serverId,
+  domainId,
 }: ListParams) =>
   `?page=${page}&limit=${limit}` +
   (type ? `&type=${encodeURIComponent(type)}` : '') +
   (serverId ? `&serverId=${encodeURIComponent(serverId)}` : '') +
+  (domainId ? `&domainId=${encodeURIComponent(domainId)}` : '') +
   (search ? `&search=${encodeURIComponent(search)}` : '') +
   (organizationId ? `&organizationId=${encodeURIComponent(organizationId)}` : '') +
   (filter ? `&filter=${encodeURIComponent(filter)}` : '') +

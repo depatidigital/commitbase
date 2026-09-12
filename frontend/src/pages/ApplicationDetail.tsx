@@ -46,7 +46,8 @@ import {
   Upload,
   KeyRound,
   MoreHorizontal,
-  Rocket
+  Rocket,
+  Undo2
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -58,19 +59,19 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
-import { useDeploymentHistory } from "@/hooks/useDeployments";
+import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
-import DeploymentHistory, { LiveBuildLog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
-import { ReleasesCard } from "@/components/ReleasesCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { SourcePicker } from "@/components/SourcePicker";
 import { DangerZoneCard } from "@/components/DangerZoneCard";
 import { AppStorageCard } from "@/components/AppStorageCard";
 import { locale, t } from "@/lib/i18n";
+import { isSuperAdmin } from "@/lib/auth";
 import { testDatabaseUrl } from "@/lib/databases";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
@@ -197,6 +198,9 @@ export default function ApplicationDetail() {
   // does — so the history is what says a deploy is running, and when it ends
   // the app row is fetched again for its new status.
   const { data: history } = useDeploymentHistory(id!);
+  // kept builds: "Undo last deploy" goes back to the one before what serves
+  const { data: releaseData } = useReleases(id!);
+  const [undoTo, setUndoTo] = useState<Release | null>(null);
   const newestDeploy = history?.data?.[0];
   const deployInFlight = ['PENDING', 'BUILDING', 'DEPLOYING'].includes(newestDeploy?.status ?? '');
   const queryClient = useQueryClient();
@@ -355,6 +359,10 @@ export default function ApplicationDetail() {
   const canStop = !isStatic && application.status === 'RUNNING';
   // an uploaded site redeploys by uploading, from its own button
   const canRedeploy = deployed && !uploadedSite;
+  // newest first, so the next READY one after the serving one is the previous version
+  const releases = releaseData?.releases ?? [];
+  const servingAt = releases.findIndex((release) => release.id === releaseData?.activeReleaseId);
+  const previousRelease = servingAt < 0 ? undefined : releases.slice(servingAt + 1).find((release) => release.status === 'READY');
 
   return (
     <TooltipProvider>
@@ -451,7 +459,7 @@ export default function ApplicationDetail() {
             ) : null}
 
             {/* the actions that change what is live, one deliberate click further away */}
-            {!deploying && (canRedeploy || canStop || (uploadedSite && hasSiteFiles)) && (
+            {!deploying && (canRedeploy || canStop || !!previousRelease || (uploadedSite && hasSiteFiles)) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon" aria-label={t("More actions")}>
@@ -468,6 +476,19 @@ export default function ApplicationDetail() {
                           {published
                             ? t("Builds the latest code. The current release keeps serving until it answers.")
                             : t("Builds the latest code and starts it.")}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+                  {previousRelease && (
+                    <DropdownMenuItem onClick={() => setUndoTo(previousRelease)} className="items-start">
+                      <Undo2 className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        {t("Undo last deploy")}
+                        <span className="block text-xs text-muted-foreground">
+                          {t("Back to the version from {time}. Nothing is rebuilt.", {
+                            time: new Date(previousRelease.createdAt).toLocaleString(locale),
+                          })}
                         </span>
                       </span>
                     </DropdownMenuItem>
@@ -621,7 +642,7 @@ export default function ApplicationDetail() {
             )}
             {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
-            <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+            <TabsTrigger value="deployments">{t("History")}</TabsTrigger>
             {/* a static site keeps its files in R2, not on a node */}
             {!isStatic && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
             <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
@@ -757,7 +778,7 @@ export default function ApplicationDetail() {
                   </div>
                 </Field>
                 <Field label={t("Server")}>
-                  {application.placement ? (
+                  {application.placement && isSuperAdmin() ? (
                     <Link
                       to={`/servers/${application.placement.id}`}
                       className="inline-flex flex-wrap items-center justify-end gap-2 hover:text-primary"
@@ -771,6 +792,12 @@ export default function ApplicationDetail() {
                         </Badge>
                       ))}
                     </Link>
+                  ) : application.placement ? (
+                    // the server pages are superadmin-only: for anyone else, just its name
+                    <span className="inline-flex items-center gap-2">
+                      <Server className="h-4 w-4 text-muted-foreground" />
+                      {application.placement.name}
+                    </span>
                   ) : (
                     // routes and builds refuse to run without one — say it here
                     <span className="text-destructive">
@@ -971,7 +998,6 @@ export default function ApplicationDetail() {
 
           {/* Deployments Tab */}
           <TabsContent value="deployments" className="space-y-6">
-            <ReleasesCard appId={application.id} isStatic={isStatic} />
             <DeploymentHistory application={application} />
           </TabsContent>
 
@@ -1021,6 +1047,8 @@ export default function ApplicationDetail() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <RestoreDialog appId={application.id} isStatic={isStatic} release={undoTo} onClose={() => setUndoTo(null)} />
 
         <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
           <AlertDialogContent>

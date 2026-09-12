@@ -344,15 +344,18 @@ router.post('/branches', authenticateToken, async (req: AuthenticatedRequest, re
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { page, limit, skip, search, organizationId } = paging(req);
-    // ?type=PHP, ?serverId=… — anything not an AppType value is ignored, not a 500
+    // ?type=PHP, ?serverId=…, ?domainId=… — anything not an AppType value is ignored, not a 500
     const type = String(req.query.type ?? '').trim().toUpperCase();
     const serverId = String(req.query.serverId ?? '').trim();
+    // the parent domain: an app on shop.example.com belongs to example.com
+    const domainId = String(req.query.domainId ?? '').trim();
     const where = {
       ...(await orgScope(req)),
       // ?organizationId=unassigned: the synced rows nobody has claimed yet
       ...(organizationId && { organizationId: organizationId === 'unassigned' ? null : organizationId }),
       ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
       ...(serverId && { serverId }),
+      ...(domainId && { domainId }),
       ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }] }),
     };
 

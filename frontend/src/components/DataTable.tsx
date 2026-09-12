@@ -127,7 +127,13 @@ interface DataTableProps<T> {
   searchPlaceholder?: string;
   empty?: ReactNode;
   toolbar?: ReactNode;
+  /** The whole row opens it. Clicks on the row's own links, buttons and menus still go to them. */
+  onRowClick?: (row: T) => void;
 }
+
+// what a click inside a clickable row should leave alone — menu items too: a
+// portalled menu's clicks still bubble through React to the row
+const INTERACTIVE = "a,button,input,label,[role=checkbox],[role=menuitem],[role=dialog]";
 
 export function DataTable<T>({
   columns,
@@ -140,6 +146,7 @@ export function DataTable<T>({
   searchPlaceholder = t("Search…"),
   empty = t("No results."),
   toolbar,
+  onRowClick,
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
     query;
@@ -154,35 +161,17 @@ export function DataTable<T>({
   const visible = local
     ? matched.slice(firstRowNumber, firstRowNumber + limit)
     : matched;
+  // everything fits on one page: no pager and no page size to think about
+  const paged = totalPages > 1;
 
   return (
     // data-fill: PageLayout bounds its height when it holds this. The floor keeps
     // a few rows visible when there is a lot above it; past that main scrolls.
     <div data-fill className="flex min-h-[20rem] flex-col gap-4">
+      {/* search leads — it is how a row is found; filters sit right after it */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>{t("Show")}</span>
-          <Select
-            value={String(limit)}
-            onValueChange={(v) => setLimit(Number(v))}
-          >
-            <SelectTrigger className="w-20">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PAGE_SIZES.map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span>{t("entries")}</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {toolbar}
-          <div className="relative sm:w-72">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-8"
@@ -191,7 +180,30 @@ export function DataTable<T>({
               onChange={(e) => setInput(e.target.value)}
             />
           </div>
+          {toolbar}
         </div>
+
+        {paged && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>{t("Show")}</span>
+            <Select
+              value={String(limit)}
+              onValueChange={(v) => setLimit(Number(v))}
+            >
+              <SelectTrigger className="w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZES.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span>{t("entries")}</span>
+          </div>
+        )}
       </div>
 
       {/* The rows scroll, not the page: this box shrinks to the height left in
@@ -250,7 +262,16 @@ export function DataTable<T>({
               </TableRow>
             ) : (
               visible.map((row) => (
-                <TableRow key={rowKey(row)}>
+                <TableRow
+                  key={rowKey(row)}
+                  className={onRowClick ? "cursor-pointer" : undefined}
+                  onClick={
+                    onRowClick &&
+                    ((event) => {
+                      if (!(event.target as HTMLElement).closest(INTERACTIVE)) onRowClick(row);
+                    })
+                  }
+                >
                   {columns.map((c, ci) => (
                     <TableCell key={ci} className={c.className}>
                       {c.cell(row)}
@@ -269,6 +290,7 @@ export function DataTable<T>({
             ? t("0 entries")
             : t("Showing {from}–{to} of {total}", { from: firstRowNumber + 1, to: firstRowNumber + visible.length, total })}
         </p>
+        {paged && (
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -290,6 +312,7 @@ export function DataTable<T>({
             {t("Next")} <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+        )}
       </div>
     </div>
   );
