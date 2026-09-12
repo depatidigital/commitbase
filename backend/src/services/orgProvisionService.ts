@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { execRoot, remoteExists, remoteReadDir, type SshTarget, type ExecOptions } from '../lib/runner';
 import { serverForOrg } from '../lib/servers';
+import { liveLog } from '../lib/liveLog';
 import { ORG_SLUG_RE, APP_ID_RE, orgHome, orgAppsDir, osUserFor, orgSlicePath } from '../lib/appPaths';
 
 /**
@@ -56,8 +57,14 @@ function runScript(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', 
   return execRoot(server, ['bash', '-c', script(name), name, ...args], opts);
 }
 
-async function sudo(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', args: string[], timeout = 60_000): Promise<string> {
-  const { stdout } = await runScript(server, name, args, { timeout });
+async function sudo(
+  server: SshTarget,
+  name: 'cb-provision-org' | 'cb-app-unit',
+  args: string[],
+  timeout = 60_000,
+  onOutput?: (text: string) => void,
+): Promise<string> {
+  const { stdout } = await runScript(server, name, args, { timeout, ...(onOutput && { onOutput }) });
   return stdout.trim();
 }
 
@@ -76,7 +83,7 @@ export interface ProvisionResult {
  */
 export async function provisionOrg(
   slug: string,
-  opts: { diskQuota?: string; cpuQuota?: string; memoryMax?: string } = {}
+  opts: { diskQuota?: string; cpuQuota?: string; memoryMax?: string; onOutput?: (text: string) => void } = {}
 ): Promise<ProvisionResult> {
   if (!OS_ISOLATION_ENABLED) return { provisioned: false, reason: 'ORG_OS_ISOLATION is not enabled' };
   assertSlug(slug);
@@ -90,7 +97,7 @@ export async function provisionOrg(
   if (!QUOTA_RE.test(memoryMax)) throw new Error(`Invalid memory max: ${memoryMax}`);
 
   const server = await serverForOrg(slug);
-  const output = await sudo(server, 'cb-provision-org', [slug, diskQuota, cpuQuota, memoryMax]);
+  const output = await sudo(server, 'cb-provision-org', [slug, diskQuota, cpuQuota, memoryMax], 60_000, opts.onOutput);
   return { provisioned: true, osUser: osUserFor(slug), home: orgHome(slug), output };
 }
 
@@ -226,7 +233,14 @@ export async function getProvisionStatus(slug: string): Promise<ProvisionStatus>
 export async function provisionOrgLogged(
   slug: string,
   userId: string,
-  opts: { diskQuota?: string; cpuQuota?: string; memoryMax?: string; organizationId?: string; trigger?: string } = {}
+  opts: {
+    diskQuota?: string;
+    cpuQuota?: string;
+    memoryMax?: string;
+    organizationId?: string;
+    trigger?: string;
+    onOutput?: (text: string) => void;
+  } = {}
 ): Promise<ProvisionResult> {
   const base = { organizationId: opts.organizationId ?? null, slug, trigger: opts.trigger ?? 'manual' };
 
@@ -297,7 +311,8 @@ export async function runOrgProvision(organizationId: string): Promise<string> {
     // Unplaced orgs stay QUEUED — placement kicks them.
     const claimed = await prisma.organization.updateMany({
       where: { id: organizationId, provisionState: 'QUEUED', serverId: { not: null } },
-      data: { provisionState: 'RUNNING' },
+      // the previous run's output would read as this run's
+      data: { provisionState: 'RUNNING', provisionLog: null },
     });
     if (claimed.count === 0) {
       const row = await prisma.organization.findUnique({
@@ -320,20 +335,39 @@ export async function runOrgProvision(organizationId: string): Promise<string> {
     );
     if (!org.provisionJob) console.warn(`[org-provision] ${org.slug}: provisionJob is empty — running with defaults`);
 
+    // followed live from the Organizations page
+    const live = liveLog((text) => prisma.organization.update({ where: { id: organizationId }, data: { provisionLog: text } }));
+    live.push(`provisioning ${osUserFor(org.slug)} on ${node}\n`);
+
     try {
-      const result = await provisionOrgLogged(org.slug, userId, { ...limits, organizationId, trigger });
+      const result = await provisionOrgLogged(org.slug, userId, {
+        ...limits,
+        organizationId,
+        trigger,
+        onOutput: (text) => live.push(text),
+      });
+      await live.stop();
       await prisma.organization.update({
         where: { id: organizationId },
-        data: { provisionState: 'DONE', provisionError: null, provisionJob: Prisma.DbNull, provisionedAt: new Date() },
+        data: {
+          provisionState: 'DONE',
+          provisionError: null,
+          provisionLog: live.text || result.output || null,
+          provisionJob: Prisma.DbNull,
+          provisionedAt: new Date(),
+        },
       });
       console.log(`[org-provision] ${org.slug}: DONE in ${Date.now() - started}ms`);
       if (result.output) console.log(`[org-provision] ${org.slug}: script output:\n${result.output}`);
       return `${org.slug}: done`;
     } catch (err: any) {
       const message = String(err?.stderr || err?.message || err);
+      await live.stop();
+      // a failure before any output (no SSH, bad slug) still gets a log line
+      if (!live.text.includes(message)) live.push(`\n${message}\n`);
       await prisma.organization.update({
         where: { id: organizationId },
-        data: { provisionState: 'FAILED', provisionError: message.slice(0, 1000) },
+        data: { provisionState: 'FAILED', provisionError: message.slice(0, 1000), provisionLog: live.text },
       });
       console.error(`[org-provision] ${org.slug}: FAILED after ${Date.now() - started}ms on ${node} — ${message}`);
       if (err?.stdout) console.error(`[org-provision] ${org.slug}: script stdout:\n${err.stdout}`);

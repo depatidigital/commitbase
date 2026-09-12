@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -40,13 +40,26 @@ export default function Organizations() {
   const query = useTableQuery();
   const superadmin = isSuperAdmin();
 
+  // id of the org whose provisioning output is open — an id, so the dialog
+  // follows the polled row and the output grows while it runs
+  const [logFor, setLogFor] = useState<string | null>(null);
+  const logRef = useRef<HTMLPreElement>(null);
+
   const { data, isFetching } = useQuery({
     queryKey: ["organizations", "page", query.params],
     queryFn: () => getOrganizationsPage(query.params),
-    // poll while a placed org is still in the provisioning queue
+    // every 2s while an output is open, otherwise every 5s while a placed org
+    // is still in the provisioning queue
     refetchInterval: (q) =>
-      q.state.data?.data.some((o) => o.server && isProvisionPending(o.provisionState)) ? 5000 : false,
+      logFor ? 2000 : q.state.data?.data.some((o) => o.server && isProvisionPending(o.provisionState)) ? 5000 : false,
   });
+  const logOrg = data?.data.find((o) => o.id === logFor) ?? null;
+
+  // follow the tail, unless the reader scrolled up to look at something
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+  }, [logOrg?.provisionLog]);
 
   const orgMutation = useMutation({
     mutationFn: async () => {
@@ -127,6 +140,7 @@ export default function Organizations() {
           at={o.provisionedAt}
           // runs once the organization is placed on a server
           waiting={o.server ? undefined : t("Waiting for server")}
+          onClick={o.provisionLog || (o.server && isProvisionPending(o.provisionState)) ? () => setLogFor(o.id) : undefined}
         />
       ),
     },
@@ -241,6 +255,24 @@ export default function Organizations() {
         searchPlaceholder={t("Search name or slug…")}
         empty={t("No organizations yet.")}
       />
+
+      <Dialog open={!!logFor} onOpenChange={(o) => !o && setLogFor(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {t("Provisioning output — {name}", { name: logOrg?.name ?? "" })}
+              {logOrg && <ProvisionBadge state={logOrg.provisionState} />}
+            </DialogTitle>
+            {logOrg?.provisionError && (
+              <DialogDescription className="text-destructive">{logOrg.provisionError}</DialogDescription>
+            )}
+          </DialogHeader>
+          <pre ref={logRef} className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
+            {logOrg?.provisionLog ||
+              (logOrg?.provisionState === "QUEUED" ? t("Waiting to start…") : t("Waiting for output…"))}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   );
 }

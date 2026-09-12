@@ -88,6 +88,7 @@ fi
 if [ "$WITH_PHP" = "1" ]; then
   note "PHP-FPM + composer"
   apt-get install -y -qq php-fpm php-cli php-mysql php-pgsql php-xml php-mbstring php-curl php-zip composer >/dev/null
+  note "php $(php -r 'echo PHP_VERSION;'), $(composer --version 2>/dev/null | head -1)"
 fi
 
 # ------------------------------------------------------------ 2. build user
@@ -246,6 +247,12 @@ note "$SSH_USER has passwordless root for the runner scripts"
 systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
 
 say "Done"
+# Run by the panel's Set up: the server is registered already, and the
+# "how to add it" block below would only mislead.
+if [ "${FROM_PANEL:-0}" = 1 ]; then
+  note "This box is a Larika node. Place organizations on it from their organization page."
+  exit 0
+fi
 cat <<EOF
     This box is a Larika node. It runs no backend and no database.
 

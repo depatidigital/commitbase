@@ -3,6 +3,7 @@ import * as path from 'path';
 import { prisma } from '../lib/prisma';
 import { execRoot, dropConnection } from '../lib/runner';
 import { pingServer } from './serverHealthService';
+import { liveLog } from '../lib/liveLog';
 
 /**
  * Node setup queue.
@@ -23,8 +24,6 @@ const INSTALL_SH = path.resolve(__dirname, '../../../install.sh');
 const PANEL_KEY = process.env.CB_SSH_KEY_PATH || '/opt/larika/.ssh/id_ed25519';
 const SETUP_TIMEOUT_MS = 30 * 60_000;
 const LOG_TAIL = 8_000;
-/** How often the running output is written to the row, for the live log view. */
-const LIVE_FLUSH_MS = 2_000;
 
 const running = new Set<string>();
 
@@ -60,28 +59,9 @@ export async function runServerSetup(serverId: string): Promise<void> {
 
     const server = await prisma.server.findUniqueOrThrow({ where: { id: serverId } });
 
-    // Output as it arrives, stdout and stderr interleaved in order. Written to
-    // the row every LIVE_FLUSH_MS so the Servers page can follow along by polling.
-    // ponytail: DB polling, not a socket — 2s lag is fine for minutes of apt.
-    let live = '';
-    let dirty = false;
-    let flushing: Promise<unknown> = Promise.resolve();
-    const flush = () => {
-      if (!dirty) return;
-      dirty = false;
-      flushing = prisma.server.update({ where: { id: serverId }, data: { setupLog: live } }).catch(() => {});
-    };
-    const ticker = setInterval(flush, LIVE_FLUSH_MS);
-    const onOutput = (text: string) => {
-      // install.sh colours its headings for a terminal; the log view is plain text
-      live = (live + text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')).slice(-LOG_TAIL);
-      dirty = true;
-    };
-    // a live write landing after the final one would overwrite it with an older tail
-    const stopLive = async () => {
-      clearInterval(ticker);
-      await flushing;
-    };
+    // stdout and stderr interleaved in order, followed live by the Servers page
+    const live = liveLog((text) => prisma.server.update({ where: { id: serverId }, data: { setupLog: text } }), LOG_TAIL);
+    const onOutput = (text: string) => live.push(text);
 
     try {
       // Authorising the panel's key on the node is only needed so the panel can
@@ -94,6 +74,7 @@ export async function runServerSetup(serverId: string): Promise<void> {
         ...(pubkey ? [`PANEL_SSH_PUBKEY=${pubkey}`] : []),
         `SERVER_IP=${server.publicIp}`,
         `PANEL_LOGIN_USER=${server.sshUser}`,
+        'FROM_PANEL=1',
         ...(email ? [`ACME_EMAIL=${email}`] : []),
       ];
 
@@ -103,23 +84,23 @@ export async function runServerSetup(serverId: string): Promise<void> {
         { timeout: SETUP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, onOutput },
       );
 
-      await stopLive();
+      await live.stop();
       await prisma.server.update({
         where: { id: serverId },
-        data: { setupState: 'DONE', setupError: null, setupLog: live || (stdout + stderr).slice(-LOG_TAIL), setupAt: new Date() },
+        data: { setupState: 'DONE', setupError: null, setupLog: live.text || (stdout + stderr).slice(-LOG_TAIL), setupAt: new Date() },
       });
       // setup added the login user to the larika group; only a new login gets it
       await dropConnection(server.id);
       // refresh ONLINE/provisioned now rather than at the next heartbeat
       await pingServer(server).catch(() => {});
     } catch (err: any) {
-      await stopLive();
+      await live.stop();
       await prisma.server.update({
         where: { id: serverId },
         data: {
           setupState: 'FAILED',
           setupError: String(err?.message || err).split('\n')[0]!.slice(0, 500),
-          setupLog: (live || String((err?.stdout ?? '') + (err?.stderr ?? '') || err?.message || err)).slice(-LOG_TAIL),
+          setupLog: (live.text || String((err?.stdout ?? '') + (err?.stderr ?? '') || err?.message || err)).slice(-LOG_TAIL),
         },
       });
     }

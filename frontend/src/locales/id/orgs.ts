@@ -120,6 +120,7 @@ export default {
   "Domain ownership and per-organization OS isolation.":
     "Kepemilikan domain dan isolasi OS per organisasi.",
   "Provisioning log": "Log provisioning",
+  "Provisioning output — {name}": "Keluaran provisioning — {name}",
   "Search domain…": "Cari domain…",
   "No domains yet.": "Belum ada domain.",
   "Domain ownership updated": "Kepemilikan domain diperbarui",

@@ -17,6 +17,8 @@ export interface Organization {
   /** OS provisioning queue. QUEUED with no server waits for placement. */
   provisionState: ProvisionState;
   provisionError: string | null;
+  /** Tail of cb-provision-org's output — grows while RUNNING. */
+  provisionLog: string | null;
   provisionedAt: string | null;
   _count: { members: number; domains: number; applications: number };
 }

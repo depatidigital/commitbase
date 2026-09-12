@@ -59,6 +59,8 @@ model Organization {
   // A QUEUED org with no server waits until it is placed.
   provisionState ProvisionState @default(NONE)
   provisionError String?
+  /// Tail of cb-provision-org's output, written while it runs (live view) and kept after
+  provisionLog   String?
   /// { userId, trigger, diskQuota?, cpuQuota?, memoryMax? } of the pending request
   provisionJob   Json?
   provisionedAt  DateTime?
