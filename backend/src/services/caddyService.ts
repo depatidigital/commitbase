@@ -295,6 +295,8 @@ export function buildRoute(domain: string, target: Target): any {
       },
     ],
     handle: [],
+    // this hostname is fully handled here — nothing after it applies
+    terminal: true,
   };
 
   if (target.type === 'runtime') {
@@ -357,6 +359,27 @@ export function buildRoute(domain: string, target: Target): any {
   return route;
 }
 
+const hostsOf = (route: any): string[] =>
+  (Array.isArray(route?.match) ? route.match : [])
+    .flatMap((m: any) => (Array.isArray(m?.host) ? m.host : []))
+    .filter((h: any) => typeof h === 'string');
+
+/**
+ * A route that answers any hostname: no host matcher, and it either ends the
+ * chain or hands the request to something that responds. Caddy tries routes in
+ * order, so a host route placed after one of these is never reached.
+ */
+const isCatchAll = (route: any): boolean =>
+  hostsOf(route).length === 0 &&
+  (route?.terminal === true ||
+    /"handler":"(reverse_proxy|file_server|static_response)"/.test(JSON.stringify(route?.handle ?? [])));
+
+/** `routes` with `route` inserted ahead of the first catch-all, else at the end. */
+export function withRoute(routes: any[], route: any): any[] {
+  const at = routes.findIndex(isCatchAll);
+  return at < 0 ? [...routes, route] : [...routes.slice(0, at), route, ...routes.slice(at)];
+}
+
 /**
  * Rewrite the route list for one hostname: drop what is there, add `target` if
  * given. Only the one server block is written back, so TLS, other apps and
@@ -383,20 +406,8 @@ async function setRouteUnlocked(node: SshTarget, domain: string, target: Target 
   const server = servers[serverName];
 
   const routes: any[] = server.routes || [];
-  const filteredRoutes = routes.filter((route) => {
-    if (!Array.isArray(route.match)) {
-      return true;
-    }
-
-    const hosts = route.match
-      .flatMap((m: any) => (Array.isArray(m.host) ? m.host : []))
-      .filter((h: any) => typeof h === 'string');
-
-    return !hosts.includes(domain);
-  });
-
-  if (target) filteredRoutes.push(buildRoute(domain, target));
-  server.routes = filteredRoutes;
+  const filteredRoutes = routes.filter((route) => !hostsOf(route).includes(domain));
+  server.routes = target ? withRoute(filteredRoutes, buildRoute(domain, target)) : filteredRoutes;
 
   if (hadServer) {
     // PATCH replaces just this server block (listen, TLS policies and all,

@@ -459,6 +459,30 @@ const ServerDetail = () => {
               )}
             </CardContent>
           </Card>
+
+          <AlertDialog open={!!restoring} onOpenChange={(open) => !open && setRestoring(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("Restore this Caddy config?")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("Caddy on this node goes back to the config from {when}. Routes added since are no longer served. The current config is kept as a snapshot first, so this can be undone.", {
+                    when: restoring ? new Date(restoring.createdAt).toLocaleString(locale) : "",
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (restoring) restore.mutate(restoring.id);
+                    setRestoring(null);
+                  }}
+                >
+                  {t("Restore")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
       </Tabs>
     </PageLayout>
