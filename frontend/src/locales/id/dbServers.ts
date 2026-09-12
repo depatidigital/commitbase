@@ -48,8 +48,8 @@ export default {
   "Give it CREATE USER, CREATE and DROP on *.* WITH GRANT OPTION — not root. Encrypted before it is stored and never returned by the API.":
     "Beri CREATE USER, CREATE dan DROP pada *.* WITH GRANT OPTION — bukan root. Dienkripsi sebelum disimpan dan tidak pernah dikembalikan oleh API.",
   "Host apps connect to": "Host yang dihubungi aplikasi",
-  "Goes into the apps' connection string: localhost when they run on the same node, its private IP otherwise.":
-    "Masuk ke connection string aplikasi: localhost bila berjalan di node yang sama, selain itu IP privatnya.",
+  "For apps on other nodes — a private IP they can reach. Apps on the same node connect over loopback on their own; left at loopback, other nodes get the node's public IP.":
+    "Untuk aplikasi di node lain — IP privat yang bisa mereka jangkau. Aplikasi di node yang sama otomatis lewat loopback; bila dibiarkan loopback, node lain memakai IP publik node ini.",
   "CA certificate (optional)": "Sertifikat CA (opsional)",
   "PEM. Leave empty to verify against the system's trusted roots.":
     "PEM. Kosongkan untuk memverifikasi dengan root tepercaya sistem.",

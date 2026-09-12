@@ -11,6 +11,8 @@ interface AppSetupCardProps {
   detecting: boolean;
   /** the Environment tab's form as it stands */
   env: EnvStatus;
+  /** the saved DATABASE_URL tried from the app's node: running, its outcome, or not tried */
+  dbCheck?: "pending" | { ok: boolean; message: string } | null;
   onDeploy: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
@@ -21,7 +23,8 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
+  const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
   const install = application.installCommand || detected?.installCommand;
   const build = application.buildCommand || detected?.buildCommand;
   const start = application.startCommand || detected?.startCommand;
@@ -61,7 +64,7 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
         <div className="divide-y">
           <Step
             done={envDone}
-            warn={env.warnings.length > 0}
+            warn={env.warnings.length > 0 || dbFailed}
             title={t("Environment")}
             action={
               <Button type="button" variant="outline" size="sm" onClick={onEditEnv}>
@@ -92,6 +95,22 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
                 {t("{count} to check: {keys}", { count: env.warnings.length, keys: env.warnings.join(", ") })}
               </p>
             )}
+            {/* tried for real from the app's node — the app would fail the same way */}
+            {dbCheck === "pending" ? (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("Testing DATABASE_URL from the app's server…")}
+              </p>
+            ) : dbFailed ? (
+              <p className="flex items-start gap-1 text-xs text-destructive">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="break-all">
+                  {t("DATABASE_URL does not connect: {reason}", { reason: (dbCheck as { message: string }).message })}
+                </span>
+              </p>
+            ) : dbCheck ? (
+              <p className="text-xs text-green-600 dark:text-green-400">{t("DATABASE_URL connects from the app's server.")}</p>
+            ) : null}
           </Step>
 
           <Step
@@ -126,11 +145,14 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
-          {!envDone && !detecting && (
+          {!envDone && !detecting ? (
             <span className="text-xs text-muted-foreground">
               {env.dirty ? t("Save the environment before deploying.") : t("Fill in the empty variables to deploy.")}
             </span>
-          )}
+          ) : dbFailed ? (
+            // said, not blocking: the database may come up by the time the app starts
+            <span className="text-xs text-destructive">{t("The app will not reach its database with this DATABASE_URL.")}</span>
+          ) : null}
           <Button
             type="button"
             onClick={onDeploy}

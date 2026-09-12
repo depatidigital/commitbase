@@ -486,7 +486,7 @@ export default function DatabaseServers() {
                   onChange={(e) => setForm({ ...form, appHost: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t("Goes into the apps' connection string: localhost when they run on the same node, its private IP otherwise.")}
+                  {t("For apps on other nodes — a private IP they can reach. Apps on the same node connect over loopback on their own; left at loopback, other nodes get the node's public IP.")}
                 </p>
               </div>
 

@@ -118,6 +118,23 @@ export const getDatabase = async (id: string): Promise<Database> => {
 };
 
 // Create a database on the organization's database server
+/**
+ * Try a database URL from the app's own node with the URL's credentials — the
+ * value being edited, else the saved variable `key`. Resolves either way.
+ */
+export const testDatabaseUrl = async (
+  applicationId: string,
+  key: string,
+  value?: string,
+): Promise<{ ok: boolean; message: string }> => {
+  const response = await apiRequest<{ ok: boolean; message: string }>('/databases/test-url', {
+    method: 'POST',
+    body: JSON.stringify({ applicationId, key, value }),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not test the connection'));
+};
+
 /** `accountId`: the login it was made with, for the attach that follows. */
 export const createDatabase = async (data: CreateDatabaseData): Promise<Database & { accountId?: string }> => {
   const response = await apiRequest<Database & { accountId?: string }>('/databases', {

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database as DatabaseIcon, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
+import { testDatabaseUrl } from "@/lib/databases";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, getApplication, hasBeenDeployed, updateApplication } from "@/lib/applications";
 import {
@@ -11,6 +12,7 @@ import {
   PLATFORM_KEYS,
   generateSecret,
   mergeRows,
+  parseDatabaseUrl,
   pointsAtLocalhost,
   requiredKeys,
   rowsToEnv,
@@ -65,20 +67,32 @@ export function AppEnvironment({ application, detected, onStatus }: AppEnvironme
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dbOpen, setDbOpen] = useState(false);
-  // a refetch (a database connected, another tab saved) resets only an untouched form
+  // A refetch (a database connected, another tab saved) resets only an untouched
+  // form — on a change of what is saved, never on the form turning clean: right
+  // after a save the page may still hold the old env, and resetting to it then
+  // would show the saved values reverted.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   useEffect(() => {
-    if (!dirty) setRows(initial);
-  }, [initial, dirty]);
+    if (!dirtyRef.current) setRows(initial);
+  }, [initial]);
 
   // counted from what is on screen, not what is saved: a value just typed is no longer "empty"
   const missing = useMemo(
     () => [...required].filter((key) => !rows.find((row) => row.key === key)?.value.trim()),
     [required, rows],
   );
+  // a database URL can be tried from the app's node (verify below) — whether
+  // localhost works there is for that test to say, not for its text
+  const isDatabaseUrl = (row: EnvRow) => !!parseDatabaseUrl(row.value).engine;
   const warnings = useMemo(
     () =>
       rows
-        .filter((row) => row.value.trim() && (pointsAtLocalhost(row.value) || PLATFORM_KEYS[row.key] === "ignored"))
+        .filter(
+          (row) =>
+            row.value.trim() &&
+            ((pointsAtLocalhost(row.value) && !isDatabaseUrl(row)) || PLATFORM_KEYS[row.key] === "ignored"),
+        )
         .map((row) => row.key),
     [rows],
   );
@@ -161,6 +175,8 @@ export function AppEnvironment({ application, detected, onStatus }: AppEnvironme
         suggest={(row) => suggestAppUrl(row.key, row.value, application.domain)}
         // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY…)
         generate={(row) => (row.value ? null : generateSecret(row.key))}
+        // tried from the node the app runs on, with the value as typed
+        verify={(row) => (isDatabaseUrl(row) ? () => testDatabaseUrl(application.id, row.key, row.value) : null)}
         disabled={saving}
         onChange={(next) => {
           setRows(next);

@@ -60,6 +60,8 @@ import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { SourcePicker } from "@/components/SourcePicker";
 import { DangerZoneCard } from "@/components/DangerZoneCard";
 import { locale, t } from "@/lib/i18n";
+import { testDatabaseUrl } from "@/lib/databases";
+import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
   Tooltip,
@@ -175,6 +177,18 @@ export default function ApplicationDetail() {
   });
   // the Environment tab's form, for the setup checklist on the Overview tab
   const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], warnings: [], dirty: false });
+  // Before the first deploy, the saved DATABASE_URL tried from the app's node:
+  // a login that fails or a host it cannot reach is said on the checklist, not
+  // found in the logs of a crashed app. Re-run whenever the app is saved.
+  const savedDbUrl = application?.envVars?.DATABASE_URL ?? '';
+  const dbCheck = useQuery({
+    // not under ['application', id]: the status poll invalidates that every 2s during a deploy
+    queryKey: ['db-check', id, application?.updatedAt],
+    queryFn: () => testDatabaseUrl(id!, 'DATABASE_URL'),
+    enabled: needsSetup && !!parseDatabaseUrl(savedDbUrl).engine,
+    staleTime: 60_000,
+    retry: false,
+  });
   // a first deploy waits for this: the code's variables filled in and saved
   const setupReady = !detection.isLoading && envStatus.missing.length === 0 && !envStatus.dirty;
 
@@ -611,6 +625,7 @@ export default function ApplicationDetail() {
             detected={detection.data}
             detecting={detection.isLoading}
             env={envStatus}
+            dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
             onDeploy={handleStart}
             onEditEnv={() => setActiveTab("environment")}
             onEditBuild={() => setActiveTab("settings")}
