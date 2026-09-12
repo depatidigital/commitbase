@@ -133,7 +133,7 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
                 <span className="flex items-center gap-1.5 text-warning">
                   <GitCommit className="h-3.5 w-3.5 shrink-0" />
                   {live
-                    ? t("New commits on {branch} — deploy to put them live.", { branch })
+                    ? t("New commits on {branch} — pull them to put them live.", { branch })
                     : t("Deploy to put {branch} live.", { branch })}
                 </span>
               )}

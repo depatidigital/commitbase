@@ -441,7 +441,7 @@ export default {
   "Switching to {branch} — deploy to put it live.": "Beralih ke {branch} — deploy agar live.",
   "{branch} is not on the remote anymore.": "{branch} sudah tidak ada di remote.",
   "Up to date — the newest commit is live.": "Sudah terbaru — commit terbaru sedang live.",
-  "New commits on {branch} — deploy to put them live.": "Ada commit baru di {branch} — deploy agar live.",
+  "New commits on {branch} — pull them to put them live.": "Ada commit baru di {branch} — pull agar live.",
   "Deploy to put {branch} live.": "Deploy agar {branch} live.",
   "Save branch only": "Simpan branch saja",
   "Pull latest": "Pull terbaru",
