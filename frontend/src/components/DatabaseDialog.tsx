@@ -17,8 +17,10 @@ interface DatabaseDialogProps {
   application: { id: string; domain: string; organizationId?: string | null };
   /** DATABASE_URL as it stands — its engine and name prefill the form */
   currentUrl?: string;
-  /** after the URL is in the app's env */
-  onConnected: (envKey: string) => void;
+  /** the app's other database variables, filled from the same credentials */
+  alsoKeys?: string[];
+  /** after the values are in the app's env — the names that were written */
+  onConnected: (keys: string[]) => void;
 }
 
 /** a database name from the app's hostname: `shop.acme.id` → `shop` */
@@ -29,7 +31,7 @@ const nameFrom = (domain: string) => toDbName(domain.split(".")[0] || "app");
  * one the organization already has. Either way its URL lands in the app's env
  * server-side (DATABASE_URL by default) — the password never reaches this page.
  */
-export function DatabaseDialog({ open, onOpenChange, application, currentUrl, onConnected }: DatabaseDialogProps) {
+export function DatabaseDialog({ open, onOpenChange, application, currentUrl, alsoKeys = [], onConnected }: DatabaseDialogProps) {
   const { toast } = useToast();
   const [mode, setMode] = useState<"create" | "existing">("create");
   const [name, setName] = useState(() => nameFrom(application.domain));
@@ -79,9 +81,9 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, on
     try {
       const databaseId =
         mode === "create" ? (await createDatabase({ name, type: engine, applicationId: application.id })).id : existingId;
-      await attachDatabase(databaseId, application.id, envKey);
-      toast({ title: t("Database connected"), description: t("{key} is set in the app's environment.", { key: envKey }) });
-      onConnected(envKey);
+      const { keys } = await attachDatabase(databaseId, application.id, envKey, alsoKeys);
+      toast({ title: t("Database connected"), description: t("{key} is set in the app's environment.", { key: keys.join(", ") }) });
+      onConnected(keys);
       onOpenChange(false);
     } catch (error) {
       toast({
@@ -171,6 +173,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, on
 
           <p className="text-xs text-muted-foreground">
             {t("Its URL is saved as {key}.", { key: envKey })}
+            {alsoKeys.length > 0 && " " + t("Also fills {keys}.", { keys: alsoKeys.join(", ") })}
           </p>
         </form>
 

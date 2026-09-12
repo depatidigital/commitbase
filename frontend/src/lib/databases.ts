@@ -147,11 +147,13 @@ export interface DatabaseWithApplication extends Database {
 export const attachDatabase = async (
   databaseId: string,
   applicationId: string,
-  envKey = 'DATABASE_URL'
-): Promise<{ envKey: string; database: string }> => {
-  const response = await apiRequest<{ envKey: string; database: string }>(`/databases/${databaseId}/attach`, {
+  envKey = 'DATABASE_URL',
+  /** the app's other database variables (DB_HOST, DIRECT_URL…) to fill from the same credentials */
+  alsoKeys: string[] = []
+): Promise<{ envKey: string; keys: string[]; database: string }> => {
+  const response = await apiRequest<{ envKey: string; keys: string[]; database: string }>(`/databases/${databaseId}/attach`, {
     method: 'POST',
-    body: JSON.stringify({ applicationId, envKey }),
+    body: JSON.stringify({ applicationId, envKey, alsoKeys }),
   });
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Failed to connect the database'));

@@ -258,10 +258,36 @@ async function manageable(req: AuthenticatedRequest, id: string) {
   return allowed ? database : null;
 }
 
+type Credentials = Awaited<ReturnType<typeof databaseCredentials>>;
+
+/**
+ * The other names apps read a database from, and what goes in each: Prisma's
+ * DIRECT_URL (no pooler here, so the same URL), Vercel-style POSTGRES_*,
+ * Laravel's DB_*, libpq's PG*. Mirrored by the frontend's DATABASE_KEYS.
+ */
+const DB_ENV: Record<string, (c: Credentials) => string | null> = {
+  DIRECT_URL: (c) => c.url,
+  POSTGRES_URL: (c) => (c.engine === 'POSTGRESQL' ? c.url : null),
+  POSTGRES_PRISMA_URL: (c) => (c.engine === 'POSTGRESQL' ? c.url : null),
+  POSTGRES_URL_NON_POOLING: (c) => (c.engine === 'POSTGRESQL' ? c.url : null),
+  DB_CONNECTION: (c) => (c.engine === 'POSTGRESQL' ? 'pgsql' : 'mysql'),
+  DB_HOST: (c) => c.host,
+  DB_PORT: (c) => String(c.port),
+  DB_DATABASE: (c) => c.database,
+  DB_USERNAME: (c) => c.username,
+  DB_PASSWORD: (c) => c.password,
+  PGHOST: (c) => (c.engine === 'POSTGRESQL' ? c.host : null),
+  PGPORT: (c) => (c.engine === 'POSTGRESQL' ? String(c.port) : null),
+  PGDATABASE: (c) => (c.engine === 'POSTGRESQL' ? c.database : null),
+  PGUSER: (c) => (c.engine === 'POSTGRESQL' ? c.username : null),
+  PGPASSWORD: (c) => (c.engine === 'POSTGRESQL' ? c.password : null),
+};
+
 /**
  * Connect a database to an app: link it, and put its connection URL in the
- * app's env under `envKey` (DATABASE_URL). The URL goes from the credentials
- * store straight into the encrypted env — it never passes through the browser.
+ * app's env under `envKey` (DATABASE_URL) — plus whichever of the DB_ENV names
+ * the app uses (`alsoKeys`, the ones in its form). Values go from the
+ * credentials store straight into the encrypted env, never through the browser.
  * Both "create new" (POST / with applicationId, then this) and "use existing".
  */
 router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -286,25 +312,35 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
     }
 
     const credentials = await databaseCredentials(database.id);
+    // only names from the list, and only for this engine — never an arbitrary key
+    const also = (Array.isArray(req.body?.alsoKeys) ? req.body.alsoKeys : [])
+      .map(String)
+      .filter((key: string) => key !== envKey && key in DB_ENV);
+    const filled: Record<string, string> = { [envKey]: credentials.url };
+    for (const key of also) {
+      const value = DB_ENV[key]!(credentials);
+      if (value !== null) filled[key] = value;
+    }
+
     await prisma.$transaction([
       // a database already used by another app stays linked there; two apps may share one
       ...(database.applicationId ? [] : [prisma.database.update({ where: { id: database.id }, data: { applicationId: application.id } })]),
       prisma.application.update({
         where: { id: application.id },
-        data: { envVars: sealEnv({ ...readEnv(application.envVars), [envKey]: credentials.url }) },
+        data: { envVars: sealEnv({ ...readEnv(application.envVars), ...filled }) },
       }),
       prisma.log.create({
         data: {
           level: 'INFO',
-          message: `Credentials of database ${credentials.database} written to ${envKey}`,
+          message: `Credentials of database ${credentials.database} written to ${Object.keys(filled).join(', ')}`,
           userId: req.user!.userId,
           applicationId: application.id,
-          metadata: { databaseId: database.id, username: credentials.username, envKey },
+          metadata: { databaseId: database.id, username: credentials.username, keys: Object.keys(filled) },
         },
       }),
     ]);
 
-    return res.json({ success: true, data: { envKey, database: credentials.database } } as ApiResponse);
+    return res.json({ success: true, data: { envKey, keys: Object.keys(filled), database: credentials.database } } as ApiResponse);
   } catch (error) {
     if (error instanceof ProvisionError) {
       return res.status(400).json({ success: false, error: error.message } as ApiResponse);

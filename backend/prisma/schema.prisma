@@ -242,9 +242,26 @@ model OrgDatabaseAccount {
   passwordEnc      String
   createdAt        DateTime       @default(now())
   rotatedAt        DateTime?
+  grants           DatabaseGrant[]
 
-  @@unique([organizationId, databaseServerId])
+  // an organization may hold several logins on one server — one per app, say
+  @@unique([databaseServerId, username])
+  @@index([organizationId, databaseServerId])
   @@map("org_database_accounts")
+}
+
+/// A login's access to one database. The server-side GRANT mirrors this row.
+model DatabaseGrant {
+  id         String             @id @default(cuid())
+  databaseId String
+  database   Database           @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    OrgDatabaseAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now())
+
+  @@unique([databaseId, accountId])
+  @@index([accountId])
+  @@map("database_grants")
 }
 
 /// A login/role that exists on a database server — a mirror of the server,
@@ -477,6 +494,12 @@ model Database {
   sizeBytes        Float?
   /// Why the last create or drop on the server failed — shown on the row, cleared on success
   lastError        String?
+  /// PostgreSQL: the NOLOGIN role that owns the database; every login granted
+  /// access is a member and acts as it inside this database, so whatever one
+  /// login creates the others can use. Null: owned by the org login (older rows).
+  ownerRole        String?
+  /// The logins that may reach this database
+  grants           DatabaseGrant[]
 
   @@unique([databaseServerId, dbName])
   @@index([organizationId])

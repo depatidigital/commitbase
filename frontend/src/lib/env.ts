@@ -12,7 +12,10 @@ export type EnvRow = { key: string; value: string };
 
 /** What the code expects: .env.example keys without a default, and DATABASE_URL when an ORM is in the deps. */
 export function requiredKeys(detected?: DetectedProject | null): Set<string> {
-  const keys = new Set((detected?.env.example?.vars ?? []).filter((v) => !v.value).map((v) => v.key));
+  // PORT/HOST/NODE_ENV come from the platform — never something to fill in
+  const keys = new Set(
+    (detected?.env.example?.vars ?? []).filter((v) => !v.value && !(v.key in PLATFORM_KEYS)).map((v) => v.key),
+  );
   if (detected?.env.needsDatabase) keys.add("DATABASE_URL");
   return keys;
 }
@@ -22,6 +25,51 @@ export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // shipped to the browser by design — a "KEY" in one of these is a publishable key
 const PUBLIC_PREFIX = /^(NEXT_PUBLIC_|VITE_|PUBLIC_|NUXT_PUBLIC_|EXPO_PUBLIC_|REACT_APP_)/i;
 const SECRET_NAME = /SECRET|KEY|TOKEN|PASSWORD|PASSWD|PASS|PWD|PRIVATE|CREDENTIAL|SALT/i;
+
+/**
+ * Set by Larika at runtime — `ignored`: the platform's value always wins (PORT
+ * is the one the proxy dials); `override`: a value here replaces the platform's.
+ */
+export const PLATFORM_KEYS: Record<string, "ignored" | "override"> = {
+  PORT: "ignored",
+  HOST: "ignored",
+  NODE_ENV: "override",
+};
+
+/**
+ * Variables "Connect database" fills alongside DATABASE_URL, when the app has
+ * them: Prisma's DIRECT_URL, Vercel-style POSTGRES_*, Laravel's DB_*, libpq's PG*.
+ * Must match the backend's DB_ENV list (routes/databases.ts).
+ */
+export const DATABASE_KEYS = new Set([
+  "DATABASE_URL", "DIRECT_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING",
+  "DB_CONNECTION", "DB_HOST", "DB_PORT", "DB_DATABASE", "DB_USERNAME", "DB_PASSWORD",
+  "PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD",
+]);
+
+// Secrets the app itself mints — never a provider's (STRIPE_SECRET_KEY, OPENAI_API_KEY).
+const GENERATED_SECRETS = new Set([
+  "AUTH_SECRET", "NEXTAUTH_SECRET", "BETTER_AUTH_SECRET", "JWT_SECRET", "JWT_SECRET_KEY", "SESSION_SECRET",
+  "COOKIE_SECRET", "CSRF_SECRET", "ENCRYPTION_KEY", "PAYLOAD_SECRET", "SECRET_KEY_BASE", "SECRET_KEY",
+  "ADMIN_JWT_SECRET", "API_TOKEN_SALT", "TRANSFER_TOKEN_SALT", "HASH_SALT", "APP_KEY", "APP_KEYS",
+]);
+
+const randomBase64 = (bytes = 32) => {
+  const buffer = new Uint8Array(bytes);
+  crypto.getRandomValues(buffer);
+  return btoa(String.fromCharCode(...buffer));
+};
+
+/**
+ * A fresh value for a secret the app mints itself, or null for anything else.
+ * Laravel wants `base64:` + 32 bytes; Strapi's APP_KEYS is four of them.
+ */
+export function generateSecret(key: string): string | null {
+  if (!GENERATED_SECRETS.has(key)) return null;
+  if (key === "APP_KEY") return `base64:${randomBase64()}`;
+  if (key === "APP_KEYS") return Array.from({ length: 4 }, () => randomBase64(16)).join(",");
+  return randomBase64();
+}
 
 /** What the database form accepts as a name: lowercase letters, digits, underscores. */
 export const toDbName = (raw: string) => raw.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 40);

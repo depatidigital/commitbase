@@ -173,6 +173,8 @@ export default function ApplicationDetail() {
   });
   // the Environment tab's form, for the setup checklist on the Overview tab
   const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], dirty: false });
+  // a first deploy waits for this: the code's variables filled in and saved
+  const setupReady = !detection.isLoading && envStatus.missing.length === 0 && !envStatus.dirty;
 
   // Update logs when data changes
   useEffect(() => {
@@ -548,9 +550,11 @@ export default function ApplicationDetail() {
               // Never deployed - Show Deploy & Start
               <Tooltip>
                 <TooltipTrigger asChild>
+                  {/* the span keeps the tooltip working on a disabled button */}
+                  <span tabIndex={needsSetup && !setupReady ? 0 : -1}>
                   <Button
                     onClick={handleStart}
-                    disabled={startApp.isPending}
+                    disabled={startApp.isPending || (needsSetup && !setupReady)}
                     className="bg-gradient-primary"
                   >
                     {startApp.isPending ? (
@@ -560,9 +564,14 @@ export default function ApplicationDetail() {
                     )}
                     {t("Deploy & Start")}
                   </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{t("Deploy and start the application for the first time")}</p>
+                  <p>
+                    {needsSetup && !setupReady
+                      ? t("Fill in and save the environment first.")
+                      : t("Deploy and start the application for the first time")}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -592,7 +601,19 @@ export default function ApplicationDetail() {
           </div>
         </div>
 
-        {/* Status Banner */}
+        {/* Status Banner — for an app never deployed, its status is what it still
+            needs, so the setup checklist stands in for it */}
+        {needsSetup ? (
+          <AppSetupCard
+            application={application}
+            detected={detection.data}
+            detecting={detection.isLoading}
+            env={envStatus}
+            onDeploy={handleStart}
+            onEditEnv={() => setActiveTab("environment")}
+            onEditBuild={() => setActiveTab("settings")}
+          />
+        ) : (
         <Card className="bg-gradient-card border-border/50">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -626,12 +647,14 @@ export default function ApplicationDetail() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Main Content */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList
             className="grid w-full"
-            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 1)}, minmax(0, 1fr))` }}
+            // overview, deployments, settings, plus files / environment + logs when they apply
+            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2)}, minmax(0, 1fr))` }}
           >
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
             {!uploadedSite && (
@@ -649,18 +672,6 @@ export default function ApplicationDetail() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
-            {/* created, never deployed: environment first, then the first deploy */}
-            {needsSetup && (
-              <AppSetupCard
-                application={application}
-                detected={detection.data}
-                detecting={detection.isLoading}
-                env={envStatus}
-                onDeploy={handleStart}
-                onEditEnv={() => setActiveTab("environment")}
-                onEditBuild={() => setActiveTab("settings")}
-              />
-            )}
             {/* nothing to serve yet: the one thing to do is drop the build here */}
             {uploadedSite && !hasSiteFiles && (
               <Card className="bg-gradient-card border-border/50">

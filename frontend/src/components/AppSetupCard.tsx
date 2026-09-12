@@ -104,16 +104,16 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
           {!envDone && !detecting && (
             <span className="text-xs text-muted-foreground">
-              {env.dirty ? t("Save the environment before deploying.") : t("Deploying with empty variables will most likely fail.")}
+              {env.dirty ? t("Save the environment before deploying.") : t("Fill in the empty variables to deploy.")}
             </span>
           )}
           <Button
             type="button"
             onClick={onDeploy}
-            // a deploy uses the saved environment — never the edits still in the form
-            disabled={env.dirty}
-            variant={envDone ? "default" : "outline"}
-            className={envDone ? "bg-gradient-primary" : ""}
+            // only once every expected variable is filled in and saved — a deploy
+            // uses the saved environment, and an empty DATABASE_URL just fails
+            disabled={!envDone}
+            className="bg-gradient-primary"
           >
             <Rocket className="h-4 w-4 mr-2" />
             {t("Deploy")}

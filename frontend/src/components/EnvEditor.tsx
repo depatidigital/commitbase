@@ -30,6 +30,8 @@ interface EnvEditorProps {
   renderAction?: (row: EnvRow) => React.ReactNode;
   /** a better value for a row, offered as a one-click fix (the app's own URL for NEXT_PUBLIC_BASE_URL) */
   suggest?: (row: EnvRow) => string | null;
+  /** a freshly generated value for a row (a secret the app mints itself), offered as "Generate" */
+  generate?: (row: EnvRow) => string | null;
   disabled?: boolean;
 }
 
@@ -38,7 +40,7 @@ interface EnvEditorProps {
  * into any name field splits it into rows, which is how most people arrive
  * with their variables.
  */
-export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, suggest, disabled }: EnvEditorProps) {
+export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, suggest, generate, disabled }: EnvEditorProps) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [pasting, setPasting] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -92,6 +94,9 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         const fixed = !!locked?.has(row.key);
         const local = pointsAtLocalhost(row.value);
         const suggestion = suggest?.(row) ?? null;
+        // whether it can be generated — the value itself is made on click, fresh
+        const generatable = !!generate?.(row);
+        const platform = row.value.trim() ? PLATFORM_KEYS[row.key] : undefined;
         return (
           <div key={index} className="contents">
             <div className="space-y-1">

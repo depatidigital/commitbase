@@ -2,7 +2,9 @@
  * Self-check for .env paste parsing: npx tsx src/lib/env.check.ts
  */
 import assert from "node:assert";
-import { parseEnv, rowsToEnv, mergeRows, isSecret, parseDatabaseUrl, pointsAtLocalhost, suggestAppUrl } from "./env";
+import {
+  parseEnv, rowsToEnv, mergeRows, isSecret, parseDatabaseUrl, pointsAtLocalhost, suggestAppUrl, generateSecret, requiredKeys,
+} from "./env";
 
 const NL = "\n";
 const pasted = [
@@ -85,5 +87,20 @@ assert.strictEqual(suggestAppUrl("DATABASE_URL", "postgresql://u:p@localhost/db"
 assert.strictEqual(suggestAppUrl("REDIS_URL", "", domain), null);
 assert.strictEqual(suggestAppUrl("NEXT_PUBLIC_API_URL", "http://localhost:4000", domain), null);
 assert.strictEqual(suggestAppUrl("PORT", "", domain), null);
+
+// Generate: only secrets the app mints itself, in the framework's format
+assert.match(generateSecret("BETTER_AUTH_SECRET")!, /^[A-Za-z0-9+/]{43}=$/);
+assert.match(generateSecret("APP_KEY")!, /^base64:[A-Za-z0-9+/]{43}=$/);
+assert.strictEqual(generateSecret("APP_KEYS")!.split(",").length, 4);
+assert.notStrictEqual(generateSecret("JWT_SECRET"), generateSecret("JWT_SECRET"), "fresh every time");
+for (const key of ["STRIPE_SECRET_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "DATABASE_URL", "PORT"]) {
+  assert.strictEqual(generateSecret(key), null, `${key} comes from a provider, not from us`);
+}
+
+// the platform's keys are never required from the user, even if .env.example lists them empty
+const withPlatform = requiredKeys({
+  env: { example: { file: ".env.example", vars: [{ key: "PORT", value: "" }, { key: "API_KEY", value: "" }] }, production: [], committed: [], needsDatabase: false },
+} as any);
+assert.deepStrictEqual([...withPlatform], ["API_KEY"]);
 
 console.log("env: ok");

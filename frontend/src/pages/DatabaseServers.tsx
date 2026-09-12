@@ -151,7 +151,6 @@ export default function DatabaseServers() {
       return updateDatabaseServer(editing.id, patch);
     },
     onSuccess: ({ server, message }) => {
-      refresh();
       setOpen(false);
       toast({
         title: editing ? t("Database server updated") : t("Database server registered"),
@@ -160,12 +159,15 @@ export default function DatabaseServers() {
       });
     },
     onError: fail,
+    // the row can exist even when the answer is an error (it is stored before
+    // the connection test and inventory sync run) — so refresh either way
+    onSettled: refresh,
   });
 
   const testMutation = useMutation({
     mutationFn: (row: DatabaseServer) => testDatabaseServer(row.id).then((result) => ({ ...result, row })),
+    onSettled: refresh,
     onSuccess: ({ ok, message, row }) => {
-      refresh();
       toast({
         title: ok ? t("{name} is online", { name: row.name }) : t("{name} could not be reached", { name: row.name }),
         description: message,
@@ -177,8 +179,8 @@ export default function DatabaseServers() {
 
   const deleteMutation = useMutation({
     mutationFn: (row: DatabaseServer) => deleteDatabaseServer(row.id),
+    onSettled: refresh,
     onSuccess: () => {
-      refresh();
       setConfirmDelete(null);
       toast({ title: t("Database server removed") });
     },

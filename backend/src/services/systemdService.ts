@@ -75,7 +75,9 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
 
   const envVars = readEnv(application.envVars);
   const exports = Object.entries(envVars)
-    .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+    // PORT and HOST are the platform's: the proxy dials exactly that port on
+    // loopback, so an app env copied from local (PORT=3000) must not move it
+    .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && key !== 'PORT' && key !== 'HOST')
     .map(([key, value]) => `export ${key}=${shellQuote(value)}`);
 
   const script = [
