@@ -73,7 +73,7 @@ async function withTunnel<T>(
 }
 
 /** Where the driver should connect: the server itself, or the tunnel's local end. */
-async function reach<T>(dbs: DbServerRow, fn: (host: string, port: number) => Promise<T>): Promise<T> {
+export async function reach<T>(dbs: DbServerRow, fn: (host: string, port: number) => Promise<T>): Promise<T> {
   if (dbs.mode === 'TUNNEL') {
     if (!dbs.server) throw new Error(`${dbs.name} is a tunnelled server but its node is missing`);
     return withTunnel(dbs.server, dbs.host, dbs.port, (localPort) => fn('127.0.0.1', localPort));
@@ -85,7 +85,7 @@ async function reach<T>(dbs: DbServerRow, fn: (host: string, port: number) => Pr
  * TLS options for either driver. VERIFY checks the certificate against the
  * configured host even through a tunnel, where the socket itself is 127.0.0.1.
  */
-function tlsOptions(dbs: DbServerRow): tls.ConnectionOptions | undefined {
+export function tlsOptions(dbs: DbServerRow): tls.ConnectionOptions | undefined {
   if (dbs.tlsMode === 'DISABLE') return undefined;
   if (dbs.tlsMode === 'REQUIRE') return { rejectUnauthorized: false };
   return {

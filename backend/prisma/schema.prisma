@@ -29,6 +29,7 @@ model User {
   gitAccounts GitAccount[]
   memberships Membership[]
   invitesSent Invite[]     @relation("InvitedBy")
+  databaseImports DatabaseImport[]
 
   @@map("users")
 }
@@ -503,11 +504,36 @@ model Database {
   ownerRole        String?
   /// The logins that may reach this database
   grants           DatabaseGrant[]
+  imports          DatabaseImport[]
 
   @@unique([databaseServerId, dbName])
   @@index([organizationId])
   @@index([databaseServerId])
   @@map("databases")
+}
+
+/// An uploaded .sql file run against one database, as that database's own
+/// login — the history, the audit trail and the live log of the run.
+model DatabaseImport {
+  id         String    @id @default(cuid())
+  databaseId String
+  database   Database  @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName   String
+  sizeBytes  Float
+  sha256     String?
+  /// RUNNING, DONE or FAILED
+  status     String    @default("RUNNING")
+  statements Int       @default(0)
+  skipped    Int       @default(0)
+  log        String?
+  error      String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([databaseId, createdAt])
+  @@map("database_imports")
 }
 
 model Log {
