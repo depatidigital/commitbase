@@ -192,9 +192,10 @@ chown larika:larika ~larika/.ssh/authorized_keys && chmod 600 ~larika/.ssh/autho
 sudo -u commitbase ssh -o StrictHostKeyChecking=accept-new      -i /opt/commitbase/.ssh/id_ed25519 larika@127.0.0.1 sudo -n true
 ```
 
-Set `CB_SSH_KEY_PATH=/opt/commitbase/.ssh/id_ed25519` in the backend env — it is
-the default `sshKeyPath` for seeded nodes, and the directory every server row's
-key must sit inside.
+`CB_SSH_KEY_PATH` defaults to `/opt/commitbase/.ssh/id_ed25519`, so this path
+needs nothing in the backend env. Set it only if the key lives elsewhere: it is
+the default `sshKeyPath` for seeded nodes, the `.pub` that Set up authorizes, and
+its directory is where every server row's key must sit.
 
 For an **additional** node later: generate nothing new. Append this same public
 key to that box's `~larika/.ssh/authorized_keys` (or run `install.sh`, which
