@@ -491,10 +491,19 @@ export class DeploymentService {
     const prevDir = join(previous, dir);
     if (!(await afs.isDirectory(prevDir))) return false;
     // ponytail: cp -al, GNU coreutils. Fall back to a real install if it fails.
+    // It does fail once the live release belongs to the tenant: with
+    // fs.protected_hardlinks=1 the deploy user may not link another user's
+    // files. Linking as root would get past that; a fresh install is fine.
+    const target = join(releaseDir, dir);
     return afs
-      .run(['cp', '-al', '--', prevDir, join(releaseDir, dir)], { timeout: 300_000 })
+      .run(['cp', '-al', '--', prevDir, target], { timeout: 300_000 })
       .then(() => true)
-      .catch(() => false);
+      .catch(async () => {
+        // a half-copied tree must not stay: pnpm finds its .modules.yaml, says
+        // "Already up to date" and installs nothing — packages go missing
+        await afs.rm(target, { recursive: true, force: true }).catch(() => {});
+        return false;
+      });
   }
 
   /**

@@ -177,6 +177,12 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
             {current.status === "RUNNING" && (
               <p className="text-xs text-muted-foreground">{t("You can close this dialog — the restore keeps running.")}</p>
             )}
+            {/* Next.js & co. bake pages at build time: they keep showing the data from then */}
+            {current.status === "DONE" && (
+              <p className="text-xs text-muted-foreground">
+                {t("Pages the app built before the restore can still show the old data — redeploy the app to rebuild them.")}
+              </p>
+            )}
           </div>
         ) : (
           <div className="space-y-4">

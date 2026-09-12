@@ -81,6 +81,8 @@ export default {
   'Type "{name}" to restore into it anyway': 'Ketik "{name}" untuk tetap memulihkan',
   "Uploading… {percent}%": "Mengunggah… {percent}%",
   "Restore another file": "Pulihkan berkas lain",
+  "Pages the app built before the restore can still show the old data — redeploy the app to rebuild them.":
+    "Halaman yang dibangun aplikasi sebelum pemulihan bisa masih menampilkan data lama — deploy ulang aplikasi untuk membangunnya kembali.",
   Restore: "Pulihkan",
   "No database connected to this app yet.": "Belum ada database yang terhubung ke aplikasi ini.",
   "Connect a database": "Hubungkan database",
