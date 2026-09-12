@@ -33,6 +33,7 @@ const SECRET_NAME = /SECRET|KEY|TOKEN|PASSWORD|PASSWD|PASS|PWD|PRIVATE|CREDENTIA
 export const PLATFORM_KEYS: Record<string, "ignored" | "override"> = {
   PORT: "ignored",
   HOST: "ignored",
+  HOSTNAME: "ignored",
   NODE_ENV: "override",
 };
 

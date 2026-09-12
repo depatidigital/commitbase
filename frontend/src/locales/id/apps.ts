@@ -377,6 +377,23 @@ export default {
   "Choose a database": "Pilih database",
   "used by {app}": "dipakai {app}",
   "Create & connect": "Buat & hubungkan",
+  "Database server": "Server database",
+  "Choose a server": "Pilih server",
+  "organization default": "default organisasi",
+  "No database server is online — ask a superadmin to add one.":
+    "Tidak ada server database yang online — minta superadmin menambahkannya.",
+  "New login": "Login baru",
+  "Existing login": "Login yang ada",
+  "Login name": "Nama login",
+  "A login of its own for this app, with access to this database only.":
+    "Login khusus untuk aplikasi ini, hanya punya akses ke database ini.",
+  "The organization has no logins on this server yet — make a new one.":
+    "Organisasi belum punya login di server ini — buat yang baru.",
+  "Choose a login": "Pilih login",
+  "reaches 1 database": "akses 1 database",
+  "reaches {count} databases": "akses {count} database",
+  "Failed to load database servers": "Gagal memuat server database",
+  "Failed to load database logins": "Gagal memuat login database",
   Connect: "Hubungkan",
   // settings: commands
   "Install Command": "Perintah Instal",

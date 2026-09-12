@@ -76,9 +76,9 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
 
   const envVars = readEnv(application.envVars);
   const exports = Object.entries(envVars)
-    // PORT and HOST are the platform's: the proxy dials exactly that port on
-    // loopback, so an app env copied from local (PORT=3000) must not move it
-    .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && key !== 'PORT' && key !== 'HOST')
+    // PORT and the bind address are the platform's: the proxy dials exactly that
+    // port on loopback, so an app env copied from local (PORT=3000) must not move it
+    .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && !['PORT', 'HOST', 'HOSTNAME'].includes(key))
     .map(([key, value]) => `export ${key}=${shellQuote(value)}`);
 
   const script = [
@@ -90,6 +90,8 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
     'export NODE_ENV=production',
     `export PORT=${port}`,
     `export HOST=127.0.0.1`,
+    // Next's standalone server.js binds to HOSTNAME, not HOST
+    `export HOSTNAME=127.0.0.1`,
     ...exports,
     '',
     `cd ${shellQuote(runDir)}`,

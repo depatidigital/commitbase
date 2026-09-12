@@ -34,7 +34,15 @@ export interface DetectedProject {
   port: number | null;
   nodeVersion: string | null;
   env: RepoEnv;
+  /** things in the project that will misbehave behind the platform's proxy */
+  warnings: DetectWarning[];
 }
+
+export type DetectWarning =
+  /** the start script pins a port (`next start -p 3000`): PORT is ignored and the proxy gets a 502 */
+  | { code: 'start-fixed-port'; port: string }
+  /** the start script runs `next start` without -H: it listens on every interface, not just loopback */
+  | { code: 'start-binds-all' };
 
 /** What the repository says about its environment — the add-app form prefills from it. */
 export interface RepoEnv {
@@ -79,8 +87,15 @@ export const DETECT_FILES = [
 
 export type DetectInput = Partial<Record<(typeof DETECT_FILES)[number], string>>;
 
+// Next's own entry file, run by the Node run.sh selected: not a bare `next`
+// (node_modules/.bin is not on PATH there) nor the .bin shim, which pnpm
+// generates as a shell wrapper. node_modules/next is at the top level under
+// every package manager (pnpm links it there).
+// -H: `next start` binds 0.0.0.0 by default and ignores the HOST env run.sh sets.
+const NEXT_START = 'node ./node_modules/next/dist/bin/next start -H 127.0.0.1 -p $PORT';
+
 const FRAMEWORKS: Array<{ dep: string; framework: string; label: string; build: string; start: string; port: number }> = [
-  { dep: 'next', framework: 'nextjs', label: 'Next.js', build: 'next build', start: 'next start -H 127.0.0.1 -p $PORT', port: 3000 },
+  { dep: 'next', framework: 'nextjs', label: 'Next.js', build: 'next build', start: NEXT_START, port: 3000 },
   { dep: 'nuxt', framework: 'nuxt', label: 'Nuxt', build: 'nuxt build', start: 'node .output/server/index.mjs', port: 3000 },
   { dep: '@sveltejs/kit', framework: 'sveltekit', label: 'SvelteKit', build: 'vite build', start: 'node build', port: 3000 },
   { dep: '@remix-run/dev', framework: 'remix', label: 'Remix', build: 'remix vite:build', start: 'remix-serve ./build/server/index.js', port: 3000 },
@@ -175,10 +190,32 @@ function repoEnvOf(files: DetectInput): RepoEnv {
 
 /** Pure: takes file contents, returns the preset. Same logic for upload, git and deploy. */
 export function detectFromFiles(files: DetectInput): DetectedProject {
-  return { ...presetFromFiles(files), env: repoEnvOf(files) };
+  const preset = presetFromFiles(files);
+  return { ...preset, env: repoEnvOf(files), warnings: warningsOf(files, preset) };
 }
 
-function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env'> {
+/** The start script as written — only when Larika runs it rather than its own command. */
+function startScriptOf(files: DetectInput): string {
+  try {
+    return String(JSON.parse(files['package.json'] || '{}')?.scripts?.start || '');
+  } catch {
+    return '';
+  }
+}
+
+function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'warnings'>): DetectWarning[] {
+  if (preset.framework !== 'nextjs' || preset.startCommand === NEXT_START) return [];
+  const script = startScriptOf(files);
+  const warnings: DetectWarning[] = [];
+  const pinned = script.match(/(?:^|\s)(?:-p|--port)(?:=|\s+)(\d+)/)?.[1];
+  if (pinned) warnings.push({ code: 'start-fixed-port', port: pinned });
+  if (/\bnext\s+start\b/.test(script) && !/(?:^|\s)(?:-H|--hostname)(?:=|\s)/.test(script)) {
+    warnings.push({ code: 'start-binds-all' });
+  }
+  return warnings;
+}
+
+function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings'> {
   const nodeVersion = (files['.nvmrc'] || files['.node-version'] || '').trim().replace(/^v/, '') || null;
 
   // PHP first: Laravel ships a package.json for its assets, which must not
@@ -256,13 +293,16 @@ function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env'> {
       });
     }
 
+    // A start script that is only `next start` is run as Next itself, bound to
+    // loopback on the platform's port; one that does more is the app's to keep.
+    const plainNextStart = fw.framework === 'nextjs' && /^\s*next\s+start\s*$/.test(String(scripts.start || ''));
     return base({
       ...common,
       type: 'NODEJS',
       framework: fw.framework,
       label: fw.label,
       buildCommand: scripts.build ? runScript(pm, 'build') : fw.build || null,
-      startCommand: scripts.start ? startScript(pm) : fw.start,
+      startCommand: scripts.start && !plainNextStart ? startScript(pm) : fw.start,
       port: fw.port,
     });
   }
@@ -292,8 +332,8 @@ function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env'> {
 }
 
 function base(
-  partial: Partial<Omit<DetectedProject, 'env'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
-): Omit<DetectedProject, 'env'> {
+  partial: Partial<Omit<DetectedProject, 'env' | 'warnings'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
+): Omit<DetectedProject, 'env' | 'warnings'> {
   return {
     packageManager: 'npm',
     installCommand: 'npm install --no-audit --no-fund',

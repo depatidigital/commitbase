@@ -15,13 +15,28 @@ assert.strictEqual(next.type, 'NODEJS');
 assert.strictEqual(next.packageManager, 'pnpm');
 assert.strictEqual(next.installCommand, 'pnpm install --frozen-lockfile');
 assert.strictEqual(next.buildCommand, 'pnpm run build');
-assert.strictEqual(next.startCommand, 'pnpm run start');
+// a start script that is only `next start` runs as Next itself: loopback, the platform's port
+const NEXT_START = 'node ./node_modules/next/dist/bin/next start -H 127.0.0.1 -p $PORT';
+assert.strictEqual(next.startCommand, NEXT_START);
+assert.deepStrictEqual(next.warnings, []);
 assert.strictEqual(next.nodeVersion, '20.11');
 assert.strictEqual(next.port, 3000);
 
 const nextNoScripts = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { next: '15' } }), 'package-lock.json': '' });
 assert.strictEqual(nextNoScripts.installCommand, 'npm ci --no-audit --no-fund');
-assert.strictEqual(nextNoScripts.startCommand, 'next start -H 127.0.0.1 -p $PORT');
+assert.strictEqual(nextNoScripts.startCommand, NEXT_START);
+
+// a script that does more is kept — and said about when it pins a port or binds everywhere
+const nextStart = (start: string) =>
+  detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { next: '16' }, scripts: { start } }), 'pnpm-lock.yaml': '' });
+const migrating = nextStart('prisma migrate deploy && next start');
+assert.strictEqual(migrating.startCommand, 'pnpm run start');
+assert.deepStrictEqual(migrating.warnings, [{ code: 'start-binds-all' }]);
+assert.deepStrictEqual(nextStart('next start -p 3000').warnings, [{ code: 'start-fixed-port', port: '3000' }, { code: 'start-binds-all' }]);
+assert.deepStrictEqual(nextStart('next start --port=4000 -H 127.0.0.1').warnings, [{ code: 'start-fixed-port', port: '4000' }]);
+assert.deepStrictEqual(nextStart('node server.js').warnings, [], 'a custom server is not next start');
+// only Next: other frameworks read PORT/HOST themselves
+assert.deepStrictEqual(detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { express: '4' }, scripts: { start: 'node index.js -p 3000' } }) }).warnings, []);
 
 const nextExport = detectFromFiles({
   'package.json': JSON.stringify({ dependencies: { next: '15' } }),

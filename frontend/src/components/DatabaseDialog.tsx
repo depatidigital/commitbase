@@ -194,7 +194,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
         </DialogHeader>
 
         <form id="database-connect" onSubmit={submit} className="space-y-4">
-          <Choice
+          <Choice<"create" | "existing">
             value={mode}
             onChange={setMode}
             options={[
@@ -267,7 +267,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           {loginServerId && (
             <div className="space-y-2">
               <Label>{t("Login")}</Label>
-              <Choice
+              <Choice<"new" | "existing">
                 value={loginMode}
                 onChange={setLoginMode}
                 options={[
