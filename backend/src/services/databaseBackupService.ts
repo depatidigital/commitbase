@@ -22,7 +22,8 @@ import { ImportError } from './databaseImportService';
 
 const PG_DUMP =
   'IFS= read -r pw; PGPASSWORD="$pw" exec pg_dump --no-owner --no-privileges --clean --if-exists -h "$1" -p "$2" -U "$3" -d "$4" </dev/null';
-// the password reaches mysqldump as an option file on a pipe — MYSQL_PWD is deprecated
+// the password reaches mysqldump as an option file on a pipe — MYSQL_PWD is deprecated.
+// ponytail: unescaped inside "…" — panel passwords are base64url, never a quote or backslash
 const MYSQLDUMP =
   'IFS= read -r pw; exec mysqldump --defaults-extra-file=<(printf \'[client]\\npassword="%s"\\n\' "$pw") --protocol=TCP --single-transaction --routines --triggers --no-tablespaces -h "$1" -P "$2" -u "$3" "$4" </dev/null';
 
