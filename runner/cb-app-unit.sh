@@ -37,7 +37,9 @@ HOME_ROOT="${CB_HOME_ROOT:-/home}"
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-app-unit: must run as root" >&2; exit 2; }
-getent group commitbase >/dev/null && { echo "cb-app-unit: this node still has the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4; }
+if getent group commitbase >/dev/null && find "$HOME_ROOT" -maxdepth 1 -name 'cb-*' -group commitbase -print -quit | grep -q .; then
+  echo "cb-app-unit: tenant homes on this node still belong to the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4
+fi
 
 OS_USER="cb-$SLUG"
 HOME_DIR="$HOME_ROOT/$OS_USER"

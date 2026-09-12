@@ -56,8 +56,11 @@ die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
   || die "PANEL_SSH_PUBKEY does not look like an OpenSSH public key"
 [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "SSH_USER looks wrong: $SSH_USER"
 command -v apt-get >/dev/null || die "Debian/Ubuntu only"
-# A box set up before the rename: its tenants belong to the old group.
-getent group commitbase >/dev/null && die "this box still has the pre-rename 'commitbase' group - run migrate-to-larika.sh first"
+# A box set up before the rename with tenants on it: their homes belong to the
+# old group, and new ones would land in another. A leftover empty group is fine.
+if getent group commitbase >/dev/null && find /home -maxdepth 1 -name 'cb-*' -group commitbase -print -quit | grep -q .; then
+  die "tenant homes here still belong to the pre-rename 'commitbase' group - run migrate-to-larika.sh first"
+fi
 
 # ---------------------------------------------------------------- 1. packages
 say "System packages"

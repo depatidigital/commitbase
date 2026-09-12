@@ -37,7 +37,9 @@ HOME_ROOT="${CB_HOME_ROOT:-/home}"
 [[ "$MEM_MAX"   =~ ^[0-9]+[MG]$ ]]                      || { echo "cb-provision-org: invalid memory max: '$MEM_MAX'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-provision-org: must run as root" >&2; exit 2; }
 # Provisioning onto the old group would split this node's tenants across two.
-getent group commitbase >/dev/null && { echo "cb-provision-org: this node still has the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4; }
+if getent group commitbase >/dev/null && find "$HOME_ROOT" -maxdepth 1 -name 'cb-*' -group commitbase -print -quit | grep -q .; then
+  echo "cb-provision-org: tenant homes on this node still belong to the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4
+fi
 
 # A bare node has no install step, so the group and the build user are made
 # here: the group grants the panel file access, the user runs builds (cb-app-unit).
