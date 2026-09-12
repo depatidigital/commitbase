@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,15 +115,25 @@ export default function Servers() {
   // the node about to be set up, and whether to add PHP-FPM
   const [confirmSetup, setConfirmSetup] = useState<Server | null>(null);
   const [withPhp, setWithPhp] = useState(false);
-  // the node whose last setup output is open
-  const [setupLogFor, setSetupLogFor] = useState<Server | null>(null);
+  // id of the node whose setup output is open — an id, so the dialog follows
+  // the polled row and the output grows while the setup runs
+  const [setupLogFor, setSetupLogFor] = useState<string | null>(null);
+  const setupLogRef = useRef<HTMLPreElement>(null);
 
   const { data, isFetching } = useQuery({
     queryKey: ["servers", "page", query.params, tagFilter],
     queryFn: () => getServersPage(query.params, tagFilter),
-    // poll while a setup is queued or running
-    refetchInterval: (q) => (q.state.data?.data.some((s) => isProvisionPending(s.setupState)) ? 5000 : false),
+    // poll while a setup is queued or running; faster while its output is open
+    refetchInterval: (q) =>
+      q.state.data?.data.some((s) => isProvisionPending(s.setupState)) ? (setupLogFor ? 2000 : 5000) : false,
   });
+  const setupLogServer = data?.data.find((s) => s.id === setupLogFor) ?? null;
+
+  // follow the tail, unless the reader scrolled up to look at something
+  useEffect(() => {
+    const el = setupLogRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+  }, [setupLogServer?.setupLog]);
 
   const { data: logs, isFetching: logsLoading, refetch: refetchLogs } = useQuery({
     queryKey: ["servers", logsFor?.id, "logs", logSource],
@@ -198,10 +208,10 @@ export default function Servers() {
 
   const setupMutation = useMutation({
     mutationFn: (server: Server) => setupServer(server.id, withPhp),
-    onSuccess: () => {
+    onSuccess: (_, server) => {
       refresh();
       setConfirmSetup(null);
-      toast({ title: t("Setup queued"), description: t("Runs in the background — the list updates when it finishes.") });
+      setSetupLogFor(server.id);
     },
     onError: (error: Error) => {
       setConfirmSetup(null);
@@ -296,7 +306,7 @@ export default function Servers() {
           state={s.setupState}
           error={s.setupError}
           at={s.setupAt}
-          onClick={s.setupLog ? () => setSetupLogFor(s) : undefined}
+          onClick={s.setupLog || isProvisionPending(s.setupState) ? () => setSetupLogFor(s.id) : undefined}
         />
       ),
     },
@@ -637,13 +647,17 @@ export default function Servers() {
       <Dialog open={!!setupLogFor} onOpenChange={(o) => !o && setSetupLogFor(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{t("Setup output — {name}", { name: setupLogFor?.name ?? "" })}</DialogTitle>
-            {setupLogFor?.setupError && (
-              <DialogDescription className="text-destructive">{setupLogFor.setupError}</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              {t("Setup output — {name}", { name: setupLogServer?.name ?? "" })}
+              {setupLogServer && <ProvisionBadge state={setupLogServer.setupState} />}
+            </DialogTitle>
+            {setupLogServer?.setupError && (
+              <DialogDescription className="text-destructive">{setupLogServer.setupError}</DialogDescription>
             )}
           </DialogHeader>
-          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
-            {setupLogFor?.setupLog}
+          <pre ref={setupLogRef} className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
+            {setupLogServer?.setupLog ||
+              (setupLogServer?.setupState === "QUEUED" ? t("Waiting to start…") : t("Waiting for output…"))}
           </pre>
         </DialogContent>
       </Dialog>

@@ -23,6 +23,8 @@ const INSTALL_SH = path.resolve(__dirname, '../../../install.sh');
 const PANEL_KEY = process.env.CB_SSH_KEY_PATH || '/opt/larika/.ssh/id_ed25519';
 const SETUP_TIMEOUT_MS = 30 * 60_000;
 const LOG_TAIL = 8_000;
+/** How often the running output is written to the row, for the live log view. */
+const LIVE_FLUSH_MS = 2_000;
 
 const running = new Set<string>();
 
@@ -51,12 +53,35 @@ export async function runServerSetup(serverId: string): Promise<void> {
   try {
     const claimed = await prisma.server.updateMany({
       where: { id: serverId, setupState: 'QUEUED' },
-      data: { setupState: 'RUNNING' },
+      // the previous run's output would read as this run's
+      data: { setupState: 'RUNNING', setupLog: null },
     });
     if (claimed.count === 0) return;
 
     const server = await prisma.server.findUniqueOrThrow({ where: { id: serverId } });
     const withPhp = !!(server.setupJob as { withPhp?: boolean } | null)?.withPhp;
+
+    // Output as it arrives, stdout and stderr interleaved in order. Written to
+    // the row every LIVE_FLUSH_MS so the Servers page can follow along by polling.
+    // ponytail: DB polling, not a socket — 2s lag is fine for minutes of apt.
+    let live = '';
+    let dirty = false;
+    let flushing: Promise<unknown> = Promise.resolve();
+    const flush = () => {
+      if (!dirty) return;
+      dirty = false;
+      flushing = prisma.server.update({ where: { id: serverId }, data: { setupLog: live } }).catch(() => {});
+    };
+    const ticker = setInterval(flush, LIVE_FLUSH_MS);
+    const onOutput = (text: string) => {
+      live = (live + text).slice(-LOG_TAIL);
+      dirty = true;
+    };
+    // a live write landing after the final one would overwrite it with an older tail
+    const stopLive = async () => {
+      clearInterval(ticker);
+      await flushing;
+    };
 
     try {
       const pubkey = fs.readFileSync(`${PANEL_KEY}.pub`, 'utf8').trim();
@@ -71,22 +96,24 @@ export async function runServerSetup(serverId: string): Promise<void> {
       const { stdout, stderr } = await execRoot(
         server,
         ['env', ...env, 'bash', '-c', fs.readFileSync(INSTALL_SH, 'utf8'), 'install.sh'],
-        { timeout: SETUP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },
+        { timeout: SETUP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, onOutput },
       );
 
+      await stopLive();
       await prisma.server.update({
         where: { id: serverId },
-        data: { setupState: 'DONE', setupError: null, setupLog: (stdout + stderr).slice(-LOG_TAIL), setupAt: new Date() },
+        data: { setupState: 'DONE', setupError: null, setupLog: live || (stdout + stderr).slice(-LOG_TAIL), setupAt: new Date() },
       });
       // refresh ONLINE/provisioned now rather than at the next heartbeat
       await pingServer(server).catch(() => {});
     } catch (err: any) {
+      await stopLive();
       await prisma.server.update({
         where: { id: serverId },
         data: {
           setupState: 'FAILED',
           setupError: String(err?.message || err).split('\n')[0]!.slice(0, 500),
-          setupLog: String((err?.stdout ?? '') + (err?.stderr ?? '') || err?.message || err).slice(-LOG_TAIL),
+          setupLog: (live || String((err?.stdout ?? '') + (err?.stderr ?? '') || err?.message || err)).slice(-LOG_TAIL),
         },
       });
     }

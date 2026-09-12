@@ -33,7 +33,11 @@ export function ProvisionBadge({
         </Badge>
       );
     case "QUEUED":
-      return <Badge variant="secondary">{waiting ?? t("Queued")}</Badge>;
+      return (
+        <Badge variant="secondary" className={clickable} onClick={onClick}>
+          {waiting ?? t("Queued")}
+        </Badge>
+      );
     case "FAILED":
       return (
         <Badge variant="destructive" className={clickable} onClick={onClick} title={error ?? undefined}>

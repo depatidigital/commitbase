@@ -42,6 +42,8 @@ export interface ExecOptions {
   maxBuffer?: number;
   /** Written to the command's stdin, which is then closed. */
   input?: string;
+  /** Every chunk of stdout and stderr as it arrives, interleaved — for live views. */
+  onOutput?: (text: string) => void;
 }
 
 /**
@@ -205,11 +207,12 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
       // Keeping the head rather than the tail: a build fails on its first
       // error and the megabytes after it are noise.
       const append = (into: 'out' | 'err', chunk: Buffer) => {
+        const text = chunk.toString('utf8');
+        opts.onOutput?.(text);
         if (stdout.length + stderr.length >= maxBuffer) {
           truncated = true;
           return;
         }
-        const text = chunk.toString('utf8');
         if (into === 'out') stdout += text;
         else stderr += text;
       };

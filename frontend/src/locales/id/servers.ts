@@ -168,5 +168,7 @@ export default {
   "Also install PHP-FPM and Composer": "Sekalian pasang PHP-FPM dan Composer",
   "Setup queued": "Penyiapan masuk antrean",
   "Setup output — {name}": "Keluaran penyiapan — {name}",
+  "Waiting to start…": "Menunggu dimulai…",
+  "Waiting for output…": "Menunggu keluaran…",
   "Failed to queue server setup": "Gagal mengantrekan penyiapan server",
 } satisfies Record<string, string>;
