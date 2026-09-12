@@ -18,6 +18,8 @@ interface AppSetupCardProps {
   /** a deploy is running in the background right now */
   deploying?: boolean;
   onViewDeploy?: () => void;
+  /** ask to stop the running deploy (the page confirms) */
+  onCancelDeploy?: () => void;
   onDeploy: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
@@ -28,7 +30,7 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, deploying, onViewDeploy, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, deploying, onViewDeploy, onCancelDeploy, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
   const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -184,9 +186,16 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
           {deploying ? (
-            <button type="button" className="text-xs font-medium text-primary underline-offset-2 hover:underline" onClick={onViewDeploy}>
-              {t("Deploy in progress — follow the build log")}
-            </button>
+            <span className="flex items-center gap-3 text-xs">
+              <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={onViewDeploy}>
+                {t("Deploy in progress — follow the build log")}
+              </button>
+              {onCancelDeploy && (
+                <button type="button" className="font-medium text-destructive underline-offset-2 hover:underline" onClick={onCancelDeploy}>
+                  {t("Cancel")}
+                </button>
+              )}
+            </span>
           ) : !envDone && !detecting ? (
             <span className="text-xs text-muted-foreground">
               {env.dirty ? t("Save the environment before deploying.") : t("Fill in the empty variables to deploy.")}

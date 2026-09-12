@@ -50,8 +50,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory } from "@/hooks/useDeployments";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, getAppDetection, hasBeenDeployed } from "@/lib/applications";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -146,17 +146,6 @@ export default function ApplicationDetail() {
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
-  // stopping a running deploy: confirmed first, then the history shows it end as CANCELLED
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const cancelDeploy = useMutation({
-    mutationFn: () => cancelDeployment(id!),
-    onSuccess: () => {
-      toast({ title: t("Cancelling the deployment…") });
-      void queryClientForCancel.invalidateQueries({ queryKey: ['deployments', id] });
-    },
-    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
-  });
-  const queryClientForCancel = useQueryClient();
 
   // Logs hooks
   // a static site has no process, so the build log is the only one it has
@@ -196,6 +185,16 @@ export default function ApplicationDetail() {
   const newestDeploy = history?.data?.[0];
   const deployInFlight = ['PENDING', 'BUILDING', 'DEPLOYING'].includes(newestDeploy?.status ?? '');
   const queryClient = useQueryClient();
+  // stopping a running deploy: confirmed first, then the history shows it end as CANCELLED
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const cancelDeploy = useMutation({
+    mutationFn: () => cancelDeployment(id!),
+    onSuccess: () => {
+      toast({ title: t("Cancelling the deployment…") });
+      void queryClient.invalidateQueries({ queryKey: ['deployments', id] });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
+  });
   useEffect(() => {
     if (newestDeploy && !deployInFlight) void queryClient.invalidateQueries({ queryKey: ['application', id] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -680,6 +679,7 @@ export default function ApplicationDetail() {
             dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
             deploying={deploying}
             onViewDeploy={() => setActiveTab("deployments")}
+            onCancelDeploy={() => setConfirmCancel(true)}
             onDeploy={handleStart}
             onEditEnv={() => setActiveTab("environment")}
             onEditBuild={() => setActiveTab("settings")}
