@@ -66,10 +66,6 @@ export default {
   "No GitLab accounts connected.": "Belum ada akun GitLab yang terhubung.",
   "Connect GitHub": "Hubungkan GitHub",
   "Connect GitLab": "Hubungkan GitLab",
-  "GitHub is not connected. Click the GitHub button above to connect and manage repositories.":
-    "GitHub belum terhubung. Klik tombol GitHub di atas untuk menghubungkan dan mengelola repositori.",
-  "GitLab is not connected. Click the GitLab button above to connect and manage repositories.":
-    "GitLab belum terhubung. Klik tombol GitLab di atas untuk menghubungkan dan mengelola repositori.",
   "GitHub workspace": "Workspace GitHub",
   "GitLab workspace": "Workspace GitLab",
   "All workspaces": "Semua workspace",

@@ -858,7 +858,7 @@ export default function AddApp() {
                             ))}
                           </SelectContent>
                         </Select>
-                      ) : githubConnected ? (
+                      ) : (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
                             {t("No GitHub accounts connected.")}
@@ -873,12 +873,6 @@ export default function AddApp() {
                             {t("Connect GitHub")}
                           </Button>
                         </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t(
-                            "GitHub is not connected. Click the GitHub button above to connect and manage repositories.",
-                          )}
-                        </p>
                       )}
                     </div>
 
@@ -1048,7 +1042,7 @@ export default function AddApp() {
                             ))}
                           </SelectContent>
                         </Select>
-                      ) : gitlabConnected ? (
+                      ) : (
                         <div className="space-y-2">
                           <p className="text-sm text-muted-foreground">
                             {t("No GitLab accounts connected.")}
@@ -1063,12 +1057,6 @@ export default function AddApp() {
                             {t("Connect GitLab")}
                           </Button>
                         </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t(
-                            "GitLab is not connected. Click the GitLab button above to connect and manage repositories.",
-                          )}
-                        </p>
                       )}
                     </div>
 
