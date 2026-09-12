@@ -1,24 +1,21 @@
-import { exec, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import { createWriteStream } from 'fs';
-import { promisify } from 'util';
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication, staticRouteError } from './caddyService';
-import { appUnit, appBuild, OS_ISOLATION_ENABLED } from './orgProvisionService';
-import { orgSlugForApp, appDirFor } from '../lib/appPaths';
+import { appUnit, appBuild } from './orgProvisionService';
 import { serverForApplication } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
-import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
+import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
+import { appFsFor, appFsForDomain, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
-import { shellQuote, remoteReadDir } from '../lib/runner';
+import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
-import * as net from 'net';
 
 // Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
 // it on localhost. Apps must listen on $PORT — the health check enforces it.
@@ -44,14 +41,15 @@ async function withBuildSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-const execAsync = promisify(exec);
-
 const NL = '\n';
+// Every app path is on a Linux box (a node, or the panel's legacy dir), so posix.
+const join = path.posix.join;
 
 /**
  * Run a command with stdout and stderr appended to a log file as they arrive,
  * so the log can be read while it runs. Rejects on a non-zero exit or when the
  * timeout kills it; the output is already in the file either way.
+ * Local only — the legacy in-process build and static builds on the panel.
  */
 export function streamToLog(
   command: string,
@@ -82,6 +80,10 @@ export function streamToLog(
     });
   });
 }
+
+/** Git in the sources tree. safe.directory: after the first deploy the tree belongs to the tenant user. */
+const gitIn = (afs: AppFs, sourcesDir: string, args: string[], env?: Record<string, string>) =>
+  afs.run(['git', '-c', `safe.directory=${sourcesDir}`, ...args], { cwd: sourcesDir, timeout: 600_000, ...(env && { env }) });
 
 export interface DeploymentConfig {
   application: Application;
@@ -114,20 +116,13 @@ export interface StartResult {
 /**
  * Application deployment.
  *
- * Apps build and run natively on the host: each one is a systemd unit owned by
- * its organization's OS user, inside that org's cgroup slice (see
- * systemdService and orgProvisionService). CPU/memory limits are the slice's,
- * so they are per organization rather than per app.
+ * Apps build and run natively on their organization's node: each one is a
+ * systemd unit owned by the org's OS user, inside that org's cgroup slice (see
+ * systemdService and orgProvisionService). Every file and command goes through
+ * AppFs, which is that node over SSH — or the panel's own disk for the legacy
+ * and static cases (lib/appFs.ts).
  */
 export class DeploymentService {
-  /**
-   * Application directory, resolved through the owning organization so each
-   * tenant's files sit under its own OS user's home. See lib/appPaths.ts.
-   */
-  private async getAppDir(applicationId: string): Promise<string> {
-    return resolveAppDir(applicationId);
-  }
-
   /** Load an application with the organization the runtime needs. */
   private async appWithOrg(domain: string) {
     return prisma.application.findFirst({
@@ -136,94 +131,59 @@ export class DeploymentService {
     });
   }
 
-  /** Same, for the log helpers that only carry a hostname. */
-  private async getAppDirByDomain(domain: string): Promise<string> {
-    const dir = await resolveAppDirByDomain(domain);
-    if (!dir) throw new Error(`No application found for domain ${domain}`);
-    return dir;
-  }
-
-  /**
-   * Prepare the application directory using subdomain.domain.tld format
-   */
-  async prepareAppDirectory(applicationId: string): Promise<string> {
-    const appDir = await this.getAppDir(applicationId);
-
+  /** Create the application's tree (logs/, sources/) where it belongs. */
+  async prepareAppDirectory(applicationId: string): Promise<AppFs> {
+    const afs = await appFsFor(applicationId);
     try {
-      // Create app directory if it doesn't exist (parents included)
-      await fs.mkdir(appDir, { recursive: true });
-
-      const logsDir = path.join(appDir, 'logs');
-      await fs.mkdir(logsDir, { recursive: true });
-
-      const sourcesDir = path.join(appDir, 'sources');
-      await fs.mkdir(sourcesDir, { recursive: true });
-
-      return appDir;
-    } catch (error) {
-      throw new Error(`Failed to prepare app directory: ${error}`);
+      await afs.mkdir(logsDirFor(afs.appDir));
+      await afs.mkdir(sourcesDirFor(afs.appDir));
+      return afs;
+    } catch (error: any) {
+      throw new Error(`Failed to prepare app directory: ${error?.stderr || error?.message || error}`);
     }
   }
 
   /**
-   * Clone or pull the repository into sources directory
+   * Clone or pull the repository into sources/.
    */
   async syncRepository(
-    appDir: string,
+    afs: AppFs,
     repository: string,
     branch: string = 'main',
     gitAccountId: string | null = null
   ): Promise<string> {
+    const sourcesDir = sourcesDirFor(afs.appDir);
     try {
-      const sourcesDir = path.join(appDir, 'sources');
-
-      // Private repositories need the connected account's token. It travels in
-      // the environment and is read back by a one-shot credential helper, so it
-      // never lands in .git/config, in `ps`, or in this log.
+      // Private repositories need the connected account's token. It reaches git
+      // as an environment variable read back by a one-shot credential helper,
+      // so it never lands in .git/config, in `ps`, or in this log.
       const auth = await gitAuthFor(gitAccountId);
-      const env = { ...process.env, ...auth.env };
 
-      // Check if directory is already a git repository
-      const gitDir = path.join(sourcesDir, '.git');
-      const gitExists = await fs.access(gitDir).then(() => true).catch(() => false);
-
-      if (gitExists) {
-        // Pull latest changes
+      if (await afs.exists(join(sourcesDir, '.git'))) {
         console.log(`Pulling latest changes for ${repository} on branch ${branch}`);
-        await execAsync(
-          `cd "${sourcesDir}" && git ${auth.args} fetch origin && git reset --hard origin/${shellQuote(branch)}`,
-          { env }
-        );
+        await gitIn(afs, sourcesDir, [...auth.args, 'fetch', 'origin'], auth.env);
+        await gitIn(afs, sourcesDir, ['reset', '--hard', `origin/${branch}`]);
       } else {
-        // Clone the repository
         console.log(`Cloning repository ${repository} on branch ${branch}`);
-        await execAsync(
-          `git ${auth.args} clone -b ${shellQuote(branch)} ${shellQuote(repository)} "${sourcesDir}"`,
-          { env }
-        );
+        await afs.run(['git', ...auth.args, 'clone', '-b', branch, '--', repository, sourcesDir], {
+          timeout: 600_000,
+          env: auth.env,
+        });
       }
 
       return sourcesDir;
-    } catch (error) {
-      throw new Error(`Failed to sync repository: ${error}`);
+    } catch (error: any) {
+      throw new Error(`Failed to sync repository: ${error?.stderr || error?.message || error}`);
     }
-  }
-
-  private isPortFree(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      const server = net.createServer();
-      server.once('error', () => resolve(false));
-      server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)));
-    });
   }
 
   /**
    * Give the app a port from the pool, once. Taken ports come from the DB
-   * (including imported inventory) and the socket check catches anything else
-   * on the box. A port already assigned is kept — the running release holds
-   * it, which is not a conflict.
+   * (including imported inventory) and a check on the node catches anything
+   * else listening there. A port already assigned is kept — the running
+   * release holds it, which is not a conflict.
    */
-  private async allocatePort(application: Application): Promise<number> {
+  private async allocatePort(application: Application, afs: AppFs): Promise<number> {
     if (application.port) return application.port;
 
     const rows = await prisma.application.findMany({
@@ -234,7 +194,7 @@ export class DeploymentService {
 
     for (let port = PORT_POOL_START; port <= PORT_POOL_END; port++) {
       if (taken.has(port)) continue;
-      if (!(await this.isPortFree(port))) continue;
+      if (await afs.portInUse(port)) continue;
       await prisma.application.update({ where: { id: application.id }, data: { port } });
       application.port = port as any;
       return port;
@@ -246,21 +206,35 @@ export class DeploymentService {
     return systemd.defaultPort(type);
   }
 
-  /** Poll until something answers HTTP on the port. Any response counts — the app is up. */
-  private waitForHealthy(port: number, timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs;
-    const probe = () =>
-      new Promise<boolean>((resolve) => {
-        const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 3000 }, (res) => {
+  /** One HTTP request to the app's port on its own box. Any response means it is up. */
+  private async probe(afs: AppFs, port: number): Promise<boolean> {
+    let createConnection: (() => any) | undefined;
+    if (afs.node) {
+      // the app listens on the node's loopback; reach it through the SSH connection
+      const stream = await forwardTcp(afs.node, '127.0.0.1', port).catch(() => null);
+      if (!stream) return false;
+      createConnection = () => stream;
+    }
+    return new Promise<boolean>((resolve) => {
+      const req = http.get(
+        { host: '127.0.0.1', port, path: '/', timeout: 3000, agent: false, ...(createConnection && { createConnection }) },
+        (res) => {
           res.resume();
+          req.destroy();
           resolve(true);
-        });
-        req.on('error', () => resolve(false));
-        req.on('timeout', () => { req.destroy(); resolve(false); });
-      });
+        },
+      );
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    });
+  }
+
+  /** Poll until something answers HTTP on the port. */
+  private waitForHealthy(afs: AppFs, port: number, timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
     return new Promise((resolve) => {
       const tick = async () => {
-        if (await probe()) return resolve(true);
+        if (await this.probe(afs, port)) return resolve(true);
         if (Date.now() > deadline) return resolve(false);
         setTimeout(tick, 1000);
       };
@@ -269,24 +243,24 @@ export class DeploymentService {
   }
 
   /** Point `current` at a release. Symlink + rename, so the switch is atomic. */
-  private async activateRelease(appDir: string, releaseDir: string): Promise<string | null> {
-    const current = currentDirFor(appDir);
-    const previous = await fs.readlink(current).catch(() => null);
+  private async activateRelease(afs: AppFs, releaseDir: string): Promise<string | null> {
+    const current = currentDirFor(afs.appDir);
+    const previous = await afs.readlink(current).catch(() => null);
     const tmp = current + '.tmp';
-    await fs.rm(tmp, { force: true });
-    await fs.symlink(releaseDir, tmp);
-    await fs.rename(tmp, current);
+    await afs.rm(tmp, { force: true });
+    await afs.symlink(releaseDir, tmp);
+    await afs.rename(tmp, current);
     return previous;
   }
 
-  private async pruneReleases(appDir: string): Promise<void> {
-    const dir = releasesDirFor(appDir);
-    const keep = await fs.readlink(currentDirFor(appDir)).catch(() => null);
-    const names = (await fs.readdir(dir).catch(() => [] as string[])).sort();
+  private async pruneReleases(afs: AppFs): Promise<void> {
+    const dir = releasesDirFor(afs.appDir);
+    const keep = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
+    const names = (await afs.readdir(dir).catch(() => [] as string[])).sort();
     for (const name of names.slice(0, Math.max(0, names.length - KEEP_RELEASES))) {
-      const full = path.join(dir, name);
+      const full = join(dir, name);
       if (full === keep) continue;
-      await fs.rm(full, { recursive: true, force: true }).catch(() => {});
+      await afs.rm(full, { recursive: true, force: true }).catch(() => {});
     }
   }
 
@@ -296,48 +270,51 @@ export class DeploymentService {
    * symlink away. The tree is handed to the tenant user by cb-app-unit install.
    */
   async runBuild(
-    appDir: string,
+    afs: AppFs,
     application: Application,
     deployment: Deployment,
     envVars: Record<string, string> = {}
   ): Promise<BuildResult> {
-    const sourcesDir = path.join(appDir, 'sources');
-    const logsDir = path.join(appDir, 'logs');
-    await fs.mkdir(logsDir, { recursive: true });
-    const buildLogPath = path.join(logsDir, 'build.log');
-    const log = (line: string) => fs.appendFile(buildLogPath, line + NL);
+    const { appDir } = afs;
+    const sourcesDir = sourcesDirFor(appDir);
+    const logsDir = logsDirFor(appDir);
+    await afs.mkdir(logsDir);
+    const buildLogPath = join(logsDir, 'build.log');
+    const log = (line: string) => afs.appendFile(buildLogPath, line + NL);
+    const uploadLog = () =>
+      afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, application.id, deployment.id)).catch(() => {});
 
     try {
-      if (systemd.needsUnit(application.type)) await this.allocatePort(application);
+      if (systemd.needsUnit(application.type)) await this.allocatePort(application, afs);
 
-      await fs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
+      await afs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
 
-      const detected = await detectProject(sourcesDir);
+      const detected = await detectProject(sourcesDir, afs.readText);
       await log(`Detected: ${detected.label} (${detected.packageManager})`);
 
       const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
-      const releaseDir = path.join(releasesDirFor(appDir), stamp);
-      await fs.mkdir(releaseDir, { recursive: true });
+      const releaseDir = join(releasesDirFor(appDir), stamp);
+      await afs.mkdir(releaseDir);
       // ponytail: full copy per release, tar excludes the junk. Hardlink node_modules from the previous release if installs get slow.
-      await execAsync(
-        `tar -C "${sourcesDir}" --exclude=./node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "${releaseDir}" -xf -`,
-        { timeout: 300000 }
+      await afs.run(
+        ['sh', '-c', 'tar -C "$1" --exclude=./node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "$2" -xf -', 'sh', sourcesDir, releaseDir],
+        { timeout: 300_000 },
       );
 
       if (detected.framework === 'nextjs') {
         // Next's build cache survives across releases — big win on rebuilds.
-        const cache = path.join(sharedDirFor(appDir), 'next-cache');
-        await fs.mkdir(cache, { recursive: true });
-        await fs.mkdir(path.join(releaseDir, '.next'), { recursive: true });
-        await fs.symlink(cache, path.join(releaseDir, '.next', 'cache'));
+        const cache = join(sharedDirFor(appDir), 'next-cache');
+        await afs.mkdir(cache);
+        await afs.mkdir(join(releaseDir, '.next'));
+        await afs.symlink(cache, join(releaseDir, '.next', 'cache'));
       }
 
-      const has = (f: string) => fs.access(path.join(releaseDir, f)).then(() => true).catch(() => false);
+      const has = (f: string) => afs.exists(join(releaseDir, f));
       const steps: string[] = [];
 
       if (detected.type === 'PHP') {
         if (detected.installCommand) {
-          if (await this.reuseInstalled(appDir, releaseDir, 'composer.lock', 'vendor')) {
+          if (await this.reuseInstalled(afs, releaseDir, 'composer.lock', 'vendor')) {
             await log('vendor: composer.lock unchanged, hardlinked from the previous release');
           } else {
             steps.push(detected.installCommand);
@@ -354,14 +331,14 @@ export class DeploymentService {
         }
         const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
         if (entries.length > 0) {
-          const shipped = await fs.readFile(path.join(releaseDir, '.env'), 'utf-8').catch(() => '');
+          const shipped = await afs.readText(join(releaseDir, '.env')).catch(() => '');
           const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([k]) => line.startsWith(k + '=')));
           const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
-          await fs.writeFile(path.join(releaseDir, '.env'), [...kept, ...own].join(NL) + NL);
+          await afs.writeFile(join(releaseDir, '.env'), [...kept, ...own].join(NL) + NL);
         }
       } else if (await has('package.json')) {
         const lock = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock', bun: 'bun.lock' }[detected.packageManager];
-        if (lock && (await this.reuseInstalled(appDir, releaseDir, lock, 'node_modules'))) {
+        if (lock && (await this.reuseInstalled(afs, releaseDir, lock, 'node_modules'))) {
           await log('node_modules: lockfile unchanged, hardlinked from the previous release');
         } else {
           steps.push(detected.installCommand);
@@ -392,35 +369,41 @@ export class DeploymentService {
           ...steps.flatMap((step) => [`echo`, `echo ${q('$ ' + step)}`, step]),
           '',
         ].join(NL);
-        const buildScript = path.join(appDir, 'build.sh');
-        await fs.rm(buildScript, { force: true }); // may be owned by the tenant after chown
-        await fs.writeFile(buildScript, script, { mode: 0o660 });
+        const buildScript = join(appDir, 'build.sh');
+        await afs.rm(buildScript, { force: true }); // may be owned by the tenant after chown
+        await afs.writeFile(buildScript, script, { mode: 0o660 });
 
-        const slug = await orgSlugForApp(application.id);
-        if (OS_ISOLATION_ENABLED && slug) {
-          // ponytail: the isolated build runs through the sudo helper and hands
-          // its output back at the end, so it is not live. Stream it too if
-          // watching isolated builds matters.
+        const slug = (await prisma.application.findUnique({
+          where: { id: application.id },
+          select: { organization: { select: { slug: true } } },
+        }))?.organization?.slug;
+
+        if (afs.node && slug) {
+          // On the node, in the build cgroup, as the unprivileged build user.
+          // Output is appended to build.log as it prints — serially, so chunks
+          // land in order — which is what the live log view follows.
+          let appending: Promise<unknown> = Promise.resolve();
+          const onOutput = (text: string) => {
+            appending = appending.then(() => afs.appendFile(buildLogPath, text)).catch(() => {});
+          };
           try {
-            await log(await appBuild(slug, application.id));
-          } catch (error: any) {
-            // Keep what the build printed before it died.
-            if (error?.stdout) await log(error.stdout);
-            throw error;
+            await appBuild(slug, application.id, onOutput);
+          } finally {
+            await appending;
           }
         } else {
-          // written to build.log as it prints, so the app page can follow along
+          // legacy, on the panel: written to build.log as it prints
           await streamToLog('bash', [buildScript], buildLogPath, 900000);
         }
       }
 
       await log(NL + `[${new Date().toISOString()}] BUILD COMPLETED`);
-      await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+      await uploadLog();
       return { success: true, releaseDir, docroot: detected.outputDir || '.' };
     } catch (error: any) {
       const message = error.stderr || error.message || String(error);
-      await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message);
-      await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+      await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message).catch(() => {});
+      await uploadLog();
       return { success: false, error: message };
     }
   }
@@ -431,18 +414,19 @@ export class DeploymentService {
    * the build time. Hardlinks are safe here: both releases belong to the same
    * tenant user.
    */
-  private async reuseInstalled(appDir: string, releaseDir: string, lock: string, dir: string): Promise<boolean> {
-    const previous = await fs.readlink(currentDirFor(appDir)).catch(() => null);
+  private async reuseInstalled(afs: AppFs, releaseDir: string, lock: string, dir: string): Promise<boolean> {
+    const previous = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
     if (!previous) return false;
     const [a, b] = await Promise.all([
-      fs.readFile(path.join(previous, lock)).catch(() => null),
-      fs.readFile(path.join(releaseDir, lock)).catch(() => null),
+      afs.readFile(join(previous, lock)).catch(() => null),
+      afs.readFile(join(releaseDir, lock)).catch(() => null),
     ]);
     if (!a || !b || !a.equals(b)) return false;
-    const prevDir = path.join(previous, dir);
-    if (!(await fs.stat(prevDir).then((s) => s.isDirectory()).catch(() => false))) return false;
+    const prevDir = join(previous, dir);
+    if (!(await afs.isDirectory(prevDir))) return false;
     // ponytail: cp -al, GNU coreutils. Fall back to a real install if it fails.
-    return execAsync(`cp -al "${prevDir}" "${path.join(releaseDir, dir)}"`, { timeout: 300000 })
+    return afs
+      .run(['cp', '-al', '--', prevDir, join(releaseDir, dir)], { timeout: 300_000 })
       .then(() => true)
       .catch(() => false);
   }
@@ -451,36 +435,31 @@ export class DeploymentService {
    * PHP apps have no unit: the org's PHP-FPM pool serves them. Publishing is
    * handing the tree to the tenant user and pointing Caddy at the docroot.
    */
-  private async publishPhp(application: AppWithOrg, appDir: string, docroot: string): Promise<boolean> {
+  private async publishPhp(application: AppWithOrg, afs: AppFs, docroot: string): Promise<boolean> {
     const slug = application.organization?.slug;
     if (!slug) throw new Error('PHP apps need an organization (the FPM pool is per org)');
 
-    const deployLogPath = path.join(appDir, 'logs', 'deploy.log');
+    const deployLogPath = join(logsDirFor(afs.appDir), 'deploy.log');
     await appUnit('chown', slug, application.id);
 
     // The pool socket lives on the org's node, next to its Caddy — not on the panel.
-    const node = await serverForApplication(application.id);
+    const node = afs.node ?? (await serverForApplication(application.id));
     const socketDir = process.env.PHP_FPM_SOCKET_DIR || '/run/php';
-    const sockets = (await remoteReadDir(node, socketDir)).filter((n) =>
+    const sockets = (await afs.readdir(socketDir).catch(() => [] as string[])).filter((n) =>
       new RegExp(`^php[0-9.]+-fpm-cb-${slug}\\.sock$`).test(n)
     );
     if (sockets.length === 0) {
-      await fs.appendFile(deployLogPath, `No PHP-FPM pool socket for this organization in ${socketDir}. Re-provision the organization with PHP-FPM installed.` + NL);
+      await afs.appendFile(deployLogPath, `No PHP-FPM pool socket for this organization in ${socketDir}. Re-provision the organization with PHP-FPM installed.` + NL);
       return false;
     }
-    const socket = path.join(socketDir, sockets.sort().reverse()[0] as string);
-    const root = path.join(currentDirFor(appDir), docroot);
+    const socket = join(socketDir, sockets.sort().reverse()[0] as string);
+    const root = join(currentDirFor(afs.appDir), docroot);
 
     await configureCaddyForPhpApplication(node, application.domain, root, socket);
-    await fs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
+    await afs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
     return true;
   }
 
-  /**
-   * Push every running app's route into Caddy again. Routes live in Caddy's
-   * memory; a `caddy reload` from the Caddyfile drops them. Called at backend
-   * start, so "restart larika" is the recovery.
-   */
   /** Hostnames that should have a route right now — what the watchdog compares against. */
   async expectedCaddyHosts(serverId?: string): Promise<string[]> {
     const apps = await prisma.application.findMany({
@@ -496,6 +475,11 @@ export class DeploymentService {
     return apps.map((app) => app.domain);
   }
 
+  /**
+   * Push every running app's route into Caddy again. Routes live in Caddy's
+   * memory; a `caddy reload` from the Caddyfile drops them. Called at backend
+   * start, so "restart larika" is the recovery.
+   */
   async reapplyCaddyRoutes(): Promise<{ applied: number; failed: number }> {
     const apps = await prisma.application.findMany({
       where: { status: 'RUNNING', runtime: null },
@@ -505,13 +489,13 @@ export class DeploymentService {
     let failed = 0;
     for (const app of apps) {
       try {
-        const appDir = appDirFor(app.id, app.organization?.slug ?? null);
         const node = await serverForApplication(app.id);
         if (app.type === 'STATIC') {
           await configureCaddyForStaticApplication(node, app.id, app.domain, app.staticOrigin);
         } else if (app.type === 'PHP') {
-          const detected = await detectProject(currentDirFor(appDir));
-          if (!(await this.publishPhp(app, appDir, detected.outputDir || '.'))) throw new Error('no FPM socket');
+          const afs = await appFsFor(app.id);
+          const detected = await detectProject(currentDirFor(afs.appDir), afs.readText);
+          if (!(await this.publishPhp(app, afs, detected.outputDir || '.'))) throw new Error('no FPM socket');
         } else if (app.port) {
           await configureCaddyForRuntimeApplication(node, app.domain, app.port);
         } else {
@@ -530,48 +514,38 @@ export class DeploymentService {
    * (Re)install and start the unit for an application, by hostname.
    */
   async startApplication(domain: string): Promise<boolean> {
+    let afs: AppFs | null = null;
+    const deployLog = (line: string) =>
+      afs ? afs.appendFile(join(logsDirFor(afs.appDir), 'deploy.log'), line + NL).catch(() => {}) : Promise.resolve();
+
     try {
       const application = await this.appWithOrg(domain);
       if (!application) {
         throw new Error('Application not found for domain');
       }
 
-      const appDir = await this.getAppDir(application.id);
-      const logsDir = path.join(appDir, 'logs');
-      const deployLogPath = path.join(logsDir, 'deploy.log');
-      await fs.mkdir(logsDir, { recursive: true });
-
-      await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] DEPLOYMENT STARTED` + NL);
+      afs = await appFsFor(application.id);
+      await afs.mkdir(logsDirFor(afs.appDir));
+      await deployLog(`[${new Date().toISOString()}] DEPLOYMENT STARTED`);
 
       let started = await systemd.startApplication(application);
 
       if (started && systemd.needsUnit(application.type)) {
         const port = application.port || this.getDefaultPort(application.type);
-        await fs.appendFile(deployLogPath, `Waiting for the app to answer on 127.0.0.1:${port}` + NL);
-        started = await this.waitForHealthy(port);
+        await deployLog(`Waiting for the app to answer on 127.0.0.1:${port}`);
+        started = await this.waitForHealthy(afs, port);
         if (!started) {
-          await fs.appendFile(
-            deployLogPath,
-            `Nothing answered on port ${port} within ${HEALTH_TIMEOUT_MS / 1000}s. The app must listen on $PORT (${port}). Check logs/error.log.` + NL
+          await deployLog(
+            `Nothing answered on port ${port} within ${HEALTH_TIMEOUT_MS / 1000}s. The app must listen on $PORT (${port}). Check logs/error.log.`
           );
         }
       }
 
-      await fs.appendFile(
-        deployLogPath,
-        `[${new Date().toISOString()}] DEPLOYMENT ${started ? 'COMPLETED' : 'FAILED'}` + NL
-      );
-
+      await deployLog(`[${new Date().toISOString()}] DEPLOYMENT ${started ? 'COMPLETED' : 'FAILED'}`);
       return started;
-    } catch (error) {
-      const message = (error as any).stderr || (error as any).message || String(error);
-      try {
-        const appDir = await this.getAppDirByDomain(domain);
-        const deployLogPath = path.join(appDir, 'logs', 'deploy.log');
-        await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] DEPLOYMENT FAILED:` + NL + message + NL);
-      } catch {
-      }
-
+    } catch (error: any) {
+      const message = error?.stderr || error?.message || String(error);
+      await deployLog(`[${new Date().toISOString()}] DEPLOYMENT FAILED:` + NL + message);
       return false;
     }
   }
@@ -585,15 +559,13 @@ export class DeploymentService {
       throw new Error('Application domain is required for release start');
     }
 
-    const appDir = await this.getAppDir(application.id);
-    const deployLogPath = path.join(appDir, 'logs', 'deploy.log');
-    await fs.mkdir(path.join(appDir, 'logs'), { recursive: true });
-    await fs.appendFile(deployLogPath, `[${new Date().toISOString()}] RELEASE STARTED: ${release.id}` + NL);
+    const afs = await appFsFor(application.id);
+    await afs.mkdir(logsDirFor(afs.appDir));
+    await afs.appendFile(join(logsDirFor(afs.appDir), 'deploy.log'), `[${new Date().toISOString()}] RELEASE STARTED: ${release.id}` + NL);
 
     if (release.path) {
-      const exists = await fs.stat(release.path).then((st) => st.isDirectory()).catch(() => false);
-      if (!exists) throw new Error(`Release directory is gone: ${release.path}`);
-      await this.activateRelease(appDir, release.path);
+      if (!(await afs.isDirectory(release.path))) throw new Error(`Release directory is gone: ${release.path}`);
+      await this.activateRelease(afs, release.path);
     }
 
     return this.startApplication(application.domain);
@@ -659,54 +631,47 @@ export class DeploymentService {
     try {
       console.log(`Starting deployment for application: ${application.name}`);
 
-      // Update deployment status to BUILDING
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: { status: 'BUILDING' },
       });
 
-      const appDir = await this.prepareAppDirectory(application.id);
+      const afs = await this.prepareAppDirectory(application.id);
+      const { appDir } = afs;
 
-      // Clear build logs for this deployment
-      const logsDir = path.join(appDir, 'logs');
-      const buildLogPath = path.join(logsDir, 'build.log');
-      const deployLogPath = path.join(logsDir, 'deploy.log');
+      const logsDir = logsDirFor(appDir);
+      const buildLogPath = join(logsDir, 'build.log');
+      const deployLogPath = join(logsDir, 'deploy.log');
+      const sourcesDir = sourcesDirFor(appDir);
+      const readLog = (file: string, missing: string) =>
+        afs.readText(file).then((text) => (text.trim() ? text : missing), () => missing);
+      const uploadLog = () =>
+        afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, application.id, deployment.id)).catch(() => {});
 
-      // Ensure logs directory exists
-      await fs.mkdir(logsDir, { recursive: true });
-
-      // Clear build and deploy logs for fresh deployment
-      await fs.writeFile(buildLogPath, '');
-      await fs.writeFile(deployLogPath, '');
-
-      console.log(`Cleared build logs for deployment: ${deployment.id}`);
+      // Fresh logs for a fresh deployment
+      await afs.writeFile(buildLogPath, '');
+      await afs.writeFile(deployLogPath, '');
 
       if (application.repository) {
         const branch = application.branch || 'main';
-        await this.syncRepository(appDir, application.repository, branch, application.gitAccountId);
-        try {
-          const sourcesDir = path.join(appDir, 'sources');
-          const { stdout: commitStdout } = await execAsync(`cd "${sourcesDir}" && git rev-parse HEAD`);
-          commitSha = commitStdout.trim();
-        } catch (error) {
-        }
+        await this.syncRepository(afs, application.repository, branch, application.gitAccountId);
+        commitSha = await gitIn(afs, sourcesDir, ['rev-parse', 'HEAD'])
+          .then(({ stdout }) => stdout.trim())
+          .catch(() => undefined);
       }
 
       if (application.type === 'STATIC') {
-        const sourcesDir = path.join(appDir, 'sources');
+        // Static sites build on the panel (AppFs is local for them) and are
+        // served from R2, so nothing here touches a node except the route.
         // Uploaded static sites already live in object storage — a redeploy has
         // nothing to build, so keep the deployment green instead of running a
         // build command against an empty sources tree.
         const prebuilt = !application.repository && !application.buildCommand;
 
         if (prebuilt) {
-          const uploadTimestamp = new Date().toISOString();
-          await fs.appendFile(buildLogPath, `[${uploadTimestamp}] UPLOADED SOURCES — no build step
-`);
-
-          await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
-
-          const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+          await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] UPLOADED SOURCES — no build step` + NL);
+          await uploadLog();
+          const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           // no origin = the files never made it to a bucket (the upload failed
           // or never ran); there is nothing to serve, so do not report green
@@ -758,34 +723,32 @@ export class DeploymentService {
         };
 
         try {
-          const staticStartTimestamp = new Date().toISOString();
-          await fs.appendFile(buildLogPath, `[${staticStartTimestamp}] STATIC BUILD STARTED\n`);
+          await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD STARTED` + NL);
 
           // Same detection the create screen showed: install before building,
           // take the framework's output folder, and let a plain HTML repo
           // (no package.json, no build) ship as-is.
-          const detected = await detectProject(sourcesDir);
-          const hasPackageJson = await fs
-            .access(path.join(sourcesDir, 'package.json'))
-            .then(() => true)
-            .catch(() => false);
+          const detected = await detectProject(sourcesDir, afs.readText);
+          const hasPackageJson = await afs.exists(join(sourcesDir, 'package.json'));
           const steps = [
             hasPackageJson ? detected.installCommand : '',
             application.buildCommand || detected.buildCommand || '',
           ].filter(Boolean);
 
-          await fs.appendFile(buildLogPath, `Detected: ${detected.label}\n`);
+          await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);
 
           if (steps.length > 0) {
             // streamed into build.log as it prints, so the app page can follow it
-            await fs.appendFile(buildLogPath, `$ ${steps.join(' && ')}\n`);
+            // ponytail: tenant build code on the panel as the backend user. Move
+            // static builds into a node's build cgroup if untrusted tenants ship static sites.
+            await afs.appendFile(buildLogPath, `$ ${steps.join(' && ')}` + NL);
             await streamToLog('sh', ['-c', steps.join(' && ')], buildLogPath, 600000, {
               cwd: sourcesDir,
               env: staticBuildEnv,
             });
-            await fs.appendFile(buildLogPath, `\n[${new Date().toISOString()}] STATIC BUILD COMPLETED\n`);
+            await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] STATIC BUILD COMPLETED` + NL);
           } else {
-            await fs.appendFile(buildLogPath, 'No build step — publishing the repository as-is\n');
+            await afs.appendFile(buildLogPath, 'No build step — publishing the repository as-is' + NL);
           }
 
           const distCandidates = [detected.outputDir, 'dist', 'build', 'out'].filter(
@@ -793,12 +756,8 @@ export class DeploymentService {
           );
           let distDir: string | null = null;
           for (const candidate of distCandidates) {
-            const candidatePath = path.join(sourcesDir, candidate);
-            const exists = await fs
-              .access(candidatePath)
-              .then(() => true)
-              .catch(() => false);
-            if (exists) {
+            const candidatePath = join(sourcesDir, candidate);
+            if (await afs.exists(candidatePath)) {
               distDir = candidatePath;
               break;
             }
@@ -817,9 +776,8 @@ export class DeploymentService {
           });
           (application as any).staticOrigin = origin;
 
-          await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
-
-          const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+          await uploadLog();
+          const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           try {
             await configureCaddyForStaticApplication(
@@ -856,13 +814,11 @@ export class DeploymentService {
             deployLogs: 'Static site deployed to Cloudflare R2',
           };
         } catch (error: any) {
-          const errorTimestamp = new Date().toISOString();
           const message = error.stderr || error.message || String(error);
-          const errorLogEntry = `[${errorTimestamp}] STATIC BUILD FAILED:\n${message}\n\n`;
-          await fs.appendFile(buildLogPath, errorLogEntry);
-          await uploadBuildLog(buildLogPath, application.id, deployment.id).catch(() => {});
+          await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD FAILED:` + NL + message + NL + NL).catch(() => {});
+          await uploadLog();
 
-          const buildLogs = await fs.readFile(buildLogPath, 'utf-8').catch(() => 'Build logs not available');
+          const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           await prisma.deployment.update({
             where: { id: deployment.id },
@@ -880,21 +836,10 @@ export class DeploymentService {
         }
       }
 
-      const buildResult = await this.runBuild(appDir, application, deployment, envVars);
-
-      // Get build logs
-      let buildLogs = '';
-      try {
-        buildLogs = await fs.readFile(buildLogPath, 'utf-8');
-        if (!buildLogs.trim()) {
-          buildLogs = 'Build logs not available';
-        }
-      } catch (error) {
-        buildLogs = 'Build logs not available';
-      }
+      const buildResult = await this.runBuild(afs, application, deployment, envVars);
+      const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
       if (!buildResult.success) {
-        // Update deployment with failure
         await prisma.deployment.update({
           where: { id: deployment.id },
           data: {
@@ -918,30 +863,22 @@ export class DeploymentService {
         },
       });
 
-      const previousRelease = await this.activateRelease(appDir, buildResult.releaseDir!);
-      let startResult =
+      const previousRelease = await this.activateRelease(afs, buildResult.releaseDir!);
+      const startResult =
         application.type === 'PHP'
-          ? await this.publishPhp((await this.appWithOrg(application.domain))!, appDir, buildResult.docroot || '.')
+          ? await this.publishPhp((await this.appWithOrg(application.domain))!, afs, buildResult.docroot || '.')
           : await this.startApplication(application.domain);
 
       let rolledBack = false;
       if (!startResult && previousRelease) {
         // Put the last good release back so the site stays up.
-        await fs.appendFile(deployLogPath, `Rolling back to ${previousRelease}` + NL);
-        await this.activateRelease(appDir, previousRelease);
+        await afs.appendFile(deployLogPath, `Rolling back to ${previousRelease}` + NL);
+        await this.activateRelease(afs, previousRelease);
         rolledBack = await this.startApplication(application.domain).catch(() => false);
-        await fs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
+        await afs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
       }
 
-      let deployLogs = '';
-      try {
-        deployLogs = await fs.readFile(deployLogPath, 'utf-8');
-        if (!deployLogs.trim()) {
-          deployLogs = 'Deploy logs not available';
-        }
-      } catch (error) {
-        deployLogs = 'Deploy logs not available';
-      }
+      const deployLogs = await readLog(deployLogPath, 'Deploy logs not available');
 
       if (!startResult) {
         await prisma.deployment.update({
@@ -985,7 +922,7 @@ export class DeploymentService {
         },
       });
 
-      await this.pruneReleases(appDir).catch(() => {});
+      await this.pruneReleases(afs).catch(() => {});
 
       await prisma.application.update({
         where: { id: application.id },
@@ -1010,7 +947,6 @@ export class DeploymentService {
       };
 
     } catch (error: any) {
-      // Update deployment with error
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: {
@@ -1052,33 +988,39 @@ export class DeploymentService {
         return false;
       }
 
-      // Get deployment info from database
       const deployment = await prisma.deployment.findUnique({
         where: { id: deploymentId },
-        include: {
-          application: {
-            select: { domain: true }
-          }
-        }
+        select: { applicationId: true },
       });
 
       if (!deployment) {
         return false;
       }
 
-      const appDir = await this.getAppDir(deployment.applicationId);
-      const logsDir = path.join(appDir, 'logs');
-      const buildLogPath = path.join(logsDir, 'build.log');
-      const deployLogPath = path.join(logsDir, 'deploy.log');
-
-      await fs.writeFile(buildLogPath, '');
-      await fs.writeFile(deployLogPath, '');
+      const afs = await appFsFor(deployment.applicationId);
+      const logsDir = logsDirFor(afs.appDir);
+      await afs.writeFile(join(logsDir, 'build.log'), '');
+      await afs.writeFile(join(logsDir, 'deploy.log'), '');
 
       console.log(`Cleared logs for deployment: ${deploymentId}`);
       return true;
     } catch (error) {
       console.error('Error clearing deployment logs:', error);
       return false;
+    }
+  }
+
+  /** Last `lines` lines of a log file, or a message saying why there are none. */
+  private async tailLog(afs: AppFs, logFile: string, lines: number, logType: string): Promise<string> {
+    try {
+      if (!(await afs.exists(logFile))) {
+        return `Log file not found: ${logFile}`;
+      }
+      // ponytail: whole file over SFTP, then sliced. `tail -n` on the node if logs get big.
+      const content = await afs.readText(logFile);
+      return content.split('\n').slice(-lines).join('\n');
+    } catch (error) {
+      return `No logs available for ${logType}: ${error}`;
     }
   }
 
@@ -1091,44 +1033,18 @@ export class DeploymentService {
         return 'No deployment ID provided';
       }
 
-      // Get deployment info from database
       const deployment = await prisma.deployment.findUnique({
         where: { id: deploymentId },
-        include: {
-          application: {
-            select: { domain: true }
-          }
-        }
+        select: { applicationId: true },
       });
 
       if (!deployment) {
         return 'Deployment not found';
       }
 
-      const appDir = await this.getAppDir(deployment.applicationId);
-      const logsDir = path.join(appDir, 'logs');
-
-      let logFile = '';
-      switch (logType) {
-        case 'build':
-          logFile = path.join(logsDir, `build-${deploymentId}.log`);
-          break;
-        case 'deploy':
-          logFile = path.join(logsDir, `deploy-${deploymentId}.log`);
-          break;
-        default:
-          logFile = path.join(logsDir, `combined-${deploymentId}.log`);
-      }
-
-      // Check if log file exists
-      const logExists = await fs.access(logFile).then(() => true).catch(() => false);
-      if (!logExists) {
-        return `Log file not found: ${logFile}`;
-      }
-
-      const logContent = await fs.readFile(logFile, 'utf-8');
-      const logLines = logContent.split('\n').slice(-lines).join('\n');
-      return logLines;
+      const afs = await appFsFor(deployment.applicationId);
+      const name = logType === 'build' ? 'build' : logType === 'deploy' ? 'deploy' : 'combined';
+      return this.tailLog(afs, join(logsDirFor(afs.appDir), `${name}-${deploymentId}.log`), lines, logType);
     } catch (error) {
       return `No logs available for ${logType}: ${error}`;
     }
@@ -1143,33 +1059,11 @@ export class DeploymentService {
         return 'No domain provided';
       }
 
-      const appDir = await this.getAppDirByDomain(domain);
-      const logsDir = path.join(appDir, 'logs');
+      const afs = await appFsForDomain(domain);
+      if (!afs) return `No application found for domain ${domain}`;
 
-      let logFile = '';
-      switch (logType) {
-        case 'out':
-          logFile = path.join(logsDir, 'out.log');
-          break;
-        case 'error':
-          logFile = path.join(logsDir, 'error.log');
-          break;
-        case 'build':
-          logFile = path.join(logsDir, 'build.log');
-          break;
-        default:
-          logFile = path.join(logsDir, 'combined.log');
-      }
-
-      // Check if log file exists
-      const logExists = await fs.access(logFile).then(() => true).catch(() => false);
-      if (!logExists) {
-        return `Log file not found: ${logFile}`;
-      }
-
-      const logContent = await fs.readFile(logFile, 'utf-8');
-      const logLines = logContent.split('\n').slice(-lines).join('\n');
-      return logLines;
+      const name = ({ out: 'out.log', error: 'error.log', build: 'build.log' } as Record<string, string>)[logType] ?? 'combined.log';
+      return this.tailLog(afs, join(logsDirFor(afs.appDir), name), lines, logType);
     } catch (error) {
       return `No logs available for ${logType}: ${error}`;
     }
@@ -1184,25 +1078,12 @@ export class DeploymentService {
         return { exists: false, path: '' };
       }
 
-      const appDir = await this.getAppDirByDomain(domain);
-      const logsDir = path.join(appDir, 'logs');
-      const buildLogPath = path.join(logsDir, 'build.log');
+      const afs = await appFsForDomain(domain);
+      if (!afs) return { exists: false, path: '' };
 
-      const exists = await fs.access(buildLogPath).then(() => true).catch(() => false);
-
-      if (exists) {
-        const stats = await fs.stat(buildLogPath);
-        return {
-          exists: true,
-          path: buildLogPath,
-          size: stats.size
-        };
-      }
-
-      return {
-        exists: false,
-        path: buildLogPath
-      };
+      const buildLogPath = join(logsDirFor(afs.appDir), 'build.log');
+      const size = await afs.size(buildLogPath);
+      return size === null ? { exists: false, path: buildLogPath } : { exists: true, path: buildLogPath, size };
     } catch (error) {
       return {
         exists: false,
@@ -1220,17 +1101,14 @@ export class DeploymentService {
         return false;
       }
 
-      const appDir = await this.getAppDirByDomain(domain);
-      const logsDir = path.join(appDir, 'logs');
+      const afs = await appFsForDomain(domain);
+      if (!afs) return false;
 
-      // Ensure logs directory exists
-      await fs.mkdir(logsDir, { recursive: true });
+      const logsDir = logsDirFor(afs.appDir);
+      await afs.mkdir(logsDir);
 
-      const buildLogPath = path.join(logsDir, 'build.log');
-      const timestamp = new Date().toISOString();
-      const testEntry = `[${timestamp}] TEST: ${message}\n`;
-
-      await fs.appendFile(buildLogPath, testEntry);
+      const buildLogPath = join(logsDir, 'build.log');
+      await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] TEST: ${message}` + NL);
       console.log(`Test build log entry created at: ${buildLogPath}`);
       return true;
     } catch (error) {
