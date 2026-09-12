@@ -8,7 +8,18 @@ import { paging, contains } from '../lib/paging';
 import { orgScope, resolveOwnedDomain } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
-import { ensureSiteBucket, uploadSiteObject, listSiteObjects, deleteSiteObjects } from '../services/r2Service';
+import { ensureSiteBucket, uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
+import {
+  adoptRootFiles,
+  deleteAllSiteFiles,
+  discardFolder,
+  inFolder,
+  listReleaseFiles,
+  pruneStaticReleases,
+  releaseFolder,
+  servingFolder,
+  siteRootOrigin,
+} from '../services/staticReleaseService';
 import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
@@ -629,33 +640,43 @@ router.post(
             where: { id: deployment.id },
             data: { status: 'FAILED', deployLogs: message },
           });
-          await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
+          // the previous release is still serving untouched — only a site with
+          // nothing up yet is actually in error
+          if (!application.staticOrigin) {
+            await prisma.application.update({ where: { id: application.id }, data: { status: 'ERROR' } });
+          }
           return res.status(status).json({ success: false, error: message } as ApiResponse);
         };
 
+        // A fresh folder per deploy (services/staticReleaseService.ts): the
+        // serving one is never written to, and the switch is the route.
+        const folder = releaseFolder(deployment.id);
         let bucket: string;
         let origin: string;
         const uploadedKeys = new Set<string>();
-        let removed = 0;
+        let carried = 0;
 
         try {
           ({ bucket, origin } = await ensureSiteBucket(application.domain));
+          await adoptRootFiles(application);
 
           for (const [index, file] of files.entries()) {
             const relative = safeRelativePath(paths[index] || file.originalname);
             if (!relative) continue;
 
-            if (await uploadSiteObject(bucket, relative, file.buffer)) uploadedKeys.add(relative);
+            if (await uploadSiteObject(inFolder(bucket, folder), relative, file.buffer)) uploadedKeys.add(relative);
           }
 
-          // ?replace: the upload becomes the whole site — whatever it no longer
-          // contains goes. Only after every file landed, so a failed upload
-          // never leaves the site half-deleted.
-          if (uploadedKeys.size > 0 && (req.body?.replace === 'true' || req.body?.replace === true)) {
-            const stale = (await listSiteObjects(bucket)).map((o) => o.key).filter((key) => !uploadedKeys.has(key));
-            removed = await deleteSiteObjects(bucket, stale);
+          // Without ?replace the upload only adds and overwrites: the rest of
+          // the serving release is carried into the new one, copied inside R2.
+          const replace = req.body?.replace === 'true' || req.body?.replace === true;
+          if (uploadedKeys.size > 0 && !replace && application.staticOrigin) {
+            const serving = servingFolder(application.staticOrigin);
+            const keep = (await listReleaseFiles(bucket, serving)).map((f) => f.key).filter((key) => !uploadedKeys.has(key));
+            carried = await copySiteObjects(inFolder(bucket, serving), inFolder(bucket, folder), keep);
           }
         } catch (error: any) {
+          if (uploadedKeys.size > 0) await discardFolder(bucket!, folder);
           return fail(500, error?.message || 'Could not upload to the site bucket');
         }
 
@@ -664,21 +685,25 @@ router.post(
           return fail(400, 'No usable files in the upload');
         }
 
-        // recorded once the files are in, so a redeploy can retry the route
-        // without asking for the files again
-        await prisma.application.update({
-          where: { id: application.id },
-          data: { staticBucket: bucket, staticOrigin: origin },
+        const release = await prisma.release.create({
+          data: { applicationId: application.id, status: 'READY', path: folder },
         });
+        const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
 
         try {
           await configureCaddyForStaticApplication(
             await serverForApplication(application.id),
             application.id,
             application.domain,
-            origin,
+            pointer.staticOrigin,
           );
         } catch (error: any) {
+          // nothing served before: point at the new release anyway, so a
+          // republish retries just the route. Otherwise the old one keeps
+          // serving and the new release waits in the list to be switched to.
+          if (!application.staticOrigin) {
+            await prisma.application.update({ where: { id: application.id }, data: pointer });
+          }
           return fail(502, staticRouteError(error));
         }
 
@@ -695,15 +720,16 @@ router.post(
           data: {
             status: 'SUCCESS',
             deployLogs:
-              `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'} to Cloudflare R2 (${bucket})` +
-              (removed ? `, removed ${removed} no longer in the upload` : '') +
+              `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'} to Cloudflare R2 (${inFolder(bucket, folder)})` +
+              (carried ? `, carried over ${carried} unchanged from the previous release` : '') +
               dnsWarning,
           },
         });
         await prisma.application.update({
           where: { id: application.id },
-          data: { status: 'RUNNING', lastDeployment: new Date() },
+          data: { ...pointer, status: 'RUNNING', lastDeployment: new Date() },
         });
+        await pruneStaticReleases(application.id);
 
         return res.json({
           success: true,
@@ -783,9 +809,11 @@ router.get('/:id/files', authenticateToken, async (req: AuthenticatedRequest, re
     return res.json({
       success: true,
       data: {
-        // public bucket host, so a file can be opened before DNS points here
+        // public bucket host of the serving release, so a file can be opened
+        // before DNS points here
         origin: application.staticOrigin,
-        files: await listSiteObjects(application.staticBucket),
+        // the release that is serving — not every release in the bucket
+        files: await listReleaseFiles(application.staticBucket, servingFolder(application.staticOrigin)),
       },
     } as ApiResponse);
   } catch (error: any) {
@@ -806,7 +834,11 @@ router.delete('/:id/files', authenticateToken, async (req: AuthenticatedRequest,
       return res.status(400).json({ success: false, error: 'No files to delete' } as ApiResponse);
     }
 
-    const deleted = await deleteSiteObjects(application.staticBucket, keys);
+    // from the serving release; earlier releases keep their copies
+    const deleted = await deleteSiteObjects(
+      inFolder(application.staticBucket, servingFolder(application.staticOrigin)),
+      keys,
+    );
     return res.json({ success: true, data: { deleted } } as ApiResponse);
   } catch (error: any) {
     console.error('Error deleting site files:', error);
@@ -820,7 +852,6 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
     const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars, gitAccountId } = req.body || {};
-    console.log(req.body);
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -959,6 +990,13 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       });
       await removeCaddySite(await serverForApplication(application.id), application.domain).catch(() => {});
       await removeAppHostname(application);
+      // every release of a static site — the bucket is public, and nothing
+      // would ever clean these up once the row is gone
+      if (application.type === 'STATIC' && application.staticBucket) {
+        await deleteAllSiteFiles(application.staticBucket).catch((error: any) =>
+          console.error(`Could not delete the site files of ${application.domain}:`, error?.message),
+        );
+      }
       const afs = await appFsFor(application.id).catch(() => null);
       await afs?.rm(afs.appDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -1476,6 +1514,46 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       return res.status(400).json({
         success: false,
         error: 'Release is not in READY state',
+      } as ApiResponse);
+    }
+
+    // A static release is a folder in R2: switching is moving the route to it.
+    // Nothing stops, nothing is uploaded again.
+    if (application.type === 'STATIC') {
+      if (!application.staticOrigin) {
+        return res.status(400).json({ success: false, error: 'This site has nothing published yet' } as ApiResponse);
+      }
+      const staticOrigin = inFolder(siteRootOrigin(application.staticOrigin), release.path ?? '');
+      try {
+        await configureCaddyForStaticApplication(
+          await serverForApplication(application.id),
+          application.id,
+          application.domain,
+          staticOrigin,
+        );
+      } catch (error: any) {
+        // the route did not move, so the previous release is still what serves
+        return res.status(502).json({ success: false, error: staticRouteError(error) } as ApiResponse);
+      }
+
+      await prisma.application.update({
+        where: { id: application.id },
+        data: { staticOrigin, activeReleaseId: release.id, status: 'RUNNING', lastDeployment: new Date() },
+      });
+      // in the history too: "what changed at 14:02" should find the rollback
+      await prisma.deployment.create({
+        data: {
+          applicationId: application.id,
+          userId: req.user!.userId,
+          status: 'SUCCESS',
+          deployLogs: `Switched to the release from ${release.createdAt.toISOString()} (${release.path || 'site root'})`,
+        },
+      });
+
+      return res.json({
+        success: true,
+        data: { applicationId: application.id, activeReleaseId: release.id },
+        message: 'Release activated',
       } as ApiResponse);
     }
 

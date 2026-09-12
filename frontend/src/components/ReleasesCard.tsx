@@ -19,11 +19,12 @@ import { activateRelease, getReleases, type Release } from "@/lib/applications";
 import { locale, t } from "@/lib/i18n";
 
 /**
- * Built releases kept on the server (the last few), with a switch to any READY
- * one — a rollback that does not rebuild. Hidden when there are none, e.g. a
- * static site, which is served from its bucket rather than a release.
+ * Releases kept (the last few), with a switch to any READY one — a rollback
+ * that does not rebuild. For a runtime app a release is a build on its node;
+ * for a static site it is a folder of files in R2, and switching only moves
+ * the route. Hidden when there are none.
  */
-export function ReleasesCard({ appId }: { appId: string }) {
+export function ReleasesCard({ appId, isStatic = false }: { appId: string; isStatic?: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [confirm, setConfirm] = useState<Release | null>(null);
@@ -40,6 +41,9 @@ export function ReleasesCard({ appId }: { appId: string }) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["releases", appId] });
       queryClient.invalidateQueries({ queryKey: ["application", appId] });
+      // a switch is recorded in the history, and changes which files serve
+      queryClient.invalidateQueries({ queryKey: ["deployments", appId] });
+      queryClient.invalidateQueries({ queryKey: ["site-files", appId] });
     },
   });
 
@@ -60,7 +64,10 @@ export function ReleasesCard({ appId }: { appId: string }) {
             <div key={release.id} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono">{release.commitSha?.slice(0, 7) || "—"}</span>
+                  <span className="font-mono">
+                    {release.commitSha?.slice(0, 7) ||
+                      (!isStatic ? "—" : release.path ? t("Upload") : t("Before releases"))}
+                  </span>
                   {active ? (
                     <Badge>{t("Serving")}</Badge>
                   ) : release.status !== "READY" ? (
@@ -89,7 +96,9 @@ export function ReleasesCard({ appId }: { appId: string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Roll back to this release?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("The app stops briefly and restarts on the selected build. Nothing is rebuilt.")}
+              {isStatic
+                ? t("The site switches to these files right away. Nothing is uploaded or rebuilt, and you can switch back at any time.")
+                : t("The app stops briefly and restarts on the selected build. Nothing is rebuilt.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

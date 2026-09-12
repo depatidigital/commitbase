@@ -122,6 +122,7 @@ export function ReuploadDialog({
       queryClient.invalidateQueries({ queryKey: ["application", application.id] });
       queryClient.invalidateQueries({ queryKey: ["deployments", application.id] });
       queryClient.invalidateQueries({ queryKey: ["site-files", application.id] });
+      queryClient.invalidateQueries({ queryKey: ["releases", application.id] });
     }
   };
 
@@ -178,8 +179,8 @@ export function ReuploadDialog({
               <span className="font-medium">{t("Replace the whole site")}</span>
               <span className="block text-xs text-muted-foreground">
                 {replace
-                  ? t("Files on the site that are not in this upload are deleted.")
-                  : t("Only adds and overwrites — files already on the site stay.")}
+                  ? t("The new version has only these files. The current version is kept, so you can switch back to it.")
+                  : t("Only adds and overwrites — the rest of the current version is carried over.")}
               </span>
             </span>
           </label>

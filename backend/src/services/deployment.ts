@@ -9,6 +9,7 @@ import { appUnit, appBuild, ensureOrgOnNode } from './orgProvisionService';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
+import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
 import { appFsFor, appFsForDomain, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
@@ -772,14 +773,23 @@ export class DeploymentService {
             throw new Error(`Static build directory not found (looked for ${distCandidates.join(', ')})`);
           }
 
+          // into a fresh release folder; the serving one is not touched until
+          // the route moves (services/staticReleaseService.ts)
+          const previousOrigin: string | null = (application as any).staticOrigin ?? null;
           const { bucket, origin } = await ensureSiteBucket(application.domain);
-          await uploadSiteDirectory(bucket, distDir);
+          await adoptRootFiles(application as any);
+          const folder = releaseFolder(deployment.id);
+          try {
+            await uploadSiteDirectory(inFolder(bucket, folder), distDir);
+          } catch (error) {
+            await discardFolder(bucket, folder);
+            throw error;
+          }
 
-          await prisma.application.update({
-            where: { id: application.id },
-            data: { staticBucket: bucket, staticOrigin: origin },
+          const release = await prisma.release.create({
+            data: { applicationId: application.id, status: 'READY', path: folder, commitSha: commitSha ?? null },
           });
-          (application as any).staticOrigin = origin;
+          const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
 
           await uploadLog();
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
@@ -789,35 +799,29 @@ export class DeploymentService {
               await serverForApplication(application.id),
               application.id,
               application.domain,
-              (application as any).staticOrigin
+              pointer.staticOrigin
             );
           } catch (error: any) {
             const message = staticRouteError(error);
-            return { success: false, error: message, buildLogs, deployLogs: message };
+            // nothing served before: point at the build anyway so a republish
+            // retries only the route; otherwise the previous release serves on
+            if (!previousOrigin) await prisma.application.update({ where: { id: application.id }, data: pointer });
+            return { success: false, error: message, buildLogs, deployLogs: message, rolledBack: !!previousOrigin };
           }
 
+          const deployLogs = `Static site deployed to Cloudflare R2 (${pointer.staticOrigin})`;
           await prisma.deployment.update({
             where: { id: deployment.id },
-            data: {
-              status: 'SUCCESS',
-              buildLogs,
-              deployLogs: 'Static site deployed to Cloudflare R2',
-            },
+            data: { status: 'SUCCESS', buildLogs, deployLogs },
           });
 
           await prisma.application.update({
             where: { id: application.id },
-            data: {
-              status: 'RUNNING',
-              lastDeployment: new Date(),
-            },
+            data: { ...pointer, status: 'RUNNING', lastDeployment: new Date() },
           });
+          await pruneStaticReleases(application.id);
 
-          return {
-            success: true,
-            buildLogs,
-            deployLogs: 'Static site deployed to Cloudflare R2',
-          };
+          return { success: true, buildLogs, deployLogs };
         } catch (error: any) {
           const message = error.stderr || error.message || String(error);
           await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD FAILED:` + NL + message + NL + NL).catch(() => {});

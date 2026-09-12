@@ -118,7 +118,7 @@ export function SiteFilesCard({ appId }: { appId: string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Delete {count} files from the site?", { count: selected.length })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("They stop being served right away. This cannot be undone — upload them again to bring them back.")}
+              {t("They stop being served right away. Earlier releases keep their copies — switch back to one in Deployments to bring them back.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

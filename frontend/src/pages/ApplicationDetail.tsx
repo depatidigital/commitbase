@@ -949,7 +949,7 @@ export default function ApplicationDetail() {
 
           {/* Deployments Tab */}
           <TabsContent value="deployments" className="space-y-6">
-            <ReleasesCard appId={application.id} />
+            <ReleasesCard appId={application.id} isStatic={isStatic} />
             <DeploymentHistory application={application} />
           </TabsContent>
 

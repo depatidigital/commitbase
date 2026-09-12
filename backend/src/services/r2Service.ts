@@ -5,6 +5,7 @@ import {
   HeadBucketCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -344,6 +345,31 @@ export async function listSiteObjects(bucket: string): Promise<SiteObject[]> {
   } while (token);
 
   return objects;
+}
+
+/**
+ * Copy objects between two site locations inside R2, keeping their content
+ * type and cache headers. No bytes pass through here. Returns how many copied.
+ * ponytail: one request per object — fine for a site's thousands of files.
+ */
+export async function copySiteObjects(from: string, to: string, keys: string[]): Promise<number> {
+  if (keys.length === 0) return 0;
+  const config = await getR2Config();
+  if (!config) throw new Error('R2 is not configured');
+
+  const source = siteLocation(from);
+  const target = siteLocation(to);
+  const r2 = client(config);
+  for (const key of keys) {
+    await r2.send(
+      new CopyObjectCommand({
+        Bucket: target.bucket,
+        Key: target.prefix + key,
+        CopySource: `${source.bucket}/${(source.prefix + key).split('/').map(encodeURIComponent).join('/')}`,
+      }),
+    );
+  }
+  return keys.length;
 }
 
 /** Delete objects, 1000 per request (the S3 limit). Returns how many went. */

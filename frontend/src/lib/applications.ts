@@ -212,6 +212,8 @@ export type Release = {
   id: string;
   status: 'PENDING' | 'READY' | 'FAILED' | string;
   commitSha?: string | null;
+  /** static sites: the release's folder in R2 — '' for files from before releases */
+  path?: string | null;
   createdAt: string;
 };
 

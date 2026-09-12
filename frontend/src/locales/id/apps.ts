@@ -229,6 +229,15 @@ export default {
   "The app stops briefly and restarts on the selected build. Nothing is rebuilt.":
     "Aplikasi berhenti sebentar lalu jalan lagi dengan build yang dipilih. Tidak ada build ulang.",
   "Roll back": "Kembalikan",
+  "Before releases": "Sebelum release",
+  "The site switches to these files right away. Nothing is uploaded or rebuilt, and you can switch back at any time.":
+    "Situs langsung beralih ke file ini. Tidak ada yang diunggah atau di-build ulang, dan bisa dikembalikan kapan saja.",
+  "The new version has only these files. The current version is kept, so you can switch back to it.":
+    "Versi baru hanya berisi file ini. Versi saat ini tetap disimpan, jadi bisa dikembalikan.",
+  "Only adds and overwrites — the rest of the current version is carried over.":
+    "Hanya menambah dan menimpa — sisa file versi saat ini ikut dibawa.",
+  "They stop being served right away. Earlier releases keep their copies — switch back to one in Deployments to bring them back.":
+    "File langsung berhenti disajikan. Release sebelumnya tetap menyimpan salinannya — kembalikan salah satunya di tab Deployment untuk memulihkan.",
   "Switched release": "Release diganti",
   "The selected release is now serving.": "Release yang dipilih sekarang aktif.",
   "Failed to load releases": "Gagal memuat release",
