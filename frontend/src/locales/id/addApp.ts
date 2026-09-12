@@ -132,4 +132,14 @@ export default {
   "Failed to fetch GitLab accounts": "Gagal mengambil akun GitLab",
   "Failed to get GitHub OAuth URL": "Gagal mendapatkan URL OAuth GitHub",
   "Failed to get GitLab OAuth URL": "Gagal mendapatkan URL OAuth GitLab",
+  "Pre-deploy:": "Pra-deploy:",
+  "Environment variables": "Variabel environment",
+  "{count} still empty — fill them to deploy now, or finish on the next page.":
+    "{count} masih kosong — isi untuk deploy sekarang, atau selesaikan di halaman berikutnya.",
+  "Paste a whole .env into any name field.": "Tempel seluruh .env ke kolom nama mana saja.",
+  "No database yet? Leave DATABASE_URL empty — the next page creates and connects one.":
+    "Belum punya database? Biarkan DATABASE_URL kosong — halaman berikutnya membuat dan menghubungkannya.",
+  "Starting deploy…": "Memulai deploy…",
+  "Create & finish setup": "Buat & selesaikan pengaturan",
+  "Could not start the deploy": "Gagal memulai deploy",
 } satisfies Record<string, string>;

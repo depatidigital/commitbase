@@ -424,6 +424,27 @@ export default {
   "Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.":
     "Dijalankan sebelum build dengan environment aplikasi, agar build bisa memakai tabelnya. Jika gagal, rilis lama tetap melayani — pakai untuk migrasi database.",
   Manual: "Manual",
+  "Going live": "Menuju live",
+  "Cancel deploy": "Batalkan deploy",
+  "More actions": "Aksi lainnya",
+  "Republish current files": "Terbitkan ulang file saat ini",
+  "Redeploying…": "Deploy ulang…",
+  "The current release keeps serving until the new one answers.": "Rilis saat ini tetap melayani sampai rilis baru merespons.",
+  "Deploy failed": "Deploy gagal",
+  "Live and serving": "Online dan melayani",
+  "Builds the latest code. The current release keeps serving until it answers.":
+    "Build kode terbaru. Rilis saat ini tetap melayani sampai rilis baru merespons.",
+  "Builds the latest code and starts it.": "Build kode terbaru lalu menjalankannya.",
+  "Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.":
+    "Aktif — menunggu {domain} merespons. DNS dan sertifikat bisa butuh beberapa menit.",
+  "Stopped — nothing is serving.": "Dihentikan — tidak ada yang melayani.",
+  "Whatever was serving before keeps serving.": "Yang melayani sebelumnya tetap melayani.",
+  "Not serving.": "Tidak melayani.",
+  "Retry deploy": "Coba deploy lagi",
+  "Edit environment": "Ubah environment",
+  "Full log": "Log lengkap",
+  "Unsaved changes — saved when you deploy.": "Perubahan belum disimpan — disimpan saat Anda deploy.",
+  "The last deploy failed": "Deploy terakhir gagal",
   "Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.":
     "Dipasang manual di {runtime} — panel hanya memantaunya, tidak men-deploy atau memprovisinya.",
 } satisfies Record<string, string>;

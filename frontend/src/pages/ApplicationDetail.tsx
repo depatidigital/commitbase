@@ -353,6 +353,8 @@ export default function ApplicationDetail() {
   const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
   const siteLive = published && !!hostname?.live;
   const canStop = !isStatic && application.status === 'RUNNING';
+  // an uploaded site redeploys by uploading, from its own button
+  const canRedeploy = deployed && !uploadedSite;
 
   return (
     <TooltipProvider>
@@ -420,9 +422,11 @@ export default function ApplicationDetail() {
               onOpenChange={setReuploadOpen}
             />
 
-            {/* one primary action. While a deploy runs its progress is in the
-                banner below, so only Cancel here; before the first deploy the
-                setup card owns the button; an uploaded site redeploys by upload */}
+            {/* at most one safe primary action. While a deploy runs its progress
+                is in the banner below, so only Cancel here; before the first
+                deploy the setup card owns the button; an uploaded site redeploys
+                by upload. Once deployed, Redeploy rebuilds what is live — so it
+                sits in the menu, not one stray click away */}
             {deploying ? (
               <Button
                 variant="ghost"
@@ -433,43 +437,41 @@ export default function ApplicationDetail() {
                 <Square className="h-4 w-4 mr-2" />
                 {t("Cancel deploy")}
               </Button>
-            ) : needsSetup || uploadedSite ? null : !isStatic && application.status !== 'RUNNING' && deployed ? (
-              // stopped: bring the built release back, or build anew
-              <>
-                <Button variant="outline" onClick={deploy} disabled={starting}>
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  {t("Redeploy")}
-                </Button>
-                <Button onClick={() => startExistingApp.mutate(application.id)} disabled={startExistingApp.isPending} className="bg-gradient-primary">
-                  {startExistingApp.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
-                  {t("Start")}
-                </Button>
-              </>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
-                    {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
-                    {deployed ? t("Redeploy") : t("Deploy")}
-                  </Button>
-                </TooltipTrigger>
-                {published && (
-                  <TooltipContent>
-                    <p>{t("Build the latest code and switch over once it answers. The current release keeps serving meanwhile.")}</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            )}
+            ) : needsSetup || uploadedSite ? null : !deployed ? (
+              <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
+                {t("Deploy")}
+              </Button>
+            ) : !isStatic && application.status !== 'RUNNING' ? (
+              // stopped: bring the built release back — nothing is rebuilt
+              <Button onClick={() => startExistingApp.mutate(application.id)} disabled={startExistingApp.isPending} className="bg-gradient-primary">
+                {startExistingApp.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
+                {t("Start")}
+              </Button>
+            ) : null}
 
-            {/* the rarer actions, one click further away */}
-            {!deploying && (canStop || (uploadedSite && hasSiteFiles)) && (
+            {/* the actions that change what is live, one deliberate click further away */}
+            {!deploying && (canRedeploy || canStop || (uploadedSite && hasSiteFiles)) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon" aria-label={t("More actions")}>
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuContent align="end" className="w-64">
+                  {canRedeploy && (
+                    <DropdownMenuItem disabled={starting} onClick={deploy} className="items-start">
+                      <Rocket className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        {t("Redeploy")}
+                        <span className="block text-xs text-muted-foreground">
+                          {published
+                            ? t("Builds the latest code. The current release keeps serving until it answers.")
+                            : t("Builds the latest code and starts it.")}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  )}
                   {uploadedSite && hasSiteFiles && (
                     // points the site back at the files already uploaded — the way back after a failed upload
                     <DropdownMenuItem disabled={starting} onClick={() => startApp.mutate(application.id)}>
@@ -552,7 +554,7 @@ export default function ApplicationDetail() {
                 {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(application.status)}
                 <div className="min-w-0">
                   <h3 className="text-lg font-semibold">
-                    {siteLive ? t("Live") : failureReason ? t("Deploy failed") : STATUS_LABELS[application.status] ?? application.status}
+                    {siteLive ? t("Live and serving") : failureReason ? t("Deploy failed") : STATUS_LABELS[application.status] ?? application.status}
                   </h3>
                   <p className="text-muted-foreground">
                     {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
