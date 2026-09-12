@@ -44,6 +44,8 @@ export interface ExecOptions {
   input?: string;
   /** Every chunk of stdout and stderr as it arrives, interleaved — for live views. */
   onOutput?: (text: string) => void;
+  /** Ends a long-running command (a log follow): TERM on the node, then the channel closes and exec resolves. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -222,12 +224,27 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
         stream.close();
       }, timeout);
 
+      // Closing the channel alone leaves a no-pty command running until its next
+      // write hits a dead pipe — a quiet log follow could linger for hours.
+      const abort = () => {
+        try {
+          stream.signal('TERM');
+        } catch {
+          // sshd without signal support: the close still ends it eventually
+        }
+        stream.close();
+      };
+      opts.signal?.addEventListener('abort', abort, { once: true });
+      if (opts.signal?.aborted) abort();
+
       stream.on('data', (c: Buffer) => append('out', c));
       stream.stderr.on('data', (c: Buffer) => append('err', c));
       if (opts.input !== undefined) stream.end(opts.input);
 
       stream.on('close', (code: number | null) => {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', abort);
+        if (opts.signal?.aborted) return resolve({ stdout, stderr });
         if (truncated) stderr += `\n[output truncated at ${maxBuffer} bytes]`;
         if (timedOut) {
           return reject(

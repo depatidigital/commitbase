@@ -50,6 +50,7 @@ import {
   updateMemberRole,
 } from "@/lib/organizations";
 import { getServers, setOrganizationServer } from "@/lib/servers";
+import { OrgNodeBadges, OrgNodeLogDialog, anyNodePending } from "@/components/OrgNodes";
 import {
   ENGINE_LABEL,
   type DbEngine,
@@ -85,10 +86,15 @@ export default function OrganizationDetail() {
       variant: "destructive",
     });
 
+  // the node whose provisioning output is open
+  const [logNodeId, setLogNodeId] = useState<string | null>(null);
+
   const { data: org, isLoading } = useQuery({
     queryKey: ["organizations", id],
     queryFn: () => getOrganization(id),
     enabled: !!id,
+    // every 2s while a node's output is open, every 5s while one is provisioning
+    refetchInterval: (q) => (logNodeId ? 2000 : q.state.data && anyNodePending([q.state.data]) ? 5000 : false),
   });
 
   const { data: members = [] } = useQuery({
@@ -114,16 +120,13 @@ export default function OrganizationDetail() {
     queryClient.invalidateQueries({ queryKey: ["organizations", id] });
   };
 
-  const [placement, setPlacement] = useState("");
-
   const placeMutation = useMutation({
     mutationFn: (serverId: string) => setOrganizationServer(id, serverId),
     onSuccess: (updated) => {
       refresh();
-      toast({ title: t("Placed on {server}", { server: updated.server?.name ?? t("server") }) });
+      toast({ title: t("Default server: {server}", { server: updated.defaultServer?.name ?? t("server") }) });
     },
     onError: (error: Error) => {
-      setPlacement("");
       toast({ title: t("Error"), description: error.message, variant: "destructive" });
     },
   });
@@ -339,27 +342,18 @@ export default function OrganizationDetail() {
         apps: org._count.applications,
       })}`}
     >
-      {superadmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("Server placement")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {org.server ? (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="font-medium">{org.server.name}</span>
-                <Badge variant={org.server.status === "ONLINE" ? "default" : "destructive"}>
-                  {org.server.status}
-                </Badge>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("Servers")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="w-28 text-sm font-medium">{t("Default server")}</span>
+            {superadmin ? (
+              <>
                 <Select
-                  value={placement}
-                  onValueChange={(v) => {
-                    setPlacement(v);
-                    placeMutation.mutate(v);
-                  }}
+                  value={org.defaultServer?.id ?? ""}
+                  onValueChange={(v) => placeMutation.mutate(v)}
                   disabled={placeMutation.isPending}
                 >
                   <SelectTrigger className="w-64">
@@ -374,16 +368,26 @@ export default function OrganizationDetail() {
                   </SelectContent>
                 </Select>
                 {placeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              </div>
+              </>
+            ) : (
+              <span className="text-sm">{org.defaultServer?.name ?? "—"}</span>
             )}
-            <p className="text-xs text-muted-foreground">
-              {org.server
-                ? t("Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files.")
-                : t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+          <div className="flex flex-wrap items-start gap-3">
+            <span className="w-28 text-sm font-medium">{t("Provisioned on")}</span>
+            <OrgNodeBadges nodes={org.nodes} onOpen={(node) => setLogNodeId(node.id)} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("New apps run on the default server unless another is picked. The organization is provisioned only on the servers its apps use — its OS user has the same UID on each.")}
+          </p>
+        </CardContent>
+      </Card>
+
+      <OrgNodeLogDialog
+        orgName={org.name}
+        node={org.nodes.find((n) => n.id === logNodeId) ?? null}
+        onClose={() => setLogNodeId(null)}
+      />
 
       {superadmin && (
         <Card>

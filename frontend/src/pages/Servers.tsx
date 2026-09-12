@@ -309,7 +309,7 @@ export default function Servers() {
         />
       ),
     },
-    { header: t("Orgs"), className: "w-20", cell: (s) => s._count.organizations },
+    { header: t("Orgs"), className: "w-20", cell: (s) => s._count.orgNodes },
     {
       header: t("Last error"),
       className: "w-[22%]",

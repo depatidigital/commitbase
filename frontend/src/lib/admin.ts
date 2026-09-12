@@ -1,3 +1,4 @@
+import type { OrgNode } from './organizations';
 import apiRequest from './api';
 import { t } from './i18n';
 import type { Paginated } from '@/components/DataTable';
@@ -141,23 +142,15 @@ export const unassignDomain = async (domainId: string) =>
 
 // --- Organization OS provisioning -------------------------------------------
 
-export interface ProvisionStatus {
-  /** false when ORG_OS_ISOLATION is off on the server — nothing can be provisioned */
-  enabled: boolean;
-  slug: string;
-  osUser: string;
-  home: string;
-  provisioned: boolean;
-  sliceInstalled: boolean;
-  appCount: number;
-}
-
 export interface AdminOrganization extends OrgSummary {
   createdAt: string;
   _count: { members: number; domains: number; applications: number };
-  /** The node this tenant lives on. null until placed. */
-  server: { id: string; name: string; status: string } | null;
-  provisioning: ProvisionStatus | null;
+  /** Where new apps of this org go unless one is picked. */
+  defaultServer: { id: string; name: string; status: string } | null;
+  /** The nodes the org is provisioned on — one per node its apps use. */
+  nodes: OrgNode[];
+  /** false when ORG_OS_ISOLATION is off on the server — nothing can be provisioned */
+  isolationEnabled: boolean;
 }
 
 export interface ProvisionLog {

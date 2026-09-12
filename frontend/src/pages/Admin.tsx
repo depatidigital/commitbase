@@ -26,6 +26,7 @@ import { Loader2, ShieldCheck, TerminalSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
+import { OrgNodeBadges, OrgNodeLogDialog, anyNodePending } from "@/components/OrgNodes";
 import {
   AdminDomain,
   AdminOrganization,
@@ -82,10 +83,17 @@ export default function Admin() {
     queryFn: () => getAdminDomains(query.params),
   });
 
+  // the org node whose provisioning output is open
+  const [logFor, setLogFor] = useState<{ orgId: string; nodeId: string } | null>(null);
+
   const { data: orgData, isFetching: orgsFetching } = useQuery({
     queryKey: ["admin", "organizations", orgQuery.params],
     queryFn: () => getAdminOrganizations(orgQuery.params),
+    // every 2s while an output is open, every 5s while a node is provisioning
+    refetchInterval: (q) => (logFor ? 2000 : anyNodePending(q.state.data?.data) ? 5000 : false),
   });
+  const logOrg = orgData?.data.find((o) => o.id === logFor?.orgId) ?? null;
+  const logNode = logOrg?.nodes.find((n) => n.id === logFor?.nodeId) ?? null;
 
   const { data: logData, isFetching: logsFetching } = useQuery({
     queryKey: ["admin", "provision-logs", logQuery.params],
@@ -134,7 +142,7 @@ export default function Admin() {
   });
 
   // Any row tells us whether the server has isolation switched on at all.
-  const isolationEnabled = orgData?.data[0]?.provisioning?.enabled ?? true;
+  const isolationEnabled = orgData?.data[0]?.isolationEnabled ?? true;
 
   const columns: Column<AdminDomain>[] = [
     {
@@ -180,57 +188,38 @@ export default function Admin() {
   const orgColumns: Column<AdminOrganization>[] = [
     {
       header: t("Organization"),
-      className: "w-[30%]",
+      className: "w-[26%]",
       cell: (o) => (
         <div className="min-w-0">
           <span className="block truncate font-medium">{o.name}</span>
-          <span className="block truncate font-mono text-xs text-muted-foreground">
-            {o.provisioning?.osUser ?? `cb-${o.slug}`}
-          </span>
+          <span className="block truncate font-mono text-xs text-muted-foreground">cb-{o.slug}</span>
         </div>
       ),
     },
     {
-      header: t("Isolation"),
-      className: "w-40",
-      cell: (o) => {
-        const p = o.provisioning;
-        if (!p) return <Badge variant="outline">{t("Unknown")}</Badge>;
-        if (!p.enabled) return <Badge variant="outline">{t("Disabled")}</Badge>;
-        if (!p.provisioned) return <Badge variant="destructive">{t("Not provisioned")}</Badge>;
-        if (!p.sliceInstalled) return <Badge variant="secondary">{t("No resource limits")}</Badge>;
-        return <Badge>{t("Provisioned")}</Badge>;
-      },
-    },
-    {
-      header: "Home",
-      className: "w-[25%]",
-      cell: (o) => (
-        <span className="block truncate font-mono text-xs text-muted-foreground">
-          {o.provisioning?.home ?? "—"}
-        </span>
-      ),
-    },
-    {
-      header: t("Server"),
+      header: t("Default server"),
       className: "w-36",
       cell: (o) =>
-        !o.server ? (
-          <Link to={`/organizations/${o.id}`}>
-            <Badge
-              variant="outline"
-              className="border-warning/40 text-warning"
-              title={t("Provisioning and deploys refuse to run until this organization is placed on a node.")}
-            >
-              {t("Not placed")}
-            </Badge>
+        !o.defaultServer ? (
+          <Link to={`/organizations/${o.id}`} className="text-xs text-muted-foreground hover:underline">
+            {t("Not set")}
           </Link>
         ) : superadmin ? (
-          <Link to={`/servers/${o.server.id}`} className="block truncate hover:underline">
-            {o.server.name}
+          <Link to={`/servers/${o.defaultServer.id}`} className="block truncate hover:underline">
+            {o.defaultServer.name}
           </Link>
         ) : (
-          <span className="block truncate">{o.server.name}</span>
+          <span className="block truncate">{o.defaultServer.name}</span>
+        ),
+    },
+    {
+      header: t("Provisioned on"),
+      className: "w-[34%]",
+      cell: (o) =>
+        o.isolationEnabled ? (
+          <OrgNodeBadges nodes={o.nodes} onOpen={(node) => setLogFor({ orgId: o.id, nodeId: node.id })} />
+        ) : (
+          <Badge variant="outline">{t("Disabled")}</Badge>
         ),
     },
     {
@@ -244,14 +233,14 @@ export default function Admin() {
       cell: (o) => (
         <Button
           size="sm"
-          variant={o.provisioning?.provisioned ? "outline" : "default"}
-          disabled={!isolationEnabled || provisionMutation.isPending}
+          variant={o.nodes.length ? "outline" : "default"}
+          // nothing to do until the org is on a server or has a default one
+          disabled={!isolationEnabled || provisionMutation.isPending || (!o.nodes.length && !o.defaultServer)}
           onClick={() => setPendingProvision(o)}
         >
-          {provisionMutation.isPending &&
-          provisionMutation.variables === o.id ? (
+          {provisionMutation.isPending && provisionMutation.variables === o.id ? (
             <Loader2 className="h-4 w-4 animate-spin" />
-          ) : o.provisioning?.provisioned ? (
+          ) : o.nodes.length ? (
             t("Re-provision")
           ) : (
             t("Provision")
@@ -432,7 +421,7 @@ export default function Admin() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingProvision?.provisioning?.provisioned
+              {pendingProvision?.nodes.length
                 ? t("Re-run provisioning?")
                 : t("Provision this organization?")}
             </AlertDialogTitle>
@@ -442,6 +431,11 @@ export default function Admin() {
                   {t("Creates the OS user {user}, its home, disk quota, cgroup slice and PHP-FPM pool.", {
                     user: `cb-${pendingProvision.slug}`,
                   })}{" "}
+                  {pendingProvision.nodes.length
+                    ? t("Runs on every server it is on: {servers}.", {
+                        servers: pendingProvision.nodes.map((n) => n.server.name).join(", "),
+                      })
+                    : t("Runs on its default server, {server}.", { server: pendingProvision.defaultServer?.name ?? "—" })}{" "}
                   {t("Re-running also repairs file ownership and re-applies the resource limits — it does not restart running applications.")}
                 </>
               )}
@@ -459,6 +453,8 @@ export default function Admin() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <OrgNodeLogDialog orgName={logOrg?.name ?? ""} node={logNode} onClose={() => setLogFor(null)} />
     </PageLayout>
   );
 }

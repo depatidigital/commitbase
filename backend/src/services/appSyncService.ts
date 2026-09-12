@@ -579,3 +579,26 @@ export async function controlPm2Process(
     return { success: false, output: error?.stderr || error?.message || `pm2 ${action} failed` };
   }
 }
+
+/**
+ * Follow a pm2 app's log: the last `lines` lines, then each new one as pm2
+ * writes it, until `signal` aborts. Nothing is buffered — every chunk goes to
+ * `onOutput`. Resolves on abort, rejects if pm2 exits on its own.
+ */
+export function followPm2Logs(
+  node: SshTarget,
+  processName: string,
+  type: 'combined' | 'out' | 'error',
+  lines: number,
+  onOutput: (text: string) => void,
+  signal: AbortSignal
+): Promise<unknown> {
+  const only = type === 'out' ? ['--out'] : type === 'error' ? ['--err'] : [];
+  return exec(node, pm2(['logs', processName, '--raw', '--lines', String(lines), ...only]), {
+    onOutput,
+    signal,
+    maxBuffer: 0,
+    // backstop only: the route aborts well before this
+    timeout: 2 * 60 * 60_000,
+  });
+}
