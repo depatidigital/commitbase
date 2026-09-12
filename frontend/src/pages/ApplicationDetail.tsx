@@ -73,6 +73,7 @@ import { AppStorageCard } from "@/components/AppStorageCard";
 import { locale, t } from "@/lib/i18n";
 import { isSuperAdmin } from "@/lib/auth";
 import { testDatabaseUrl } from "@/lib/databases";
+import { AppDatabasesCard } from "@/components/AppDatabasesCard";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
@@ -862,6 +863,8 @@ export default function ApplicationDetail() {
               </CardContent>
             </Card>
             </div>
+
+            {!isStatic && <AppDatabasesCard applicationId={application.id} applicationName={application.name} />}
           </TabsContent>
 
           {/* Kept mounted while hidden: switching tabs must not throw away unsaved

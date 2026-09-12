@@ -33,6 +33,7 @@ import {
   Database as DatabaseIcon,
   Eye,
   EyeOff,
+  FileUp,
   KeyRound,
   Loader2,
   MoreHorizontal,
@@ -44,6 +45,7 @@ import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
+import { DatabaseImportDialog } from "@/components/DatabaseImportDialog";
 import { useToast } from "@/hooks/use-toast";
 import { isAdmin } from "@/lib/auth";
 import {
@@ -101,6 +103,7 @@ export default function Database() {
   const [credentialsFor, setCredentialsFor] = useState<DatabaseWithApplication | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [deleting, setDeleting] = useState<DatabaseWithApplication | null>(null);
+  const [importing, setImporting] = useState<DatabaseWithApplication | null>(null);
   const [confirmName, setConfirmName] = useState("");
 
   const { data, isFetching, error, refetch } = useQuery({
@@ -274,6 +277,12 @@ export default function Database() {
               >
                 <KeyRound className="mr-2 h-4 w-4" />
                 {t("Credentials")}
+              </DropdownMenuItem>
+            )}
+            {!db.discovered && db.status === "RUNNING" && (
+              <DropdownMenuItem onClick={() => setImporting(db)}>
+                <FileUp className="mr-2 h-4 w-4" />
+                {t("Import SQL")}
               </DropdownMenuItem>
             )}
             {!db.discovered && db.status !== "RUNNING" && (
@@ -473,6 +482,11 @@ export default function Database() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <DatabaseImportDialog
+        database={importing && { ...importing, organization: importing.organization ?? importing.application?.organization }}
+        onClose={() => setImporting(null)}
+      />
 
       {/* delete */}
       <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>

@@ -1,4 +1,7 @@
 import { Router, Response } from 'express';
+import fs from 'fs';
+import os from 'os';
+import multer from 'multer';
 import { prisma } from '../lib/prisma';
 import { CreateDatabaseSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
@@ -18,8 +21,21 @@ import {
   provisionDatabase,
   resolveAccount,
 } from '../services/databaseProvisionService';
+import {
+  ImportError,
+  importRunning,
+  listImports,
+  releaseImport,
+  reserveImport,
+  runImport,
+  tableCount,
+} from '../services/databaseImportService';
 
 const router = Router();
+
+const IMPORT_MAX_MB = Math.max(1, Number(process.env.DB_IMPORT_MAX_MB) || 512);
+// on disk, not in memory: dumps are big. Deleted once the import is done.
+const importUpload = multer({ dest: os.tmpdir(), limits: { fileSize: IMPORT_MAX_MB * 1024 * 1024, files: 1 } });
 
 /**
  * Who may see a database: members of the org that owns it, or of the org its
@@ -99,16 +115,37 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       } as ApiResponse);
     }
 
+    // The databases the app's env points at, by name — a database shared by two
+    // apps stays linked to the first one only, and this is how the second finds it.
+    const env = readEnv(application.envVars);
+    const names = new Set<string>();
+    for (const key of ['DATABASE_URL', 'DIRECT_URL']) {
+      try {
+        const name = decodeURIComponent(new URL(env[key] ?? '').pathname.replace(/^\/+/, ''));
+        if (name) names.add(name);
+      } catch {
+        // not a URL
+      }
+    }
+    for (const key of ['DB_DATABASE', 'PGDATABASE']) if (env[key]) names.add(env[key]!);
+
     const databases = await prisma.database.findMany({
       where: {
-        applicationId: appId,
+        OR: [
+          { applicationId: appId },
+          ...(names.size && application.organizationId
+            ? [{ dbName: { in: [...names] }, organizationId: application.organizationId }]
+            : []),
+        ],
       },
+      include: { databaseServer: { select: { id: true, name: true, engine: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
     return res.json({
       success: true,
-      data: databases,
+      // inUse: the app's env names it — the one its code actually talks to
+      data: databases.map(({ connectionString: _, ...db }) => ({ ...db, inUse: !!db.dbName && names.has(db.dbName) })),
     } as ApiResponse);
   } catch (error) {
     console.error('Get databases error:', error);
@@ -537,6 +574,106 @@ router.get('/:id/credentials', authenticateToken, async (req: AuthenticatedReque
   }
 });
 
+/** A database an import may run in: manageable, created by the panel, and up. The error to send otherwise. */
+async function importable(req: AuthenticatedRequest, id: string) {
+  const database = await manageable(req, id);
+  if (!database) return { status: 404, error: 'Database not found' } as const;
+  if (database.discovered) {
+    return { status: 400, error: 'This database was imported from its server — the panel holds no login for it' } as const;
+  }
+  if (database.status !== 'RUNNING' || !database.dbName) return { status: 400, error: 'The database is not ready yet' } as const;
+  return { database };
+}
+
+// How many tables it has: an import into a non-empty database is confirmed by name.
+router.get('/:id/tables', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const found = await importable(req, req.params.id as string);
+    if (!('database' in found)) return res.status(found.status).json({ success: false, error: found.error } as ApiResponse);
+    return res.json({ success: true, data: { tables: await tableCount(found.database.id) } } as ApiResponse);
+  } catch (error: any) {
+    if (error instanceof ProvisionError || error instanceof ImportError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Count database tables error:', error);
+    return res.status(502).json({ success: false, error: `Could not reach the database: ${error?.message ?? 'failed'}` } as ApiResponse);
+  }
+});
+
+// The latest imports, with the live log of a running one — polled by the import dialog.
+router.get('/:id/imports', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const database = await manageable(req, req.params.id as string);
+    if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
+    return res.json({ success: true, data: await listImports(database.id) } as ApiResponse);
+  } catch (error) {
+    console.error('List database imports error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Run an uploaded .sql / .sql.gz (field `file`) in this database, as its own
+ * login (databaseImportService). Everything is checked before the upload is
+ * accepted; into a database that already has tables only with
+ * `?confirm=<dbName>`. Answers 202 with the import row — the run carries on
+ * in the background, followed through GET /:id/imports.
+ */
+router.post('/:id/import', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const found = await importable(req, req.params.id as string).catch(() => null);
+  if (!found) return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  if (!('database' in found)) return res.status(found.status).json({ success: false, error: found.error } as ApiResponse);
+  const { database } = found;
+
+  if (!reserveImport(database.id)) {
+    return res.status(409).json({ success: false, error: 'An import is already running in this database' } as ApiResponse);
+  }
+  let started = false;
+  try {
+    const tables = await tableCount(database.id);
+    if (tables > 0 && req.query.confirm !== database.dbName) {
+      return res.status(400).json({
+        success: false,
+        error: `${database.dbName} already has ${tables} tables — type its name to import into it anyway`,
+      } as ApiResponse);
+    }
+
+    await new Promise<void>((resolve, reject) => importUpload.single('file')(req, res, (error) => (error ? reject(error) : resolve())));
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' } as ApiResponse);
+
+    const row = await prisma.databaseImport.create({
+      data: {
+        databaseId: database.id,
+        userId: req.user!.userId,
+        fileName: req.file.originalname.slice(0, 200),
+        sizeBytes: req.file.size,
+      },
+    });
+    started = true;
+    // releases the database and deletes the file when done
+    void runImport(row.id, database.id, req.file.path);
+    return res.status(202).json({ success: true, data: row, message: 'Import started' } as ApiResponse);
+  } catch (error: any) {
+    if (error instanceof multer.MulterError) {
+      const tooBig = error.code === 'LIMIT_FILE_SIZE';
+      return res.status(tooBig ? 413 : 400).json({
+        success: false,
+        error: tooBig ? `The file is larger than ${IMPORT_MAX_MB} MB — gzip it, or split it` : error.message,
+      } as ApiResponse);
+    }
+    if (error instanceof ProvisionError || error instanceof ImportError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Start database import error:', error);
+    return res.status(502).json({ success: false, error: `Could not start the import: ${error?.message ?? 'failed'}` } as ApiResponse);
+  } finally {
+    if (!started) {
+      releaseImport(database.id);
+      if (req.file) fs.promises.unlink(req.file.path).catch(() => {});
+    }
+  }
+});
+
 // Delete database
 router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -576,6 +713,10 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
         success: false,
         error: 'This database was imported from its server — ask an administrator to remove it',
       } as ApiResponse);
+    }
+
+    if (importRunning(database.id)) {
+      return res.status(409).json({ success: false, error: 'An import is running in this database — wait for it to finish' } as ApiResponse);
     }
 
     // Dropping real data is typed out, not clicked through.

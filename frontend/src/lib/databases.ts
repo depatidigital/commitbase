@@ -1,4 +1,4 @@
-import apiRequest, { PaginatedResponse } from './api';
+import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
 import { ListParams, listQuery } from './admin';
 import type { Paginated } from '@/components/DataTable';
 import { t } from './i18n';
@@ -222,6 +222,121 @@ export const attachDatabase = async (
   });
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Failed to connect the database'));
+};
+
+/** A database an app uses: linked to it, or named by its env (`inUse`) — the one its code talks to. */
+export interface AppDatabase extends Database {
+  status: DatabaseWithApplication['status'];
+  inUse: boolean;
+  databaseServer?: { id: string; name: string; engine: string } | null;
+}
+
+export const getAppDatabases = async (applicationId: string): Promise<AppDatabase[]> => {
+  const response = await apiRequest<AppDatabase[]>(`/databases/application/${applicationId}`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to fetch databases'));
+};
+
+/** One run of an uploaded .sql file, with its live log while it runs. */
+export interface DatabaseImport {
+  id: string;
+  databaseId: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string | null;
+  status: 'RUNNING' | 'DONE' | 'FAILED';
+  statements: number;
+  skipped: number;
+  log: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  user?: { id: string; name: string | null; email: string } | null;
+}
+
+export const getDatabaseTables = async (id: string): Promise<number> => {
+  const response = await apiRequest<{ tables: number }>(`/databases/${id}/tables`);
+  if (response.success && response.data) return response.data.tables;
+  throw new Error(response.error || t('Could not reach the database'));
+};
+
+export const getDatabaseImports = async (id: string): Promise<DatabaseImport[]> => {
+  const response = await apiRequest<DatabaseImport[]>(`/databases/${id}/imports`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to load imports'));
+};
+
+/**
+ * Upload a .sql / .sql.gz to run in the database. Resolves once the server has
+ * the file and the run has started. XHR for upload progress, like the source upload.
+ */
+export const importDatabase = async (
+  id: string,
+  file: File,
+  options: { confirm?: string; onProgress?: (fraction: number) => void } = {},
+): Promise<DatabaseImport> => {
+  const body = new FormData();
+  body.append('file', file);
+  const query = options.confirm ? `?confirm=${encodeURIComponent(options.confirm)}` : '';
+  const token = localStorage.getItem('authToken');
+  const fallback = t('Failed to upload the file');
+
+  const data = await new Promise<{ success?: boolean; error?: string; data?: DatabaseImport }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}/databases/${id}/import${query}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => e.lengthComputable && options.onProgress?.(e.loaded / e.total);
+    xhr.onload = () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        resolve(xhr.status >= 200 && xhr.status < 300 ? parsed : { ...parsed, success: false });
+      } catch {
+        reject(new Error(xhr.status === 413 ? t('The file is too large') : fallback));
+      }
+    };
+    xhr.onerror = () => reject(new Error(fallback));
+    xhr.send(body);
+  });
+
+  if (!data.success || !data.data) throw new Error(data.error || fallback);
+  return data.data;
+};
+
+/**
+ * What a dump's first 64 KB say, before anything is uploaded: the engine it
+ * was made for, and whether it names another database. The server checks the
+ * whole file again — this only saves a pointless upload.
+ */
+export const sniffDump = async (file: File): Promise<{ engine: 'POSTGRESQL' | 'MYSQL' | null; otherDatabase: string | null }> => {
+  const LIMIT = 64 * 1024;
+  let head = '';
+  try {
+    const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    if (magic[0] === 0x1f && magic[1] === 0x8b) {
+      const reader = file.stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream()).getReader();
+      while (head.length < LIMIT) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        head += value;
+      }
+      reader.cancel().catch(() => {});
+    } else {
+      head = await file.slice(0, LIMIT).text();
+    }
+  } catch {
+    return { engine: null, otherDatabase: null };
+  }
+
+  const engine = /PostgreSQL database dump|^\\restrict\s|pg_catalog\./m.test(head)
+    ? 'POSTGRESQL'
+    : /(MySQL|MariaDB) dump|^\/\*!\d{5}/im.test(head)
+      ? 'MYSQL'
+      : null;
+  const named =
+    /^\\c(?:onnect)?\s+(?:-reuse-previous=\S+\s+)?"?([^\s"]+)/m.exec(head)?.[1] ??
+    /^USE\s+`?([^`;\s]+)`?\s*;/im.exec(head)?.[1] ??
+    null;
+  return { engine, otherDatabase: named };
 };
 
 // Every database across the organizations the caller belongs to
