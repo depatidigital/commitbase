@@ -11,7 +11,10 @@ import {
   databaseCredentials,
   databaseName,
   dropDatabase,
+  grantAccess,
+  ownerRoleName,
   provisionDatabase,
+  resolveAccount,
 } from '../services/databaseProvisionService';
 
 const router = Router();
@@ -159,11 +162,8 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create new database
 router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, type, organizationId: requestedOrg, applicationId } = CreateDatabaseSchema.parse(req.body);
-
-    if (type !== 'POSTGRESQL' && type !== 'MYSQL') {
-      return res.status(400).json({ success: false, error: `${type} databases are not supported yet` } as ApiResponse);
-    }
+    const { name, type: requestedType, databaseServerId, login, organizationId: requestedOrg, applicationId } =
+      CreateDatabaseSchema.parse(req.body);
 
     // The owner is the app's organization, or the one asked for. Either way the
     // caller has to be able to manage it — a database is that org's resource.
@@ -188,19 +188,33 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
 
     const organization = await prisma.organization.findUnique({
       where: { id: organizationId },
-      include: { postgresServer: { select: { id: true, port: true } }, mysqlServer: { select: { id: true, port: true } } },
+      select: { id: true, slug: true, postgresServerId: true, mysqlServerId: true },
     });
     if (!organization) return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
 
-    const placed = type === 'POSTGRESQL' ? organization.postgresServer : organization.mysqlServer;
-    if (!placed) {
+    // Any server may be chosen; without one, the organization's server for the
+    // engine. The engine then comes from the server.
+    const serverId =
+      databaseServerId ??
+      (requestedType === 'POSTGRESQL' ? organization.postgresServerId : requestedType === 'MYSQL' ? organization.mysqlServerId : null);
+    if (!serverId) {
       return res.status(400).json({
         success: false,
-        error: `This organization is not placed on a ${type === 'POSTGRESQL' ? 'PostgreSQL' : 'MySQL'} server yet — a superadmin sets that on the organization page`,
+        error: requestedType && requestedType !== 'POSTGRESQL' && requestedType !== 'MYSQL'
+          ? `${requestedType} databases are not supported yet`
+          : 'Choose a database server — this organization has no default one for that engine',
       } as ApiResponse);
     }
+    const dbs = await prisma.databaseServer.findUnique({ where: { id: serverId }, include: { server: true } });
+    if (!dbs) return res.status(404).json({ success: false, error: 'Database server not found' } as ApiResponse);
+    if (dbs.status !== 'ONLINE') {
+      return res.status(400).json({ success: false, error: `${dbs.name} is not online — choose another server or test it first` } as ApiResponse);
+    }
+    const type = dbs.engine as 'POSTGRESQL' | 'MYSQL';
 
     const dbName = databaseName(organization.slug, name, type);
+    // resolved (and a new one checked against the server) before anything is recorded
+    const account = await resolveAccount(dbs, organization, login);
 
     let database;
     try {
@@ -210,9 +224,11 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
           type,
           status: 'CREATING',
           dbName,
-          port: placed.port,
+          port: dbs.port,
           organizationId,
-          databaseServerId: placed.id,
+          databaseServerId: dbs.id,
+          ...(type === 'POSTGRESQL' && { ownerRole: ownerRoleName(dbName) }),
+          grants: { create: { accountId: account.id } },
           ...(applicationId && { applicationId }),
         },
       });
@@ -229,7 +245,8 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
 
     return res.status(result.ok ? 201 : 502).json({
       success: result.ok,
-      data: fresh,
+      // accountId: the login it was made with, for the attach that follows
+      data: fresh && { ...fresh, accountId: account.id },
       ...(result.ok
         ? { message: `Database ${dbName} created` }
         : { error: `The database was recorded but could not be created on the server: ${result.error}` }),

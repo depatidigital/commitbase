@@ -126,7 +126,14 @@ export const UpdateApplicationSchema = z.object({
 export const CreateDatabaseSchema = z.object({
   // the part after the org prefix; databaseName() holds it to identifier rules
   name: z.string().trim().min(1, 'Database name is required').max(41),
-  type: z.enum(['POSTGRESQL', 'MYSQL', 'MONGODB', 'REDIS', 'SQLITE']),
+  // the engine; taken from the server when one is chosen
+  type: z.enum(['POSTGRESQL', 'MYSQL', 'MONGODB', 'REDIS', 'SQLITE']).optional(),
+  // the server to create it on; else the organization's server for the engine
+  databaseServerId: z.string().min(1).optional(),
+  // the login that reaches it: one the org has, a new named one, or the org's default
+  login: z
+    .union([z.object({ accountId: z.string().min(1) }), z.object({ username: z.string().trim().min(1).max(31) })])
+    .optional(),
   // who owns it: the app's organization when an app is given, else this one
   organizationId: z.string().min(1).optional(),
   applicationId: z.string().min(1).optional(),

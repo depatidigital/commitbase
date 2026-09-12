@@ -172,7 +172,7 @@ export default function ApplicationDetail() {
     retry: false,
   });
   // the Environment tab's form, for the setup checklist on the Overview tab
-  const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], dirty: false });
+  const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], warnings: [], dirty: false });
   // a first deploy waits for this: the code's variables filled in and saved
   const setupReady = !detection.isLoading && envStatus.missing.length === 0 && !envStatus.dirty;
 

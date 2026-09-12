@@ -1,4 +1,4 @@
-import { CheckCircle, Circle, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
@@ -27,10 +27,16 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
   const start = application.startCommand || detected?.startCommand;
   const envDone = !detecting && env.missing.length === 0 && !env.dirty;
 
-  const Step = ({ done, title, children, action }: { done: boolean; title: string; children?: React.ReactNode; action?: React.ReactNode }) => (
+  const Step = ({ done, warn, title, children, action }: { done: boolean; warn?: boolean; title: string; children?: React.ReactNode; action?: React.ReactNode }) => (
     <div className="flex items-start justify-between gap-3 py-3">
       <div className="flex min-w-0 items-start gap-3">
-        {done ? <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-green-600" /> : <Circle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />}
+        {done && warn ? (
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+        ) : done ? (
+          <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
+        ) : (
+          <Circle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        )}
         <div className="min-w-0 space-y-1">
           <p className="font-medium">{title}</p>
           {children}
@@ -53,6 +59,7 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
         <div className="divide-y">
           <Step
             done={envDone}
+            warn={env.warnings.length > 0}
             title={t("Environment")}
             action={
               <Button type="button" variant="outline" size="sm" onClick={onEditEnv}>
@@ -77,6 +84,12 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
                 <span className="text-muted-foreground">{t("Every expected variable has a value.")}</span>
               )}
             </p>
+            {/* filled, but likely wrong on the server — said, not blocking: localhost can be deliberate */}
+            {!detecting && env.warnings.length > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {t("{count} to check: {keys}", { count: env.warnings.length, keys: env.warnings.join(", ") })}
+              </p>
+            )}
           </Step>
 
           <Step

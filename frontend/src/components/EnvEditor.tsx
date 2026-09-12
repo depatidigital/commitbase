@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, ClipboardPaste, Eye, EyeOff, FileUp, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ClipboardPaste, Eye, EyeOff, FileUp, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ENV_NAME, isSecret, mergeRows, parseEnv, pointsAtLocalhost, type EnvRow } from "@/lib/env";
+import { ENV_NAME, PLATFORM_KEYS, isSecret, mergeRows, parseEnv, pointsAtLocalhost, type EnvRow } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
 /**
@@ -150,8 +150,34 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
               />
             )}
             {/* said even when masked — the host is the part that matters here */}
-            {(local || suggestion) && (
+            {(local || suggestion || generatable || platform) && (
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
+                {platform && (
+                  <span
+                    className={`flex items-center gap-1 ${
+                      platform === "ignored" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                    }`}
+                  >
+                    {platform === "ignored" && <AlertTriangle className="h-3 w-3 shrink-0" />}
+                    {platform === "ignored"
+                      ? t("Set by Larika — this value is ignored.")
+                      : t("Larika already sets this to production; this value replaces it.")}
+                  </span>
+                )}
+                {generatable && (
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                    disabled={disabled}
+                    onClick={() => {
+                      const value = generate?.(row);
+                      if (value) update(index, { value });
+                    }}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    {t("Generate")}
+                  </button>
+                )}
                 {local && (
                   <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                     <AlertTriangle className="h-3 w-3 shrink-0" />
