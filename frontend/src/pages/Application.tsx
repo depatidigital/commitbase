@@ -112,7 +112,7 @@ export default function Application() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
-    type: "start" | "start-existing" | "stop" | "restart" | "delete";
+    type: "stop" | "delete";
     appId: string;
     appName: string;
   } | null>(null);
@@ -184,20 +184,14 @@ export default function Application() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
-  const handleStart = async (id: string, name: string) => {
-    setConfirmAction({ type: "start", appId: id, appName: name });
-  };
-
-  const handleStartExisting = async (id: string, name: string) => {
-    setConfirmAction({ type: "start-existing", appId: id, appName: name });
-  };
+  // no confirm: a deploy replaces nothing until it works, and a start or
+  // restart only brings back what was running. Stop and Delete still ask.
+  const handleStart = (id: string) => startApp.mutate(id);
+  const handleStartExisting = (id: string) => startExistingApp.mutate(id);
+  const handleRestart = (id: string) => restartApp.mutate(id);
 
   const handleStop = async (id: string, name: string) => {
     setConfirmAction({ type: "stop", appId: id, appName: name });
-  };
-
-  const handleRestart = async (id: string, name: string) => {
-    setConfirmAction({ type: "restart", appId: id, appName: name });
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -209,17 +203,8 @@ export default function Application() {
 
     try {
       switch (confirmAction.type) {
-        case "start":
-          await startApp.mutateAsync(confirmAction.appId);
-          break;
-        case "start-existing":
-          await startExistingApp.mutateAsync(confirmAction.appId);
-          break;
         case "stop":
           await stopApp.mutateAsync(confirmAction.appId);
-          break;
-        case "restart":
-          await restartApp.mutateAsync(confirmAction.appId);
           break;
         case "delete":
           await deleteApp.mutateAsync(confirmAction.appId);
@@ -237,43 +222,13 @@ export default function Application() {
 
     const { type, appName } = confirmAction;
 
-    // Find the application to check if it has been deployed
-    const app = applications.find((a) => a.id === confirmAction.appId);
-
     switch (type) {
-      case "start":
-        return {
-          title: hasBeenDeployed(app!)
-            ? t("Redeploy & Start App")
-            : t("Deploy & Start App"),
-          description: hasBeenDeployed(app!)
-            ? t("Are you sure you want to redeploy and start \"{name}\"? This will rebuild and run the application.", { name: appName })
-            : t("Are you sure you want to deploy and start \"{name}\"? This will build and run the application for the first time.", { name: appName }),
-          actionText: hasBeenDeployed(app!)
-            ? t("Redeploy & Start")
-            : t("Deploy & Start"),
-          variant: "default" as const,
-        };
-      case "start-existing":
-        return {
-          title: t("Start App"),
-          description: t("Are you sure you want to start \"{name}\"? This will start the existing built application without rebuilding.", { name: appName }),
-          actionText: t("Start App"),
-          variant: "default" as const,
-        };
       case "stop":
         return {
           title: t("Stop App"),
           description: t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: appName }),
           actionText: t("Stop App"),
           variant: "destructive" as const,
-        };
-      case "restart":
-        return {
-          title: t("Restart App"),
-          description: t("Are you sure you want to restart \"{name}\"? This will stop and then start the application.", { name: appName }),
-          actionText: t("Restart App"),
-          variant: "default" as const,
         };
       case "delete":
         return {
@@ -540,7 +495,7 @@ export default function Application() {
             ) : hasBeenDeployed(app) ? (
               <DropdownMenuItem
                 disabled={startExistingApp.isPending}
-                onClick={() => handleStartExisting(app.id, app.name)}
+                onClick={() => handleStartExisting(app.id)}
               >
                 <Play className="mr-2 h-4 w-4" />
                 {t("Start")}
@@ -550,7 +505,7 @@ export default function Application() {
             {app.status === "RUNNING" && (
               <DropdownMenuItem
                 disabled={restartApp.isPending}
-                onClick={() => handleRestart(app.id, app.name)}
+                onClick={() => handleRestart(app.id)}
               >
                 <RotateCcw className="mr-2 h-4 w-4" />
                 {t("Restart")}
@@ -562,10 +517,10 @@ export default function Application() {
             {!app.runtime && (
               <DropdownMenuItem
                 disabled={startApp.isPending}
-                onClick={() => handleStart(app.id, app.name)}
+                onClick={() => handleStart(app.id)}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {app.status === "RUNNING" ? t("Redeploy") : t("Deploy and start")}
+                {app.status === "RUNNING" ? t("Redeploy") : t("Deploy")}
               </DropdownMenuItem>
             )}
 
