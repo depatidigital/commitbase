@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '../lib/prisma';
-import { execRoot } from '../lib/runner';
+import { execRoot, dropConnection } from '../lib/runner';
 import { pingServer } from './serverHealthService';
 
 /**
@@ -93,6 +93,7 @@ export async function runServerSetup(serverId: string): Promise<void> {
       const env = [
         ...(pubkey ? [`PANEL_SSH_PUBKEY=${pubkey}`] : []),
         `SERVER_IP=${server.publicIp}`,
+        `PANEL_LOGIN_USER=${server.sshUser}`,
         ...(email ? [`ACME_EMAIL=${email}`] : []),
       ];
 
@@ -107,6 +108,8 @@ export async function runServerSetup(serverId: string): Promise<void> {
         where: { id: serverId },
         data: { setupState: 'DONE', setupError: null, setupLog: live || (stdout + stderr).slice(-LOG_TAIL), setupAt: new Date() },
       });
+      // setup added the login user to the larika group; only a new login gets it
+      await dropConnection(server.id);
       // refresh ONLINE/provisioned now rather than at the next heartbeat
       await pingServer(server).catch(() => {});
     } catch (err: any) {

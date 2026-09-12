@@ -327,6 +327,18 @@ export async function remoteReadDir(server: SshTarget, remotePath: string): Prom
   }
 }
 
+/**
+ * Close one server's pooled connection so the next call logs in afresh — a
+ * login session keeps the groups it started with, so a group added by setup
+ * only applies to a new connection.
+ */
+export async function dropConnection(serverId: string): Promise<void> {
+  const client = pool.get(serverId);
+  pool.delete(serverId);
+  sftpPool.delete(serverId);
+  await client?.then((c) => c.end()).catch(() => {});
+}
+
 /** Close pooled connections. For tests and shutdown. */
 export async function closeConnections(): Promise<void> {
   const clients = [...pool.values()];

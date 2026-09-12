@@ -5,9 +5,8 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope, logScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
-import * as fs from 'fs/promises';
 import * as path from 'path';
-import { appDirFor } from '../lib/appPaths';
+import { appFsFor } from '../lib/appFs';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -114,22 +113,17 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    const logFile = path.join(appDirFor(application.id, application.organization?.slug ?? null), 'logs', 'build.log');
+    const afs = await appFsFor(application.id);
+    const logFile = path.posix.join(afs.appDir, 'logs', 'build.log');
     const TAIL = 64 * 1024;
     let text = '';
     try {
-      const handle = await fs.open(logFile, 'r');
-      try {
-        const { size } = await handle.stat();
-        const start = Math.max(0, size - TAIL);
-        const buffer = Buffer.alloc(size - start);
-        await handle.read(buffer, 0, buffer.length, start);
-        text = (start > 0 ? '…\n' : '') + buffer.toString('utf-8');
-      } finally {
-        await handle.close();
-      }
+      // ponytail: whole file, then the tail. A ranged SFTP read if build logs get huge.
+      const buffer = await afs.readFile(logFile);
+      const start = Math.max(0, buffer.length - TAIL);
+      text = (start > 0 ? '…\n' : '') + buffer.subarray(start).toString('utf-8');
     } catch {
-      // no build has run on this box yet
+      // no build has run yet
     }
 
     return res.json({ success: true, data: { logs: text } } as ApiResponse);

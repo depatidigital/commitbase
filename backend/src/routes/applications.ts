@@ -14,7 +14,7 @@ import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../servi
 import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
-import { resolveAppDir } from '../lib/appPaths';
+import { appFsFor } from '../lib/appFs';
 import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { adoptCaddySites } from '../services/caddyMigrationService';
@@ -721,23 +721,25 @@ router.post(
         } as ApiResponse);
       }
 
-      const appDir = await deploymentService.prepareAppDirectory(application.id);
-      const sourcesDir = path.join(appDir, 'sources');
+      // on the org's node when the app lives there (lib/appFs.ts)
+      const afs = await deploymentService.prepareAppDirectory(application.id);
+      const sourcesDir = path.posix.join(afs.appDir, 'sources');
 
       // a fresh upload replaces the previous one — leftovers would ship in the build
-      await fs.rm(sourcesDir, { recursive: true, force: true });
-      await fs.mkdir(sourcesDir, { recursive: true });
+      await afs.rm(sourcesDir, { recursive: true, force: true });
+      await afs.mkdir(sourcesDir);
 
       let written = 0;
       for (const [index, file] of files.entries()) {
         const relative = safeRelativePath(paths[index] || file.originalname);
         if (!relative) continue;
 
-        const target = path.join(sourcesDir, relative);
-        if (!target.startsWith(sourcesDir + path.sep)) continue;
+        const target = path.posix.join(sourcesDir, relative);
+        if (!target.startsWith(sourcesDir + '/')) continue;
 
-        await fs.mkdir(path.dirname(target), { recursive: true });
-        await fs.writeFile(target, file.buffer);
+        // ponytail: one mkdir + one SFTP write per file. Tar over one channel if big uploads get slow.
+        await afs.mkdir(path.posix.dirname(target));
+        await afs.writeFile(target, file.buffer);
         written += 1;
       }
 
@@ -963,7 +965,8 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       });
       await removeCaddySite(await serverForApplication(application.id), application.domain).catch(() => {});
       await removeAppHostname(application);
-      await fs.rm(await resolveAppDir(application.id), { recursive: true, force: true }).catch(() => {});
+      const afs = await appFsFor(application.id).catch(() => null);
+      await afs?.rm(afs.appDir, { recursive: true, force: true }).catch(() => {});
     }
 
     // Delete application

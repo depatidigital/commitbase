@@ -180,6 +180,13 @@ chmod 0644 /etc/logrotate.d/larika
 rm -f /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit
 # Caddy serves PHP tenants' files and FPM sockets, both group-only.
 usermod -aG "$CB_GROUP" caddy
+# The user the panel actually logs in as (a password server's own sudoer, say)
+# writes deploys into tenant homes over SFTP, so it needs the group too.
+# Group only - its sudo stays what it was.
+if [ -n "${PANEL_LOGIN_USER:-}" ] && [ "$PANEL_LOGIN_USER" != root ] && id -u "$PANEL_LOGIN_USER" >/dev/null 2>&1; then
+  usermod -aG "$CB_GROUP" "$PANEL_LOGIN_USER"
+  note "$PANEL_LOGIN_USER added to group $CB_GROUP"
+fi
 
 if findmnt -no OPTIONS "$(findmnt -T /home -no TARGET)" | tr ',' ' ' | grep -qwE 'usrquota|uquota'; then
   note "disk quotas: mount option present"
