@@ -2,18 +2,29 @@ import {
   S3Client,
   PutObjectCommand,
   CreateBucketCommand,
+  HeadBucketCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { getCloudflareConfigFromDb } from './integrationConfigService';
+import { getCloudflareConfigFromDb, getR2ConfigFromDb } from './integrationConfigService';
 
 /**
- * Static sites live in Cloudflare R2 — one bucket per app, served through
- * Cloudflare's CDN. Caddy proxies the app's hostname to the bucket's public
- * host, so the edge does the caching and R2 only sees misses.
+ * Static sites live in Cloudflare R2, served through Cloudflare's CDN. Caddy
+ * proxies the app's hostname to the public host, so the edge does the caching
+ * and R2 only sees misses. Two layouts:
+ *
+ * - shared bucket (set in the admin panel): every site is a folder,
+ *   `<rootDir>/<domain>/`, in one bucket behind its custom domain. This is what
+ *   a bucket-scoped key allows — it may not create buckets.
+ * - bucket per site (env keys or the Cloudflare token): `site-<domain>`, each
+ *   with its own r2.dev public host.
+ *
+ * Either way the app row stores `staticBucket` as `bucket` or `bucket/prefix`
+ * (bucket names cannot hold a '/') and `staticOrigin` as `host` or
+ * `host/prefix`, so sites made under the old layout keep working unchanged.
  */
 
 interface R2Config {
@@ -21,6 +32,10 @@ interface R2Config {
   accessKeyId: string;
   secretAccessKey: string;
   bucketPrefix: string;
+  /** shared layout: the one bucket, its public URL, the folder sites go under */
+  bucket?: string | null;
+  publicUrl?: string | null;
+  rootDir?: string | null;
 }
 
 const bucketPrefix = () => process.env.R2_BUCKET_PREFIX || 'site-';
@@ -63,8 +78,11 @@ async function r2ConfigFromCloudflare(): Promise<R2Config | null> {
   return config;
 }
 
-/** Dedicated R2_* env keys win; otherwise fall back to the Cloudflare integration's token. */
+/** The admin panel's R2 settings win, then R2_* env keys, then the Cloudflare integration's token. */
 export async function getR2Config(): Promise<R2Config | null> {
+  const panel = await getR2ConfigFromDb();
+  if (panel) return { ...panel, bucketPrefix: bucketPrefix() };
+
   const accountId = process.env.R2_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -143,6 +161,38 @@ function cacheControlFor(key: string): string {
 export const isPublishable = (key: string): boolean =>
   key.split('/').every((part) => part !== 'node_modules' && (!part.startsWith('.') || part === '.well-known'));
 
+/** Can the configured key reach its shared bucket? null when fine, else why not. */
+export async function checkR2Access(): Promise<string | null> {
+  const config = await getR2Config();
+  if (!config) return 'R2 is not configured';
+  if (!config.bucket) return null;
+  try {
+    await client(config).send(new HeadBucketCommand({ Bucket: config.bucket }));
+    return null;
+  } catch (error: any) {
+    const status = error?.$metadata?.httpStatusCode;
+    return status === 403
+      ? `The key may not read bucket "${config.bucket}" — give it Object Read & Write on that bucket`
+      : status === 404
+        ? `Bucket "${config.bucket}" does not exist in account ${config.accountId}`
+        : error?.message || 'Could not reach R2';
+  }
+}
+
+/**
+ * A stored `staticBucket` → the bucket and the key prefix of the site's folder
+ * in it ('' for a bucket of its own). The prefix ends in '/', so listing
+ * `larika/a.com/` never matches `larika/a.com.evil/`.
+ */
+export function siteLocation(stored: string): { bucket: string; prefix: string } {
+  const slash = stored.indexOf('/');
+  if (slash < 0) return { bucket: stored, prefix: '' };
+  const prefix = stored.slice(slash + 1).replace(/\/+$/, '');
+  // an empty folder would make "replace the whole site" empty the shared bucket
+  if (!prefix) throw new Error(`Refusing site location "${stored}": no folder inside the shared bucket`);
+  return { bucket: stored.slice(0, slash), prefix: prefix + '/' };
+}
+
 /** Returns false, uploading nothing, for a path that must stay private. */
 export async function uploadSiteObject(bucket: string, key: string, body: Buffer): Promise<boolean> {
   if (!isPublishable(key)) return false;
@@ -152,10 +202,11 @@ export async function uploadSiteObject(bucket: string, key: string, body: Buffer
     throw new Error('R2 is not configured');
   }
 
+  const site = siteLocation(bucket);
   await client(config).send(
     new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
+      Bucket: site.bucket,
+      Key: site.prefix + key,
       Body: body,
       ContentType: CONTENT_TYPES[path.extname(key).toLowerCase()] || 'application/octet-stream',
       CacheControl: cacheControlFor(key),
@@ -211,6 +262,17 @@ export async function ensureSiteBucket(domain: string): Promise<{ bucket: string
     );
   }
 
+  if (config.bucket) {
+    const host = (config.publicUrl || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (!host) {
+      throw new Error('R2 shared bucket has no public URL — set it in the admin panel (the custom domain on the bucket)');
+    }
+    const folder = [(config.rootDir || '').trim().replace(/^\/+|\/+$/g, ''), domain.trim().toLowerCase()]
+      .filter(Boolean)
+      .join('/');
+    return { bucket: `${config.bucket}/${folder}`, origin: `${host}/${folder}` };
+  }
+
   const bucket = bucketNameFor(config, domain);
 
   try {
@@ -262,16 +324,17 @@ export async function listSiteObjects(bucket: string): Promise<SiteObject[]> {
   const config = await getR2Config();
   if (!config) throw new Error('R2 is not configured');
 
+  const site = siteLocation(bucket);
   const objects: SiteObject[] = [];
   let token: string | undefined;
   do {
     const page = await client(config).send(
-      new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token })
+      new ListObjectsV2Command({ Bucket: site.bucket, Prefix: site.prefix || undefined, ContinuationToken: token })
     );
     for (const item of page.Contents ?? []) {
       if (item.Key) {
         objects.push({
-          key: item.Key,
+          key: item.Key.slice(site.prefix.length),
           size: item.Size ?? 0,
           lastModified: item.LastModified?.toISOString() ?? null,
         });
@@ -289,13 +352,14 @@ export async function deleteSiteObjects(bucket: string, keys: string[]): Promise
   const config = await getR2Config();
   if (!config) throw new Error('R2 is not configured');
 
+  const site = siteLocation(bucket);
   let deleted = 0;
   for (let i = 0; i < keys.length; i += 1000) {
     const batch = keys.slice(i, i + 1000);
     const result = await client(config).send(
       new DeleteObjectsCommand({
-        Bucket: bucket,
-        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        Bucket: site.bucket,
+        Delete: { Objects: batch.map((key) => ({ Key: site.prefix + key })), Quiet: true },
       })
     );
     deleted += batch.length - (result.Errors?.length ?? 0);

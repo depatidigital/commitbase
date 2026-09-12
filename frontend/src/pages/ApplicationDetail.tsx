@@ -71,7 +71,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
 interface LogEntry {
@@ -133,11 +132,13 @@ export default function ApplicationDetail() {
   const deleteApp = useDeleteApplication();
 
   // Logs hooks
+  // a static site has no process, so the build log is the only one it has
+  const logType = application?.type === 'STATIC' ? 'build' : selectedLogType;
   // pm2 apps stream live, and only while the Logs tab is open; the rest poll
-  const liveLogs = application?.runtime === 'PM2' && selectedLogType !== 'build';
-  const live = useLiveLogs(id!, selectedLogType, logLines, liveLogs && activeTab === 'logs');
-  const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, selectedLogType, logLines, !liveLogs);
-  const shownLogs = liveLogs ? live.error ?? live.text : logs[selectedLogType as keyof ApplicationLogs];
+  const liveLogs = application?.runtime === 'PM2' && logType !== 'build';
+  const live = useLiveLogs(id!, logType, logLines, liveLogs && activeTab === 'logs');
+  const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, logType, logLines, !liveLogs);
+  const shownLogs = liveLogs ? live.error ?? live.text : logs[logType as keyof ApplicationLogs];
   const logSegments = useMemo(() => (shownLogs && !showRawLogs ? parseAnsi(shownLogs) : []), [shownLogs, showRawLogs]);
   const logsEndRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -151,18 +152,23 @@ export default function ApplicationDetail() {
     if (logsData?.data?.logs) {
       setLogs(prev => ({
         ...prev,
-        [selectedLogType]: logsData.data.logs
+        [logType]: logsData.data.logs
       }));
     }
-  }, [logsData, selectedLogType]);
+  }, [logsData, logType]);
 
   const fetchLogs = () => {
     refetchLogs();
   };
 
-  const refetchApplication = () => {
-    // The real-time monitoring will handle refetching automatically
-    // This is just a placeholder for manual refresh if needed
+  const queryClient = useQueryClient();
+  const refetchApplication = async () => {
+    setIsRefreshing(true);
+    await Promise.all(
+      [['application', id], ['applications', id, 'hostname'], ['deployments', id], ['releases', id], ['site-files', id]]
+        .map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+    );
+    setIsRefreshing(false);
   };
 
   // Handle actions
@@ -282,6 +288,24 @@ export default function ApplicationDetail() {
     );
   }
 
+  const isStatic = application.type === 'STATIC';
+  // a static site deployed from an upload: the upload is the deploy — no
+  // build, no process, so no start/stop/restart, logs or build settings
+  const uploadedSite = isStatic && !application.repository;
+  const hasSiteFiles = !!(application.staticBucket || application.staticSiteUrl);
+  const uploadLabel = !uploadedSite
+    ? t("Upload files again")
+    : hasSiteFiles
+      ? t("Deploy new version")
+      : t("Upload files");
+  // the reason is on the deployment row; the banner saying "error" alone
+  // leaves the user hunting for it
+  const lastDeployment = application.deployments?.[0];
+  const failureReason =
+    application.status === 'ERROR' && lastDeployment?.status === 'FAILED'
+      ? (lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-3).join('\n'))
+      : undefined;
+
   const dialogContent = confirmAction ? {
     start: {
       title: hasBeenDeployed(application) ? t('Redeploy & Start App') : t('Deploy & Start App'),
@@ -353,16 +377,53 @@ export default function ApplicationDetail() {
             
             {/* deployed from an upload: new files are how it is redeployed,
                 and the only way back after a failed upload */}
+            {uploadedSite && hasSiteFiles && (application.status === 'ERROR' || application.status === 'STOPPED') && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    onClick={() => startApp.mutate(application.id)}
+                    disabled={startApp.isPending}
+                  >
+                    {startApp.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                    )}
+                    {t("Republish")}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{t("Points the site back at the files already uploaded. Nothing is uploaded again.")}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {!application.repository && (
-              <Button variant="outline" onClick={() => setReuploadOpen(true)}>
+              <Button
+                variant={uploadedSite ? "default" : "outline"}
+                className={uploadedSite ? "bg-gradient-primary" : undefined}
+                onClick={() => setReuploadOpen(true)}
+              >
                 <Upload className="h-4 w-4 mr-2" />
-                {t("Upload files again")}
+                {uploadLabel}
               </Button>
             )}
-            <ReuploadDialog application={application} open={reuploadOpen} onOpenChange={setReuploadOpen} />
+            <ReuploadDialog application={application} title={uploadLabel} open={reuploadOpen} onOpenChange={setReuploadOpen} />
 
-            {/* Application Action Buttons */}
-            {application.status === 'RUNNING' ? (
+            {/* static sites have no process to start, stop or restart: an
+                uploaded one redeploys by upload (above), a repo one by building */}
+            {isStatic ? (
+              !uploadedSite && (
+                <Button onClick={handleStart} disabled={startApp.isPending} className="bg-gradient-primary">
+                  {startApp.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  {hasBeenDeployed(application) ? t("Redeploy") : t("Deploy")}
+                </Button>
+              )
+            ) : application.status === 'RUNNING' ? (
               // Running application - Stop, or redeploy without downtime
               <div className="flex items-center space-x-2">
                 <Tooltip>
@@ -470,7 +531,7 @@ export default function ApplicationDetail() {
             )}
             
             {/* Restart button - only show if application is running */}
-            {application.status === 'RUNNING' && (
+            {!isStatic && application.status === 'RUNNING' && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -492,38 +553,16 @@ export default function ApplicationDetail() {
               </Tooltip>
             )}
             
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  {t("Delete")}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t("Delete App")}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t("Are you sure you want to delete \"{name}\"? This action cannot be undone and will permanently remove the application and all its data.", { name: application.name })}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => handleDelete()}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    disabled={deleteApp.isPending}
-                  >
-                    {deleteApp.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : null}
-                    {t("Delete Application")}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {/* confirmed by the shared dialog below, like every other action */}
+            <Button
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              onClick={handleDelete}
+              disabled={deleteApp.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {t("Delete")}
+            </Button>
           </div>
         </div>
 
@@ -531,16 +570,27 @@ export default function ApplicationDetail() {
         <Card className="bg-gradient-card border-border/50">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
+              <div className="flex min-w-0 items-center space-x-4">
                 {getStatusIcon(application.status)}
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-lg font-semibold">{t("Status: {status}", { status: STATUS_LABELS[application.status] ?? application.status })}</h3>
                   <p className="text-muted-foreground">
-                    {application.status === 'RUNNING' ? t('App is running and accessible') :
+                    {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
+                     application.status === 'RUNNING' ? t('App is running and accessible') :
                      application.status === 'STOPPED' ? t('App is stopped and not accessible') :
                      application.status === 'ERROR' ? t('App encountered an error') :
                      t('App is being deployed')}
                   </p>
+                  {failureReason && (
+                    <div className="mt-2 space-y-1">
+                      <pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">
+                        {failureReason}
+                      </pre>
+                      <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setActiveTab("deployments")}>
+                        {t("View Deployments")}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center space-x-2">
@@ -553,11 +603,11 @@ export default function ApplicationDetail() {
 
         {/* Main Content */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className={`grid w-full ${uploadedSite ? "grid-cols-2" : "grid-cols-4"}`}>
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
-            <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
+            {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
-            <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
+            {!uploadedSite && <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>}
           </TabsList>
 
           {/* Overview Tab */}
@@ -617,10 +667,13 @@ export default function ApplicationDetail() {
                       </p>
                     )}
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Directory")}</label>
-                    <p className="font-mono text-sm break-all">{application.rootPath || t('Not detected')}</p>
-                  </div>
+                  {/* a bucket-served site has no directory on a node */}
+                  {(!isStatic || application.rootPath) && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">{t("Directory")}</label>
+                      <p className="font-mono text-sm break-all">{application.rootPath || t('Not detected')}</p>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">{t("Domain")}</label>
                     <div className="flex items-center space-x-2">
@@ -746,6 +799,7 @@ export default function ApplicationDetail() {
               </Card>
 
               {/* Repository Info */}
+              {!uploadedSite && (
               <Card className="bg-gradient-card border-border/50">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -766,12 +820,15 @@ export default function ApplicationDetail() {
                     <label className="text-sm font-medium text-muted-foreground">{t("Build Command")}</label>
                     <p className="font-mono text-sm">{application.buildCommand || t('Not configured')}</p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Start Command")}</label>
-                    <p className="font-mono text-sm">{application.startCommand || t('Not configured')}</p>
-                  </div>
+                  {!isStatic && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">{t("Start Command")}</label>
+                      <p className="font-mono text-sm">{application.startCommand || t('Not configured')}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
+              )}
 
               {/* Deployment Info */}
               <Card className="bg-gradient-card border-border/50">
@@ -807,7 +864,8 @@ export default function ApplicationDetail() {
                 </CardContent>
               </Card>
 
-              {/* Environment Variables */}
+              {/* Environment Variables — only read by a build */}
+              {!uploadedSite && (
               <Card className="bg-gradient-card border-border/50">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -827,6 +885,7 @@ export default function ApplicationDetail() {
                   </div>
                 </CardContent>
               </Card>
+              )}
 
               {/* Quick Actions */}
               <Card className="bg-gradient-card border-border/50">
@@ -837,14 +896,16 @@ export default function ApplicationDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => setActiveTab("logs")}
-                  >
-                    <Terminal className="h-4 w-4 mr-2" />
-                    {t("View Logs")}
-                  </Button>
+                  {!uploadedSite && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => setActiveTab("logs")}
+                    >
+                      <Terminal className="h-4 w-4 mr-2" />
+                      {t("View Logs")}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="w-full justify-start"
@@ -853,14 +914,16 @@ export default function ApplicationDetail() {
                     <Zap className="h-4 w-4 mr-2" />
                     {t("View Deployments")}
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => setActiveTab("settings")}
-                  >
-                    <Settings className="h-4 w-4 mr-2" />
-                    {t("Edit Settings")}
-                  </Button>
+                  {!uploadedSite && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => setActiveTab("settings")}
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      {t("Edit Settings")}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -889,7 +952,7 @@ export default function ApplicationDetail() {
               <CardContent className="space-y-4">
                 {/* Log Controls */}
                 <div className="flex items-center space-x-4">
-                  <div className="space-y-2">
+                  {!isStatic && <div className="space-y-2">
                     <label className="text-sm font-medium">{t("Log Type")}</label>
                     <Select value={selectedLogType} onValueChange={setSelectedLogType}>
                       <SelectTrigger className="w-48">
@@ -902,7 +965,7 @@ export default function ApplicationDetail() {
                         <SelectItem value="build">{LOG_TYPE_LABELS.build}</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
+                  </div>}
                   
                   <div className="space-y-2">
                     <label className="text-sm font-medium">{t("Lines")}</label>
@@ -968,7 +1031,7 @@ export default function ApplicationDetail() {
                       ) : (
                         <div className="text-center text-muted-foreground py-8">
                           <Terminal className="h-8 w-8 mx-auto mb-2" />
-                          <p>{t("No logs available for {type}", { type: LOG_TYPE_LABELS[selectedLogType] ?? selectedLogType })}</p>
+                          <p>{t("No logs available for {type}", { type: LOG_TYPE_LABELS[logType] ?? logType })}</p>
                         </div>
                       )}
                     </div>
@@ -1050,6 +1113,7 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
   const { toast } = useToast();
   const updateApp = useUpdateApplication();
   const queryClient = useQueryClient();
+  const isStatic = application.type === 'STATIC';
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -1128,6 +1192,8 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
         </p>
       </div>
 
+      {/* a static site is served, not started: no start command, no port */}
+      {!isStatic && <>
       {/* Start Command */}
       <div className="space-y-2">
         <label className="text-sm font-medium">
@@ -1163,6 +1229,7 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
           {t("Port number for your application (1-65535)")}
         </p>
       </div>
+      </>}
 
       {/* Action Buttons */}
       <div className="flex items-center justify-between pt-4 border-t">
@@ -1204,7 +1271,7 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
       </div>
 
       {/* Help Section */}
-      <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+      {!isStatic && <div className="bg-muted/50 rounded-lg p-4 space-y-3">
         <h4 className="text-sm font-medium">{t("Help & Examples")}</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div>
@@ -1223,7 +1290,7 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
             <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn run serve" })}</p>
           </div>
         </div>
-      </div>
+      </div>}
     </form>
   );
 } 

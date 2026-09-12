@@ -42,6 +42,8 @@ export interface Deployment {
   applicationId: string;
   status: 'PENDING' | 'BUILDING' | 'DEPLOYING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
   buildLogs?: string;
+  /** deploy result: route errors, DNS warnings, upload summary */
+  deployLogs?: string;
   deployedAt?: string;
   createdAt: string;
 }

@@ -145,6 +145,14 @@ export default {
   "Could not read the build log": "Log build tidak bisa dibaca",
   // re-upload dialog
   "Upload files again": "Unggah ulang file",
+  "Upload files": "Unggah file",
+  "Deploy new version": "Deploy versi baru",
+  Deploy: "Deploy",
+  Republish: "Terbitkan ulang",
+  "Points the site back at the files already uploaded. Nothing is uploaded again.":
+    "Mengarahkan situs kembali ke file yang sudah diunggah. Tidak ada yang diunggah ulang.",
+  "No files yet — upload the site's build output (a folder with index.html).":
+    "Belum ada file — unggah hasil build situs (folder berisi index.html).",
   Upload: "Unggah",
   "Files uploaded": "File terunggah",
   "The site now serves the new files.": "Situs sekarang menyajikan file baru.",

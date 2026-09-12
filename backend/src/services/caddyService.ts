@@ -223,7 +223,7 @@ function buildPhpRoute(domain: string, target: PhpTarget): any {
   };
 }
 
-function buildRoute(domain: string, target: Target): any {
+export function buildRoute(domain: string, target: Target): any {
   if (target.type === 'php') return buildPhpRoute(domain, target);
 
   if (target.type === 'files') {
@@ -261,6 +261,11 @@ function buildRoute(domain: string, target: Target): any {
       ],
     });
   } else if (target.type === 'bucket') {
+    // `host` for a bucket of its own, `host/folder` for a site in a shared bucket
+    const slash = target.origin.indexOf('/');
+    const host = slash < 0 ? target.origin : target.origin.slice(0, slash);
+    const folder = slash < 0 ? '' : target.origin.slice(slash);
+
     // object storage has no directory index, so ask for index.html explicitly
     route.handle.push({
       handler: 'subroute',
@@ -274,6 +279,8 @@ function buildRoute(domain: string, target: Target): any {
           match: [{ path_regexp: { pattern: '^/[^.]*[^/.]$' } }],
           handle: [{ handler: 'rewrite', path_regexp: [{ find: '$', replace: '/index.html' }] }],
         },
+        // the site's folder in the shared bucket, after the index rewrites
+        ...(folder ? [{ handle: [{ handler: 'rewrite', uri: `${folder}{http.request.uri}` }] }] : []),
       ],
     });
 
@@ -283,13 +290,13 @@ function buildRoute(domain: string, target: Target): any {
       headers: {
         request: {
           set: {
-            Host: [target.origin],
+            Host: [host],
           },
         },
       },
       upstreams: [
         {
-          dial: `${target.origin}:443`,
+          dial: `${host}:443`,
         },
       ],
     });

@@ -4,6 +4,7 @@
 import assert from 'assert';
 import { classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
+import { buildRoute } from './caddyService';
 
 // --- live Caddy routes: the inventory reads the admin API, never a Caddyfile ---
 
@@ -72,6 +73,19 @@ assert.deepStrictEqual(classifyRoute(filesRoute), {
 
 assert.strictEqual(classifyRoute(bucketRoute)?.type, 'STATIC');
 assert.strictEqual(classifyRoute(bucketRoute)?.origin, 'pub-abc.r2.dev');
+
+// a site in the shared bucket: proxied to the bucket's custom domain, its
+// folder prefixed after the index rewrites, and still read back as STATIC
+const shared = buildRoute('larika.id', { type: 'bucket', origin: 'cdn.depatidigital.com/larika/larika.id' });
+const sharedProxy = shared.handle.find((h: any) => h.handler === 'reverse_proxy');
+assert.strictEqual(sharedProxy.upstreams[0].dial, 'cdn.depatidigital.com:443');
+assert.deepStrictEqual(sharedProxy.headers.request.set.Host, ['cdn.depatidigital.com']);
+const rewrites = shared.handle[0].routes.map((r: any) => r.handle[0]);
+assert.deepStrictEqual(rewrites[rewrites.length - 1], { handler: 'rewrite', uri: '/larika/larika.id{http.request.uri}' });
+assert.deepStrictEqual(classifyRoute(shared), { type: 'STATIC', origin: 'cdn.depatidigital.com' });
+// a bucket of its own gets no folder rewrite
+const own = buildRoute('a.com', { type: 'bucket', origin: 'pub-abc.r2.dev' });
+assert.strictEqual(own.handle[0].routes.length, 2);
 
 // a redirect is a route, not an application
 assert.strictEqual(classifyRoute(redirectRoute), null);

@@ -28,10 +28,13 @@ import { t } from "@/lib/i18n";
  */
 export function ReuploadDialog({
   application,
+  title = t("Upload files again"),
   open,
   onOpenChange,
 }: {
   application: Application;
+  /** the label of the button that opened it */
+  title?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -80,7 +83,7 @@ export function ReuploadDialog({
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{t("Upload files again")}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {isStatic
               ? t("The uploaded files are published to the site.")

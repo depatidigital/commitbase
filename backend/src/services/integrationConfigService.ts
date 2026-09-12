@@ -1,9 +1,11 @@
 import { prisma } from '../lib/prisma';
+import { decrypt } from '../lib/secretBox';
 
 const RDASH_PROVIDER = 'rdash';
 const CLOUDFLARE_PROVIDER = 'cloudflare';
+const R2_PROVIDER = 'r2';
 
-type Provider = typeof RDASH_PROVIDER | typeof CLOUDFLARE_PROVIDER;
+type Provider = typeof RDASH_PROVIDER | typeof CLOUDFLARE_PROVIDER | typeof R2_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -77,3 +79,24 @@ export async function getCloudflareConfigFromDb() {
     apiBase: apiBase || 'https://api.cloudflare.com/client/v4',
   };
 }
+
+export const R2_KEYS = ['accountId', 'accessKeyId', 'secretAccessKey', 'bucket', 'publicUrl', 'rootDir'] as const;
+export type R2Key = (typeof R2_KEYS)[number];
+
+/** R2 as set in the admin panel; null until the three credentials are there. The secret is stored secretBox-encrypted. */
+export async function getR2ConfigFromDb() {
+  const values = await Promise.all(R2_KEYS.map((key) => getIntegrationConfigValue(R2_PROVIDER, key)));
+  const [accountId, accessKeyId, secret, bucket, publicUrl, rootDir] = values;
+  if (!accountId || !accessKeyId || !secret) return null;
+
+  return {
+    accountId,
+    accessKeyId,
+    secretAccessKey: decrypt(secret),
+    bucket: bucket || null,
+    publicUrl: publicUrl || null,
+    rootDir: rootDir || null,
+  };
+}
+
+export const setR2ConfigValue = (key: R2Key, value: string) => setIntegrationConfigValue(R2_PROVIDER, key, value);
