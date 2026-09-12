@@ -58,9 +58,23 @@ const sortOrder = (sort: unknown, order: unknown): any[] => {
 };
 
 /**
- * Apps discovered by the server sync are owned by pm2, not by our systemd
- * deployer, so start/stop/restart route to pm2 for them. Returns null when the
- * app is not pm2-managed and the caller should fall through to systemd.
+ * Apps imported by the server sync (runtime set) were set up by hand and run
+ * under their own users, dirs and supervisor — the panel watches them, it does
+ * not manage them. Deploying one would build a second, managed copy beside it
+ * and take over its Caddy route; provisioning is only for apps created here.
+ */
+function refuseImported(application: { runtime: string | null }, res: Response): Response | null {
+  if (!application.runtime) return null;
+  return res.status(409).json({
+    success: false,
+    error: `This app was imported from its server (${application.runtime}) and is managed there, not by the panel. Deploys and releases are for apps created in the panel.`,
+  } as ApiResponse);
+}
+
+/**
+ * Imported pm2 apps: start/stop/restart go to pm2 on their node. Other imported
+ * apps are refused (see refuseImported). Returns null for apps the panel
+ * manages, and the caller falls through to systemd.
  */
 async function handlePm2Action(
   application: { id: string; runtime: string | null; processName: string | null; serverId: string | null },
@@ -68,7 +82,7 @@ async function handlePm2Action(
   res: Response
 ): Promise<Response | null> {
   if (application.runtime !== 'PM2' || !application.processName) {
-    return null;
+    return refuseImported(application, res);
   }
 
   // pm2 runs on the node the sync found the process on, not on the control plane
@@ -1129,6 +1143,9 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       } as ApiResponse);
     }
 
+    const imported = refuseImported(application, res);
+    if (imported) return imported;
+
     // A running app can be redeployed — the new release builds beside it and
     // takes over only once it answers. Two deploys at once is the thing to stop.
     if (application.status === 'DEPLOYING' || application.status === 'BUILDING' || deploymentService.isDeploying(id)) {
@@ -1485,6 +1502,9 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
         error: 'Application not found',
       } as ApiResponse);
     }
+
+    const imported = refuseImported(application, res);
+    if (imported) return imported;
 
     const release = await prisma.release.findFirst({
       where: {

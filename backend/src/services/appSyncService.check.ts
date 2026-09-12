@@ -2,7 +2,7 @@
  * Self-check for the Caddyfile parser: npx ts-node src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp, parseListeners } from './appSyncService';
+import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 
 const sample = `
@@ -161,6 +161,16 @@ const listeners = parseListeners(
 assert.strictEqual(listeners.get(1600), 4242);
 assert.strictEqual(listeners.has(22), true);
 assert.strictEqual(listeners.get(22), undefined);
+
+// pm2 spawned `pnpm start`; the listener is its great-grandchild (pnpm → sh → tsx → node)
+const pm2ByPid = new Map([[237614, 'arusflow']]);
+const parents = new Map([[237642, 237626], [237626, 237625], [237625, 237614], [237614, 211245], [211245, 1]]);
+assert.strictEqual(pm2OwnerOf(237642, pm2ByPid, parents), 'arusflow');
+assert.strictEqual(pm2OwnerOf(237614, pm2ByPid, parents), 'arusflow');
+// not under any pm2 process (a Docker proxy, caddy itself)
+assert.strictEqual(pm2OwnerOf(999, pm2ByPid, new Map([[999, 1]])), undefined);
+// no ps output: exact matches only
+assert.strictEqual(pm2OwnerOf(237642, pm2ByPid, new Map()), undefined);
 
 // synced apps link to their Domain: longest suffix wins, root counts, lookalikes don't
 const doms = [{ id: 'a', name: 'client.com' }, { id: 'b', name: 'staging.client.com' }, { id: 'c', name: 'larika.id' }];

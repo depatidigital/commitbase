@@ -253,4 +253,7 @@ export default {
   "Failed to create deployment": "Gagal membuat deployment",
   "Failed to update deployment": "Gagal memperbarui deployment",
   "Failed to delete deployment": "Gagal menghapus deployment",
+  Manual: "Manual",
+  "Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.":
+    "Dipasang manual di {runtime} — panel hanya memantaunya, tidak men-deploy atau memprovisinya.",
 } satisfies Record<string, string>;

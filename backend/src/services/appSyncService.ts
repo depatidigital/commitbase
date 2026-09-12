@@ -316,6 +316,35 @@ export function parseListeners(stdout: string): Map<number, number | undefined> 
   return ports;
 }
 
+/** pid → parent pid for every process on the node, or an empty map when ps fails. */
+export async function listParentPids(node: SshTarget): Promise<Map<number, number>> {
+  const parents = new Map<number, number>();
+  try {
+    const { stdout } = await exec(node, ['ps', '-eo', 'pid=,ppid='], { timeout: 10_000 });
+    for (const line of stdout.split(/\r?\n/)) {
+      const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+      if (pid! > 0 && ppid! >= 0) parents.set(pid!, ppid!);
+    }
+  } catch {
+    // exact pid matches still work without it
+  }
+  return parents;
+}
+
+/**
+ * The pm2 process a pid belongs to. pm2 records the pid it spawned, but an app
+ * started as `pnpm start` / `npm exec next` listens from a descendant several
+ * levels down (pnpm → sh → tsx → node), so walk up the parents to it.
+ */
+export function pm2OwnerOf<T>(pid: number, byPid: Map<number, T>, parents: Map<number, number>): T | undefined {
+  for (let current: number | undefined = pid, depth = 0; current && current > 1 && depth < 16; depth++) {
+    const owner = byPid.get(current);
+    if (owner) return owner;
+    current = parents.get(current);
+  }
+  return undefined;
+}
+
 /**
  * Working directory of each pid, from /proc — for a proxied process that is
  * where its code lives, and the only place that is written down. A pid we may
@@ -351,10 +380,11 @@ export async function processCwds(node: SshTarget, pids: number[]): Promise<Map<
  * too, under a `<name>.pm2.local` placeholder host.
  */
 export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
-  const [processes, config, listening] = await Promise.all([
+  const [processes, config, listening, parents] = await Promise.all([
     listPm2Processes(node),
     getCaddyConfig(node),
     listListeningPorts(node),
+    listParentPids(node),
   ]);
   const byPort = new Map<number, Pm2Process>();
   const byPid = new Map<number, Pm2Process>();
@@ -384,7 +414,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
       // pm2 rarely has the PORT in its env, so the kernel's listener pid is how
       // a proxied port is traced back to its process and directory
       const pid = target.port ? listening.get(target.port) : undefined;
-      const process = target.port ? byPort.get(target.port) ?? (pid ? byPid.get(pid) : undefined) : undefined;
+      const process = target.port ? byPort.get(target.port) ?? (pid ? pm2OwnerOf(pid, byPid, parents) : undefined) : undefined;
       if (process) claimed.add(process.name);
 
       const runtime: Runtime = target.port
@@ -594,7 +624,9 @@ export function followPm2Logs(
   signal: AbortSignal
 ): Promise<unknown> {
   const only = type === 'out' ? ['--out'] : type === 'error' ? ['--err'] : [];
-  return exec(node, pm2(['logs', processName, '--raw', '--lines', String(lines), ...only]), {
+  // Not --raw: keep pm2's `0|name |` prefix, green for stdout and red for
+  // stderr, as in a terminal. FORCE_COLOR because pm2 goes plain without a TTY.
+  return exec(node, ['env', 'FORCE_COLOR=1', ...pm2(['logs', processName, '--lines', String(lines), ...only])], {
     onOutput,
     signal,
     maxBuffer: 0,

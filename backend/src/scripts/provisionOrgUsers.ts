@@ -26,7 +26,8 @@ async function main() {
     select: {
       id: true,
       slug: true,
-      applications: { where: { type: { not: 'STATIC' } }, select: { serverId: true } },
+      // apps created in the panel only — imported ones run under their own users
+      applications: { where: { type: { not: 'STATIC' }, runtime: null }, select: { serverId: true } },
       nodes: { select: { serverId: true } },
     },
     orderBy: { createdAt: 'asc' },

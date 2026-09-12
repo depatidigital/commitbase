@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +55,7 @@ import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { locale, t } from "@/lib/i18n";
+import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
   Tooltip,
   TooltipContent,
@@ -137,6 +138,7 @@ export default function ApplicationDetail() {
   const live = useLiveLogs(id!, selectedLogType, logLines, liveLogs && activeTab === 'logs');
   const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, selectedLogType, logLines, !liveLogs);
   const shownLogs = liveLogs ? live.error ?? live.text : logs[selectedLogType as keyof ApplicationLogs];
+  const logSegments = useMemo(() => (shownLogs && !showRawLogs ? parseAnsi(shownLogs) : []), [shownLogs, showRawLogs]);
   const logsEndRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (liveLogs) logsEndRef.current?.scrollIntoView({ block: 'nearest' });
@@ -937,7 +939,7 @@ export default function ApplicationDetail() {
                     
                     <Button
                       variant="outline"
-                      onClick={() => copyToClipboard(shownLogs || '')}
+                      onClick={() => copyToClipboard(stripAnsi(shownLogs || ''))}
                     >
                       <Copy className="h-4 w-4 mr-2" />
                       {t("Copy")}
@@ -956,7 +958,11 @@ export default function ApplicationDetail() {
                     <div className="p-4">
                       {shownLogs ? (
                         <pre className="text-sm font-mono whitespace-pre-wrap">
-                          {shownLogs}
+                          {showRawLogs
+                            ? stripAnsi(shownLogs)
+                            : logSegments.map((segment, i) => (
+                                <span key={i} className={segment.className}>{segment.text}</span>
+                              ))}
                           <span ref={logsEndRef} />
                         </pre>
                       ) : (

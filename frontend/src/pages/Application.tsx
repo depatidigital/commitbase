@@ -87,6 +87,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+/** How an imported app is run on its box, for the "Manual" badge. */
+const RUNTIME_LABEL: Record<string, string> = {
+  PM2: "pm2",
+  CADDY_PHP: "Caddy + PHP-FPM",
+  CADDY_STATIC: "Caddy (static files)",
+  CADDY_PROXY: "Caddy (reverse proxy)",
+};
+
 /** Compact relative time — "3d ago". The exact stamp lives in the title. */
 const ago = (value: string) => {
   const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
@@ -348,6 +356,19 @@ export default function Application() {
               >
                 <ExternalLink className="h-3 w-3" />
               </a>
+              {/* imported by the server sync: set up by hand, run under its own
+                  user — the panel watches it but never deploys or provisions it */}
+              {app.runtime && (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 border-warning/40 px-1.5 py-0 text-[10px] font-medium text-warning"
+                  title={t("Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.", {
+                    runtime: RUNTIME_LABEL[app.runtime] ?? app.runtime,
+                  })}
+                >
+                  {t("Manual")}
+                </Badge>
+              )}
             </span>
             {named && (
               <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
