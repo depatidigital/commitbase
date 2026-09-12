@@ -382,6 +382,8 @@ export default {
   "used by {app}": "dipakai {app}",
   "Create & connect": "Buat & hubungkan",
   "Could not test the connection": "Koneksi tidak bisa dites",
+  "Deploying…": "Sedang deploy…",
+  "Deploy in progress — follow the build log": "Deploy sedang berjalan — ikuti log build-nya",
   "Testing DATABASE_URL from the app's server…": "Menguji DATABASE_URL dari server aplikasi…",
   "DATABASE_URL does not connect: {reason}": "DATABASE_URL tidak bisa tersambung: {reason}",
   "DATABASE_URL connects from the app's server.": "DATABASE_URL tersambung dari server aplikasi.",

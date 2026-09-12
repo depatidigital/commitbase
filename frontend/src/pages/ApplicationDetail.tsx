@@ -335,6 +335,14 @@ export default function ApplicationDetail() {
     application.status === 'ERROR' && lastDeployment?.status === 'FAILED'
       ? (lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-3).join('\n'))
       : undefined;
+  // A deploy runs in the background after /start answers, so the request being
+  // pending says little: the app's status and its newest deployment are the
+  // truth. The status poll (useApplicationStatus) flips this back when it ends.
+  const deploying =
+    startApp.isPending ||
+    application.status === 'DEPLOYING' ||
+    application.status === 'BUILDING' ||
+    ['PENDING', 'BUILDING', 'DEPLOYING'].includes(lastDeployment?.status ?? '');
 
   const dialogContent = confirmAction ? {
     // a static site from a repo: built and published, never "started"
@@ -465,9 +473,16 @@ export default function ApplicationDetail() {
               onOpenChange={setReuploadOpen}
             />
 
-            {/* static sites have no process to start, stop or restart: an
-                uploaded one redeploys by upload (above), a repo one by building */}
-            {isStatic ? (
+            {/* a deploy runs in the background: while it does, one button that
+                says so (and opens its live log) instead of actions that race it */}
+            {deploying ? (
+              <Button variant="outline" onClick={() => setActiveTab("deployments")}>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {t("Deploying…")}
+              </Button>
+            ) : /* static sites have no process to start, stop or restart: an
+                uploaded one redeploys by upload (above), a repo one by building */
+            isStatic ? (
               !uploadedSite && (
                 <Button onClick={handleStart} disabled={startApp.isPending} className="bg-gradient-primary">
                   {startApp.isPending ? (
@@ -593,7 +608,7 @@ export default function ApplicationDetail() {
             )}
             
             {/* Restart button - only show if application is running */}
-            {!isStatic && application.status === 'RUNNING' && (
+            {!isStatic && !deploying && application.status === 'RUNNING' && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -626,6 +641,8 @@ export default function ApplicationDetail() {
             detecting={detection.isLoading}
             env={envStatus}
             dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
+            deploying={deploying}
+            onViewDeploy={() => setActiveTab("deployments")}
             onDeploy={handleStart}
             onEditEnv={() => setActiveTab("environment")}
             onEditBuild={() => setActiveTab("settings")}

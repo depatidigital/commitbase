@@ -13,6 +13,9 @@ interface AppSetupCardProps {
   env: EnvStatus;
   /** the saved DATABASE_URL tried from the app's node: running, its outcome, or not tried */
   dbCheck?: "pending" | { ok: boolean; message: string } | null;
+  /** a deploy is running in the background right now */
+  deploying?: boolean;
+  onViewDeploy?: () => void;
   onDeploy: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
@@ -23,7 +26,7 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, deploying, onViewDeploy, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
   const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
   const install = application.installCommand || detected?.installCommand;
   const build = application.buildCommand || detected?.buildCommand;
@@ -145,7 +148,11 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, o
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
-          {!envDone && !detecting ? (
+          {deploying ? (
+            <button type="button" className="text-xs font-medium text-primary underline-offset-2 hover:underline" onClick={onViewDeploy}>
+              {t("Deploy in progress — follow the build log")}
+            </button>
+          ) : !envDone && !detecting ? (
             <span className="text-xs text-muted-foreground">
               {env.dirty ? t("Save the environment before deploying.") : t("Fill in the empty variables to deploy.")}
             </span>
@@ -158,11 +165,11 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, o
             onClick={onDeploy}
             // only once every expected variable is filled in and saved — a deploy
             // uses the saved environment, and an empty DATABASE_URL just fails
-            disabled={!envDone}
+            disabled={!envDone || deploying}
             className="bg-gradient-primary"
           >
-            <Rocket className="h-4 w-4 mr-2" />
-            {t("Deploy")}
+            {deploying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
+            {deploying ? t("Deploying…") : t("Deploy")}
           </Button>
         </div>
       </CardContent>
