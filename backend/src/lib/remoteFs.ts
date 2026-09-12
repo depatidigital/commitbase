@@ -95,7 +95,15 @@ export async function symlink(server: SshTarget, target: string, path: string): 
  */
 export async function rename(server: SshTarget, from: string, to: string): Promise<void> {
   const sftp = await getSftp(server);
-  await wrap<void>((cb) => sftp.rename(from, to, cb));
+  // Plain SFTP rename refuses an existing target ("Failure" from OpenSSH), so
+  // the second `current` swap of every app failed. posix-rename@openssh.com is
+  // rename(2): replaces the target atomically. Without it, mv -T does the same.
+  try {
+    await wrap<void>((cb) => sftp.ext_openssh_rename(from, to, cb));
+  } catch (error: any) {
+    if (!/support/i.test(String(error?.message))) throw error;
+    await exec(server, ['mv', '-T', '-f', '--', from, to], { timeout: 30_000 });
+  }
 }
 
 export async function unlink(server: SshTarget, path: string): Promise<void> {

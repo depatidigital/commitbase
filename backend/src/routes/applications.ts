@@ -1267,13 +1267,14 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         return;
       }
 
-      // Update deployment record with logs
+      // Update deployment record with logs. A deploy that threw returns only
+      // `error` — keep the build log it already wrote to the row, and say why.
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: {
           status: result.success ? 'SUCCESS' : 'FAILED',
-          buildLogs: result.buildLogs || '',
-          deployLogs: dnsWarning + (result.deployLogs || ''),
+          ...(result.buildLogs !== undefined && { buildLogs: result.buildLogs }),
+          deployLogs: dnsWarning + (result.deployLogs || (result.success ? '' : result.error || 'Deployment failed')),
         },
       });
 
