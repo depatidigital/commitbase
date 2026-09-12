@@ -634,7 +634,7 @@ router.post('/:id/import', authenticateToken, async (req: AuthenticatedRequest, 
     if (tables > 0 && req.query.confirm !== database.dbName) {
       return res.status(400).json({
         success: false,
-        error: `${database.dbName} already has ${tables} tables — type its name to import into it anyway`,
+        error: `${database.dbName} already has ${tables} tables — type its name to restore into it anyway`,
       } as ApiResponse);
     }
 

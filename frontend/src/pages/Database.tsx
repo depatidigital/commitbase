@@ -282,7 +282,7 @@ export default function Database() {
             {!db.discovered && db.status === "RUNNING" && (
               <DropdownMenuItem onClick={() => setImporting(db)}>
                 <FileUp className="mr-2 h-4 w-4" />
-                {t("Import SQL")}
+                {t("Restore DB (.sql)")}
               </DropdownMenuItem>
             )}
             {!db.discovered && db.status !== "RUNNING" && (

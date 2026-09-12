@@ -73,7 +73,7 @@ import { AppStorageCard } from "@/components/AppStorageCard";
 import { locale, t } from "@/lib/i18n";
 import { isSuperAdmin } from "@/lib/auth";
 import { testDatabaseUrl } from "@/lib/databases";
-import { AppDatabasesCard } from "@/components/AppDatabasesCard";
+import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
@@ -409,10 +409,116 @@ export default function ApplicationDetail() {
               </p>
             </div>
           </div>
-          
+        </div>
+
+        {/* Status Banner — a running deploy shows its progress and build log
+            here, on every tab; an app never deployed shows what it still needs */}
+        {deploying ? (
+          <Card className="bg-gradient-card border-primary/40">
+            <CardContent className="p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="flex items-center gap-2 text-lg font-semibold">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  {deployed ? t("Redeploying…") : t("Deploying…")}
+                </h3>
+                <ol className="flex flex-wrap items-center gap-2 text-sm">
+                  {DEPLOY_PHASES.map((phase, index) => (
+                    <li
+                      key={phase.status}
+                      className={`flex items-center gap-1.5 ${
+                        index < phaseIndex ? "text-primary" : index === phaseIndex ? "font-medium" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {index < phaseIndex ? <CheckCircle className="h-4 w-4" /> : index === phaseIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="h-4 w-4 rounded-full border" />}
+                      {phase.label}
+                      {index < DEPLOY_PHASES.length - 1 && <span className="text-muted-foreground/50">→</span>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              {published && (
+                <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
+              )}
+              {!uploadedSite && <LiveBuildLog appId={application.id} />}
+            </CardContent>
+          </Card>
+        ) : needsSetup ? (
+          <AppSetupCard
+            application={application}
+            detected={detection.data}
+            detecting={detection.isLoading}
+            env={envStatus}
+            dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
+            failure={failureReason}
+            starting={starting}
+            onDeploy={deploy}
+            onEditEnv={() => setActiveTab("environment")}
+            onEditBuild={() => setActiveTab("settings")}
+          />
+        ) : null}
+
+        {/* the tabs, with a control panel beside them: what the app is doing
+            and what can be done to it, always in view instead of stacked on top */}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:order-last">
+        <Card className={`bg-gradient-card ${failureReason ? "border-destructive/40" : "border-border/50"}`}>
+          <CardContent className="space-y-4 p-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 shrink-0">
+                {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(application.status)}
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold">
+                  {siteLive ? t("Live and serving") : failureReason ? t("Deploy failed") : STATUS_LABELS[application.status] ?? application.status}
+                </h3>
+                <p className="break-words text-sm text-muted-foreground">
+                  {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
+                   siteLive ? (
+                     <a href={`https://${application.domain}`} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline">
+                       https://{application.domain}
+                     </a>
+                   ) :
+                   published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: application.domain }) :
+                   application.status === 'STOPPED' ? t("Stopped — nothing is serving.") :
+                   failureReason ? t("Whatever was serving before keeps serving.") :
+                   t("Not serving.")}
+                </p>
+              </div>
+            </div>
+
+            {failureReason && !deploying && (
+              <div className="space-y-2">
+                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">
+                  {failureReason}
+                </pre>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                    {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                    {t("Retry deploy")}
+                  </Button>
+                  {!uploadedSite && (
+                    <Button size="sm" variant="outline" onClick={() => setActiveTab("environment")}>
+                      {t("Edit environment")}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setActiveTab("deployments")}>
+                    {t("Full log")}
+                  </Button>
+                </div>
+              </div>
+            )}
+
           {/* no refresh button: the data refetches whenever the tab regains
               focus, and polls while a deploy runs */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-col gap-2 [&>button]:w-full [&>a]:w-full">
+            {siteLive && (
+              <Button asChild variant="outline">
+                <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  {t("Visit site")}
+                </a>
+              </Button>
+            )}
             {!application.repository && (
               <Button
                 variant={uploadedSite ? "default" : "outline"}
@@ -432,7 +538,7 @@ export default function ApplicationDetail() {
             />
 
             {/* at most one safe primary action. While a deploy runs its progress
-                is in the banner below, so only Cancel here; before the first
+                is in the banner above, so only Cancel here; before the first
                 deploy the setup card owns the button; an uploaded site redeploys
                 by upload. Once deployed, Redeploy rebuilds what is live — so it
                 sits in the menu, not one stray click away */}
@@ -463,8 +569,9 @@ export default function ApplicationDetail() {
             {!deploying && (canRedeploy || canStop || !!previousRelease || (uploadedSite && hasSiteFiles)) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label={t("More actions")}>
-                    <MoreHorizontal className="h-4 w-4" />
+                  <Button variant="outline">
+                    <MoreHorizontal className="h-4 w-4 mr-2" />
+                    {t("More actions")}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
@@ -522,116 +629,16 @@ export default function ApplicationDetail() {
               </DropdownMenu>
             )}
           </div>
-        </div>
-
-        {/* Status Banner — a running deploy shows its progress and build log
-            here, on every tab; an app never deployed shows what it still needs */}
-        {deploying ? (
-          <Card className="bg-gradient-card border-primary/40">
-            <CardContent className="p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="flex items-center gap-2 text-lg font-semibold">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  {deployed ? t("Redeploying…") : t("Deploying…")}
-                </h3>
-                <ol className="flex flex-wrap items-center gap-2 text-sm">
-                  {DEPLOY_PHASES.map((phase, index) => (
-                    <li
-                      key={phase.status}
-                      className={`flex items-center gap-1.5 ${
-                        index < phaseIndex ? "text-primary" : index === phaseIndex ? "font-medium" : "text-muted-foreground/60"
-                      }`}
-                    >
-                      {index < phaseIndex ? <CheckCircle className="h-4 w-4" /> : index === phaseIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="h-4 w-4 rounded-full border" />}
-                      {phase.label}
-                      {index < DEPLOY_PHASES.length - 1 && <span className="text-muted-foreground/50">→</span>}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-              {published && (
-                <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
-              )}
-              {!uploadedSite && <LiveBuildLog appId={application.id} />}
-            </CardContent>
-          </Card>
-        ) : needsSetup ? (
-          <AppSetupCard
-            application={application}
-            detected={detection.data}
-            detecting={detection.isLoading}
-            env={envStatus}
-            dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
-            failure={failureReason}
-            starting={starting}
-            onDeploy={deploy}
-            onEditEnv={() => setActiveTab("environment")}
-            onEditBuild={() => setActiveTab("settings")}
-          />
-        ) : (
-        <Card className={`bg-gradient-card ${failureReason ? "border-destructive/40" : "border-border/50"}`}>
-          <CardContent className="p-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center space-x-4">
-                {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(application.status)}
-                <div className="min-w-0">
-                  <h3 className="text-lg font-semibold">
-                    {siteLive ? t("Live and serving") : failureReason ? t("Deploy failed") : STATUS_LABELS[application.status] ?? application.status}
-                  </h3>
-                  <p className="text-muted-foreground">
-                    {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
-                     siteLive ? (
-                       <a href={`https://${application.domain}`} target="_blank" rel="noreferrer" className="font-mono text-foreground hover:text-primary hover:underline">
-                         https://{application.domain}
-                       </a>
-                     ) :
-                     published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: application.domain }) :
-                     application.status === 'STOPPED' ? t("Stopped — nothing is serving.") :
-                     failureReason ? t("Whatever was serving before keeps serving.") :
-                     t("Not serving.")}
-                  </p>
-                  {failureReason && (
-                    <div className="mt-2 space-y-2">
-                      <pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">
-                        {failureReason}
-                      </pre>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button size="sm" onClick={deploy} disabled={starting} className="bg-gradient-primary">
-                          {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
-                          {t("Retry deploy")}
-                        </Button>
-                        {!uploadedSite && (
-                          <Button size="sm" variant="outline" onClick={() => setActiveTab("environment")}>
-                            {t("Edit environment")}
-                          </Button>
-                        )}
-                        <Button size="sm" variant="ghost" onClick={() => setActiveTab("deployments")}>
-                          {t("Full log")}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {siteLive && (
-                <Button asChild variant="outline">
-                  <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    {t("Visit site")}
-                  </a>
-                </Button>
-              )}
-            </div>
           </CardContent>
         </Card>
-        )}
+        </aside>
 
         {/* Main Content */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 space-y-6">
           <TabsList
             className="grid w-full"
-            // overview, deployments, settings, plus files / environment + logs / storage when they apply
-            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1)}, minmax(0, 1fr))` }}
+            // overview, deployments, settings, plus files / environment + logs / database + storage when they apply
+            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 2)}, minmax(0, 1fr))` }}
           >
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
             {!uploadedSite && (
@@ -641,6 +648,7 @@ export default function ApplicationDetail() {
                 {(envStatus.missing.length > 0 || envStatus.dirty) && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
               </TabsTrigger>
             )}
+            {!isStatic && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             <TabsTrigger value="deployments">{t("History")}</TabsTrigger>
@@ -806,7 +814,7 @@ export default function ApplicationDetail() {
                     </span>
                   )}
                 </Field>
-                {isStatic ? (
+                {isStatic && (
                   <Field label={t("Hosting")}>
                     {/* where the files actually are: an R2 bucket once uploaded,
                         the old S3 prefix only for sites deployed before R2 */}
@@ -820,17 +828,6 @@ export default function ApplicationDetail() {
                     ) : (
                       <span className="text-muted-foreground">{t("No files uploaded yet")}</span>
                     )}
-                  </Field>
-                ) : (
-                  <Field label={t("Internal port")}>
-                    {/* bound to loopback and reached only through the proxy —
-                        an admin reading a bare number assumes it is open */}
-                    <span
-                      className="font-mono"
-                      title={t("Bound to loopback on the node. Not reachable from outside; the proxy is what serves this app publicly.")}
-                    >
-                      {application.port ? `127.0.0.1:${application.port}` : t("Not configured")}
-                    </span>
                   </Field>
                 )}
                 {/* a bucket-served site has no directory on a node; a static
@@ -863,9 +860,17 @@ export default function ApplicationDetail() {
               </CardContent>
             </Card>
             </div>
-
-            {!isStatic && <AppDatabasesCard applicationId={application.id} applicationName={application.name} />}
           </TabsContent>
+
+          {!isStatic && (
+            <TabsContent value="database">
+              <AppDatabasesTab
+                applicationId={application.id}
+                applicationName={application.name}
+                onConnect={() => setActiveTab("environment")}
+              />
+            </TabsContent>
+          )}
 
           {/* Kept mounted while hidden: switching tabs must not throw away unsaved
               edits, and the checklist on Overview reads its status from here. */}
@@ -1030,6 +1035,7 @@ export default function ApplicationDetail() {
             <DangerZoneCard application={application} />
           </TabsContent>
         </Tabs>
+        </div>
 
         <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
           <AlertDialogContent>

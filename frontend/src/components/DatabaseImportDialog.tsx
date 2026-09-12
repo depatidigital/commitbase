@@ -35,8 +35,10 @@ const size = (bytes: number) =>
     : `${(bytes / 1024 / 1024).toLocaleString(locale, { maximumFractionDigits: 1 })} MB`;
 
 /**
- * Import a .sql / .sql.gz into one database. The target is fixed by whoever
- * opens it — the dialog never lets you pick another — and spelled out in full
+ * Restore a .sql / .sql.gz into one database. It runs on top of what is
+ * there: tables are only replaced when the dump drops them first, as the
+ * suggested export flags do. The target is fixed by whoever opens it — the
+ * dialog never lets you pick another — and spelled out in full
  * (real name, engine, server, owner), with its table count: into a database
  * that already has tables, the name is typed to confirm. After the upload the
  * run is followed live; closing the dialog does not stop it.
@@ -118,7 +120,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t("Import SQL into {name}", { name: dbName })}</DialogTitle>
+          <DialogTitle>{t("Restore {name} from a .sql file", { name: dbName })}</DialogTitle>
           <DialogDescription>
             {t("Runs as this database's own login, which cannot reach any other database.")}
           </DialogDescription>
@@ -160,17 +162,17 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
               )}
               <span className="font-medium">
                 {current.status === "RUNNING"
-                  ? t("Importing {file}…", { file: current.fileName })
+                  ? t("Restoring {file}…", { file: current.fileName })
                   : current.status === "DONE"
-                    ? t("Imported {file}", { file: current.fileName })
-                    : t("Import of {file} failed", { file: current.fileName })}
+                    ? t("Restored {file}", { file: current.fileName })
+                    : t("Restore of {file} failed", { file: current.fileName })}
               </span>
             </div>
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
               {current.log || t("Starting…")}
             </pre>
             {current.status === "RUNNING" && (
-              <p className="text-xs text-muted-foreground">{t("You can close this dialog — the import keeps running.")}</p>
+              <p className="text-xs text-muted-foreground">{t("You can close this dialog — the restore keeps running.")}</p>
             )}
           </div>
         ) : (
@@ -213,7 +215,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
             <div className="space-y-1 text-xs text-muted-foreground">
               <p>
                 {engine === "MYSQL"
-                  ? t("MySQL can't undo table changes: if a statement fails, what ran before it stays. Back up first, or import into an empty database.")
+                  ? t("MySQL can't undo table changes: if a statement fails, what ran before it stays. Back up first, or restore into an empty database.")
                   : t("Runs in one transaction: if any statement fails, nothing is kept.")}
               </p>
               <p>
@@ -221,7 +223,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
                 <code className="rounded bg-muted px-1">
                   {engine === "MYSQL"
                     ? "mysqldump --single-transaction --routines --triggers <db> > dump.sql"
-                    : "pg_dump --no-owner --no-privileges <db> > dump.sql"}
+                    : "pg_dump --no-owner --no-privileges --clean --if-exists <db> > dump.sql"}
                 </code>
                 {" "}
                 {t("— gzip is fine too.")}
@@ -231,7 +233,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
             {needsConfirm && (
               <div className="space-y-2">
                 <Label htmlFor="import-confirm">
-                  {t("{name} already has {count} tables. Type its name to import into it anyway.", { name: dbName, count: tables! })}
+                  {t("{name} already has {count} tables. Type its name to restore into it anyway.", { name: dbName, count: tables! })}
                 </Label>
                 <Input id="import-confirm" autoComplete="off" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
               </div>
@@ -262,12 +264,12 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
               }}
             >
               <FileUp className="mr-2 h-4 w-4" />
-              {t("Import another file")}
+              {t("Restore another file")}
             </Button>
           ) : !current ? (
             <Button disabled={!ready} onClick={() => start.mutate()}>
               {start.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-              {t("Import")}
+              {t("Restore")}
             </Button>
           ) : null}
         </DialogFooter>

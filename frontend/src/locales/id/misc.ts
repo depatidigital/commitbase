@@ -56,39 +56,42 @@ export default {
   "Failed to export logs": "Gagal mengekspor log",
 
   // Databases
-  // SQL import (DatabaseImportDialog, AppDatabasesCard)
-  "Import SQL": "Impor SQL",
-  "Import SQL into {name}": "Impor SQL ke {name}",
+  // SQL restore (DatabaseImportDialog, AppDatabasesTab)
+  "Restore DB (.sql)": "Pulihkan DB (.sql)",
+  "Restore {name} from a .sql file": "Pulihkan {name} dari berkas .sql",
   "Runs as this database's own login, which cannot reach any other database.":
     "Dijalankan dengan login milik database ini, yang tidak bisa menjangkau database lain.",
   "Tables now": "Tabel saat ini",
   "{count} tables": "{count} tabel",
   Empty: "Kosong",
-  "Importing {file}…": "Mengimpor {file}…",
-  "Imported {file}": "{file} berhasil diimpor",
-  "Import of {file} failed": "Impor {file} gagal",
+  "Restoring {file}…": "Memulihkan {file}…",
+  "Restored {file}": "{file} berhasil dipulihkan",
+  "Restore of {file} failed": "Pemulihan {file} gagal",
   "Starting…": "Memulai…",
-  "You can close this dialog — the import keeps running.": "Dialog ini boleh ditutup — impor tetap berjalan.",
+  "You can close this dialog — the restore keeps running.": "Dialog ini boleh ditutup — pemulihan tetap berjalan.",
   "SQL file": "Berkas SQL",
   "{engine} dump": "dump {engine}",
   "This is a {found} dump, but {name} is {engine}.": "Ini dump {found}, sedangkan {name} adalah {engine}.",
   "The file switches to database {other} — it would be refused. Export only the one database, without {flag}.":
     "Berkas ini berpindah ke database {other} — akan ditolak. Ekspor satu database saja, tanpa {flag}.",
-  "MySQL can't undo table changes: if a statement fails, what ran before it stays. Back up first, or import into an empty database.":
-    "MySQL tidak bisa membatalkan perubahan tabel: jika satu perintah gagal, yang sudah berjalan tetap tersimpan. Cadangkan dulu, atau impor ke database kosong.",
+  "MySQL can't undo table changes: if a statement fails, what ran before it stays. Back up first, or restore into an empty database.":
+    "MySQL tidak bisa membatalkan perubahan tabel: jika satu perintah gagal, yang sudah berjalan tetap tersimpan. Cadangkan dulu, atau pulihkan ke database kosong.",
   "Runs in one transaction: if any statement fails, nothing is kept.":
     "Berjalan dalam satu transaksi: jika ada perintah yang gagal, tidak ada yang disimpan.",
   "Export with": "Ekspor dengan",
   "— gzip is fine too.": "— gzip juga bisa.",
-  "{name} already has {count} tables. Type its name to import into it anyway.":
-    "{name} sudah berisi {count} tabel. Ketik namanya untuk tetap mengimpor ke sana.",
+  "{name} already has {count} tables. Type its name to restore into it anyway.":
+    "{name} sudah berisi {count} tabel. Ketik namanya untuk tetap memulihkan ke sana.",
   "Uploading… {percent}%": "Mengunggah… {percent}%",
-  "Import another file": "Impor berkas lain",
+  "Restore another file": "Pulihkan berkas lain",
+  Restore: "Pulihkan",
+  "No database connected to this app yet.": "Belum ada database yang terhubung ke aplikasi ini.",
+  "Connect a database": "Hubungkan database",
   "What this app stores its data in": "Tempat aplikasi ini menyimpan datanya",
   "Named in this app's environment variables": "Disebut di variabel lingkungan aplikasi ini",
   "in use": "dipakai",
   "Could not reach the database": "Tidak bisa menjangkau database",
-  "Failed to load imports": "Gagal memuat riwayat impor",
+  "Failed to load imports": "Gagal memuat riwayat pemulihan",
   "Failed to upload the file": "Gagal mengunggah berkas",
   "The file is too large": "Berkas terlalu besar",
   Creating: "Sedang dibuat",
