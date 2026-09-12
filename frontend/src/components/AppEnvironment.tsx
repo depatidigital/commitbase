@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database as DatabaseIcon, Loader2, Save } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
-import { testDatabaseUrl } from "@/lib/databases";
+import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, getApplication, hasBeenDeployed, updateApplication } from "@/lib/applications";
 import {
@@ -66,6 +67,21 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dbOpen, setDbOpen] = useState(false);
+  // DATABASE_URL pointing at one of our databases shows its name, as on the
+  // Database tab — the URL carries the password. "Use a custom URL" edits it.
+  const [customDb, setCustomDb] = useState(false);
+  const { data: appDatabases } = useQuery({
+    queryKey: ["databases", "application", application.id],
+    queryFn: () => getAppDatabases(application.id),
+  });
+  const managedDatabase = (url: string) => {
+    try {
+      const name = decodeURIComponent(new URL(url).pathname.replace(/^\/+/, ""));
+      return appDatabases?.find((db) => !db.discovered && db.dbName === name);
+    } catch {
+      return undefined;
+    }
+  };
   // A refetch (a database connected, another tab saved) resets only an untouched
   // form — on a change of what is saved, never on the form turning clean: right
   // after a save the page may still hold the old env, and resetting to it then
@@ -128,6 +144,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
       );
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
+      // which database is "in use" follows the env
+      void queryClient.invalidateQueries({ queryKey: ["databases", "application", application.id] });
       if (!quiet)
         toast(
           hasBeenDeployed(application)
@@ -175,6 +193,31 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
             </Button>
           ) : null
         }
+        renderValue={(row) => {
+          const db = row.key === "DATABASE_URL" && !customDb ? managedDatabase(row.value) : undefined;
+          if (!db) return null;
+          return (
+            <div className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-muted/40 px-3 text-xs">
+              <DatabaseIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate font-mono">{db.dbName}</span>
+              <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">
+                {t("Larika database")}
+              </Badge>
+              <button
+                type="button"
+                className="ml-auto shrink-0 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                disabled={saving}
+                onClick={() => {
+                  setCustomDb(true);
+                  setRows((prev) => prev.map((r) => (r.key === "DATABASE_URL" ? { ...r, value: "" } : r)));
+                  setDirty(true);
+                }}
+              >
+                {t("Use a custom URL")}
+              </button>
+            </div>
+          );
+        }}
         // the app's own https URL for NEXT_PUBLIC_BASE_URL and friends
         suggest={(row) => suggestAppUrl(row.key, row.value, application.domain)}
         // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY…)
@@ -190,7 +233,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
 
       <div className="flex items-center justify-end gap-2">
         {dirty && (
-          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); }} disabled={saving}>
+          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); setCustomDb(false); }} disabled={saving}>
             {t("Reset")}
           </Button>
         )}
@@ -212,7 +255,9 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
           const fresh = await getApplication(application.id).catch(() => null);
           const filled = keys.flatMap((key) => (fresh?.envVars?.[key] ? [{ key, value: fresh.envVars[key] }] : []));
           if (filled.length) setRows((prev) => mergeRows(prev, filled, true));
+          setCustomDb(false);
           await queryClient.invalidateQueries({ queryKey: ["application", application.id] });
+          await queryClient.invalidateQueries({ queryKey: ["databases", "application", application.id] });
         }}
       />
     </div>
