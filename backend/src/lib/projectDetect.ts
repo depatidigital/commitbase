@@ -248,7 +248,7 @@ function startScriptOf(files: DetectInput): string {
   }
 }
 
-function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'>): DetectWarning[] {
+function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'>): DetectWarning[] {
   if (preset.framework !== 'nextjs' || preset.startCommand === NEXT_START) return [];
   const script = startScriptOf(files);
   const warnings: DetectWarning[] = [];
@@ -260,7 +260,7 @@ function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'w
   return warnings;
 }
 
-function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'> {
+function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'> {
   const nodeVersion = (files['.nvmrc'] || files['.node-version'] || '').trim().replace(/^v/, '') || null;
 
   // PHP first: Laravel ships a package.json for its assets, which must not
