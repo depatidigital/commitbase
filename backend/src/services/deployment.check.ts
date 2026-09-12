@@ -6,7 +6,8 @@ import assert from 'assert';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { streamToLog } from './deployment';
+import { dotenvLine, streamToLog } from './deployment';
+import { parseEnv } from 'util';
 
 (async () => {
   const log = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'cb-log-')), 'build.log');
@@ -23,3 +24,16 @@ import { streamToLog } from './deployment';
   console.log('deployment: streamToLog OK');
   process.exit(0);
 })();
+
+// .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
+for (const value of [
+  'postgresql://u:p$w0rd@127.0.0.1:5432/db?sslmode=require',
+  'has "double" quotes and a # hash',
+  'spaces  and = signs',
+  'line one\nline two',
+  '',
+]) {
+  const parsed = parseEnv(dotenvLine('K', value));
+  assert.strictEqual(parsed.K, value, `round trip of ${JSON.stringify(value)}`);
+}
+console.log('deployment: dotenvLine OK');
