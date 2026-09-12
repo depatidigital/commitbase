@@ -121,7 +121,6 @@ export default function ApplicationDetail() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedLogType, setSelectedLogType] = useState("combined");
   const [logLines, setLogLines] = useState(100);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showRawLogs, setShowRawLogs] = useState(false);
   const [logs, setLogs] = useState<ApplicationLogs>({});
   const [reuploadOpen, setReuploadOpen] = useState(false);
@@ -170,16 +169,6 @@ export default function ApplicationDetail() {
 
   const fetchLogs = () => {
     refetchLogs();
-  };
-
-  const queryClient = useQueryClient();
-  const refetchApplication = async () => {
-    setIsRefreshing(true);
-    await Promise.all(
-      [['application', id], ['applications', id, 'hostname'], ['deployments', id], ['releases', id], ['site-files', id]]
-        .map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-    );
-    setIsRefreshing(false);
   };
 
   // Handle actions
@@ -365,34 +354,39 @@ export default function ApplicationDetail() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                {application.name}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  {application.name}
+                </h1>
+                {published && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
+                        <a
+                          href={`https://${application.domain}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={t("Visit site")}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{t("Visit site")}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
               <p className="text-muted-foreground">
                 {t("App Details & Management")}
               </p>
             </div>
           </div>
           
+          {/* no refresh button: the data refetches whenever the tab regains
+              focus, and polls while a deploy runs */}
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => refetchApplication()}
-              disabled={isRefreshing}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-              {t("Refresh")}
-            </Button>
-
-            {published && (
-              <Button variant="outline" asChild>
-                <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  {t("Visit site")}
-                </a>
-              </Button>
-            )}
-
             {/* deployed from an upload: new files are how it is redeployed,
                 and the only way back after a failed upload */}
             {/* also while RUNNING: "running" only means the last write went
@@ -659,9 +653,18 @@ export default function ApplicationDetail() {
               </Card>
             )}
 
-            {/* one card of label/value lines — the whole picture without scrolling */}
+            {/* label/value lines in two cards: what visitors get, and what it
+                runs on — the whole picture without scrolling */}
+            <div className="grid items-start gap-4 md:grid-cols-2">
             <Card className="bg-gradient-card border-border/50">
-              <CardContent className="grid gap-x-8 pt-4 pb-2 md:grid-cols-2">
+              <CardHeader className="pb-0">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Globe className="h-4 w-4 text-primary" />
+                  {t("Public")}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">{t("What visitors get")}</p>
+              </CardHeader>
+              <CardContent className="pt-2 pb-2">
                 <Field label={t("Domain")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <span className="font-mono">{application.domain}</span>
@@ -700,6 +703,34 @@ export default function ApplicationDetail() {
                     ) : null}
                   </div>
                 </Field>
+                {/* the version visitors are getting */}
+                <Field label={t("Last Deployment")}>
+                  {lastDeployment ? (
+                    <>
+                      {new Date(lastDeployment.createdAt).toLocaleString(locale)}
+                      {" · "}
+                      {deploymentStatusLabel(lastDeployment.status)}
+                    </>
+                  ) : (
+                    t("Never deployed")
+                  )}
+                  <span className="text-muted-foreground">
+                    {" · "}
+                    {t("{count} deployments", { count: application.deployments?.length || 0 })}
+                  </span>
+                </Field>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-card border-border/50">
+              <CardHeader className="pb-0">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Server className="h-4 w-4 text-primary" />
+                  {t("Internal")}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">{t("What it runs on — only your team sees this")}</p>
+              </CardHeader>
+              <CardContent className="pt-2 pb-2">
                 {/* where the code comes from says more than a type label twice:
                     an upload redeploys by uploading, a repository by building */}
                 <Field label={t("Source")}>
@@ -777,21 +808,6 @@ export default function ApplicationDetail() {
                     <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
                   </Field>
                 )}
-                <Field label={t("Last Deployment")}>
-                  {lastDeployment ? (
-                    <>
-                      {new Date(lastDeployment.createdAt).toLocaleString(locale)}
-                      {" · "}
-                      {deploymentStatusLabel(lastDeployment.status)}
-                    </>
-                  ) : (
-                    t("Never deployed")
-                  )}
-                  <span className="text-muted-foreground">
-                    {" · "}
-                    {t("{count} deployments", { count: application.deployments?.length || 0 })}
-                  </span>
-                </Field>
                 {application.repository && (
                   <Field label={t("Build Command")}>
                     <span className="font-mono text-xs">{application.buildCommand || t("Not configured")}</span>
@@ -814,6 +830,7 @@ export default function ApplicationDetail() {
                 )}
               </CardContent>
             </Card>
+            </div>
           </TabsContent>
 
           {/* what the static site is serving — only once there is a bucket */}
@@ -875,9 +892,9 @@ export default function ApplicationDetail() {
                     <Button
                       variant="outline"
                       onClick={fetchLogs}
-                      disabled={isRefreshing}
+                      disabled={logsLoading}
                     >
-                      <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                      <RefreshCw className={`h-4 w-4 mr-2 ${logsLoading ? "animate-spin" : ""}`} />
                       {t("Refresh")}
                     </Button>
                     
