@@ -456,6 +456,38 @@ export default function ApplicationDetail() {
             onEditEnv={() => setActiveTab("environment")}
             onEditBuild={() => setActiveTab("settings")}
           />
+        ) : failureReason ? (
+          // why it failed needs room to be read — full width, not the side panel
+          <Card className="bg-gradient-card border-destructive/40">
+            <CardContent className="space-y-3 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="flex items-center gap-2 text-lg font-semibold text-destructive">
+                    <AlertCircle className="h-5 w-5" />
+                    {t("The last deploy failed")}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">{t("Whatever was serving before keeps serving.")}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                    {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                    {t("Retry deploy")}
+                  </Button>
+                  {!uploadedSite && (
+                    <Button variant="outline" onClick={() => setActiveTab("environment")}>
+                      {t("Edit environment")}
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={() => setActiveTab("deployments")}>
+                    {t("Full log")}
+                  </Button>
+                </div>
+              </div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs text-destructive">
+                {failureReason}
+              </pre>
+            </CardContent>
+          </Card>
         ) : null}
 
         {/* the tabs, with a control panel beside them: what the app is doing
