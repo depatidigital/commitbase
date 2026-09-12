@@ -83,10 +83,6 @@ export default function AddApp() {
     type: "",
     repository: "",
     branch: "main",
-    buildCommand: "",
-    startCommand: "",
-    port: "",
-    envVars: "",
   });
   // 1 = where the code comes from, 2 = type, name and domain
   const [step, setStep] = useState(1);
@@ -94,15 +90,8 @@ export default function AddApp() {
   const superadmin = isSuperAdmin();
   const [serverId, setServerId] = useState("");
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superadmin });
-  // set once the app exists — the wizard turns into a progress view rather than
-  // dumping the user on the dashboard while the deploy is still running
-  const [launch, setLaunch] = useState<{
-    id: string;
-    domain: string;
-    dns?: DnsOutcome;
-    uploading: boolean;
-    uploadFailed: string | null;
-  } | null>(null);
+  // picked files going up after the app is created
+  const [uploading, setUploading] = useState(false);
   const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
   // everything picked, and the paths unticked in the preview; what detection
   // and the upload see is the difference
@@ -253,8 +242,6 @@ export default function AddApp() {
               : result.type === "PYTHON"
                 ? "NODEJS"
                 : result.type,
-          buildCommand: result.buildCommand || "",
-          startCommand: result.startCommand || "",
         }));
       } catch (error) {
         if (!cancelled) {
@@ -410,26 +397,6 @@ export default function AddApp() {
       });
     }
   };
-
-  // deploy fired: the wizard is done, the setup is not
-  if (launch) {
-    return (
-      <PageLayout
-        title={t("Deploying")}
-        description={t("{domain} is being set up.", { domain: launch.domain })}
-        icon={Zap}
-        backTo="/"
-      >
-        <AppLaunchProgress
-          applicationId={launch.id}
-          domain={launch.domain}
-          dns={launch.dns}
-          uploading={launch.uploading}
-          uploadFailed={launch.uploadFailed}
-        />
-      </PageLayout>
-    );
-  }
 
   if (domainsLoading) {
     return (
@@ -1012,86 +979,6 @@ export default function AddApp() {
                 </div>
               </CardContent>
             </Card>
-
-            {!(sourceMode === "upload" && formData.type === "STATIC") && (
-              <Card className="bg-gradient-card border-border/50 shadow-elegant">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Terminal className="h-5 w-5 text-primary" />
-                    <span>{t("Build & Runtime Configuration")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="buildCommand">{t("Build Command")}</Label>
-                      <Input
-                        id="buildCommand"
-                        placeholder={
-                          formData.type === "STATIC"
-                            ? "npm run build"
-                            : "npm install"
-                        }
-                        value={formData.buildCommand}
-                        onChange={(e) =>
-                          handleInputChange("buildCommand", e.target.value)
-                        }
-                      />
-                    </div>
-
-                    {formData.type === "NODEJS" && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="startCommand">{t("Start Command")}</Label>
-                          <Input
-                            id="startCommand"
-                            placeholder="npm start"
-                            value={formData.startCommand}
-                            onChange={(e) =>
-                              handleInputChange("startCommand", e.target.value)
-                            }
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="port">
-                            {t("Port")}{" "}
-                            <span className="text-xs text-muted-foreground">
-                              {t("(assigned automatically — set only if the app ignores $PORT)")}
-                            </span>
-                          </Label>
-                          <Input
-                            id="port"
-                            type="number"
-                            placeholder={t("auto")}
-                            value={formData.port}
-                            onChange={(e) =>
-                              handleInputChange("port", e.target.value)
-                            }
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="envVars">{t("Environment Variables")}</Label>
-                    <Textarea
-                      id="envVars"
-                      placeholder="NODE_ENV=production&#10;API_URL=https://api.example.com"
-                      value={formData.envVars}
-                      onChange={(e) =>
-                        handleInputChange("envVars", e.target.value)
-                      }
-                      rows={4}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("One variable per line in KEY=value format")}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </>
         )}
 
