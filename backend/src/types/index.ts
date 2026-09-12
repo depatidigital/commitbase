@@ -102,6 +102,8 @@ export const CreateApplicationSchema = z.object({
   buildCommand: z.string().optional(),
   startCommand: z.string().optional(),
   envVars: z.record(z.string()).optional(),
+  // the node to run on — honoured for superadmins; others get the org's default
+  serverId: z.string().min(1).optional(),
 });
 
 export const UpdateApplicationSchema = z.object({

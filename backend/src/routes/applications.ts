@@ -15,6 +15,7 @@ import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
+import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { adoptCaddySites } from '../services/caddyMigrationService';
@@ -454,11 +455,11 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
             createdAt: 'desc',
           },
         },
-        // where it runs: the node the sync found it on, else its organization's
-        // node (the one serverForApplication routes through). Never SSH fields.
+        // where it runs: its own node, else its organization's default server
+        // (the order serverForApplication routes through). Never SSH fields.
         server: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } },
         organization: {
-          select: { server: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
+          select: { defaultServer: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
         },
       },
     });
@@ -487,7 +488,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       data: {
         ...application,
         staticSiteUrl,
-        placement: application.server ?? application.organization?.server ?? null,
+        placement: application.server ?? application.organization?.defaultServer ?? null,
       },
       message: 'Application retrieved successfully',
     } as ApiResponse<Application & { staticSiteUrl?: string | null }>);
@@ -530,6 +531,23 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       } as ApiResponse);
     }
 
+    // Which node it runs on: a superadmin may pick one, everyone else gets the
+    // organization's default server. An org spans nodes — this is per app.
+    const org = parentDomain.organizationId
+      ? await prisma.organization.findUnique({ where: { id: parentDomain.organizationId }, select: { defaultServerId: true } })
+      : null;
+    const requested = req.user!.role === 'SUPERADMIN' && typeof req.body.serverId === 'string' ? req.body.serverId : null;
+    if (requested && !(await prisma.server.findUnique({ where: { id: requested }, select: { id: true } }))) {
+      return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
+    }
+    const serverId = requested ?? org?.defaultServerId ?? null;
+    if (!serverId && OS_ISOLATION_ENABLED) {
+      return res.status(400).json({
+        success: false,
+        error: "No server for this app — pick one, or ask an administrator to set the organization's default server.",
+      } as ApiResponse);
+    }
+
     const application = await prisma.application.create({
       data: {
         name,
@@ -545,8 +563,18 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         userId: req.user!.userId,
         domainId: parentDomain.id,
         organizationId: parentDomain.organizationId,
+        serverId,
       },
     });
+
+    // Provision the org on that node now, so the first deploy does not wait
+    // for it (the deploy still checks, and waits if this has not finished).
+    // Static sites are served from R2 and never need the org's OS user.
+    if (parentDomain.organizationId && serverId && type !== 'STATIC') {
+      await queueOrgNode(parentDomain.organizationId, serverId, { userId: req.user!.userId, trigger: 'app-create' }).catch(
+        (error) => console.error(`Could not queue provisioning for ${domain}:`, error),
+      );
+    }
 
     // Point the hostname at the platform now, so the app is reachable the
     // moment it deploys. A hostname already pointing somewhere else is left

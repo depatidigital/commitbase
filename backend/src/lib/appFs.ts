@@ -3,6 +3,7 @@ import * as net from 'net';
 import { execFile } from 'child_process';
 import { prisma } from './prisma';
 import { appDirFor } from './appPaths';
+import { serverForApplication } from './servers';
 import { exec, forwardTcp, type SshTarget, type ExecResult } from './runner';
 import * as rfs from './remoteFs';
 import { OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
@@ -11,7 +12,7 @@ import { OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
  * Where an application's files are, and the one way to touch them.
  *
  * With OS isolation on, an app in an organization lives in that org's home on
- * the org's node, and every file operation and command goes over SSH (SFTP via
+ * the app's node, and every file operation and command goes over SSH (SFTP via
  * remoteFs, commands via runner.exec) as the node's SSH user — who reaches the
  * tenant home through the `larika` group. Everything else is the legacy local
  * APPS_DIR on the panel: isolation off (dev), apps without an organization, and
@@ -163,15 +164,14 @@ function remoteAppFs(node: SshTarget, appDir: string): AppFs {
 export async function appFsFor(applicationId: string): Promise<AppFs> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { type: true, organization: { select: { slug: true, server: true } } },
+    select: { type: true, organization: { select: { slug: true } } },
   });
   if (!app) throw new Error(`Unknown application: ${applicationId}`);
 
   const slug = app.organization?.slug;
   if (OS_ISOLATION_ENABLED && slug && app.type !== 'STATIC') {
-    const node = app.organization!.server;
-    if (!node) throw new Error(`Organization "${slug}" is not assigned to a server — assign one before deploying`);
-    return remoteAppFs(node, appDirFor(applicationId, slug));
+    // the app's own node — organizations span nodes (lib/servers.ts)
+    return remoteAppFs(await serverForApplication(applicationId), appDirFor(applicationId, slug));
   }
   return localAppFs(appDirFor(applicationId, null));
 }
