@@ -125,7 +125,9 @@ export async function startApplication(application: AppWithOrg): Promise<boolean
 
   await writeRunScript(application, await appFsFor(application.id));
   await appUnit('install', slug, application.id); // also hands the tree to the tenant user
-  await appUnit('start', slug, application.id);
+  // restart, not start: `start` is a no-op on a running unit, so a redeploy kept
+  // the old process serving from its old release — until cleanup deleted that tree
+  await appUnit('restart', slug, application.id);
 
   return (await getStatus(application)) === 'RUNNING';
 }

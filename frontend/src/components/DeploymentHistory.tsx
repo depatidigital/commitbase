@@ -32,7 +32,7 @@ export const deploymentStatusLabel = (status: string) => STATUS_LABELS[status] ?
 const IN_PROGRESS = ["PENDING", "BUILDING", "DEPLOYING"];
 
 /** Polls the on-disk build log while the deploy runs, pinned to the newest line. */
-function LiveBuildLog({ appId }: { appId: string }) {
+export function LiveBuildLog({ appId }: { appId: string }) {
   const { data: logs } = useQuery({
     queryKey: ["build-live", appId],
     queryFn: () => getLiveBuildLog(appId),
@@ -137,10 +137,10 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
               const summary = deployment.deployLogs?.trim().split("\n")[0];
               const hasLogs = !!(deployment.deployLogs || deployment.buildLogs);
               return (
-                <details key={deployment.id} className="group" open={!done && index === 0}>
+                <details key={deployment.id} className="group">
                   <summary
                     className={`flex list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50 ${
-                      hasLogs || !done ? "cursor-pointer" : ""
+                      hasLogs ? "cursor-pointer" : ""
                     }`}
                   >
                     {getDeploymentIcon(deployment.status)}
@@ -165,8 +165,7 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                   </summary>
 
                   <div className="space-y-3 px-3 pb-3">
-                    {/* the one running: its build log as it prints */}
-                    {!done && index === 0 && <LiveBuildLog appId={application.id} />}
+                    {/* the one running prints its build log in the page's status banner */}
                     {deployment.deployLogs && (
                       <div className="space-y-1">
                         <p className="text-xs font-medium">{t("Deploy Logs")}</p>

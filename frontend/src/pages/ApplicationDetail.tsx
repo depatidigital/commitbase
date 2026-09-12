@@ -44,8 +44,17 @@ import {
   Wifi,
   WifiOff,
   Upload,
-  KeyRound
+  KeyRound,
+  MoreHorizontal,
+  Rocket
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
@@ -54,7 +63,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
-import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
+import DeploymentHistory, { LiveBuildLog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
@@ -97,6 +106,13 @@ const STATUS_LABELS: Record<string, string> = {
   BUILDING: t("Building"),
 };
 
+/** A deploy's steps as its deployment row reports them. */
+const DEPLOY_PHASES = [
+  { status: 'PENDING', label: t("Queued") },
+  { status: 'BUILDING', label: t("Building") },
+  { status: 'DEPLOYING', label: t("Going live") },
+];
+
 const LOG_TYPE_LABELS: Record<string, string> = {
   combined: t("Combined Logs"),
   out: t("Output Logs"),
@@ -133,10 +149,8 @@ export default function ApplicationDetail() {
   const [reuploadOpen, setReuploadOpen] = useState(false);
   // files dropped on the empty-site card, handed to the upload dialog
   const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
-  const [confirmAction, setConfirmAction] = useState<{
-    type: 'start' | 'start-existing' | 'stop' | 'restart';
-    appName: string;
-  } | null>(null);
+  // only Stop asks first: a deploy replaces nothing until it works, and can be cancelled
+  const [confirmStop, setConfirmStop] = useState(false);
 
   // API hooks
   const { application, isLoading, error } = useApplicationStatus(id!);
@@ -200,6 +214,20 @@ export default function ApplicationDetail() {
     if (newestDeploy && !deployInFlight) void queryClient.invalidateQueries({ queryKey: ['application', id] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newestDeploy?.id, deployInFlight]);
+  // A deploy watched to its end — history settled AND the app row left
+  // DEPLOYING (the backend writes SUCCESS before the app row and the release):
+  // soft-reload everything this page shows about the app, so the buttons,
+  // releases, files and hostname follow without a page reload.
+  const appDeploying = deployInFlight || application?.status === 'DEPLOYING' || application?.status === 'BUILDING';
+  const sawDeploy = useRef(false);
+  useEffect(() => {
+    if (appDeploying) sawDeploy.current = true;
+    else if (sawDeploy.current) {
+      sawDeploy.current = false;
+      // app-scoped keys all carry the id second: ['application', id], ['releases', id], ...
+      void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[1] === id });
+    }
+  }, [appDeploying, id, queryClient]);
   // the Environment tab's form, for the setup checklist on the Overview tab
   const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], warnings: [], dirty: false });
   // Before the first deploy, the saved DATABASE_URL tried from the app's node:
@@ -214,8 +242,19 @@ export default function ApplicationDetail() {
     staleTime: 60_000,
     retry: false,
   });
-  // a first deploy waits for this: the code's variables filled in and saved
-  const setupReady = !detection.isLoading && envStatus.missing.length === 0 && !envStatus.dirty;
+  // the Environment tab's save: a deploy uses the saved env, so unsaved edits go first
+  const envSave = useRef<(() => Promise<boolean>) | null>(null);
+  const [savingForDeploy, setSavingForDeploy] = useState(false);
+  const deploy = async () => {
+    if (envStatus.dirty) {
+      setSavingForDeploy(true);
+      const saved = await envSave.current?.();
+      setSavingForDeploy(false);
+      if (!saved) return;
+    }
+    startApp.mutate(id!);
+  };
+  const starting = savingForDeploy || startApp.isPending;
 
   // Update logs when data changes
   useEffect(() => {
@@ -229,67 +268,6 @@ export default function ApplicationDetail() {
 
   const fetchLogs = () => {
     refetchLogs();
-  };
-
-  // Handle actions
-  const handleStart = () => {
-    if (!application) return;
-    setConfirmAction({ type: 'start', appName: application.name });
-  };
-
-  const handleStartExisting = () => {
-    if (!application) return;
-    setConfirmAction({ type: 'start-existing', appName: application.name });
-  };
-
-  const handleStop = () => {
-    if (!application) return;
-    setConfirmAction({ type: 'stop', appName: application.name });
-  };
-
-  const handleRestart = () => {
-    if (!application) return;
-    setConfirmAction({ type: 'restart', appName: application.name });
-  };
-
-  const executeAction = async () => {
-    if (!confirmAction || !id) return;
-
-    try {
-      switch (confirmAction.type) {
-        case 'start':
-          await startApp.mutateAsync(id);
-          break;
-        case 'start-existing':
-          await startExistingApp.mutateAsync(id);
-          break;
-        case 'stop':
-          await stopApp.mutateAsync(id);
-          break;
-        case 'restart':
-          await restartApp.mutateAsync(id);
-          break;
-      }
-    } catch (error) {
-      // Error is handled by the mutation
-    } finally {
-      setConfirmAction(null);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'running':
-        return 'bg-green-500';
-      case 'stopped':
-        return 'bg-gray-500';
-      case 'error':
-        return 'bg-red-500';
-      case 'deploying':
-        return 'bg-yellow-500';
-      default:
-        return 'bg-blue-500';
-    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -370,43 +348,11 @@ export default function ApplicationDetail() {
     application.status === 'BUILDING' ||
     ['PENDING', 'BUILDING', 'DEPLOYING'].includes(lastDeployment?.status ?? '');
 
-  const dialogContent = confirmAction ? {
-    // a static site from a repo: built and published, never "started"
-    start: isStatic ? {
-      title: hasBeenDeployed(application) ? t('Redeploy Site') : t('Deploy Site'),
-      description: t("Build \"{name}\" from {branch} and publish the result to the site.", {
-        name: confirmAction.appName,
-        branch: application.branch || 'main',
-      }),
-      actionText: hasBeenDeployed(application) ? t('Redeploy') : t('Deploy'),
-      variant: 'default' as const,
-    } : {
-      title: hasBeenDeployed(application) ? t('Redeploy & Start App') : t('Deploy & Start App'),
-      description: hasBeenDeployed(application) 
-        ? t("Are you sure you want to redeploy and start \"{name}\"? This will rebuild and run the application.", { name: confirmAction.appName })
-        : t("Are you sure you want to deploy and start \"{name}\"? This will build and run the application for the first time.", { name: confirmAction.appName }),
-      actionText: hasBeenDeployed(application) ? t('Redeploy & Start') : t('Deploy & Start'),
-      variant: 'default' as const,
-    },
-    'start-existing': {
-      title: t('Start App'),
-      description: t("Are you sure you want to start \"{name}\"? This will start the existing built application without rebuilding.", { name: confirmAction.appName }),
-      actionText: t('Start App'),
-      variant: 'default' as const,
-    },
-    stop: {
-      title: t('Stop App'),
-      description: t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: confirmAction.appName }),
-      actionText: t('Stop App'),
-      variant: 'destructive' as const,
-    },
-    restart: {
-      title: t('Restart App'),
-      description: t("Are you sure you want to restart \"{name}\"? This will stop and then start the application.", { name: confirmAction.appName }),
-      actionText: t('Restart App'),
-      variant: 'default' as const,
-    },
-  }[confirmAction.type] : null;
+  const deployed = hasBeenDeployed(application);
+  // where the running deploy is, from its row's status (PENDING → BUILDING → DEPLOYING)
+  const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
+  const siteLive = published && !!hostname?.live;
+  const canStop = !isStatic && application.status === 'RUNNING';
 
   return (
     <TooltipProvider>
@@ -456,31 +402,6 @@ export default function ApplicationDetail() {
           {/* no refresh button: the data refetches whenever the tab regains
               focus, and polls while a deploy runs */}
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {/* deployed from an upload: new files are how it is redeployed,
-                and the only way back after a failed upload */}
-            {/* also while RUNNING: "running" only means the last write went
-                through, not that the hostname reaches the files */}
-            {uploadedSite && hasSiteFiles && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    onClick={() => startApp.mutate(application.id)}
-                    disabled={startApp.isPending}
-                  >
-                    {startApp.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                    )}
-                    {t("Republish")}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t("Points the site back at the files already uploaded. Nothing is uploaded again.")}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
             {!application.repository && (
               <Button
                 variant={uploadedSite ? "default" : "outline"}
@@ -499,223 +420,183 @@ export default function ApplicationDetail() {
               onOpenChange={setReuploadOpen}
             />
 
-            {/* a deploy runs in the background: while it does, one button that
-                says so (and opens its live log) instead of actions that race it */}
+            {/* one primary action. While a deploy runs its progress is in the
+                banner below, so only Cancel here; before the first deploy the
+                setup card owns the button; an uploaded site redeploys by upload */}
             {deploying ? (
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => setActiveTab("deployments")}>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {t("Deploying…")}
+              <Button
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                disabled={cancelDeploy.isPending}
+                onClick={() => setConfirmCancel(true)}
+              >
+                <Square className="h-4 w-4 mr-2" />
+                {t("Cancel deploy")}
+              </Button>
+            ) : needsSetup || uploadedSite ? null : !isStatic && application.status !== 'RUNNING' && deployed ? (
+              // stopped: bring the built release back, or build anew
+              <>
+                <Button variant="outline" onClick={deploy} disabled={starting}>
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  {t("Redeploy")}
                 </Button>
-                <Button
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  disabled={cancelDeploy.isPending}
-                  onClick={() => setConfirmCancel(true)}
-                >
-                  <Square className="h-4 w-4 mr-2" />
-                  {t("Cancel")}
+                <Button onClick={() => startExistingApp.mutate(application.id)} disabled={startExistingApp.isPending} className="bg-gradient-primary">
+                  {startExistingApp.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
+                  {t("Start")}
                 </Button>
-              </div>
-            ) : /* static sites have no process to start, stop or restart: an
-                uploaded one redeploys by upload (above), a repo one by building */
-            isStatic ? (
-              !uploadedSite && (
-                <Button onClick={handleStart} disabled={startApp.isPending} className="bg-gradient-primary">
-                  {startApp.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Play className="h-4 w-4 mr-2" />
-                  )}
-                  {hasBeenDeployed(application) ? t("Redeploy") : t("Deploy")}
-                </Button>
-              )
-            ) : application.status === 'RUNNING' ? (
-              // Running application - Stop, or redeploy without downtime
-              <div className="flex items-center space-x-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="destructive"
-                      onClick={handleStop}
-                      disabled={stopApp.isPending}
-                    >
-                      {stopApp.isPending ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Square className="h-4 w-4 mr-2" />
-                      )}
-                      {t("Stop")}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{t("Stop the running application")}</p>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      onClick={handleStart}
-                      disabled={startApp.isPending}
-                    >
-                      {startApp.isPending ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <RotateCcw className="h-4 w-4 mr-2" />
-                      )}
-                      {t("Redeploy")}
-                    </Button>
-                  </TooltipTrigger>
+              </>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                    {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
+                    {deployed ? t("Redeploy") : t("Deploy")}
+                  </Button>
+                </TooltipTrigger>
+                {published && (
                   <TooltipContent>
                     <p>{t("Build the latest code and switch over once it answers. The current release keeps serving meanwhile.")}</p>
                   </TooltipContent>
-                </Tooltip>
-              </div>
-            ) : hasBeenDeployed(application) ? (
-              // Previously deployed but not running - Show both Start and Redeploy & Start
-              <div className="flex items-center space-x-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={handleStartExisting}
-                      disabled={startExistingApp.isPending}
-                      className="bg-gradient-primary"
-                    >
-                      {startExistingApp.isPending ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Play className="h-4 w-4 mr-2" />
-                      )}
-                      {t("Start")}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{t("Start the existing built application")}</p>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      onClick={handleStart}
-                      disabled={startApp.isPending}
-                    >
-                      {startApp.isPending ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <RotateCcw className="h-4 w-4 mr-2" />
-                      )}
-                      {t("Redeploy & Start")}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{t("Rebuild and start the application")}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            ) : (
-              // Never deployed - Show Deploy & Start
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {/* the span keeps the tooltip working on a disabled button */}
-                  <span tabIndex={needsSetup && !setupReady ? 0 : -1}>
-                  <Button
-                    onClick={handleStart}
-                    disabled={startApp.isPending || (needsSetup && !setupReady)}
-                    className="bg-gradient-primary"
-                  >
-                    {startApp.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Play className="h-4 w-4 mr-2" />
-                    )}
-                    {t("Deploy & Start")}
-                  </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    {needsSetup && !setupReady
-                      ? t("Fill in and save the environment first.")
-                      : t("Deploy and start the application for the first time")}
-                  </p>
-                </TooltipContent>
+                )}
               </Tooltip>
             )}
-            
-            {/* Restart button - only show if application is running */}
-            {!isStatic && !deploying && application.status === 'RUNNING' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    onClick={handleRestart}
-                    disabled={restartApp.isPending}
-                  >
-                    {restartApp.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                    )}
-                    {t("Restart")}
+
+            {/* the rarer actions, one click further away */}
+            {!deploying && (canStop || (uploadedSite && hasSiteFiles)) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" aria-label={t("More actions")}>
+                    <MoreHorizontal className="h-4 w-4" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t("Restart the application")}</p>
-                </TooltipContent>
-              </Tooltip>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {uploadedSite && hasSiteFiles && (
+                    // points the site back at the files already uploaded — the way back after a failed upload
+                    <DropdownMenuItem disabled={starting} onClick={() => startApp.mutate(application.id)}>
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      {t("Republish current files")}
+                    </DropdownMenuItem>
+                  )}
+                  {canStop && (
+                    <>
+                      <DropdownMenuItem disabled={restartApp.isPending} onClick={() => restartApp.mutate(application.id)}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {t("Restart")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        disabled={stopApp.isPending}
+                        onClick={() => setConfirmStop(true)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Square className="mr-2 h-4 w-4" />
+                        {t("Stop")}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </div>
 
-        {/* Status Banner — for an app never deployed, its status is what it still
-            needs, so the setup checklist stands in for it */}
-        {needsSetup ? (
+        {/* Status Banner — a running deploy shows its progress and build log
+            here, on every tab; an app never deployed shows what it still needs */}
+        {deploying ? (
+          <Card className="bg-gradient-card border-primary/40">
+            <CardContent className="p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="flex items-center gap-2 text-lg font-semibold">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  {deployed ? t("Redeploying…") : t("Deploying…")}
+                </h3>
+                <ol className="flex flex-wrap items-center gap-2 text-sm">
+                  {DEPLOY_PHASES.map((phase, index) => (
+                    <li
+                      key={phase.status}
+                      className={`flex items-center gap-1.5 ${
+                        index < phaseIndex ? "text-primary" : index === phaseIndex ? "font-medium" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {index < phaseIndex ? <CheckCircle className="h-4 w-4" /> : index === phaseIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="h-4 w-4 rounded-full border" />}
+                      {phase.label}
+                      {index < DEPLOY_PHASES.length - 1 && <span className="text-muted-foreground/50">→</span>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              {published && (
+                <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
+              )}
+              {!uploadedSite && <LiveBuildLog appId={application.id} />}
+            </CardContent>
+          </Card>
+        ) : needsSetup ? (
           <AppSetupCard
             application={application}
             detected={detection.data}
             detecting={detection.isLoading}
             env={envStatus}
             dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
-            deploying={deploying}
-            onViewDeploy={() => setActiveTab("deployments")}
-            onCancelDeploy={() => setConfirmCancel(true)}
-            onDeploy={handleStart}
+            failure={failureReason}
+            starting={starting}
+            onDeploy={deploy}
             onEditEnv={() => setActiveTab("environment")}
             onEditBuild={() => setActiveTab("settings")}
           />
         ) : (
-        <Card className="bg-gradient-card border-border/50">
+        <Card className={`bg-gradient-card ${failureReason ? "border-destructive/40" : "border-border/50"}`}>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex min-w-0 items-center space-x-4">
-                {getStatusIcon(application.status)}
+                {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(application.status)}
                 <div className="min-w-0">
-                  <h3 className="text-lg font-semibold">{t("Status: {status}", { status: STATUS_LABELS[application.status] ?? application.status })}</h3>
+                  <h3 className="text-lg font-semibold">
+                    {siteLive ? t("Live") : failureReason ? t("Deploy failed") : STATUS_LABELS[application.status] ?? application.status}
+                  </h3>
                   <p className="text-muted-foreground">
                     {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
-                     application.status === 'RUNNING' ? t('App is running and accessible') :
-                     application.status === 'STOPPED' ? t('App is stopped and not accessible') :
-                     application.status === 'ERROR' ? t('App encountered an error') :
-                     t('App is being deployed')}
+                     siteLive ? (
+                       <a href={`https://${application.domain}`} target="_blank" rel="noreferrer" className="font-mono text-foreground hover:text-primary hover:underline">
+                         https://{application.domain}
+                       </a>
+                     ) :
+                     published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: application.domain }) :
+                     application.status === 'STOPPED' ? t("Stopped — nothing is serving.") :
+                     failureReason ? t("Whatever was serving before keeps serving.") :
+                     t("Not serving.")}
                   </p>
                   {failureReason && (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2 space-y-2">
                       <pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">
                         {failureReason}
                       </pre>
-                      <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setActiveTab("deployments")}>
-                        {t("View Deployments")}
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button size="sm" onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                          {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                          {t("Retry deploy")}
+                        </Button>
+                        {!uploadedSite && (
+                          <Button size="sm" variant="outline" onClick={() => setActiveTab("environment")}>
+                            {t("Edit environment")}
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => setActiveTab("deployments")}>
+                          {t("Full log")}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
-              <div className="flex items-center space-x-2">
-                <div className={`w-3 h-3 rounded-full ${getStatusColor(application.status)}`} />
-                <span className="text-sm font-medium capitalize">{STATUS_LABELS[application.status] ?? application.status?.toLowerCase()}</span>
-              </div>
+              {siteLive && (
+                <Button asChild variant="outline">
+                  <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    {t("Visit site")}
+                  </a>
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -966,7 +847,7 @@ export default function ApplicationDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} />
+                  <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1139,36 +1020,25 @@ export default function ApplicationDetail() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Confirmation Dialog */}
-        {confirmAction && dialogContent && (
-          <AlertDialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{dialogContent.title}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {dialogContent.description}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={executeAction}
-                  className={dialogContent.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
-                  disabled={startApp.isPending || stopApp.isPending || restartApp.isPending}
-                >
-                  {startApp.isPending || stopApp.isPending || restartApp.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      {t("Processing...")}
-                    </>
-                  ) : (
-                    dialogContent.actionText
-                  )}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
+        <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Stop App")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: application.name })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => stopApp.mutate(application.id)}
+              >
+                {t("Stop App")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TooltipProvider>
   );

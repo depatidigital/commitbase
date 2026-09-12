@@ -15,11 +15,10 @@ interface AppSetupCardProps {
   env: EnvStatus;
   /** the saved DATABASE_URL tried from the app's node: running, its outcome, or not tried */
   dbCheck?: "pending" | { ok: boolean; message: string } | null;
-  /** a deploy is running in the background right now */
-  deploying?: boolean;
-  onViewDeploy?: () => void;
-  /** ask to stop the running deploy (the page confirms) */
-  onCancelDeploy?: () => void;
+  /** why the last deploy failed — Deploy is then the retry */
+  failure?: string;
+  /** Deploy was clicked and is saving or starting */
+  starting?: boolean;
   onDeploy: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
@@ -30,7 +29,7 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, deploying, onViewDeploy, onCancelDeploy, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, starting, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
   const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -48,7 +47,8 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
   const install = application.installCommand || detected?.installCommand;
   const build = application.buildCommand || detected?.buildCommand;
   const start = application.startCommand || detected?.startCommand;
-  const envDone = !detecting && env.missing.length === 0 && !env.dirty;
+  // unsaved edits do not hold it back: Deploy saves them first
+  const envDone = !detecting && env.missing.length === 0;
   // about the repo's start script — an app with its own start command has taken that over
   const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
 
@@ -104,7 +104,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
                   {t("{count} still empty: {keys}", { count: env.missing.length, keys: env.missing.join(", ") })}
                 </span>
               ) : env.dirty ? (
-                <span className="text-amber-600 dark:text-amber-400">{t("Unsaved changes — save the environment first.")}</span>
+                <span className="text-muted-foreground">{t("Unsaved changes — saved when you deploy.")}</span>
               ) : (
                 <span className="text-muted-foreground">{t("Every expected variable has a value.")}</span>
               )}
@@ -184,22 +184,17 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
           </Step>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
-          {deploying ? (
-            <span className="flex items-center gap-3 text-xs">
-              <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={onViewDeploy}>
-                {t("Deploy in progress — follow the build log")}
-              </button>
-              {onCancelDeploy && (
-                <button type="button" className="font-medium text-destructive underline-offset-2 hover:underline" onClick={onCancelDeploy}>
-                  {t("Cancel")}
-                </button>
-              )}
-            </span>
-          ) : !envDone && !detecting ? (
-            <span className="text-xs text-muted-foreground">
-              {env.dirty ? t("Save the environment before deploying.") : t("Fill in the empty variables to deploy.")}
-            </span>
+        {/* the last try's reason, right above the button that retries it */}
+        {failure && (
+          <div className="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+            <p className="text-sm font-medium text-destructive">{t("The last deploy failed")}</p>
+            <pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">{failure}</pre>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4 mt-4">
+          {!envDone && !detecting ? (
+            <span className="text-xs text-muted-foreground">{t("Fill in the empty variables to deploy.")}</span>
           ) : dbFailed ? (
             // said, not blocking: the database may come up by the time the app starts
             <span className="text-xs text-destructive">{t("The app will not reach its database with this DATABASE_URL.")}</span>
@@ -207,13 +202,12 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
           <Button
             type="button"
             onClick={onDeploy}
-            // only once every expected variable is filled in and saved — a deploy
-            // uses the saved environment, and an empty DATABASE_URL just fails
-            disabled={!envDone || deploying}
+            // only once every expected variable has a value — an empty DATABASE_URL just fails
+            disabled={!envDone || starting}
             className="bg-gradient-primary"
           >
-            {deploying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
-            {deploying ? t("Deploying…") : t("Deploy")}
+            {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
+            {failure ? t("Retry deploy") : t("Deploy")}
           </Button>
         </div>
       </CardContent>

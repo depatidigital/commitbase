@@ -81,6 +81,7 @@ export interface CreateApplicationData {
   gitAccountId?: string;
   branch?: string;
   buildCommand?: string;
+  preDeployCommand?: string;
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;

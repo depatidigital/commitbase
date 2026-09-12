@@ -34,6 +34,8 @@ interface AppEnvironmentProps {
   application: Application;
   detected?: DetectedProject | null;
   onStatus?: (status: EnvStatus) => void;
+  /** set to this form's save, so Deploy can take unsaved edits with it; resolves false when it failed */
+  saveRef?: React.MutableRefObject<(() => Promise<boolean>) | null>;
 }
 
 /**
@@ -41,7 +43,7 @@ interface AppEnvironmentProps {
  * .env.example, and DATABASE_URL when it uses an ORM) as empty rows to fill.
  * A database connects through its own dialog so its URL never passes here.
  */
-export function AppEnvironment({ application, detected, onStatus }: AppEnvironmentProps) {
+export function AppEnvironment({ application, detected, onStatus, saveRef }: AppEnvironmentProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const saved = application.envVars ?? {};
@@ -116,7 +118,8 @@ export function AppEnvironment({ application, detected, onStatus }: AppEnvironme
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detected, databaseKeys.join(","), databaseAnchor]);
 
-  const save = async () => {
+  // quiet: saved as part of a deploy, which says what happens next itself
+  const save = async (quiet = false) => {
     setSaving(true);
     try {
       const updated = await updateApplication(application.id, { envVars: rowsToEnv(rows) });
@@ -128,17 +131,21 @@ export function AppEnvironment({ application, detected, onStatus }: AppEnvironme
       );
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
-      toast(
-        hasBeenDeployed(application)
-          ? { title: t("Environment saved"), description: t("Redeploy to apply it — build-time variables such as NEXT_PUBLIC_* are baked in.") }
-          : { title: t("Environment saved") },
-      );
+      if (!quiet)
+        toast(
+          hasBeenDeployed(application)
+            ? { title: t("Environment saved"), description: t("Redeploy to apply it — build-time variables such as NEXT_PUBLIC_* are baked in.") }
+            : { title: t("Environment saved") },
+        );
+      return true;
     } catch (error) {
       toast({ variant: "destructive", title: t("Could not save"), description: error instanceof Error ? error.message : "" });
+      return false;
     } finally {
       setSaving(false);
     }
   };
+  if (saveRef) saveRef.current = () => save(true);
 
 
   return (
@@ -190,7 +197,7 @@ export function AppEnvironment({ application, detected, onStatus }: AppEnvironme
             {t("Reset")}
           </Button>
         )}
-        <Button type="button" onClick={save} disabled={!dirty || saving}>
+        <Button type="button" onClick={() => save()} disabled={!dirty || saving}>
           {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
           {t("Save environment")}
         </Button>
