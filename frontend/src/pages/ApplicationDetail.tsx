@@ -146,6 +146,17 @@ export default function ApplicationDetail() {
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
+  // stopping a running deploy: confirmed first, then the history shows it end as CANCELLED
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const cancelDeploy = useMutation({
+    mutationFn: () => cancelDeployment(id!),
+    onSuccess: () => {
+      toast({ title: t("Cancelling the deployment…") });
+      void queryClientForCancel.invalidateQueries({ queryKey: ['deployments', id] });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
+  });
+  const queryClientForCancel = useQueryClient();
 
   // Logs hooks
   // a static site has no process, so the build log is the only one it has
@@ -491,10 +502,21 @@ export default function ApplicationDetail() {
             {/* a deploy runs in the background: while it does, one button that
                 says so (and opens its live log) instead of actions that race it */}
             {deploying ? (
-              <Button variant="outline" onClick={() => setActiveTab("deployments")}>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {t("Deploying…")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setActiveTab("deployments")}>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {t("Deploying…")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  disabled={cancelDeploy.isPending}
+                  onClick={() => setConfirmCancel(true)}
+                >
+                  <Square className="h-4 w-4 mr-2" />
+                  {t("Cancel")}
+                </Button>
+              </div>
             ) : /* static sites have no process to start, stop or restart: an
                 uploaded one redeploys by upload (above), a repo one by building */
             isStatic ? (
@@ -1086,6 +1108,26 @@ export default function ApplicationDetail() {
             <DangerZoneCard application={application} />
           </TabsContent>
         </Tabs>
+
+        <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Cancel this deployment?")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("The build stops and nothing new goes live. Whatever was serving before keeps serving.")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Keep deploying")}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => cancelDeploy.mutate()}
+              >
+                {t("Cancel deployment")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Confirmation Dialog */}
         {confirmAction && dialogContent && (

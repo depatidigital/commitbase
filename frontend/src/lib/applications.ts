@@ -491,6 +491,12 @@ export const startApplication = async (id: string): Promise<Application | boolea
   throw new Error(response.error || t("Failed to start application"));
 };
 
+/** Stop the running deploy; it ends as CANCELLED and what served before keeps serving. */
+export const cancelDeployment = async (id: string): Promise<void> => {
+  const response = await apiRequest(`/applications/${id}/deploy/cancel`, { method: 'POST' });
+  if (!response.success) throw new Error(response.error || t("Could not cancel the deployment"));
+};
+
 // Stop application
 export const stopApplication = async (id: string): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/stop`, {
