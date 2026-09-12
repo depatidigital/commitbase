@@ -171,6 +171,22 @@ export default {
   "Publishing to the site…": "Menerbitkan ke situs…",
   "Saving the files…": "Menyimpan file…",
   "Deploy Site": "Deploy Situs",
+  "Visit site": "Kunjungi situs",
+  Source: "Sumber",
+  "Uploaded files": "File unggahan",
+  "{count} deployments": "{count} deployment",
+  "Danger zone": "Zona berbahaya",
+  "Delete this app": "Hapus aplikasi ini",
+  "{domain} stops being served and the app is removed from the panel. This cannot be undone.":
+    "{domain} berhenti disajikan dan aplikasi dihapus dari panel. Tidak bisa dibatalkan.",
+  "Delete app…": "Hapus aplikasi…",
+  "Delete {name}?": "Hapus {name}?",
+  "Its route, DNS record, files and deployment history go with it. There is no undo.":
+    "Route, record DNS, file, dan riwayat deployment-nya ikut terhapus. Tidak ada cara membatalkan.",
+  "Type {domain} to confirm": "Ketik {domain} untuk konfirmasi",
+  "I understand the site goes offline and this cannot be undone.":
+    "Saya paham situs akan offline dan ini tidak bisa dibatalkan.",
+  "Delete permanently": "Hapus permanen",
   "Redeploy Site": "Deploy Ulang Situs",
   'Build "{name}" from {branch} and publish the result to the site.':
     'Build "{name}" dari {branch} lalu terbitkan hasilnya ke situs.',

@@ -97,6 +97,14 @@ const LOG_TYPE_LABELS: Record<string, string> = {
   build: t("Build Logs"),
 };
 
+/** Label left, value right — every line of the overview card. */
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="flex items-start justify-between gap-3 border-b border-border/60 py-2 text-sm">
+    <span className="shrink-0 text-muted-foreground">{label}</span>
+    <div className="min-w-0 text-right">{children}</div>
+  </div>
+);
+
 interface ApplicationLogs {
   build?: string;
   combined?: string;
@@ -762,8 +770,9 @@ export default function ApplicationDetail() {
                     </span>
                   </Field>
                 )}
-                {/* a bucket-served site has no directory on a node */}
-                {(!isStatic || application.rootPath) && (
+                {/* a bucket-served site has no directory on a node; a static
+                    site served from disk (imported) does */}
+                {(!isStatic || (!application.staticBucket && application.rootPath)) && (
                   <Field label={t("Directory")}>
                     <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
                   </Field>

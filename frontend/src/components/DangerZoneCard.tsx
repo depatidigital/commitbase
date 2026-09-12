@@ -73,11 +73,10 @@ export function DangerZoneCard({ application }: { application: Application }) {
 
           <div className="space-y-4">
             <label className="block space-y-2 text-sm">
-              <span>
-                {t("Type")} <span className="font-mono font-semibold">{application.domain}</span> {t("to confirm")}
-              </span>
+              <span>{t("Type {domain} to confirm", { domain: application.domain })}</span>
               <Input
                 value={typed}
+                placeholder={application.domain}
                 onChange={(e) => setTyped(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}

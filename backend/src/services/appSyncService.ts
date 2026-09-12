@@ -353,7 +353,8 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
           target.rootPath ||
           process?.cwd ||
           (pid ? cwds.get(pid) : undefined) ||
-          (target.port ? undefined : path.posix.join(APPS_ROOT_DIR, domain)),
+          // a bucket-proxied site has no directory on the node — do not guess one
+          (target.port || target.origin ? undefined : path.posix.join(APPS_ROOT_DIR, domain)),
         memory: process?.memory,
         cpu: process?.cpu,
         uptime: process?.uptime,
@@ -456,9 +457,18 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
     };
 
     try {
-      const existing = await prisma.application.findUnique({ where: { domain: app.domain } });
+      const existing = await prisma.application.findUnique({
+        where: { domain: app.domain },
+        include: { _count: { select: { deployments: true } } },
+      });
       const domainId = parentDomainOf(app.domain, domains)?.id ?? null;
       let applicationId: string;
+
+      // The panel's own apps show up in the scan too — their route is on the
+      // box. Stamping a runtime on one turns it into an "imported" app the panel
+      // then refuses to deploy, and guesses a directory it never had. Created
+      // here (no runtime) or deployed from here (has deployments): not ours.
+      if (existing && (!existing.runtime || existing._count.deployments > 0)) continue;
 
       if (existing) {
         await prisma.application.update({
