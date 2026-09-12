@@ -43,13 +43,16 @@ import {
   Zap,
   Wifi,
   WifiOff,
-  Upload
+  Upload,
+  KeyRound
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
-import { useQueryClient } from "@tanstack/react-query";
-import { Application, UpdateApplicationData, UploadEntry, hasBeenDeployed } from "@/lib/applications";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, getAppDetection, hasBeenDeployed } from "@/lib/applications";
+import { AppSetupCard } from "@/components/AppSetupCard";
+import { AppEnvironment } from "@/components/AppEnvironment";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
@@ -156,6 +159,18 @@ export default function ApplicationDetail() {
   }, [liveLogs, shownLogs]);
   const { data: buildLogStatus } = useBuildLogStatus(id!);
   const createTestLog = useCreateTestBuildLog();
+
+  // What the code expects (env keys, database, commands), read from the repo as
+  // it is now. For the setup card before the first deploy, and for Settings.
+  const canDetect = !!application && !(application.type === 'STATIC' && !application.repository);
+  const needsSetup = canDetect && !hasBeenDeployed(application!);
+  const detection = useQuery({
+    queryKey: ['application', id, 'detect'],
+    queryFn: () => getAppDetection(id!),
+    enabled: canDetect && (needsSetup || activeTab === 'settings'),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
 
   // Update logs when data changes
   useEffect(() => {
@@ -625,6 +640,16 @@ export default function ApplicationDetail() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
+            {/* created, never deployed: environment first, then the first deploy */}
+            {needsSetup && (
+              <AppSetupCard
+                application={application}
+                detected={detection.data}
+                detecting={detection.isLoading}
+                onDeploy={handleStart}
+                onEditBuild={() => setActiveTab("settings")}
+              />
+            )}
             {/* nothing to serve yet: the one thing to do is drop the build here */}
             {uploadedSite && !hasSiteFiles && (
               <Card className="bg-gradient-card border-border/50">
@@ -965,7 +990,20 @@ export default function ApplicationDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <ApplicationSettingsForm application={application} />
+                  <ApplicationSettingsForm application={application} detected={detection.data} />
+                </CardContent>
+              </Card>
+            )}
+            {!uploadedSite && (
+              <Card className="bg-gradient-card border-border/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <KeyRound className="h-5 w-5 text-primary" />
+                    <span>{t("Environment Variables")}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AppEnvironment application={application} detected={detection.data} />
                 </CardContent>
               </Card>
             )}
@@ -1011,14 +1049,20 @@ export default function ApplicationDetail() {
 // Application Settings Form Component
 interface ApplicationSettingsFormProps {
   application: Application;
+  /** what the code implies — shown as each empty field's default */
+  detected?: DetectedProject | null;
 }
 
-function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) {
-  const [formData, setFormData] = useState({
-    buildCommand: application?.buildCommand || '',
-    startCommand: application?.startCommand || '',
-    port: application?.port?.toString() || '',
-  });
+const settingsOf = (application: Application) => ({
+  installCommand: application?.installCommand || '',
+  buildCommand: application?.buildCommand || '',
+  preDeployCommand: application?.preDeployCommand || '',
+  startCommand: application?.startCommand || '',
+  port: application?.port?.toString() || '',
+});
+
+function ApplicationSettingsForm({ application, detected }: ApplicationSettingsFormProps) {
+  const [formData, setFormData] = useState(() => settingsOf(application));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const updateApp = useUpdateApplication();
@@ -1041,7 +1085,10 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
     
     try {
       const updateData: UpdateApplicationData = {
+        // '' is sent on purpose: it clears back to the detected install / no pre-deploy
+        installCommand: formData.installCommand,
         buildCommand: formData.buildCommand || undefined,
+        preDeployCommand: formData.preDeployCommand,
         startCommand: formData.startCommand || undefined,
         port: formData.port ? parseInt(formData.port) : undefined,
       };
@@ -1067,24 +1114,32 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
     }
   };
 
-  const handleReset = () => {
-    setFormData({
-      buildCommand: application?.buildCommand || '',
-      startCommand: application?.startCommand || '',
-      port: application?.port?.toString() || '',
-    });
-  };
+  const handleReset = () => setFormData(settingsOf(application));
 
-  const hasChanges = () => {
-    return (
-      formData.buildCommand !== (application?.buildCommand || '') ||
-      formData.startCommand !== (application?.startCommand || '') ||
-      formData.port !== (application?.port?.toString() || '')
-    );
-  };
+  const hasChanges = () => JSON.stringify(formData) !== JSON.stringify(settingsOf(application));
+
+  const detectedHint = (command?: string | null) =>
+    command ? t("Empty uses the detected one: {command}", { command }) : t("Empty uses the detected one.");
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Install Command — Node/PHP only; a static upload never installs */}
+      {!isStatic && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            {t("Install Command")}
+            <span className="text-muted-foreground ml-1">{t("(optional)")}</span>
+          </label>
+          <Input
+            value={formData.installCommand}
+            onChange={(e) => handleInputChange('installCommand', e.target.value)}
+            placeholder={detected?.installCommand || "pnpm install --frozen-lockfile"}
+            className="font-mono"
+          />
+          <p className="text-xs text-muted-foreground">{detectedHint(detected?.installCommand)}</p>
+        </div>
+      )}
+
       {/* Build Command */}
       <div className="space-y-2">
         <label className="text-sm font-medium">
@@ -1094,13 +1149,30 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
         <Input
           value={formData.buildCommand}
           onChange={(e) => handleInputChange('buildCommand', e.target.value)}
-          placeholder="yarn build"
+          placeholder={detected?.buildCommand || "npm run build"}
           className="font-mono"
         />
-        <p className="text-xs text-muted-foreground">
-          {t("Command to build your application (e.g., yarn build, npm run build)")}
-        </p>
+        <p className="text-xs text-muted-foreground">{detectedHint(detected?.buildCommand)}</p>
       </div>
+
+      {/* Pre-deploy — migrations, after the build and before the release goes live */}
+      {!isStatic && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            {t("Pre-deploy Command")}
+            <span className="text-muted-foreground ml-1">{t("(optional)")}</span>
+          </label>
+          <Input
+            value={formData.preDeployCommand}
+            onChange={(e) => handleInputChange('preDeployCommand', e.target.value)}
+            placeholder={detected?.env.needsDatabase ? "npx prisma migrate deploy" : "npm run migrate"}
+            className="font-mono"
+          />
+          <p className="text-xs text-muted-foreground">
+            {t("Runs after the build with the app's environment, before the new release goes live. If it fails, the old release keeps serving — use it for database migrations.")}
+          </p>
+        </div>
+      )}
 
       {/* a static site is served, not started: no start command, no port */}
       {!isStatic && <>
@@ -1113,12 +1185,10 @@ function ApplicationSettingsForm({ application }: ApplicationSettingsFormProps) 
         <Input
           value={formData.startCommand}
           onChange={(e) => handleInputChange('startCommand', e.target.value)}
-          placeholder="yarn start"
+          placeholder={detected?.startCommand || "npm start"}
           className="font-mono"
         />
-        <p className="text-xs text-muted-foreground">
-          {t("Command to start your application (e.g., yarn start, npm start, node app.js)")}
-        </p>
+        <p className="text-xs text-muted-foreground">{detectedHint(detected?.startCommand)}</p>
       </div>
 
       {/* Port */}

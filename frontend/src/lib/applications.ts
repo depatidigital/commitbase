@@ -13,7 +13,11 @@ export interface Application {
   repository?: string;
   gitAccountId?: string | null;
   branch?: string;
+  /** null = the detected install */
+  installCommand?: string | null;
   buildCommand?: string;
+  /** after the build, before the release goes live — migrations */
+  preDeployCommand?: string | null;
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
@@ -92,7 +96,11 @@ export interface UpdateApplicationData {
   /** null clears it, undefined leaves it alone. */
   gitAccountId?: string | null;
   branch?: string;
+  /** '' goes back to the detected install */
+  installCommand?: string;
   buildCommand?: string;
+  /** '' removes the step */
+  preDeployCommand?: string;
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
@@ -189,14 +197,33 @@ export interface DetectedProject {
   outputDir: string | null;
   port: number | null;
   nodeVersion: string | null;
+  env: {
+    /** keys from .env.example / .sample / .template, with defaults when they have one */
+    example: { file: string; vars: Array<{ key: string; value: string }> } | null;
+    /** keys the repo's .env.production sets — loaded at build by the framework itself */
+    production: string[];
+    /** .env / .env.local committed to the repository */
+    committed: string[];
+    needsDatabase: boolean;
+  };
 }
+
+/** Detect an existing app's code as it is now — for its setup checklist. */
+export const getAppDetection = async (id: string): Promise<DetectedProject> => {
+  const response = await apiRequest<DetectedProject>(`/applications/${id}/detect`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not inspect the project"));
+};
 
 /** Files the backend reads to recognise a project. Must match DETECT_FILES there. */
 export const DETECT_FILES = [
+  '.env.example', '.env.sample', '.env.template', '.env.production', '.env', '.env.local',
   'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock',
   '.nvmrc', '.node-version', 'next.config.js', 'next.config.mjs', 'next.config.ts',
   'requirements.txt', 'composer.json', 'index.php', 'index.html',
 ];
+/** Sent by presence only: lockfiles are huge, and a .env's secrets never leave the browser for detection. */
+const PRESENCE_ONLY = /lock|^\.env(\.local)?$/;
 
 /** Detect from a git URL, or from the files the browser already holds. */
 export const detectProject = async (
@@ -355,8 +382,7 @@ export const readDetectFiles = async (entries: UploadEntry[]): Promise<Record<st
   const out: Record<string, string> = {};
   for (const { file, path } of entries) {
     if (path.includes('/') || !DETECT_FILES.includes(path)) continue;
-    // lockfiles: presence is all that matters
-    out[path] = /lock/.test(path) ? '' : await file.slice(0, 256 * 1024).text();
+    out[path] = PRESENCE_ONLY.test(path) ? '' : await file.slice(0, 256 * 1024).text();
   }
   return out;
 };

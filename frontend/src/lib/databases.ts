@@ -143,6 +143,20 @@ export interface DatabaseWithApplication extends Database {
   databaseServer?: { id: string; name: string; engine: string } | null;
 }
 
+/** Connect a database to an app: its URL is written into the app's env under `envKey`, server-side. */
+export const attachDatabase = async (
+  databaseId: string,
+  applicationId: string,
+  envKey = 'DATABASE_URL'
+): Promise<{ envKey: string; database: string }> => {
+  const response = await apiRequest<{ envKey: string; database: string }>(`/databases/${databaseId}/attach`, {
+    method: 'POST',
+    body: JSON.stringify({ applicationId, envKey }),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to connect the database'));
+};
+
 // Every database across the organizations the caller belongs to
 export const getAllDatabases = async (
   params: ListParams

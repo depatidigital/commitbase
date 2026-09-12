@@ -102,7 +102,10 @@ assert.deepStrictEqual(env.example?.vars, [
 ]);
 assert.deepStrictEqual(env.production, ['NEXT_PUBLIC_SITE']);
 assert.deepStrictEqual(env.committed, ['.env']);
-assert.deepStrictEqual(detectFromFiles({ 'index.html': '' }).env, { example: null, production: [], committed: [] });
+assert.deepStrictEqual(detectFromFiles({ 'index.html': '' }).env, { needsDatabase: false, example: null, production: [], committed: [] });
+// an ORM or SQL client means the app wants a database
+assert.ok(detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { '@prisma/client': '7' } }) }).env.needsDatabase);
+assert.ok(!detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { next: '16' } }) }).env.needsDatabase);
 // a real multi-line value in double quotes
 assert.deepStrictEqual(parseEnvFile('CERT="-----BEGIN' + NL + 'abc' + NL + '-----END"' + NL + 'NEXT=1'), [
   ['CERT', '-----BEGIN' + NL + 'abc' + NL + '-----END'],

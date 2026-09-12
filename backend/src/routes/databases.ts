@@ -5,6 +5,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
+import { readEnv, sealEnv } from '../lib/appEnv';
 import {
   ProvisionError,
   databaseCredentials,
@@ -256,6 +257,62 @@ async function manageable(req: AuthenticatedRequest, id: string) {
   const allowed = ownerOrg ? await canManageOrg(req, ownerOrg) : isPlatformAdmin(req);
   return allowed ? database : null;
 }
+
+/**
+ * Connect a database to an app: link it, and put its connection URL in the
+ * app's env under `envKey` (DATABASE_URL). The URL goes from the credentials
+ * store straight into the encrypted env — it never passes through the browser.
+ * Both "create new" (POST / with applicationId, then this) and "use existing".
+ */
+router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const envKey = String(req.body?.envKey || 'DATABASE_URL').trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envKey)) {
+      return res.status(400).json({ success: false, error: 'Invalid variable name' } as ApiResponse);
+    }
+
+    const database = await manageable(req, req.params.id as string);
+    if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
+
+    const application = await prisma.application.findFirst({
+      where: { id: String(req.body?.applicationId ?? ''), ...(await orgScope(req)) },
+      select: { id: true, organizationId: true, envVars: true },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+
+    const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
+    if (ownerOrg && application.organizationId !== ownerOrg) {
+      return res.status(400).json({ success: false, error: 'That database belongs to another organization' } as ApiResponse);
+    }
+
+    const credentials = await databaseCredentials(database.id);
+    await prisma.$transaction([
+      // a database already used by another app stays linked there; two apps may share one
+      ...(database.applicationId ? [] : [prisma.database.update({ where: { id: database.id }, data: { applicationId: application.id } })]),
+      prisma.application.update({
+        where: { id: application.id },
+        data: { envVars: sealEnv({ ...readEnv(application.envVars), [envKey]: credentials.url }) },
+      }),
+      prisma.log.create({
+        data: {
+          level: 'INFO',
+          message: `Credentials of database ${credentials.database} written to ${envKey}`,
+          userId: req.user!.userId,
+          applicationId: application.id,
+          metadata: { databaseId: database.id, username: credentials.username, envKey },
+        },
+      }),
+    ]);
+
+    return res.json({ success: true, data: { envKey, database: credentials.database } } as ApiResponse);
+  } catch (error) {
+    if (error instanceof ProvisionError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Attach database error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
 
 // Retry a create that failed on the server. Safe to repeat.
 router.post('/:id/provision', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {

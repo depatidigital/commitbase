@@ -281,17 +281,8 @@ export default function AddApp() {
     // Enter on an earlier step must not fire the deploy
     if (step < 2) return;
 
-    // Parse environment variables
-    const envVars: Record<string, string> = {};
-    if (formData.envVars) {
-      formData.envVars.split("\n").forEach((line) => {
-        const [key, ...valueParts] = line.split("=");
-        if (key && valueParts.length > 0) {
-          envVars[key.trim()] = valueParts.join("=").trim();
-        }
-      });
-    }
-
+    // Build commands and env are not asked here: they are set on the app's page
+    // once its code has been read, and the first deploy happens from there.
     const applicationData: CreateApplicationData = {
       name: formData.name,
       domain: fullDomain,
@@ -302,65 +293,35 @@ export default function AddApp() {
       // can read this repo. None for a public repo or an upload.
       gitAccountId: (sourceMode === "git" && manualAccountId) || undefined,
       branch: formData.branch,
-      buildCommand: formData.buildCommand || undefined,
-      startCommand: formData.startCommand || undefined,
-      port: formData.port ? parseInt(formData.port) : undefined,
-      envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
       serverId: serverId || undefined,
     };
 
+    let createdId: string;
     try {
-      const created = await createApp.mutateAsync(applicationData);
-      const needsUpload = sourceMode === "upload" && uploadFiles.length > 0;
+      createdId = (await createApp.mutateAsync(applicationData)).id;
+    } catch {
+      return; // createApp reports its own failure
+    }
 
-      setLaunch({
-        id: created.id,
-        domain: fullDomain,
-        dns: created.dns,
-        uploading: needsUpload,
-        uploadFailed: null,
-      });
-
-      if (needsUpload) {
-        try {
-          await uploadApplicationSource(created.id, uploadFiles);
-          setLaunch((prev) => (prev ? { ...prev, uploading: false } : prev));
-        } catch (error) {
-          setLaunch((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  uploading: false,
-                  uploadFailed:
-                    error instanceof Error ? error.message : t("Upload failed"),
-                }
-              : prev,
-          );
-          return;
-        }
-      }
-
-      // A static upload is already served from its bucket; everything else has
-      // to be built and started, which the wizard now kicks off itself.
-      if (formData.type !== "STATIC") {
-        await startApplication(created.id).catch((error: Error) =>
-          toast({
-            variant: "destructive",
-            title: t("Deployment did not start"),
-            description: error.message,
-          }),
-        );
-      }
-    } catch (error) {
-      // createApp reports its own failures; an upload failure would otherwise be silent
-      if (error instanceof Error && error.message.includes("upload")) {
+    // Picked files are the app's source: they go up now (a static upload is
+    // live straight away; anything else waits for the first deploy).
+    if (sourceMode === "upload" && uploadFiles.length > 0) {
+      setUploading(true);
+      try {
+        await uploadApplicationSource(createdId, uploadFiles);
+      } catch (error) {
         toast({
           variant: "destructive",
           title: t("Upload failed"),
-          description: error.message,
+          description: error instanceof Error ? error.message : "",
         });
+      } finally {
+        setUploading(false);
       }
     }
+
+    // its page takes it from here: environment, database, then Deploy
+    navigate(`/application/${createdId}`);
   };
 
   const handleInputChange = (field: string, value: string) => {

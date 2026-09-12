@@ -44,7 +44,12 @@ export interface RepoEnv {
   production: string[];
   /** secret files that are committed and should not be: .env, .env.local */
   committed: string[];
+  /** a SQL client or ORM in the dependencies — the app will want a DATABASE_URL */
+  needsDatabase: boolean;
 }
+
+// what a Node app talks to Postgres/MySQL through (Mongo is not something Larika hosts)
+const SQL_DEPS = ['pg', 'postgres', '@prisma/client', 'prisma', 'mysql2', 'mysql', 'drizzle-orm', 'typeorm', 'sequelize', 'knex', 'kysely'];
 
 const EXAMPLE_ENV_FILES = ['.env.example', '.env.sample', '.env.template'] as const;
 // read for their presence only — never their contents, which are secrets
@@ -151,7 +156,15 @@ export function parseEnvFile(text: string): Array<[string, string]> {
 
 function repoEnvOf(files: DetectInput): RepoEnv {
   const exampleFile = EXAMPLE_ENV_FILES.find((name) => files[name] !== undefined);
+  let deps: Record<string, unknown> = {};
+  try {
+    const pkg = JSON.parse(files['package.json'] || '{}');
+    deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  } catch {
+    // unreadable package.json: nothing to say about a database
+  }
   return {
+    needsDatabase: SQL_DEPS.some((dep) => dep in deps),
     example: exampleFile
       ? { file: exampleFile, vars: parseEnvFile(files[exampleFile] || '').map(([key, value]) => ({ key, value })) }
       : null,

@@ -27,7 +27,7 @@ import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
 import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
-import { detectFromFiles, detectFromRepo, listRemoteBranches, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
@@ -246,6 +246,40 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
     }
 
     return res.status(400).json({ success: false, error: 'Send files or a repository' } as ApiResponse);
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      error: `Could not inspect the project: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    } as ApiResponse);
+  }
+});
+
+/**
+ * What an existing app's code looks like right now: commands, the env keys its
+ * .env.example expects, whether it wants a database. Read from the repository
+ * (through the app's git account) or from uploaded sources — never stored, so
+ * the setup page always reflects the branch as it is.
+ */
+router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      select: { id: true, repository: true, branch: true, gitAccountId: true },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+
+    const detected = application.repository
+      ? await detectFromRepo(
+          application.repository,
+          application.branch || 'main',
+          application.gitAccountId ? await gitAuthFor(application.gitAccountId) : undefined,
+        )
+      : await (async () => {
+          const afs = await appFsFor(application.id);
+          return detectProject(path.posix.join(afs.appDir, 'sources'), afs.readText);
+        })();
+
+    return res.json({ success: true, data: detected } as ApiResponse);
   } catch (error: any) {
     return res.status(400).json({
       success: false,
