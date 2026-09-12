@@ -91,6 +91,19 @@ export function streamToLog(
   });
 }
 
+/**
+ * One .env line that Node's loaders (process.loadEnvFile, dotenv) read back as
+ * exactly `value`. Single quotes are literal there — no escapes to get wrong —
+ * so they are used whenever the value allows; a newline needs double quotes.
+ * Pure. ponytail: a value holding both a newline and a double quote is written
+ * with backticks (dotenv reads them; Node's own loader may not).
+ */
+export function dotenvLine(key: string, value: string): string {
+  if (!/[\r\n']/.test(value)) return `${key}='${value}'`;
+  if (!/["\r]/.test(value)) return `${key}="${value.replace(/\n/g, '\\n')}"`;
+  return `${key}=\`${value}\``;
+}
+
 /** Git in the sources tree. safe.directory: after the first deploy the tree belongs to the tenant user. */
 const gitIn = (afs: AppFs, sourcesDir: string, args: string[], env?: Record<string, string>) =>
   afs.run(['git', '-c', `safe.directory=${sourcesDir}`, ...args], { cwd: sourcesDir, timeout: 600_000, ...(env && { env }) });
@@ -352,6 +365,18 @@ export class DeploymentService {
           await afs.writeFile(join(releaseDir, '.env'), [...kept, ...own].join(NL) + NL);
         }
       } else if (await has('package.json')) {
+        // The env is exported to the build, but some tools read the file
+        // itself: Prisma 7's prisma.config.ts loads '.env' and fails on
+        // ENOENT without it, and so does anything calling loadEnvFile().
+        // The platform's values win over a .env the repository shipped.
+        const envEntries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+        if (envEntries.length > 0) {
+          const shipped = await afs.readText(join(releaseDir, '.env')).catch(() => '');
+          const kept = shipped.split(/\r?\n/).filter((line) => line.trim() && !envEntries.some(([k]) => line.startsWith(k + '=')));
+          // as readable as build.sh, which already carries the same values
+          await afs.writeFile(join(releaseDir, '.env'), [...kept, ...envEntries.map(([k, v]) => dotenvLine(k, String(v)))].join(NL) + NL, { mode: 0o660 });
+        }
+
         const lock = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock', bun: 'bun.lock' }[detected.packageManager];
         if (lock && (await this.reuseInstalled(afs, releaseDir, lock, 'node_modules'))) {
           await log('node_modules: lockfile unchanged, hardlinked from the previous release');
