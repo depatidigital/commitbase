@@ -102,6 +102,9 @@ export default {
   "One variable per line in KEY=value format": "Satu variabel per baris dengan format KEY=value",
   Back: "Kembali",
   Continue: "Lanjutkan",
+  "Create App": "Buat Aplikasi",
+  "Creating…": "Membuat…",
+  "Uploading…": "Mengunggah…",
   "Deploying...": "Sedang deploy...",
   "Deploy App": "Deploy Aplikasi",
 
