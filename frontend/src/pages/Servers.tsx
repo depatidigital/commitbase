@@ -123,9 +123,10 @@ export default function Servers() {
   const { data, isFetching } = useQuery({
     queryKey: ["servers", "page", query.params, tagFilter],
     queryFn: () => getServersPage(query.params, tagFilter),
-    // poll while a setup is queued or running; faster while its output is open
+    // every 2s while setup output is open (it opens before the list knows the
+    // setup was queued), otherwise every 5s while a setup is queued or running
     refetchInterval: (q) =>
-      q.state.data?.data.some((s) => isProvisionPending(s.setupState)) ? (setupLogFor ? 2000 : 5000) : false,
+      setupLogFor ? 2000 : q.state.data?.data.some((s) => isProvisionPending(s.setupState)) ? 5000 : false,
   });
   const setupLogServer = data?.data.find((s) => s.id === setupLogFor) ?? null;
 

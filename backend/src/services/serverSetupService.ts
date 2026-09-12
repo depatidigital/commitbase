@@ -74,7 +74,8 @@ export async function runServerSetup(serverId: string): Promise<void> {
     };
     const ticker = setInterval(flush, LIVE_FLUSH_MS);
     const onOutput = (text: string) => {
-      live = (live + text).slice(-LOG_TAIL);
+      // install.sh colours its headings for a terminal; the log view is plain text
+      live = (live + text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')).slice(-LOG_TAIL);
       dirty = true;
     };
     // a live write landing after the final one would overwrite it with an older tail
@@ -84,10 +85,14 @@ export async function runServerSetup(serverId: string): Promise<void> {
     };
 
     try {
-      const pubkey = fs.readFileSync(`${PANEL_KEY}.pub`, 'utf8').trim();
+      // Authorising the panel's key on the node is only needed so the panel can
+      // log in as the SSH user by key later. A server reached by password (or
+      // with its own key) keeps working without it, so a missing key is skipped.
+      const pubkey = fs.existsSync(`${PANEL_KEY}.pub`) ? fs.readFileSync(`${PANEL_KEY}.pub`, 'utf8').trim() : '';
+      if (!pubkey) onOutput(`note: no panel key at ${PANEL_KEY}.pub - not authorizing one on this node\n`);
       const email = acmeEmail();
       const env = [
-        `PANEL_SSH_PUBKEY=${pubkey}`,
+        ...(pubkey ? [`PANEL_SSH_PUBKEY=${pubkey}`] : []),
         `SERVER_IP=${server.publicIp}`,
         ...(withPhp ? ['WITH_PHP=1'] : []),
         ...(email ? [`ACME_EMAIL=${email}`] : []),

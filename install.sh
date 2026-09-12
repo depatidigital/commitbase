@@ -17,8 +17,9 @@
 # Idempotent: re-running upgrades packages and re-applies the config it owns.
 #
 # Knobs (env vars):
-#   PANEL_SSH_PUBKEY  required   the panel's public key. Authorizes the control
-#                     plane to log in as SSH_USER on this box.
+#   PANEL_SSH_PUBKEY  the panel's public key. Authorizes the control plane to
+#                     log in as SSH_USER by key. Optional: a server the panel
+#                     reaches by password (or its own key) does not need it.
 #   SSH_USER        larika   the user the control plane logs in as. Gets full
 #                   passwordless root: the runner scripts arrive as text over
 #                   SSH and run as root, nothing is installed for them.
@@ -51,10 +52,7 @@ note() { printf '    %s\n' "$*"; }
 die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo)"
-# Without the key the control plane cannot reach this box, and a node it
-# cannot reach is a node that does nothing. Fail now, not at provision time.
-[ -n "$PANEL_SSH_PUBKEY" ] || die "PANEL_SSH_PUBKEY is required - the panel's /opt/larika/.ssh/id_ed25519.pub"
-[[ "$PANEL_SSH_PUBKEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9]+)[[:space:]] ]] \
+[ -z "$PANEL_SSH_PUBKEY" ] || [[ "$PANEL_SSH_PUBKEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9]+)[[:space:]] ]] \
   || die "PANEL_SSH_PUBKEY does not look like an OpenSSH public key"
 [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "SSH_USER looks wrong: $SSH_USER"
 command -v apt-get >/dev/null || die "Debian/Ubuntu only"
@@ -125,7 +123,9 @@ touch "$AUTH_KEYS"
 # Match on the key body, not the whole line: re-running with a different
 # comment must not append a second copy of the same key.
 KEY_BODY="$(printf '%s' "$PANEL_SSH_PUBKEY" | awk '{print $2}')"
-if [ -n "$KEY_BODY" ] && grep -qF "$KEY_BODY" "$AUTH_KEYS"; then
+if [ -z "$KEY_BODY" ]; then
+  note "no PANEL_SSH_PUBKEY - no key authorized (fine when the panel logs in by password)"
+elif grep -qF "$KEY_BODY" "$AUTH_KEYS"; then
   note "panel key already authorized"
 else
   printf '%s\n' "$PANEL_SSH_PUBKEY" >> "$AUTH_KEYS"
