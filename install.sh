@@ -23,7 +23,6 @@
 #   SSH_USER        larika   the user the control plane logs in as. Gets full
 #                   passwordless root: the runner scripts arrive as text over
 #                   SSH and run as root, nothing is installed for them.
-#   ACME_EMAIL      Let's Encrypt contact; unset = Caddy registers without one
 #   NODE_MAJOR      24
 #   WITH_PHP        1   PHP-FPM + composer for PHP tenants; WITH_PHP=0 skips them
 #   WITH_NVM=1      also install system-wide nvm in /opt/nvm (per-app Node versions)
@@ -35,7 +34,6 @@
 set -euo pipefail
 
 PANEL_SSH_PUBKEY="${PANEL_SSH_PUBKEY:-}"
-ACME_EMAIL="${ACME_EMAIL:-}"
 NODE_MAJOR="${NODE_MAJOR:-24}"
 WITH_PHP="${WITH_PHP:-1}"
 WITH_NVM="${WITH_NVM:-0}"
@@ -196,33 +194,61 @@ else
 fi
 
 # ------------------------------------------------------------------ 5. caddy
-# The Caddyfile is only the boot config: the admin API on loopback. Tenant
-# sites never touch it - the panel pushes them through the admin API over SSH
-# and they live in Caddy's memory. A reload re-reads this file and drops them,
-# so Caddy is only reloaded when the file actually changed.
+# Caddy runs as caddy-api.service (`caddy run --resume`): no Caddyfile, config
+# only through the admin API on 127.0.0.1:2019 — the panel pushes every route
+# over SSH — kept by Caddy's autosave and resumed on restart, so a restart
+# loses nothing. caddy.service, the package's Caddyfile unit, stays off: two
+# Caddies share the admin port and the panel would talk to whichever answered.
 say "Caddy"
-CADDYFILE=/etc/caddy/Caddyfile
-if [ -f "$CADDYFILE" ] && grep -qE '^\s*admin\s+(127\.0\.0\.1|localhost):2019' "$CADDYFILE"; then
-  note "$CADDYFILE already has the admin API on loopback - left untouched"
-  CADDY_CHANGED=0
-else
-  [ -f "$CADDYFILE" ] && cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%s)"
-  cat > "$CADDYFILE" <<EOF
-{
-    # Reached by the control plane over the SSH connection, never from the
-    # public internet. Keep it on loopback. Tenant sites arrive through it.
-    admin 127.0.0.1:2019
-$( [ -n "$ACME_EMAIL" ] && echo "    email $ACME_EMAIL" )
+
+# Does the Caddyfile serve anything? A site block or an import at the top
+# level — the package's `:80 {` welcome page does not count.
+caddyfile_serves_sites() {
+  [ -f /etc/caddy/Caddyfile ] || return 1
+  sed -e 's/#.*//' /etc/caddy/Caddyfile | grep -E '^import[[:space:]]|^[^[:space:]{}][^{]*\{' | grep -vqE '^:80[[:space:]]*\{'
 }
-EOF
-  CADDY_CHANGED=1
-fi
-caddy validate --config "$CADDYFILE" >/dev/null 2>&1 || die "Caddyfile did not validate — restore from $CADDYFILE.bak.* and check"
-systemctl enable --now caddy >/dev/null 2>&1
-if [ "$CADDY_CHANGED" = 1 ]; then
-  # Tenant routes drop here; the panel's caddy-routes watchdog puts them back
-  # within five minutes.
-  systemctl reload caddy || systemctl restart caddy
+
+ADMIN=http://127.0.0.1:2019
+admin_up() { curl -fsS -m 3 "$ADMIN/config/" >/dev/null 2>&1; }
+
+# Setup never resets a running app: whatever Caddy is serving keeps serving.
+if systemctl is-active --quiet caddy && caddyfile_serves_sites; then
+  # Sites served from a Caddyfile (the panel's own box, or a hand-built one).
+  # Moving them into the API is a deliberate step, not something setup does.
+  note "WARNING: caddy.service serves sites from /etc/caddy/Caddyfile - left exactly as it is."
+  note "Move them into the API first (POST /api/applications/caddy/adopt), then re-run setup."
+elif systemctl is-active --quiet caddy-api; then
+  # caddy-api is already the one serving. A caddy.service beside it has no
+  # sites of its own (checked above) and only shares the admin port with it.
+  if systemctl is-active --quiet caddy || systemctl is-enabled --quiet caddy 2>/dev/null; then
+    systemctl disable --now caddy >/dev/null 2>&1 || true
+    note "stopped the duplicate caddy.service - caddy-api.service keeps serving"
+  fi
+  note "caddy-api.service running"
+elif systemctl is-active --quiet caddy; then
+  # caddy.service serving routes pushed through the API (how nodes were set up
+  # before): hand its live config to caddy-api, which keeps it across restarts.
+  LIVE="$(mktemp)"
+  curl -fsS -m 10 "$ADMIN/config/" > "$LIVE" || die "could not read the running Caddy config - nothing changed"
+  systemctl disable --now caddy >/dev/null 2>&1
+  systemctl enable --now caddy-api >/dev/null 2>&1 || true
+  for i in $(seq 1 20); do admin_up && break; sleep 0.5; done
+  if admin_up && { [ ! -s "$LIVE" ] || [ "$(cat "$LIVE")" = "null" ] ||
+       curl -fsS -m 15 -X POST -H 'Content-Type: application/json' --data-binary @"$LIVE" "$ADMIN/load" >/dev/null; }; then
+    note "moved the running config from caddy.service to caddy-api.service"
+  else
+    # put things back the way they were rather than leave sites down
+    systemctl disable --now caddy-api >/dev/null 2>&1 || true
+    systemctl enable --now caddy >/dev/null 2>&1 || true
+    for i in $(seq 1 20); do admin_up && break; sleep 0.5; done
+    curl -fsS -m 15 -X POST -H 'Content-Type: application/json' --data-binary @"$LIVE" "$ADMIN/load" >/dev/null 2>&1 || true
+    rm -f "$LIVE"
+    die "could not move the Caddy config to caddy-api.service - caddy.service restored with its routes"
+  fi
+  rm -f "$LIVE"
+else
+  systemctl enable --now caddy-api >/dev/null 2>&1 || die "could not start caddy-api.service"
+  note "caddy-api.service running - routes arrive through the admin API and persist in Caddy's autosave"
 fi
 
 # --------------------------------------------------------------- 6. firewall
@@ -244,7 +270,7 @@ say "Verify"
 sudo -u "$SSH_USER" sudo -n true \
   || die "$SSH_USER has no passwordless root - check /etc/sudoers.d/larika"
 note "$SSH_USER has passwordless root for the runner scripts"
-systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
+systemctl is-active --quiet caddy-api || systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
 
 say "Done"
 # Run by the panel's Set up: the server is registered already, and the
