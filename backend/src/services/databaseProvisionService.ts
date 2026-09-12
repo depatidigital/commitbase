@@ -89,12 +89,31 @@ export function connectionUrl(
   username: string,
   database: string,
   password?: string,
+  host: string = dbs.appHost,
 ): string {
   const scheme = dbs.engine === 'POSTGRESQL' ? 'postgresql' : 'mysql';
   const auth = `${encodeURIComponent(username)}${password ? `:${encodeURIComponent(password)}` : ''}`;
   // a managed server is reached over networks we do not own — the app must use TLS too
   const tls = dbs.mode === 'DIRECT' ? (dbs.engine === 'POSTGRESQL' ? '?sslmode=require' : '?ssl-mode=REQUIRED') : '';
-  return `${scheme}://${auth}@${dbs.appHost}:${dbs.port}/${encodeURIComponent(database)}${tls}`;
+  return `${scheme}://${auth}@${host}:${dbs.port}/${encodeURIComponent(database)}${tls}`;
+}
+
+const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|::1|\[::1\])$/i;
+
+/**
+ * The address an app on `appNodeId` reaches the database server at. Pure.
+ * - same node (a tunnelled server): loopback, as the node sees it — the
+ *   database port never has to be open beyond the box;
+ * - another node: the registered app address, unless that is loopback —
+ *   useless from elsewhere — then the database node's public IP.
+ */
+export function hostForApp(
+  dbs: { mode: string; host: string; appHost: string; serverId: string | null; server?: { publicIp: string | null } | null },
+  appNodeId: string | null | undefined,
+): string {
+  if (dbs.mode === 'TUNNEL' && dbs.serverId && dbs.serverId === appNodeId) return dbs.host;
+  if (!LOOPBACK.test(dbs.appHost)) return dbs.appHost;
+  return dbs.server?.publicIp || dbs.appHost;
 }
 
 async function roleExists(session: AdminSession, dbs: DbServerRow, username: string): Promise<boolean> {
@@ -357,9 +376,10 @@ export async function dropDatabase(id: string): Promise<void> {
 
 /**
  * Full credentials for one granted login (the oldest when none is named) —
- * only for databases the panel created; the caller audits the read.
+ * only for databases the panel created; the caller audits the read. With
+ * `appNodeId`, the host is the one an app on that node can reach (hostForApp).
  */
-export async function databaseCredentials(id: string, accountId?: string) {
+export async function databaseCredentials(id: string, accountId?: string, appNodeId?: string | null) {
   const db = await loadDatabase(id);
   if (!db) throw new ProvisionError('Database not found');
   if (db.discovered) {
@@ -372,14 +392,15 @@ export async function databaseCredentials(id: string, accountId?: string) {
 
   const { username } = grant.account;
   const password = decrypt(grant.account.passwordEnc);
+  const host = appNodeId === undefined ? dbs.appHost : hostForApp(dbs, appNodeId);
   return {
     engine: dbs.engine,
-    host: dbs.appHost,
+    host,
     port: dbs.port,
     database: dbName,
     username,
     password,
     tls: dbs.mode === 'DIRECT',
-    url: connectionUrl(dbs, username, dbName, password),
+    url: connectionUrl(dbs, username, dbName, password, host),
   };
 }

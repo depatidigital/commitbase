@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Database as DatabaseIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -234,8 +233,17 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                 )}
               </div>
               <div className="space-y-1">
-                <Label htmlFor="db-name">{t("Name")}</Label>
-                <Input id="db-name" className="font-mono" value={name} onChange={(e) => setName(e.target.value.toLowerCase())} />
+                <Label htmlFor="db-name">{t("Database name")}</Label>
+                {/* the real name on the server carries the org's prefix, like the login */}
+                <div className="flex items-center rounded-md border border-input focus-within:ring-2 focus-within:ring-ring">
+                  <span className="select-none pl-3 font-mono text-sm text-muted-foreground">{logins.data?.prefix}</span>
+                  <input
+                    id="db-name"
+                    className="h-10 min-w-0 flex-1 bg-transparent pr-3 font-mono text-sm outline-none"
+                    value={name}
+                    onChange={(e) => setName(e.target.value.toLowerCase())}
+                  />
+                </div>
                 <p className="text-xs text-muted-foreground">{t("Lowercase letters, digits and underscores.")}</p>
               </div>
             </>

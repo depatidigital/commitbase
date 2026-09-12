@@ -206,6 +206,8 @@ export interface DetectedProject {
     committed: string[];
     needsDatabase: boolean;
   };
+  /** what will misbehave behind the proxy — about the start script, so moot once a start command is set */
+  warnings: Array<{ code: 'start-fixed-port'; port: string } | { code: 'start-binds-all' }>;
 }
 
 /** Detect an existing app's code as it is now — for its setup checklist. */

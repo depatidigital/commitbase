@@ -6,6 +6,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { readEnv, sealEnv } from '../lib/appEnv';
+import { serverForApplication } from '../lib/servers';
 import {
   ProvisionError,
   databaseCredentials,
@@ -408,7 +409,10 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
       }
     }
 
-    const credentials = await databaseCredentials(database.id, accountId);
+    // the host as the app's own node reaches it: loopback when it shares the
+    // database's node, an address other nodes can reach otherwise
+    const appNode = await serverForApplication(application.id).catch(() => null);
+    const credentials = await databaseCredentials(database.id, accountId, appNode?.id ?? null);
     // only names from the list, and only for this engine — never an arbitrary key
     const also = (Array.isArray(req.body?.alsoKeys) ? req.body.alsoKeys : [])
       .map(String)

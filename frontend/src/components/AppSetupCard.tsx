@@ -26,6 +26,8 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
   const build = application.buildCommand || detected?.buildCommand;
   const start = application.startCommand || detected?.startCommand;
   const envDone = !detecting && env.missing.length === 0 && !env.dirty;
+  // about the repo's start script — an app with its own start command has taken that over
+  const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
 
   const Step = ({ done, warn, title, children, action }: { done: boolean; warn?: boolean; title: string; children?: React.ReactNode; action?: React.ReactNode }) => (
     <div className="flex items-start justify-between gap-3 py-3">
@@ -94,6 +96,7 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
 
           <Step
             done={!!(build || start)}
+            warn={buildWarnings.length > 0}
             title={t("Build")}
             action={
               <Button type="button" variant="ghost" size="sm" onClick={onEditBuild}>
@@ -111,6 +114,14 @@ export function AppSetupCard({ application, detected, detecting, env, onDeploy, 
                 </p>
               ))}
             </div>
+            {buildWarnings.map((warning) => (
+              <p key={warning.code} className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                {warning.code === "start-fixed-port"
+                  ? t("The start script pins port {port}; the app must listen on $PORT. Remove -p, or set a start command.", { port: warning.port })
+                  : t("The start script runs next start without -H 127.0.0.1, so it also listens on the node's public address.")}
+              </p>
+            ))}
           </Step>
         </div>
 

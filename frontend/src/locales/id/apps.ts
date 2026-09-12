@@ -320,6 +320,10 @@ export default {
   "{count} still empty: {keys}": "{count} masih kosong: {keys}",
   "Fill in the empty variables to deploy.": "Isi variabel yang kosong untuk bisa deploy.",
   "{count} to check: {keys}": "{count} perlu dicek: {keys}",
+  "The start script pins port {port}; the app must listen on $PORT. Remove -p, or set a start command.":
+    "Script start mengunci port {port}; aplikasi harus mendengarkan $PORT. Hapus -p, atau atur perintah start.",
+  "The start script runs next start without -H 127.0.0.1, so it also listens on the node's public address.":
+    "Script start menjalankan next start tanpa -H 127.0.0.1, jadi juga terbuka di alamat publik node.",
   Generate: "Buat otomatis",
   "Set by Larika — this value is ignored.": "Diatur oleh Larika — nilai ini diabaikan.",
   "Larika already sets this to production; this value replaces it.": "Larika sudah mengaturnya ke production; nilai ini menggantikannya.",
@@ -378,6 +382,7 @@ export default {
   "used by {app}": "dipakai {app}",
   "Create & connect": "Buat & hubungkan",
   "Database server": "Server database",
+  "Database name": "Nama database",
   "Choose a server": "Pilih server",
   "organization default": "default organisasi",
   "No database server is online — ask a superadmin to add one.":
