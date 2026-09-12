@@ -487,27 +487,6 @@ export default function ApplicationDetail() {
               </div>
             </div>
 
-            {failureReason && !deploying && (
-              <div className="space-y-2">
-                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">
-                  {failureReason}
-                </pre>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" onClick={deploy} disabled={starting} className="bg-gradient-primary">
-                    {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
-                    {t("Retry deploy")}
-                  </Button>
-                  {!uploadedSite && (
-                    <Button size="sm" variant="outline" onClick={() => setActiveTab("environment")}>
-                      {t("Edit environment")}
-                    </Button>
-                  )}
-                  <Button size="sm" variant="ghost" onClick={() => setActiveTab("deployments")}>
-                    {t("Full log")}
-                  </Button>
-                </div>
-              </div>
-            )}
 
           {/* no refresh button: the data refetches whenever the tab regains
               focus, and polls while a deploy runs */}
