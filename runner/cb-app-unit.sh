@@ -57,9 +57,13 @@ hand_to_tenant() {
   # The backend builds into this tree as its own user; hand it to the tenant
   # so the app can write at runtime, keeping the backend's group access.
   # Re-run after every deploy — new files land owned by the backend.
-  chown -R "$OS_USER:$CB_GROUP" "$APP_DIR"
-  chmod -R g+rwX "$APP_DIR"
-  find "$APP_DIR" -type d -exec chmod g+s {} +
+  # Only what is not the tenant's yet: a blanket chown -R / chmod -R rewrote
+  # every file of every kept release (node_modules, .next) on each deploy and
+  # outgrew its timeout once a few releases piled up. -h: the `current`
+  # symlink itself, never through it.
+  find "$APP_DIR" \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
+  find "$APP_DIR" -type f ! -perm -0060 -exec chmod g+rwX {} +
+  find "$APP_DIR" -type d ! -perm -2070 -exec chmod g+rwxs {} +
 }
 
 case "$ACTION" in

@@ -155,7 +155,10 @@ const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
 export async function appUnit(action: AppUnitAction, slug: string, applicationId: string): Promise<string> {
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
-  return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, applicationId]);
+  // install/chown walk the app's whole tree (every kept release) — seconds on a
+  // warm node, but not something to fail a deploy over at 60s
+  const timeout = action === 'install' || action === 'chown' ? 5 * 60_000 : 60_000;
+  return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, applicationId], timeout);
 }
 
 /**
