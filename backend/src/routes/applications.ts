@@ -28,6 +28,7 @@ import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
 import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
@@ -232,7 +233,14 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
     }
 
     if (typeof repository === 'string' && repository.trim()) {
-      const detected = await detectFromRepo(repository.trim(), String(branch || 'main').trim() || 'main');
+      // a private repo: the account /branches found that can read it
+      const gitAccountId = req.body?.gitAccountId ? String(req.body.gitAccountId) : null;
+      if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
+      const detected = await detectFromRepo(
+        repository.trim(),
+        String(branch || 'main').trim() || 'main',
+        gitAccountId ? await gitAuthFor(gitAccountId) : undefined,
+      );
       return res.json({ success: true, data: detected } as ApiResponse);
     }
 
@@ -245,21 +253,56 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
   }
 });
 
-/** Branches and the default branch of a pasted repository URL, for the add-app form. */
+/**
+ * Branches and the default branch of a pasted repository URL, for the add-app
+ * form — and which of the caller's git accounts it needs.
+ *
+ * Public first, anonymously. When that fails and the URL is on GitHub/GitLab,
+ * each of the caller's own accounts on that host is tried; the first that can
+ * read it is returned as `gitAccountId` and becomes the app's clone account.
+ * None can → `needsAccount` names the provider to connect. GitHub answers a
+ * private repo and a missing one the same way, so that is all it can mean.
+ */
 router.post('/branches', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   const repository = String(req.body?.repository ?? '').trim();
   if (!repository) {
     return res.status(400).json({ success: false, error: 'Repository URL is required' } as ApiResponse);
   }
 
+  let anonymousError: any;
   try {
-    return res.json({ success: true, data: await listRemoteBranches(repository) } as ApiResponse);
-  } catch (error: any) {
-    return res.status(400).json({
-      success: false,
-      error: `Could not read the branches: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    return res.json({ success: true, data: { ...(await listRemoteBranches(repository)), gitAccountId: null } } as ApiResponse);
+  } catch (error) {
+    anonymousError = error;
+  }
+
+  const provider = providerOf(repository);
+  if (provider) {
+    // ponytail: one ls-remote per account, in turn — fine for the handful a user connects
+    const accounts = await prisma.gitAccount.findMany({
+      where: { userId: req.user!.userId, provider },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    for (const account of accounts) {
+      try {
+        const branches = await listRemoteBranches(repository, await gitAuthFor(account.id));
+        return res.json({ success: true, data: { ...branches, gitAccountId: account.id } } as ApiResponse);
+      } catch {
+        // this account cannot see it; the next may
+      }
+    }
+    return res.json({
+      success: true,
+      data: { defaultBranch: null, branches: [], gitAccountId: null, needsAccount: provider, triedAccounts: accounts.length },
     } as ApiResponse);
   }
+
+  const detail = anonymousError?.stderr || anonymousError?.message || String(anonymousError);
+  return res.status(400).json({
+    success: false,
+    error: `Could not read the branches: ${detail}`.slice(0, 500),
+  } as ApiResponse);
 });
 
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {

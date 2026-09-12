@@ -5,7 +5,7 @@
  * command line, only in the environment.
  */
 import assert from 'assert';
-import { USERNAME, credentialArgs, needsRefresh } from './gitCredentials';
+import { USERNAME, credentialArgs, needsRefresh, providerOf } from './gitCredentials';
 
 // Each provider wants its own fixed username alongside an OAuth token.
 assert.strictEqual(USERNAME.github, 'x-access-token');
@@ -29,5 +29,14 @@ assert.strictEqual(needsRefresh(at(60), 'r', now), false);
 assert.strictEqual(needsRefresh(at(1), 'r', now), true);
 // Already expired.
 assert.strictEqual(needsRefresh(at(-1), 'r', now), true);
+
+// A pasted URL → which connected account could read it. Only HTTPS: a token cannot ride SSH.
+assert.strictEqual(providerOf('https://github.com/acme/site.git'), 'github');
+assert.strictEqual(providerOf('https://user@github.com/acme/site'), 'github');
+assert.strictEqual(providerOf('https://gitlab.com/group/sub/app.git'), 'gitlab');
+assert.strictEqual(providerOf('git@github.com:acme/site.git'), null);
+assert.strictEqual(providerOf('https://bitbucket.org/acme/site.git'), null);
+// a lookalike host is not GitHub
+assert.strictEqual(providerOf('https://github.com.evil.io/acme/site.git'), null);
 
 console.log('gitCredentials: OK');

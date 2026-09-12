@@ -260,22 +260,35 @@ export async function detectProject(dir: string, read?: ReadText): Promise<Detec
  */
 const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
 
-export async function detectFromRepo(repository: string, branch = 'main'): Promise<DetectedProject> {
+/** Credentials from gitAuthFor; none for a public remote. */
+export type RemoteAuth = { args: string[]; env: Record<string, string> };
+const ANONYMOUS: RemoteAuth = { args: [], env: {} };
+
+/**
+ * git argv/env for talking to a remote as exactly `auth` — the empty helper
+ * first drops any credential helper the machine has (a developer's credential
+ * manager), or a private repo would read as public here and fail at deploy.
+ */
+const remoteGit = (auth: RemoteAuth, args: string[]) => ({
+  argv: ['-c', 'credential.helper=', ...auth.args, ...args],
+  env: { ...GIT_ENV, ...auth.env },
+});
+
+export async function detectFromRepo(repository: string, branch = 'main', auth: RemoteAuth = ANONYMOUS): Promise<DetectedProject> {
   if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
   if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) throw new Error('Invalid branch name');
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-detect-'));
   try {
-    await execFileAsync(
-      'git',
-      ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--branch', branch, repository, tmp],
-      { timeout: 60000, env: GIT_ENV }
-    );
+    const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--branch', branch, repository, tmp]);
+    await execFileAsync('git', clone.argv, { timeout: 60000, env: clone.env });
     // One checkout per file: a missing file fails the command, the others still land.
+    // Blobless, so each checkout fetches its blob — with the same credentials.
     await Promise.all(
-      DETECT_FILES.map((name) =>
-        execFileAsync('git', ['-C', tmp, 'checkout', '--quiet', 'HEAD', '--', name], { timeout: 30000 }).catch(() => {})
-      )
+      DETECT_FILES.map((name) => {
+        const checkout = remoteGit(auth, ['-C', tmp, 'checkout', '--quiet', 'HEAD', '--', name]);
+        return execFileAsync('git', checkout.argv, { timeout: 30000, env: checkout.env }).catch(() => {});
+      })
     );
     return detectProject(tmp);
   } finally {
@@ -308,12 +321,13 @@ export function parseLsRemote(output: string): RemoteBranches {
   return { defaultBranch, branches };
 }
 
-/** Branches of any remote, without cloning. Private repos fail — no credentials are sent. */
-export async function listRemoteBranches(repository: string): Promise<RemoteBranches> {
+/** Branches of any remote, without cloning. A private repo needs `auth`. */
+export async function listRemoteBranches(repository: string, auth: RemoteAuth = ANONYMOUS): Promise<RemoteBranches> {
   if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
-  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', repository], {
+  const lsRemote = remoteGit(auth, ['ls-remote', '--symref', repository]);
+  const { stdout } = await execFileAsync('git', lsRemote.argv, {
     timeout: 30000,
-    env: GIT_ENV,
+    env: lsRemote.env,
     maxBuffer: 10 * 1024 * 1024,
   });
   return parseLsRemote(stdout);

@@ -16,6 +16,25 @@ export const USERNAME: Record<string, string> = {
   gitlab: 'oauth2',
 };
 
+/**
+ * Which connected-account provider an HTTPS repository URL is on: github.com,
+ * or gitlab.com / the self-hosted GitLab the OAuth app points at. null for any
+ * other host, and for SSH URLs — an OAuth token only works over HTTPS.
+ */
+export function providerOf(repository: string): 'github' | 'gitlab' | null {
+  const host = repository.match(/^https?:\/\/(?:[^@/]+@)?([^/:?#]+)/i)?.[1]?.toLowerCase();
+  if (!host) return null;
+  if (host === 'github.com' || host === 'www.github.com') return 'github';
+
+  let gitlabHost = 'gitlab.com';
+  try {
+    gitlabHost = new URL(process.env.GITLAB_OAUTH_BASE || 'https://gitlab.com/oauth').hostname.toLowerCase();
+  } catch {
+    // a malformed GITLAB_OAUTH_BASE leaves gitlab.com
+  }
+  return host === 'gitlab.com' || host === gitlabHost ? 'gitlab' : null;
+}
+
 /** Refresh a GitLab token this many seconds before it actually expires. */
 const REFRESH_SKEW_SECONDS = 120;
 
