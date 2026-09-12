@@ -110,8 +110,9 @@ export async function appUnit(action: AppUnitAction, slug: string, applicationId
  * Run <app-dir>/build.sh inside the build cgroup (memory-capped, low CPU/IO
  * weight). Resolves with the combined output; rejects with it attached when
  * the script fails. Fifteen minutes, same as the in-process build used to get.
+ * `onOutput` gets the output as it prints, for the live build log.
  */
-export async function appBuild(slug: string, applicationId: string): Promise<string> {
+export async function appBuild(slug: string, applicationId: string, onOutput?: (text: string) => void): Promise<string> {
   if (!OS_ISOLATION_ENABLED) throw new Error('ORG_OS_ISOLATION is not enabled');
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
@@ -121,7 +122,7 @@ export async function appBuild(slug: string, applicationId: string): Promise<str
     server,
     'cb-app-unit',
     ['build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
-    { timeout: 900_000, maxBuffer: 64 * 1024 * 1024 }
+    { timeout: 900_000, maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
   );
   return stdout + (stderr ? '\n' + stderr : '');
 }

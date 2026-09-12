@@ -131,13 +131,13 @@ export function getBuildLogUrl(applicationId: string, deploymentId: string): str
   return `${endpoint}/${config.bucket}/${key}`;
 }
 
-export async function uploadBuildLog(buildLogPath: string, applicationId: string, deploymentId: string): Promise<void> {
+/** `body` is the log's content — the file may be on a node, so the caller reads it. */
+export async function uploadBuildLog(body: Buffer | string, applicationId: string, deploymentId: string): Promise<void> {
   const key = getBuildLogKey(applicationId, deploymentId);
   if (!key) {
     return;
   }
 
-  const body = await fs.readFile(buildLogPath);
   await uploadObject(key, body);
 }
 
