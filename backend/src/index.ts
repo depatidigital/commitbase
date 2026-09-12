@@ -60,6 +60,8 @@ app.use(cors({
     ? process.env.CORS_ORIGIN 
     : true, // Allow all origins in development
   credentials: true,
+  // downloads (database backups) name their file here
+  exposedHeaders: ['Content-Disposition'],
 }));
 
 // Rate limiting

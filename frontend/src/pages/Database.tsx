@@ -31,6 +31,7 @@ import {
   AlertCircle,
   Copy,
   Database as DatabaseIcon,
+  Download,
   Eye,
   EyeOff,
   FileUp,
@@ -53,6 +54,7 @@ import {
   type DatabaseWithApplication,
   createDatabase,
   deleteDatabase,
+  downloadDatabaseBackup,
   getAllDatabases,
   getDatabaseCredentials,
   provisionDatabase,
@@ -156,6 +158,11 @@ export default function Database() {
       refresh();
       fail(error);
     },
+  });
+
+  const backupMutation = useMutation({
+    mutationFn: (db: DatabaseWithApplication) => downloadDatabaseBackup(db.id),
+    onError: fail,
   });
 
   const deleteMutation = useMutation({
@@ -277,6 +284,12 @@ export default function Database() {
               >
                 <KeyRound className="mr-2 h-4 w-4" />
                 {t("Credentials")}
+              </DropdownMenuItem>
+            )}
+            {!db.discovered && db.status === "RUNNING" && (
+              <DropdownMenuItem disabled={backupMutation.isPending} onClick={() => backupMutation.mutate(db)}>
+                <Download className="mr-2 h-4 w-4" />
+                {t("Download backup")}
               </DropdownMenuItem>
             )}
             {!db.discovered && db.status === "RUNNING" && (

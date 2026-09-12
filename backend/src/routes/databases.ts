@@ -30,6 +30,7 @@ import {
   runImport,
   tableCount,
 } from '../services/databaseImportService';
+import { streamBackup } from '../services/databaseBackupService';
 
 const router = Router();
 
@@ -597,6 +598,26 @@ router.get('/:id/tables', authenticateToken, async (req: AuthenticatedRequest, r
     }
     console.error('Count database tables error:', error);
     return res.status(502).json({ success: false, error: `Could not reach the database: ${error?.message ?? 'failed'}` } as ApiResponse);
+  }
+});
+
+// A backup as .sql.gz, streamed while it is dumped (databaseBackupService).
+router.get('/:id/backup', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const found = await importable(req, req.params.id as string);
+    if (!('database' in found)) return res.status(found.status).json({ success: false, error: found.error } as ApiResponse);
+    // the browser gave up: stop the dump on the node too
+    const abort = new AbortController();
+    res.on('close', () => !res.writableFinished && abort.abort());
+    await streamBackup(found.database.id, req.user!.userId, res, abort.signal);
+    return undefined;
+  } catch (error: any) {
+    if (res.headersSent) return res.destroy();
+    if (error instanceof ProvisionError || error instanceof ImportError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Database backup error:', error);
+    return res.status(502).json({ success: false, error: `Backup failed: ${error?.message ?? 'failed'}` } as ApiResponse);
   }
 });
 

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Database as DatabaseIcon, History, Loader2 } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Database as DatabaseIcon, Download, History, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatabaseImportDialog } from "@/components/DatabaseImportDialog";
-import { type AppDatabase, getAppDatabases } from "@/lib/databases";
+import { useToast } from "@/hooks/use-toast";
+import { type AppDatabase, downloadDatabaseBackup, getAppDatabases } from "@/lib/databases";
 import { locale, t } from "@/lib/i18n";
 
 const ENGINE_LABEL: Record<string, string> = { POSTGRESQL: "PostgreSQL", MYSQL: "MySQL" };
@@ -44,6 +45,11 @@ export function AppDatabasesTab({
   onConnect: () => void;
 }) {
   const [restoring, setRestoring] = useState<AppDatabase | null>(null);
+  const { toast } = useToast();
+  const backup = useMutation({
+    mutationFn: (db: AppDatabase) => downloadDatabaseBackup(db.id),
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Backup failed"), description: error.message }),
+  });
   const { data: databases, isLoading, error } = useQuery({
     queryKey: ["databases", "application", applicationId],
     queryFn: () => getAppDatabases(applicationId),
@@ -96,11 +102,6 @@ export function AppDatabasesTab({
                         <span className={`h-2 w-2 rounded-full ${STATUS_DOT[db.status] ?? "bg-muted-foreground"}`} />
                         {db.status.toLowerCase()}
                       </span>
-                      {db.databaseServer && (
-                        <span>
-                          {t("Server")}: {db.databaseServer.name}
-                        </span>
-                      )}
                       <span>
                         {t("Size")}: {size(db.sizeBytes)}
                       </span>
@@ -111,10 +112,25 @@ export function AppDatabasesTab({
                     {db.lastError && <p className="text-xs text-destructive">{db.lastError}</p>}
                   </div>
                   {restorable && (
-                    <Button variant="outline" size="sm" onClick={() => setRestoring(db)}>
-                      <History className="mr-1.5 h-3.5 w-3.5" />
-                      {t("Restore DB (.sql)")}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={backup.isPending}
+                        onClick={() => backup.mutate(db)}
+                      >
+                        {backup.isPending && backup.variables?.id === db.id ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        {t("Download backup")}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setRestoring(db)}>
+                        <History className="mr-1.5 h-3.5 w-3.5" />
+                        {t("Restore DB (.sql)")}
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>

@@ -182,6 +182,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
                 accept=".sql,.gz,application/sql,application/gzip"
                 onChange={(e) => pick(e.target.files?.[0] ?? null)}
               />
+              {!file && <p className="text-xs text-muted-foreground">{t("A backup downloaded here, or another .sql file.")}</p>}
               {file && (
                 <p className="text-xs text-muted-foreground">
                   {size(file.size)}

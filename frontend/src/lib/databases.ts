@@ -303,6 +303,33 @@ export const importDatabase = async (
 };
 
 /**
+ * Download a backup (.sql.gz) of the database. Fetched with the auth header, so
+ * it arrives as a blob and is saved from there.
+ * ponytail: the whole file sits in memory before the save — a signed one-time
+ * URL the browser downloads directly, if databases outgrow that.
+ */
+export const downloadDatabaseBackup = async (id: string): Promise<void> => {
+  const token = localStorage.getItem('authToken');
+  const response = await fetch(`${API_BASE_URL}/databases/${id}/backup`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error || t('Backup failed'));
+  }
+  const blob = await response.blob().catch(() => {
+    throw new Error(t('Backup failed'));
+  });
+  const name = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'backup.sql.gz';
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+};
+
+/**
  * What a dump's first 64 KB say, before anything is uploaded: the engine it
  * was made for, and whether it names another database. The server checks the
  * whole file again — this only saves a pointless upload.
