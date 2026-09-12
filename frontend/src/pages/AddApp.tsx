@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -17,8 +16,6 @@ import {
   Globe,
   ArrowLeft,
   GitBranch,
-  Terminal,
-  Zap,
   CheckCircle,
   AlertCircle,
   Github,
@@ -42,7 +39,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
-import { AppLaunchProgress } from "@/components/AppLaunchProgress";
 import { SourcePicker } from "@/components/SourcePicker";
 import { useDomains } from "@/hooks/useDomains";
 import { PageLayout } from "@/components/PageLayout";
@@ -52,9 +48,7 @@ import {
   detectProject,
   readDetectFiles,
   uploadApplicationSource,
-  startApplication,
   listRepositoryBranches,
-  type DnsOutcome,
   type UploadEntry,
 } from "@/lib/applications";
 import { getGithubAuthUrl, getGitlabAuthUrl, listGitRepositories, type GitRepositoryListing } from "@/lib/git";
@@ -1005,18 +999,18 @@ export default function AddApp() {
           ) : (
             <Button
               type="submit"
-              disabled={!stepComplete(2) || createApp.isPending}
+              disabled={!stepComplete(2) || createApp.isPending || uploading}
               className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300 min-w-[140px]"
             >
-              {createApp.isPending ? (
+              {createApp.isPending || uploading ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent mr-2" />
-                  {t("Deploying...")}
+                  {uploading ? t("Uploading…") : t("Creating…")}
                 </>
               ) : (
                 <>
-                  <Zap className="h-4 w-4 mr-2" />
-                  {t("Deploy App")}
+                  <Check className="h-4 w-4 mr-2" />
+                  {t("Create App")}
                 </>
               )}
             </Button>

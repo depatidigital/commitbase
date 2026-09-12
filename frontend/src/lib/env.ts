@@ -6,7 +6,22 @@
  * duplicated because the two packages share no code. Keep them in step.
  */
 
+import type { Application, DetectedProject } from "./applications";
+
 export type EnvRow = { key: string; value: string };
+
+/** What the code expects: .env.example keys without a default, and DATABASE_URL when an ORM is in the deps. */
+export function requiredKeys(detected?: DetectedProject | null): Set<string> {
+  const keys = new Set((detected?.env.example?.vars ?? []).filter((v) => !v.value).map((v) => v.key));
+  if (detected?.env.needsDatabase) keys.add("DATABASE_URL");
+  return keys;
+}
+
+/** Required keys the app's saved env has no value for — what a first deploy would fail on. */
+export function missingKeys(application: Application, detected?: DetectedProject | null): string[] {
+  const env = application.envVars ?? {};
+  return [...requiredKeys(detected)].filter((key) => !env[key]);
+}
 
 export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

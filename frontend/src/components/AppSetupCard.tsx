@@ -1,7 +1,8 @@
 import { CheckCircle, Circle, Loader2, Rocket, Settings, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AppEnvironment, missingKeys } from "@/components/AppEnvironment";
+import { AppEnvironment } from "@/components/AppEnvironment";
+import { missingKeys } from "@/lib/env";
 import { Application, DetectedProject } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 

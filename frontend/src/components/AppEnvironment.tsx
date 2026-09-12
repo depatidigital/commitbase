@@ -6,24 +6,11 @@ import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, hasBeenDeployed, updateApplication } from "@/lib/applications";
-import { mergeRows, rowsToEnv, type EnvRow } from "@/lib/env";
+import { mergeRows, requiredKeys, rowsToEnv, type EnvRow } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
 const toRows = (env?: Record<string, string>): EnvRow[] =>
   Object.entries(env ?? {}).map(([key, value]) => ({ key, value }));
-
-/** What the code expects: .env.example keys without a default, and DATABASE_URL when an ORM is in the deps. */
-export function requiredKeys(detected?: DetectedProject | null): Set<string> {
-  const keys = new Set((detected?.env.example?.vars ?? []).filter((v) => !v.value).map((v) => v.key));
-  if (detected?.env.needsDatabase) keys.add("DATABASE_URL");
-  return keys;
-}
-
-/** Required keys the app's saved env has no value for — what blocks a first deploy. */
-export function missingKeys(application: Application, detected?: DetectedProject | null): string[] {
-  const env = application.envVars ?? {};
-  return [...requiredKeys(detected)].filter((key) => !env[key]);
-}
 
 interface AppEnvironmentProps {
   application: Application;
