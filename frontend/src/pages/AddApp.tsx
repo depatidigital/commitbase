@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import {
   Globe,
   ArrowLeft,
@@ -24,6 +23,7 @@ import {
   AlertCircle,
   Github,
   Gitlab,
+  Lock,
   Upload,
   FileCode,
   Server,
@@ -56,20 +56,11 @@ import {
   type DnsOutcome,
   type UploadEntry,
 } from "@/lib/applications";
-import { useGitProjects } from "@/hooks/useGitProjects";
-import { useGitBranches } from "@/hooks/useGitBranches";
-import { useGitAccounts } from "@/hooks/useGitAccounts";
-import {
-  getGithubAuthUrl,
-  getGitlabAuthUrl,
-  getGitConnectionStatus,
-} from "@/lib/git";
+import { getGithubAuthUrl, getGitlabAuthUrl } from "@/lib/git";
 import { t } from "@/lib/i18n";
 import { isSuperAdmin } from "@/lib/auth";
 import { getServers } from "@/lib/servers";
 
-// Radix Select forbids an empty-string item value, so "no filter" needs a sentinel.
-const ALL_WORKSPACES = "__all__";
 const PENDING_REPOSITORY = "addApp.pendingRepository";
 
 export default function AddApp() {
@@ -94,9 +85,6 @@ export default function AddApp() {
     port: "",
     envVars: "",
   });
-  const [repoSource, setRepoSource] = useState<"manual" | "github" | "gitlab">(
-    "manual",
-  );
   // 1 = where the code comes from, 2 = type, name and domain
   const [step, setStep] = useState(1);
   // Which node the app runs on. Only a superadmin picks; "" = the org's default server.
@@ -129,14 +117,6 @@ export default function AddApp() {
   const [detected, setDetected] = useState<DetectedProject | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState("");
-  const [selectedGithubAccountId, setSelectedGithubAccountId] = useState("");
-  const [selectedGitlabAccountId, setSelectedGitlabAccountId] = useState("");
-  const [selectedGithubRepoId, setSelectedGithubRepoId] = useState("");
-  const [selectedGitlabRepoId, setSelectedGitlabRepoId] = useState("");
-  const [selectedGithubWorkspace, setSelectedGithubWorkspace] =
-    useState(ALL_WORKSPACES);
-  const [selectedGitlabWorkspace, setSelectedGitlabWorkspace] =
-    useState(ALL_WORKSPACES);
 
   // an empty subdomain means the root domain
   const fullDomain = formData.subdomain
@@ -165,7 +145,7 @@ export default function AddApp() {
   // user's connected accounts can see it; the backend finds that account.
   const [manualAccountId, setManualAccountId] = useState<string | null>(null);
   const [needsAccount, setNeedsAccount] = useState<{ provider: "github" | "gitlab"; tried: number } | null>(null);
-  const manualRepo = sourceMode === "git" && repoSource === "manual";
+  const manualRepo = sourceMode === "git";
   useEffect(() => {
     setRemoteBranches(null);
     setBranchesError("");
@@ -293,16 +273,9 @@ export default function AddApp() {
       type: formData.type as CreateApplicationData["type"],
       repository:
         sourceMode === "git" ? formData.repository || undefined : undefined,
-      // Which connected account clones it — a private repo cannot be cloned
-      // without one. A pasted URL uses the account the branch lookup found.
-      gitAccountId:
-        sourceMode === "git"
-          ? (repoSource === "github"
-              ? selectedGithubAccountId
-              : repoSource === "gitlab"
-                ? selectedGitlabAccountId
-                : manualAccountId) || undefined
-          : undefined,
+      // Which connected account clones it: the one the branch lookup found
+      // can read this repo. None for a public repo or an upload.
+      gitAccountId: (sourceMode === "git" && manualAccountId) || undefined,
       branch: formData.branch,
       buildCommand: formData.buildCommand || undefined,
       startCommand: formData.startCommand || undefined,
@@ -404,107 +377,6 @@ export default function AddApp() {
 
   const availableDomains =
     domains?.filter((domain) => domain.status === "ACTIVE") || [];
-  const { data: githubAccounts } = useGitAccounts(
-    "github",
-    repoSource === "github",
-  );
-  const { data: gitlabAccounts } = useGitAccounts(
-    "gitlab",
-    repoSource === "gitlab",
-  );
-  const {
-    data: githubProjects,
-    isLoading: githubLoading,
-    error: githubError,
-  } = useGitProjects(
-    "github",
-    repoSource === "github" && !!selectedGithubAccountId,
-    selectedGithubAccountId,
-  );
-  const {
-    data: gitlabProjects,
-    isLoading: gitlabLoading,
-    error: gitlabError,
-  } = useGitProjects(
-    "gitlab",
-    repoSource === "gitlab" && !!selectedGitlabAccountId,
-    selectedGitlabAccountId,
-  );
-
-  const { data: gitStatus } = useQuery({
-    queryKey: ["git", "connection-status"],
-    queryFn: getGitConnectionStatus,
-  });
-
-  const githubConnected = gitStatus?.githubConnected ?? false;
-  const gitlabConnected = gitStatus?.gitlabConnected ?? false;
-
-  const githubWorkspaces =
-    githubProjects && githubProjects.length > 0
-      ? Array.from(
-          new Set(
-            githubProjects
-              .map((repo) => repo.workspace)
-              .filter((ws): ws is string => !!ws),
-          ),
-        )
-      : [];
-
-  const gitlabWorkspaces =
-    gitlabProjects && gitlabProjects.length > 0
-      ? Array.from(
-          new Set(
-            gitlabProjects
-              .map((repo) => repo.workspace)
-              .filter((ws): ws is string => !!ws),
-          ),
-        )
-      : [];
-
-  const filteredGithubProjects =
-    githubProjects && githubProjects.length > 0
-      ? githubProjects.filter((repo) =>
-          selectedGithubWorkspace !== ALL_WORKSPACES
-            ? repo.workspace === selectedGithubWorkspace
-            : true,
-        )
-      : githubProjects;
-
-  const filteredGitlabProjects =
-    gitlabProjects && gitlabProjects.length > 0
-      ? gitlabProjects.filter((repo) =>
-          selectedGitlabWorkspace !== ALL_WORKSPACES
-            ? repo.workspace === selectedGitlabWorkspace
-            : true,
-        )
-      : gitlabProjects;
-
-  const {
-    data: githubBranches,
-    isLoading: githubBranchesLoading,
-    error: githubBranchesError,
-  } = useGitBranches(
-    "github",
-    selectedGithubRepoId,
-    repoSource === "github" &&
-      !!selectedGithubRepoId &&
-      !!selectedGithubAccountId,
-    selectedGithubAccountId,
-  );
-
-  const {
-    data: gitlabBranches,
-    isLoading: gitlabBranchesLoading,
-    error: gitlabBranchesError,
-  } = useGitBranches(
-    "gitlab",
-    selectedGitlabRepoId,
-    repoSource === "gitlab" &&
-      !!selectedGitlabRepoId &&
-      !!selectedGitlabAccountId,
-    selectedGitlabAccountId,
-  );
-
   // The OAuth round trip reloads the page; keep the pasted URL across it.
   const rememberRepository = () => {
     if (formData.repository.trim()) sessionStorage.setItem(PENDING_REPOSITORY, formData.repository.trim());
@@ -735,66 +607,6 @@ export default function AddApp() {
                 )}
 
                 {sourceMode === "git" && (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant={
-                          repoSource === "manual" ? "default" : "outline"
-                        }
-                        size="sm"
-                        onClick={() => setRepoSource("manual")}
-                      >
-                        <GitBranch className="h-4 w-4 mr-2" />
-                        {t("Manual URL")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={
-                          repoSource === "github" ? "default" : "outline"
-                        }
-                        size="sm"
-                        onClick={() => setRepoSource("github")}
-                      >
-                        <Github className="h-4 w-4 mr-2" />
-                        GitHub
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={
-                          repoSource === "gitlab" ? "default" : "outline"
-                        }
-                        size="sm"
-                        onClick={() => setRepoSource("gitlab")}
-                      >
-                        <Gitlab className="h-4 w-4 mr-2" />
-                        GitLab
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge
-                        variant={githubConnected ? "outline" : "secondary"}
-                        className="text-xs"
-                      >
-                        <Github className="h-3 w-3 mr-1" />
-                        {githubConnected
-                          ? t("GitHub connected")
-                          : t("GitHub not connected")}
-                      </Badge>
-                      <Badge
-                        variant={gitlabConnected ? "outline" : "secondary"}
-                        className="text-xs"
-                      >
-                        <Gitlab className="h-3 w-3 mr-1" />
-                        {gitlabConnected
-                          ? t("GitLab connected")
-                          : t("GitLab not connected")}
-                      </Badge>
-                    </div>
-                  </div>
-                )}
-
-                {sourceMode === "git" && repoSource === "manual" && (
                   <>
                     <div className="space-y-2">
                       <Label htmlFor="repository">{t("Git Repository URL")}</Label>
@@ -853,377 +665,45 @@ export default function AddApp() {
                         <p className="text-xs text-muted-foreground">
                           {t("Could not read the branches (private repository?) — type the branch name.")}
                         </p>
+                      ) : manualAccountId ? (
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Lock className="h-3 w-3" />
+                          {t("Private repository — read and deployed through your connected account.")}
+                        </p>
                       ) : null}
                     </div>
+
+                    {needsAccount && (
+                      <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+                        <p className="flex items-center gap-1.5 text-sm font-medium">
+                          <Lock className="h-4 w-4" />
+                          {t("Private repository")}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {needsAccount.tried > 0
+                            ? t("None of your connected {provider} accounts can read this repository. Connect an account that has access, or check the URL.", {
+                                provider: needsAccount.provider === "github" ? "GitHub" : "GitLab",
+                              })
+                            : t("This repository is private or does not exist. Connect {provider} so it can be read and deployed.", {
+                                provider: needsAccount.provider === "github" ? "GitHub" : "GitLab",
+                              })}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={needsAccount.provider === "github" ? handleConnectGithub : handleConnectGitlab}
+                        >
+                          {needsAccount.provider === "github" ? (
+                            <Github className="h-4 w-4 mr-2" />
+                          ) : (
+                            <Gitlab className="h-4 w-4 mr-2" />
+                          )}
+                          {needsAccount.provider === "github" ? t("Connect GitHub") : t("Connect GitLab")}
+                        </Button>
+                      </div>
+                    )}
                   </>
-                )}
-
-                {sourceMode === "git" && repoSource === "github" && (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="github-account">{t("GitHub account")}</Label>
-                      {githubAccounts && githubAccounts.length > 0 ? (
-                        <Select
-                          value={selectedGithubAccountId}
-                          onValueChange={(value) => {
-                            setSelectedGithubAccountId(value);
-                            setSelectedGithubRepoId("");
-                            setSelectedGithubWorkspace("");
-                            handleInputChange("repository", "");
-                            handleInputChange("branch", "main");
-                          }}
-                        >
-                          <SelectTrigger id="github-account">
-                            <SelectValue placeholder={t("Select a GitHub account")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {githubAccounts.map((account) => (
-                              <SelectItem key={account.id} value={account.id}>
-                                {account.displayName ||
-                                  account.username ||
-                                  account.id}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
-                            {t("No GitHub accounts connected.")}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleConnectGithub}
-                          >
-                            <Github className="h-4 w-4 mr-2" />
-                            {t("Connect GitHub")}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {githubProjects && githubProjects.length > 0 && (
-                      <div className="space-y-2">
-                        <Label htmlFor="github-workspace">
-                          {t("GitHub workspace")}
-                        </Label>
-                        <Select
-                          value={selectedGithubWorkspace}
-                          onValueChange={(value) => {
-                            setSelectedGithubWorkspace(value);
-                            setSelectedGithubRepoId("");
-                            handleInputChange("repository", "");
-                            handleInputChange("branch", "main");
-                          }}
-                        >
-                          <SelectTrigger id="github-workspace">
-                            <SelectValue placeholder={t("All workspaces")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={ALL_WORKSPACES}>
-                              {t("All workspaces")}
-                            </SelectItem>
-                            {githubWorkspaces.map((workspace) => (
-                              <SelectItem key={workspace} value={workspace}>
-                                {workspace}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="github-repo">
-                        {t("Select GitHub repository")}
-                      </Label>
-                      {githubLoading ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("Loading GitHub repositories...")}
-                        </p>
-                      ) : !selectedGithubAccountId ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("Select a GitHub account above to list its repositories.")}
-                        </p>
-                      ) : githubError ? (
-                        <p className="text-sm text-destructive">
-                          {t("Failed to load GitHub repositories.")}
-                        </p>
-                      ) : filteredGithubProjects &&
-                        filteredGithubProjects.length > 0 ? (
-                        <Select
-                          value={selectedGithubRepoId}
-                          onValueChange={(value) => {
-                            setSelectedGithubRepoId(value);
-                            const repo = filteredGithubProjects.find(
-                              (item) => item.id === value,
-                            );
-                            if (repo) {
-                              handleInputChange("repository", repo.cloneUrl);
-                            }
-                          }}
-                        >
-                          <SelectTrigger id="github-repo">
-                            <SelectValue placeholder={t("Select a GitHub repository")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {filteredGithubProjects.map((repo) => (
-                              <SelectItem key={repo.id} value={repo.id}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">
-                                    {repo.name}
-                                  </span>
-                                  {repo.workspace && (
-                                    <span className="text-xs text-muted-foreground">
-                                      {repo.workspace}
-                                    </span>
-                                  )}
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
-                            {t(
-                              "No GitHub repositories found or your GitHub account is not connected.",
-                            )}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleConnectGithub}
-                          >
-                            <Github className="h-4 w-4 mr-2" />
-                            {t("Connect GitHub")}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="github-branch">{t("Branch")}</Label>
-                      {githubBranchesLoading ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("Loading branches...")}
-                        </p>
-                      ) : githubBranchesError ? (
-                        <p className="text-sm text-destructive">
-                          {t("Failed to load GitHub branches.")}
-                        </p>
-                      ) : githubBranches && githubBranches.length > 0 ? (
-                        <Select
-                          value={formData.branch}
-                          onValueChange={(value) =>
-                            handleInputChange("branch", value)
-                          }
-                        >
-                          <SelectTrigger id="github-branch">
-                            <SelectValue placeholder={t("Select a branch")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {githubBranches.map((branch) => (
-                              <SelectItem key={branch.name} value={branch.name}>
-                                {branch.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t("No branches found for this repository.")}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {sourceMode === "git" && repoSource === "gitlab" && (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="gitlab-account">{t("GitLab account")}</Label>
-                      {gitlabAccounts && gitlabAccounts.length > 0 ? (
-                        <Select
-                          value={selectedGitlabAccountId}
-                          onValueChange={(value) => {
-                            setSelectedGitlabAccountId(value);
-                            setSelectedGitlabRepoId("");
-                            setSelectedGitlabWorkspace("");
-                            handleInputChange("repository", "");
-                            handleInputChange("branch", "main");
-                          }}
-                        >
-                          <SelectTrigger id="gitlab-account">
-                            <SelectValue placeholder={t("Select a GitLab account")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {gitlabAccounts.map((account) => (
-                              <SelectItem key={account.id} value={account.id}>
-                                {account.displayName ||
-                                  account.username ||
-                                  account.id}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
-                            {t("No GitLab accounts connected.")}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleConnectGitlab}
-                          >
-                            <Gitlab className="h-4 w-4 mr-2" />
-                            {t("Connect GitLab")}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {gitlabProjects && gitlabProjects.length > 0 && (
-                      <div className="space-y-2">
-                        <Label htmlFor="gitlab-workspace">
-                          {t("GitLab workspace")}
-                        </Label>
-                        <Select
-                          value={selectedGitlabWorkspace}
-                          onValueChange={(value) => {
-                            setSelectedGitlabWorkspace(value);
-                            setSelectedGitlabRepoId("");
-                            handleInputChange("repository", "");
-                            handleInputChange("branch", "main");
-                          }}
-                        >
-                          <SelectTrigger id="gitlab-workspace">
-                            <SelectValue placeholder={t("All workspaces")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={ALL_WORKSPACES}>
-                              {t("All workspaces")}
-                            </SelectItem>
-                            {gitlabWorkspaces.map((workspace) => (
-                              <SelectItem key={workspace} value={workspace}>
-                                {workspace}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="gitlab-project">
-                        {t("Select GitLab project")}
-                      </Label>
-                      {gitlabLoading ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("Loading GitLab projects...")}
-                        </p>
-                      ) : !selectedGitlabAccountId ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("Select a GitLab account above to list its projects.")}
-                        </p>
-                      ) : gitlabError ? (
-                        <p className="text-sm text-destructive">
-                          {t("Failed to load GitLab projects.")}
-                        </p>
-                      ) : filteredGitlabProjects &&
-                        filteredGitlabProjects.length > 0 ? (
-                        <Select
-                          value={selectedGitlabRepoId}
-                          onValueChange={(value) => {
-                            setSelectedGitlabRepoId(value);
-                            const repo = filteredGitlabProjects.find(
-                              (item) => item.id === value,
-                            );
-                            if (repo) {
-                              handleInputChange("repository", repo.cloneUrl);
-                            }
-                          }}
-                        >
-                          <SelectTrigger id="gitlab-project">
-                            <SelectValue placeholder={t("Select a GitLab project")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {filteredGitlabProjects.map((repo) => (
-                              <SelectItem key={repo.id} value={repo.id}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">
-                                    {repo.name}
-                                  </span>
-                                  {repo.workspace && (
-                                    <span className="text-xs text-muted-foreground">
-                                      {repo.workspace}
-                                    </span>
-                                  )}
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
-                            {t(
-                              "No GitLab projects found or your GitLab account is not connected.",
-                            )}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleConnectGitlab}
-                          >
-                            <Gitlab className="h-4 w-4 mr-2" />
-                            {t("Connect GitLab")}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="gitlab-branch">{t("Branch")}</Label>
-                      {gitlabBranchesLoading ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("Loading branches...")}
-                        </p>
-                      ) : gitlabBranchesError ? (
-                        <p className="text-sm text-destructive">
-                          {t("Failed to load GitLab branches.")}
-                        </p>
-                      ) : gitlabBranches && gitlabBranches.length > 0 ? (
-                        <Select
-                          value={formData.branch}
-                          onValueChange={(value) =>
-                            handleInputChange("branch", value)
-                          }
-                        >
-                          <SelectTrigger id="gitlab-branch">
-                            <SelectValue placeholder={t("Select a branch")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {gitlabBranches.map((branch) => (
-                              <SelectItem key={branch.name} value={branch.name}>
-                                {branch.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t("No branches found for this project.")}
-                        </p>
-                      )}
-                    </div>
-                  </div>
                 )}
               </CardContent>
             </Card>

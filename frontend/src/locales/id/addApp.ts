@@ -66,6 +66,13 @@ export default {
   "No GitLab accounts connected.": "Belum ada akun GitLab yang terhubung.",
   "Connect GitHub": "Hubungkan GitHub",
   "Connect GitLab": "Hubungkan GitLab",
+  "Private repository": "Repositori privat",
+  "Private repository — read and deployed through your connected account.":
+    "Repositori privat — dibaca dan di-deploy lewat akun Anda yang terhubung.",
+  "This repository is private or does not exist. Connect {provider} so it can be read and deployed.":
+    "Repositori ini privat atau tidak ada. Hubungkan {provider} agar bisa dibaca dan di-deploy.",
+  "None of your connected {provider} accounts can read this repository. Connect an account that has access, or check the URL.":
+    "Tidak ada akun {provider} Anda yang bisa membaca repositori ini. Hubungkan akun yang punya akses, atau periksa URL-nya.",
   "GitHub workspace": "Workspace GitHub",
   "GitLab workspace": "Workspace GitLab",
   "All workspaces": "Semua workspace",
