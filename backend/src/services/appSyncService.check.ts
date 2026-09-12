@@ -1,54 +1,11 @@
 /**
- * Self-check for the Caddyfile parser: npx ts-node src/services/appSyncService.check.ts
+ * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { parseCaddyfile, classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf } from './appSyncService';
+import { classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 
-const sample = `
-# a comment
-app.example.com {
-    reverse_proxy localhost:3005
-    encode gzip
-}
-
-shop.example.com, www.shop.example.com {
-    root * /var/www/html/shop/public
-    php_fastcgi unix//run/php/php8.2-fpm.sock
-    file_server
-}
-
-static.example.com {
-    root * /var/www/html/static
-    file_server
-    handle_errors {
-        rewrite * /404.html
-        file_server
-    }
-}
-`;
-
-const sites = parseCaddyfile(sample, '/etc/caddy/sites/example.caddy');
-
-assert.strictEqual(sites.length, 3, 'three site blocks');
-
-assert.deepStrictEqual(sites[0]?.domains, ['app.example.com']);
-assert.strictEqual(sites[0]?.port, 3005);
-assert.strictEqual(sites[0]?.php, false);
-
-assert.deepStrictEqual(sites[1]?.domains, ['shop.example.com', 'www.shop.example.com']);
-assert.strictEqual(sites[1]?.php, true);
-assert.strictEqual(sites[1]?.rootPath, '/var/www/html/shop/public');
-// the FPM socket is only written down in the site file, so adoption needs it
-assert.strictEqual(sites[1]?.socket, '/run/php/php8.2-fpm.sock');
-assert.strictEqual(sites[0]?.socket, undefined);
-
-// the nested handle_errors block must not close the site early
-assert.strictEqual(sites[2]?.domains[0], 'static.example.com');
-assert.strictEqual(sites[2]?.php, false);
-assert.strictEqual(sites[2]?.port, undefined);
-
-// --- live Caddy routes, which is where the inventory comes from now ---
+// --- live Caddy routes: the inventory reads the admin API, never a Caddyfile ---
 
 const runtimeRoute = {
   match: [{ host: ['app.example.com'] }],
@@ -180,4 +137,4 @@ assert.strictEqual(parentDomainOf('api.staging.client.com', doms)?.id, 'b');
 assert.strictEqual(parentDomainOf('notclient.com', doms), null);
 assert.strictEqual(parentDomainOf('web.pm2.local', doms), null);
 
-console.log('appSyncService: parseCaddyfile + classifyRoute + parseListeners + parentDomainOf OK');
+console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf OK');

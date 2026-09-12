@@ -356,24 +356,29 @@ export default function Application() {
               >
                 <ExternalLink className="h-3 w-3" />
               </a>
-              {/* imported by the server sync: set up by hand, run under its own
-                  user — the panel watches it but never deploys or provisions it */}
-              {app.runtime && (
-                <Badge
-                  variant="outline"
-                  className="shrink-0 border-warning/40 px-1.5 py-0 text-[10px] font-medium text-warning"
-                  title={t("Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.", {
-                    runtime: RUNTIME_LABEL[app.runtime] ?? app.runtime,
-                  })}
-                >
-                  {t("Manual")}
-                </Badge>
-              )}
             </span>
-            {named && (
-              <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                <Globe className="h-3 w-3 shrink-0" />
-                <span className="truncate">{app.domain}</span>
+            {(named || app.runtime) && (
+              <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                {/* imported by the server sync: set up by hand, run under its own
+                    user — the panel watches it but never deploys or provisions it.
+                    On the second line so it never costs the name its width. */}
+                {app.runtime && (
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 border-warning/40 px-1.5 py-0 text-[10px] font-medium text-warning"
+                    title={t("Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.", {
+                      runtime: RUNTIME_LABEL[app.runtime] ?? app.runtime,
+                    })}
+                  >
+                    {t("Manual")}
+                  </Badge>
+                )}
+                {named && (
+                  <>
+                    <Globe className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{app.domain}</span>
+                  </>
+                )}
               </span>
             )}
           </div>

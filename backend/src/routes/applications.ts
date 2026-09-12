@@ -18,7 +18,6 @@ import { appFsFor } from '../lib/appFs';
 import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
-import { adoptCaddySites } from '../services/caddyMigrationService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
 import multer from 'multer';
@@ -162,53 +161,6 @@ router.post('/sync', authenticateToken, requireRole(['SUPERADMIN']), async (req:
 // Framework detection for the "new app" form. Either the files the browser
 // already read (upload flow) or a repository URL (git flow — shallow clone of
 // the detection files only).
-/**
- * Move the file-based sites in /etc/caddy/sites onto the admin API, so routes
- * have one source of truth. A dry run by default: pass `apply: true` to push.
- *
- * After applying, drop the `import /etc/caddy/sites/*.caddy` line from the
- * Caddyfile — the files stay as the record each later run reads.
- */
-router.post('/caddy/adopt', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    // one node per call — say which, since each runs its own Caddy
-    const node = await prisma.server.findFirst({
-      where: req.body?.serverId ? { id: String(req.body.serverId) } : {},
-      orderBy: { createdAt: 'asc' },
-      select: {
-      id: true,
-      hostname: true,
-      sshUser: true,
-      sshPort: true,
-      sshKeyPath: true,
-      authMethod: true,
-      sshPassword: true,
-    },
-    });
-
-    if (!node) {
-      return res.status(400).json({ success: false, error: 'No server to adopt sites from' } as ApiResponse);
-    }
-
-    const result = await adoptCaddySites(node, { apply: req.body?.apply === true });
-
-    return res.json({
-      success: true,
-      data: result,
-      message:
-        req.body?.apply === true
-          ? `Adopted ${result.applied} route(s), ${result.skipped} skipped`
-          : `Dry run: ${result.sites.length} site(s) found, ${result.skipped} need attention`,
-    } as ApiResponse);
-  } catch (error: any) {
-    console.error('Error adopting Caddy sites:', error);
-    return res.status(502).json({
-      success: false,
-      error: error?.message || 'Could not read the Caddy site files',
-    } as ApiResponse);
-  }
-});
-
 /** Store the live Caddy config now, rather than waiting for the watchdog tick. */
 router.post('/caddy/snapshot', authenticateToken, requireRole(['SUPERADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
   try {

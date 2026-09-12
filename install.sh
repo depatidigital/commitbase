@@ -216,7 +216,7 @@ if systemctl is-active --quiet caddy && caddyfile_serves_sites; then
   # Sites served from a Caddyfile (the panel's own box, or a hand-built one).
   # Moving them into the API is a deliberate step, not something setup does.
   note "WARNING: caddy.service serves sites from /etc/caddy/Caddyfile - left exactly as it is."
-  note "Move them into the API first (POST /api/applications/caddy/adopt), then re-run setup."
+  note "Put those sites into the API (or remove them) and run: systemctl disable --now caddy; then re-run setup."
 elif systemctl is-active --quiet caddy-api; then
   # caddy-api is already the one serving. A caddy.service beside it has no
   # sites of its own (checked above) and only shares the admin port with it.

@@ -1,4 +1,3 @@
-import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { prisma } from '../lib/prisma';
 import { parentDomainOf } from '../lib/scope';
@@ -9,7 +8,6 @@ import { getCaddyConfig, allRoutesOf } from './caddyService';
 /** The panel's own hostname is a route like any other, and is not a tenant app. */
 const PANEL_HOST = (process.env.PANEL_HOST || process.env.FRONTEND_HOST || '').trim().toLowerCase();
 
-const CADDY_SITES_DIR = process.env.CADDY_SITES_DIR || '/etc/caddy/sites';
 const APPS_ROOT_DIR = process.env.APPS_ROOT_DIR || '/var/www/html';
 
 export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
@@ -101,76 +99,6 @@ export async function listPm2Processes(node: SshTarget): Promise<Pm2Process[]> {
   }
 }
 
-export type CaddySite = {
-  domains: string[];
-  port?: number | undefined;
-  rootPath?: string | undefined;
-  php: boolean;
-  /** PHP sites: the FPM socket from `php_fastcgi unix/...` */
-  socket?: string | undefined;
-  configPath: string;
-};
-
-/**
- * Flat-parse a Caddyfile: every top-level `host… {` opens a site block, and we
- * only care about three directives inside it.
- * ponytail: a text scan, not a real Caddyfile parser — enough for the
- * one-site-per-file layout in /etc/caddy/sites. Swap in `caddy adapt` output if
- * the configs ever grow snippets or imports.
- */
-export function parseCaddyfile(content: string, configPath: string): CaddySite[] {
-  const sites: CaddySite[] = [];
-  let current: CaddySite | null = null;
-  let depth = 0;
-
-  for (const rawLine of content.split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-
-    if (depth === 0) {
-      if (!line.endsWith('{')) continue;
-
-      const domains = line
-        .slice(0, -1)
-        .trim()
-        .split(/[,\s]+/)
-        .map((token) => token.replace(/^https?:\/\//, '').split('/')[0] || '')
-        .filter((token) => /^[a-z0-9*.-]+\.[a-z]{2,}$/i.test(token));
-
-      current = { domains, php: false, configPath };
-      depth = 1;
-      continue;
-    }
-
-    depth += (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
-
-    if (depth <= 0) {
-      if (current && current.domains.length) sites.push(current);
-      current = null;
-      depth = 0;
-      continue;
-    }
-
-    if (!current) continue;
-
-    const proxy = line.match(/^reverse_proxy\s+.*?:(\d+)/);
-    if (proxy?.[1]) current.port = Number(proxy[1]);
-
-    const root = line.match(/^root\s+(?:\*\s+)?(\S+)/);
-    if (root?.[1]) current.rootPath = root[1];
-
-    if (line.startsWith('php_fastcgi')) {
-      current.php = true;
-      // the FPM socket the site talks to — needed to rebuild this site as an
-      // API route, which is the only place it is written down
-      const socket = line.match(/unix\/+(\S+)/);
-      if (socket?.[1]) current.socket = `/${socket[1].replace(/^\/+/, '')}`;
-    }
-  }
-
-  return sites;
-}
-
 /**
  * What one live Caddy route is, as an application.
  *
@@ -250,27 +178,6 @@ export function isNotAnApp(host: string): boolean {
   const name = host.trim().toLowerCase();
   // the wildcard is how every app under a domain resolves — it is not one itself
   return !name || name.startsWith('*.') || (PANEL_HOST !== '' && name === PANEL_HOST);
-}
-
-export async function listCaddySites(): Promise<CaddySite[]> {
-  let files: string[] = [];
-  try {
-    files = (await readdir(CADDY_SITES_DIR)).filter((file) => file.endsWith('.caddy'));
-  } catch {
-    return [];
-  }
-
-  const sites: CaddySite[] = [];
-  for (const file of files) {
-    const configPath = path.join(CADDY_SITES_DIR, file);
-    try {
-      sites.push(...parseCaddyfile(await readFile(configPath, 'utf8'), configPath));
-    } catch {
-      // unreadable file — skip it, the rest of the inventory still syncs
-    }
-  }
-
-  return sites;
 }
 
 /**

@@ -315,7 +315,6 @@ Write `/opt/larika/app/backend/.env`, owned `larika:larika`, mode
 | Variable | Default | Notes |
 |---|---|---|
 | ~~`CADDY_API_URL`~~ | *removed* | The admin API is unauthenticated, so it is never addressed directly: each node's own `127.0.0.1:2019` is reached through that node's SSH connection |
-| `CADDY_SITES_DIR` | `/etc/caddy/sites` | Legacy only: where the inventory sync and `caddy/adopt` look for pre-API `.caddy` files. Nothing writes there any more |
 | `APPS_ROOT_DIR` | `/var/www/html` | Document root guessed for synced sites |
 | `APPS_DIR` | `./apps_dir` | Legacy flat app directory — used only for apps with no organization |
 
@@ -613,9 +612,9 @@ POST /api/applications/caddy/restore    # push the newest snapshot back
 POST /api/applications/caddy/heal       # compare and fix
 ```
 
-`POST /api/applications/caddy/adopt` still exists for an install that has not
-migrated yet: it reads `/etc/caddy/sites/*.caddy` and pushes each site through
-the API (dry run unless `{"apply":true}`). On this box it finds nothing.
+Nodes run `caddy-api.service` (`caddy run --resume`): there is no Caddyfile on a
+node, and the config the panel pushes is kept by Caddy's autosave, so a restart
+of Caddy resumes every route. The inventory sync reads routes from the same API.
 
 **Take a snapshot before touching the Caddyfile.** A reload with an empty
 snapshot table has nothing to restore from.
