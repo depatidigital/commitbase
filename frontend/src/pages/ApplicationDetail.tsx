@@ -49,11 +49,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useQueryClient } from "@tanstack/react-query";
-import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/applications";
+import { Application, UpdateApplicationData, UploadEntry, hasBeenDeployed } from "@/lib/applications";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
+import { SourcePicker } from "@/components/SourcePicker";
 import { locale, t } from "@/lib/i18n";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
@@ -115,6 +116,8 @@ export default function ApplicationDetail() {
   const [showRawLogs, setShowRawLogs] = useState(false);
   const [logs, setLogs] = useState<ApplicationLogs>({});
   const [reuploadOpen, setReuploadOpen] = useState(false);
+  // files dropped on the empty-site card, handed to the upload dialog
+  const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
   const [confirmAction, setConfirmAction] = useState<{
     type: 'start' | 'start-existing' | 'stop' | 'restart' | 'delete';
     appName: string;
@@ -307,7 +310,16 @@ export default function ApplicationDetail() {
       : undefined;
 
   const dialogContent = confirmAction ? {
-    start: {
+    // a static site from a repo: built and published, never "started"
+    start: isStatic ? {
+      title: hasBeenDeployed(application) ? t('Redeploy Site') : t('Deploy Site'),
+      description: t("Build \"{name}\" from {branch} and publish the result to the site.", {
+        name: confirmAction.appName,
+        branch: application.branch || 'main',
+      }),
+      actionText: hasBeenDeployed(application) ? t('Redeploy') : t('Deploy'),
+      variant: 'default' as const,
+    } : {
       title: hasBeenDeployed(application) ? t('Redeploy & Start App') : t('Deploy & Start App'),
       description: hasBeenDeployed(application) 
         ? t("Are you sure you want to redeploy and start \"{name}\"? This will rebuild and run the application.", { name: confirmAction.appName })
@@ -408,7 +420,13 @@ export default function ApplicationDetail() {
                 {uploadLabel}
               </Button>
             )}
-            <ReuploadDialog application={application} title={uploadLabel} open={reuploadOpen} onOpenChange={setReuploadOpen} />
+            <ReuploadDialog
+              application={application}
+              title={uploadLabel}
+              seed={droppedFiles}
+              open={reuploadOpen}
+              onOpenChange={setReuploadOpen}
+            />
 
             {/* static sites have no process to start, stop or restart: an
                 uploaded one redeploys by upload (above), a repo one by building */}
@@ -612,6 +630,34 @@ export default function ApplicationDetail() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
+            {/* nothing to serve yet: the one thing to do is drop the build here */}
+            {uploadedSite && !hasSiteFiles && (
+              <Card className="bg-gradient-card border-border/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Upload className="h-5 w-5 text-primary" />
+                    <span>{t("Upload files")}</span>
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {t("Upload the site's build output — the folder with index.html (usually dist/, build/ or out/).")}
+                    {" "}
+                    {t("It goes live at {domain} as soon as the upload finishes.", { domain: application.domain })}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <SourcePicker
+                    picked={[]}
+                    excluded={new Set()}
+                    onPick={(entries) => {
+                      setDroppedFiles(entries);
+                      setReuploadOpen(true);
+                    }}
+                    onExcludedChange={() => {}}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Basic Info */}
               <Card className="bg-gradient-card border-border/50">

@@ -275,14 +275,16 @@ export const listRepositoryBranches = async (
  */
 export type UploadEntry = { file: File; path: string };
 
+const SKIPPED = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db']);
+
 /**
  * Tidy a raw selection: skip .git and node_modules (never deployed, and
- * node_modules alone can blow the upload limit), and drop the single folder
- * everything sits in — a picked or dropped "mysite/" deploys its contents at
- * the root, index.html rather than mysite/index.html.
+ * node_modules alone can blow the upload limit) and OS junk, and drop the
+ * single folder everything sits in — a picked or dropped "mysite/" deploys its
+ * contents at the root, index.html rather than mysite/index.html.
  */
 export const toUploadEntries = (raw: UploadEntry[]): UploadEntry[] => {
-  const items = raw.filter(({ path }) => !path.split('/').some((part) => part === '.git' || part === 'node_modules'));
+  const items = raw.filter(({ path }) => !path.split('/').some((part) => SKIPPED.has(part)));
   const top = items[0]?.path.split('/')[0];
   const wrapped = items.length > 0 && items.every(({ path }) => path.includes('/') && path.split('/')[0] === top);
   return wrapped ? items.map((item) => ({ ...item, path: item.path.slice(top.length + 1) })) : items;
@@ -321,6 +323,21 @@ export const entriesFromDrop = async (items: DataTransferItemList): Promise<Uplo
   return toUploadEntries(out);
 };
 
+/**
+ * The usual ways a static upload goes wrong: no index.html at the root (the
+ * site 404s), or a project picked instead of its build output. `buildDir` is
+ * the output folder when one sits inside the pick, so it can be picked instead.
+ */
+export const checkStaticUpload = (entries: UploadEntry[]) => {
+  const paths = new Set(entries.map(({ path }) => path));
+  return {
+    hasIndex: paths.has('index.html'),
+    // not public/: that is CRA's template, not a build
+    buildDir: ['dist', 'build', 'out', '_site'].find((dir) => paths.has(`${dir}/index.html`)),
+    looksLikeSource: paths.has('package.json') || [...paths].some((path) => path.startsWith('src/')),
+  };
+};
+
 /** Pull the detection files out of an upload (root level only). */
 export const readDetectFiles = async (entries: UploadEntry[]): Promise<Record<string, string>> => {
   const out: Record<string, string> = {};
@@ -334,13 +351,18 @@ export const readDetectFiles = async (entries: UploadEntry[]): Promise<Record<st
 
 /**
  * Ship a picked file or folder as the app's sources. FormData, so it cannot go
- * through apiRequest — that one forces a JSON content type.
+ * through apiRequest — that one forces a JSON content type. XHR rather than
+ * fetch: fetch reports no upload progress.
  */
 export const uploadApplicationSource = async (
   id: string,
   entries: UploadEntry[],
-  /** static sites: the upload becomes the whole site, files it lacks are removed */
-  options: { replace?: boolean } = {}
+  options: {
+    /** static sites: the upload becomes the whole site, files it lacks are removed */
+    replace?: boolean;
+    /** 0..1 of the bytes sent; at 1 the server is still publishing them */
+    onProgress?: (fraction: number) => void;
+  } = {}
 ): Promise<{ files: number }> => {
   const body = new FormData();
   if (options.replace) body.append('replace', 'true');
@@ -350,18 +372,28 @@ export const uploadApplicationSource = async (
   });
 
   const token = localStorage.getItem('authToken');
-  const response = await fetch(`${API_BASE_URL}/applications/${id}/source`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body,
+  const data = await new Promise<{ success?: boolean; error?: string; data?: { files: number } }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}/applications/${id}/source`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => e.lengthComputable && options.onProgress?.(e.loaded / e.total);
+    xhr.onload = () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        resolve(xhr.status >= 200 && xhr.status < 300 ? parsed : { ...parsed, success: false });
+      } catch {
+        reject(new Error(t("Failed to upload source files")));
+      }
+    };
+    xhr.onerror = () => reject(new Error(t("Failed to upload source files")));
+    xhr.send(body);
   });
-  const data = await response.json();
 
-  if (!response.ok || !data.success) {
+  if (!data.success) {
     throw new Error(data.error || t("Failed to upload source files"));
   }
 
-  return data.data;
+  return data.data!;
 };
 
 // Update application

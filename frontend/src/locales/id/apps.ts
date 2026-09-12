@@ -153,6 +153,27 @@ export default {
     "Mengarahkan situs kembali ke file yang sudah diunggah. Tidak ada yang diunggah ulang.",
   "No files yet — upload the site's build output (a folder with index.html).":
     "Belum ada file — unggah hasil build situs (folder berisi index.html).",
+  "Upload the site's build output — the folder with index.html (usually dist/, build/ or out/).":
+    "Unggah hasil build situs — folder berisi index.html (biasanya dist/, build/, atau out/).",
+  "It goes live at {domain} as soon as the upload finishes.":
+    "Langsung tayang di {domain} begitu unggahan selesai.",
+  "This looks like the project's source (package.json, src/), not its build output. Build it first and upload the output folder.":
+    "Ini sepertinya source proyek (package.json, src/), bukan hasil build. Build dulu, lalu unggah folder hasilnya.",
+  "There is no index.html at the top level — visitors opening the site get a 404.":
+    "Tidak ada index.html di tingkat teratas — pengunjung situs akan mendapat 404.",
+  "Upload only {dir}/": "Unggah {dir}/ saja",
+  "To upload without an index.html anyway, turn off “Replace the whole site”.":
+    "Untuk tetap mengunggah tanpa index.html, matikan “Ganti seluruh isi situs”.",
+  "{count} new": "{count} baru",
+  "{count} overwritten": "{count} ditimpa",
+  "{count} removed": "{count} dihapus",
+  "Uploading… {percent}%": "Mengunggah… {percent}%",
+  "Publishing to the site…": "Menerbitkan ke situs…",
+  "Saving the files…": "Menyimpan file…",
+  "Deploy Site": "Deploy Situs",
+  "Redeploy Site": "Deploy Ulang Situs",
+  'Build "{name}" from {branch} and publish the result to the site.':
+    'Build "{name}" dari {branch} lalu terbitkan hasilnya ke situs.',
   Upload: "Unggah",
   "Files uploaded": "File terunggah",
   "The site now serves the new files.": "Situs sekarang menyajikan file baru.",
