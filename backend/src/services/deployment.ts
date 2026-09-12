@@ -19,6 +19,7 @@ import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
 import { cleanupAppReleases } from './appDiskService';
+import { buildKeyOf } from '../lib/buildKey';
 
 // Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
 // it on localhost. Apps must listen on $PORT — the health check enforces it.
@@ -268,6 +269,15 @@ export class DeploymentService {
       };
       tick();
     });
+  }
+
+  /** A kept build with this key whose tree is still on disk, newest first — or null. */
+  private async reusableRelease(afs: AppFs, applicationId: string, buildKey: string): Promise<Release | null> {
+    const release = await prisma.release.findFirst({
+      where: { applicationId, buildKey, status: 'READY', path: { not: null } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return release && (await afs.isDirectory(release.path!)) ? release : null;
   }
 
   /** Point `current` at a release. Symlink + rename, so the switch is atomic. */
