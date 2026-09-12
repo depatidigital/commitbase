@@ -491,6 +491,35 @@ export const startApplication = async (id: string): Promise<Application | boolea
   throw new Error(response.error || t("Failed to start application"));
 };
 
+export type ReleaseState = 'live' | 'rollback' | 'unused';
+
+/** What an app's tree on its node costs. Shared files are counted once, on the live release. */
+export interface AppDisk {
+  releases: Array<{ name: string; bytes: number; state: ReleaseState }>;
+  cacheBytes: number;
+  logsBytes: number;
+  sourcesBytes: number;
+  totalBytes: number;
+  reclaimableBytes: number;
+}
+
+/** Null for a static site — its files are in R2, not on a node. */
+export const getAppDisk = async (id: string): Promise<AppDisk | null> => {
+  const response = await apiRequest<AppDisk | null>(`/applications/${id}/disk`);
+  if (response.success) return response.data ?? null;
+  throw new Error(response.error || t("Could not read the disk usage"));
+};
+
+/** Remove unused releases (and with `cache` the build cache); what was freed, measured. */
+export const cleanupAppDisk = async (id: string, cache: boolean): Promise<{ removed: string[]; freedBytes: number }> => {
+  const response = await apiRequest<{ removed: string[]; freedBytes: number }>(`/applications/${id}/cleanup`, {
+    method: 'POST',
+    body: JSON.stringify({ cache }),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not clean up"));
+};
+
 /** Stop the running deploy; it ends as CANCELLED and what served before keeps serving. */
 export const cancelDeployment = async (id: string): Promise<void> => {
   const response = await apiRequest(`/applications/${id}/deploy/cancel`, { method: 'POST' });

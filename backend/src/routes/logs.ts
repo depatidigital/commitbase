@@ -129,6 +129,11 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
     } catch {
       // no build has run yet
     }
+    // After BUILD COMPLETED the deploy goes on — switch, start, a health check of
+    // up to a minute — and writes that to deploy.log. Without it the live view
+    // sat on "BUILD COMPLETED" as if stuck. Reset at every deploy, so it is this one's.
+    const deployLog = await afs.readText(path.posix.join(afs.appDir, 'logs', 'deploy.log')).catch(() => '');
+    if (deployLog.trim()) text += `\n${deployLog.slice(-16 * 1024)}`;
 
     return res.json({ success: true, data: { logs: text } } as ApiResponse);
   } catch (error) {

@@ -21,6 +21,7 @@ import {
   siteRootOrigin,
 } from '../services/staticReleaseService';
 import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
+import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
@@ -1315,6 +1316,56 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
 });
 
 // Stop application
+/** What the app's tree on its node costs: releases (live / rollback / unused), build cache, logs. */
+router.get('/:id/disk', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      select: { id: true },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    return res.json({ success: true, data: await appDiskUsage(application.id) } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error reading app disk usage:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not read the disk usage' } as ApiResponse);
+  }
+});
+
+/**
+ * Give back what the app does not need: unused releases, and with `cache` the
+ * Next build cache (the next build is slower). Never the live release, never
+ * one inside the rollback window. Refused while a deploy runs — it may be
+ * writing the very tree that looks unused.
+ */
+router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const imported = refuseImported(application, res);
+    if (imported) return imported;
+    if (deploymentService.isDeploying(application.id)) {
+      return res.status(409).json({ success: false, error: 'A deployment is running — clean up once it has finished' } as ApiResponse);
+    }
+
+    const result = await cleanupApp(application.id, { cache: req.body?.cache === true });
+    if (!result) return res.status(400).json({ success: false, error: 'This app keeps no files on a server' } as ApiResponse);
+    await prisma.log.create({
+      data: {
+        level: 'INFO',
+        message: `Cleaned up ${application.domain}: ${result.removed.join(', ') || 'nothing to remove'}`,
+        userId: req.user!.userId,
+        applicationId: application.id,
+      },
+    });
+    return res.json({ success: true, data: result } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error cleaning up app:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not clean up' } as ApiResponse);
+  }
+});
+
 /**
  * Stop the deploy that is running. It ends as CANCELLED shortly after — the
  * build on the node is stopped, and a deploy between steps stops at the next

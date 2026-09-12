@@ -18,13 +18,13 @@ import { sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
+import { cleanupAppReleases } from './appDiskService';
 
 // Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
 // it on localhost. Apps must listen on $PORT — the health check enforces it.
 const PORT_POOL_START = Number(process.env.APP_PORT_POOL_START || 20000);
 const PORT_POOL_END = Number(process.env.APP_PORT_POOL_END || 29999);
 const HEALTH_TIMEOUT_MS = Number(process.env.APP_HEALTH_TIMEOUT_MS || 60000);
-const KEEP_RELEASES = 3;
 // Builds are the memory hogs (next build ≈ 1-2 GB). One at a time by default.
 const BUILD_CONCURRENCY = Math.max(1, Number(process.env.BUILD_CONCURRENCY || 1));
 
@@ -241,8 +241,11 @@ export class DeploymentService {
       createConnection = () => stream;
     }
     return new Promise<boolean>((resolve) => {
+      // No `agent: false` with a tunnel: that makes Node build a fresh Agent and
+      // ignore createConnection — the probe then dialled the panel's own
+      // loopback, was refused every time, and failed healthy apps on the node.
       const req = http.get(
-        { host: '127.0.0.1', port, path: '/', timeout: 3000, agent: false, ...(createConnection && { createConnection }) },
+        { host: '127.0.0.1', port, path: '/', timeout: 3000, ...(createConnection ? { createConnection } : { agent: false }) },
         (res) => {
           res.resume();
           req.destroy();
@@ -279,34 +282,12 @@ export class DeploymentService {
   }
 
   /**
-   * Release trees nothing points at: not `current`, not a READY release a
-   * rollback could switch to — left by builds that failed, were cancelled or
-   * died with the backend. Each carries node_modules and .next, so they add up.
+   * Release trees outside the rollback window — failed, cancelled, or pushed
+   * out by newer builds — go before a build, and their rows with them
+   * (appDiskService). Each carries node_modules and .next, so they add up.
    */
   private async removeOrphanReleases(afs: AppFs, applicationId: string): Promise<void> {
-    const dir = releasesDirFor(afs.appDir);
-    const current = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
-    const kept = new Set(
-      (await prisma.release.findMany({ where: { applicationId, status: 'READY' }, select: { path: true } }))
-        .map((release) => release.path)
-        .filter(Boolean),
-    );
-    for (const name of await afs.readdir(dir).catch(() => [] as string[])) {
-      const full = join(dir, name);
-      if (full === current || kept.has(full)) continue;
-      await afs.rm(full, { recursive: true, force: true }).catch(() => {});
-    }
-  }
-
-  private async pruneReleases(afs: AppFs): Promise<void> {
-    const dir = releasesDirFor(afs.appDir);
-    const keep = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
-    const names = (await afs.readdir(dir).catch(() => [] as string[])).sort();
-    for (const name of names.slice(0, Math.max(0, names.length - KEEP_RELEASES))) {
-      const full = join(dir, name);
-      if (full === keep) continue;
-      await afs.rm(full, { recursive: true, force: true }).catch(() => {});
-    }
+    await cleanupAppReleases(afs, applicationId);
   }
 
   /**
@@ -613,14 +594,33 @@ export class DeploymentService {
 
       let started = await systemd.startApplication(application);
 
-      if (started && systemd.needsUnit(application.type)) {
+      if (systemd.needsUnit(application.type)) {
         const port = application.port || this.getDefaultPort(application.type);
-        await deployLog(`Waiting for the app to answer on 127.0.0.1:${port}`);
-        started = await this.waitForHealthy(afs, port);
+        // what the unit runs, as run.sh has it — the start command after detection
+        const run = await afs.readText(join(afs.appDir, 'run.sh')).catch(() => '');
+        const lines = run.split(NL);
+        const cdLine = lines.find((line) => line.startsWith('cd '));
+        const execLine = lines.find((line) => line.startsWith('exec '));
+        if (execLine) await deployLog(`Starting: ${execLine.slice(5)}  (PORT=${port}${cdLine ? `, in ${cdLine.slice(3)}` : ''})`);
+
+        if (started) {
+          await deployLog(`Waiting for the app to answer on 127.0.0.1:${port}`);
+          started = await this.waitForHealthy(afs, port);
+          if (!started) {
+            await deployLog(`Nothing answered on port ${port} within ${HEALTH_TIMEOUT_MS / 1000}s. The app must listen on $PORT (${port}).`);
+          }
+        } else {
+          await deployLog('The unit did not stay up.');
+        }
+
+        // the app's own words on why — without them a failed start says nothing
         if (!started) {
-          await deployLog(
-            `Nothing answered on port ${port} within ${HEALTH_TIMEOUT_MS / 1000}s. The app must listen on $PORT (${port}). Check logs/error.log.`
-          );
+          await deployLog(`Unit: ${(await systemd.getStatus(application)) === 'RUNNING' ? 'running' : 'not running (crashed or exited)'}`);
+          const logsDir = logsDirFor(afs.appDir);
+          for (const name of ['error.log', 'out.log']) {
+            const tail = await this.tailLog(afs, join(logsDir, name), 30, name);
+            await deployLog(`--- last lines of logs/${name} ---` + NL + (tail.trim() || '(empty)'));
+          }
         }
       }
 
@@ -1043,7 +1043,8 @@ export class DeploymentService {
         },
       });
 
-      await this.pruneReleases(afs).catch(() => {});
+      // the new release is live and recorded: whatever fell out of the rollback window goes
+      await cleanupAppReleases(afs, application.id).catch(() => {});
 
       await prisma.application.update({
         where: { id: application.id },

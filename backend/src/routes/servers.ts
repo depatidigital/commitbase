@@ -14,6 +14,8 @@ import { syncServerApps, classifyRoute, routeHosts, isNotAnApp } from '../servic
 import { getCaddyConfig, allRoutesOf } from '../services/caddyService';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 import { appsOnServer } from '../lib/servers';
+import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
+import { DeploymentService } from '../services/deployment';
 
 const router = Router();
 
@@ -387,6 +389,65 @@ router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (r
   } catch (error) {
     console.error('Error listing server apps:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * This node's disk: the filesystem tenant homes live on, and every panel app
+ * on it with what it uses and what cleaning up would give back. One du per
+ * app over SSH — a page opened on purpose, not polled.
+ */
+router.get('/:id/disk', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    const apps = await prisma.application.findMany({
+      where: { ...appsOnServer(server.id), runtime: null, type: { not: 'STATIC' } },
+      select: { id: true, name: true, domain: true },
+      orderBy: { domain: 'asc' },
+    });
+    const rows = [];
+    for (const app of apps) {
+      const disk = await appDiskUsage(app.id).catch(() => null);
+      rows.push({ ...app, totalBytes: disk?.totalBytes ?? null, reclaimableBytes: disk?.reclaimableBytes ?? 0, cacheBytes: disk?.cacheBytes ?? 0 });
+    }
+    rows.sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0));
+    return res.json({ success: true, data: { disk: await nodeDisk(server), apps: rows } } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error reading node disk:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not read the disk usage' } as ApiResponse);
+  }
+});
+
+/** Clean up every panel app on this node (skipping any mid-deploy). `cache` also drops their build caches. */
+router.post('/:id/cleanup', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    const deployments = new DeploymentService();
+    const apps = await prisma.application.findMany({
+      where: { ...appsOnServer(server.id), runtime: null, type: { not: 'STATIC' } },
+      select: { id: true, domain: true },
+    });
+    let freedBytes = 0;
+    const skipped: string[] = [];
+    for (const app of apps) {
+      if (deployments.isDeploying(app.id)) {
+        skipped.push(app.domain);
+        continue;
+      }
+      const result = await cleanupApp(app.id, { cache: req.body?.cache === true }).catch(() => null);
+      freedBytes += result?.freedBytes ?? 0;
+    }
+    await prisma.log.create({
+      data: { level: 'INFO', message: `Cleaned up ${apps.length - skipped.length} app(s) on ${server.name}`, userId: req.user!.userId },
+    });
+    return res.json({ success: true, data: { freedBytes, skipped, disk: await nodeDisk(server) } } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error cleaning up node:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not clean up this node' } as ApiResponse);
   }
 });
 
