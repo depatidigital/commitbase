@@ -25,7 +25,7 @@
 #                   SSH and run as root, nothing is installed for them.
 #   ACME_EMAIL      Let's Encrypt contact; unset = Caddy registers without one
 #   NODE_MAJOR      24
-#   WITH_PHP=1      also install PHP-FPM + composer for PHP tenants
+#   WITH_PHP        1   PHP-FPM + composer for PHP tenants; WITH_PHP=0 skips them
 #   WITH_NVM=1      also install system-wide nvm in /opt/nvm (per-app Node versions)
 #   SERVER_IP       public IP, only printed in the summary; auto-detected when unset
 #
@@ -37,7 +37,7 @@ set -euo pipefail
 PANEL_SSH_PUBKEY="${PANEL_SSH_PUBKEY:-}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 NODE_MAJOR="${NODE_MAJOR:-24}"
-WITH_PHP="${WITH_PHP:-0}"
+WITH_PHP="${WITH_PHP:-1}"
 WITH_NVM="${WITH_NVM:-0}"
 SERVER_IP="${SERVER_IP:-}"
 

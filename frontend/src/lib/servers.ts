@@ -102,9 +102,9 @@ export const pingServer = async (
   unwrap(await apiRequest(`/servers/${id}/ping`, { method: 'POST' }), t('Failed to reach server'));
 
 /** Queue install.sh on this node, run over SSH. */
-export const setupServer = async (id: string, withPhp: boolean) =>
+export const setupServer = async (id: string) =>
   unwrap(
-    await apiRequest(`/servers/${id}/setup`, { method: 'POST', body: JSON.stringify({ withPhp }) }),
+    await apiRequest(`/servers/${id}/setup`, { method: 'POST' }),
     t('Failed to queue server setup'),
   );
 

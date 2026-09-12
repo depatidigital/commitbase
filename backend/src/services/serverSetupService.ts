@@ -38,10 +38,10 @@ function acmeEmail(): string | null {
   }
 }
 
-export async function queueServerSetup(serverId: string, opts: { withPhp?: boolean } = {}): Promise<void> {
+export async function queueServerSetup(serverId: string): Promise<void> {
   await prisma.server.update({
     where: { id: serverId },
-    data: { setupState: 'QUEUED', setupError: null, setupJob: { withPhp: !!opts.withPhp } },
+    data: { setupState: 'QUEUED', setupError: null },
   });
   void runServerSetup(serverId);
 }
@@ -59,7 +59,6 @@ export async function runServerSetup(serverId: string): Promise<void> {
     if (claimed.count === 0) return;
 
     const server = await prisma.server.findUniqueOrThrow({ where: { id: serverId } });
-    const withPhp = !!(server.setupJob as { withPhp?: boolean } | null)?.withPhp;
 
     // Output as it arrives, stdout and stderr interleaved in order. Written to
     // the row every LIVE_FLUSH_MS so the Servers page can follow along by polling.
@@ -94,7 +93,6 @@ export async function runServerSetup(serverId: string): Promise<void> {
       const env = [
         ...(pubkey ? [`PANEL_SSH_PUBKEY=${pubkey}`] : []),
         `SERVER_IP=${server.publicIp}`,
-        ...(withPhp ? ['WITH_PHP=1'] : []),
         ...(email ? [`ACME_EMAIL=${email}`] : []),
       ];
 

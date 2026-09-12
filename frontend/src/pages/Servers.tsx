@@ -11,7 +11,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -112,9 +111,8 @@ export default function Servers() {
   // the node whose logs are open, or null
   const [logsFor, setLogsFor] = useState<Server | null>(null);
   const [logSource, setLogSource] = useState<LogSource>("system");
-  // the node about to be set up, and whether to add PHP-FPM
+  // the node about to be set up
   const [confirmSetup, setConfirmSetup] = useState<Server | null>(null);
-  const [withPhp, setWithPhp] = useState(false);
   // id of the node whose setup output is open — an id, so the dialog follows
   // the polled row and the output grows while the setup runs
   const [setupLogFor, setSetupLogFor] = useState<string | null>(null);
@@ -208,7 +206,7 @@ export default function Servers() {
   });
 
   const setupMutation = useMutation({
-    mutationFn: (server: Server) => setupServer(server.id, withPhp),
+    mutationFn: (server: Server) => setupServer(server.id),
     onSuccess: (_, server) => {
       refresh();
       setConfirmSetup(null);
@@ -357,10 +355,7 @@ export default function Servers() {
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={isProvisionPending(s.setupState)}
-              onClick={() => {
-                setWithPhp(false);
-                setConfirmSetup(s);
-              }}
+              onClick={() => setConfirmSetup(s)}
             >
               <Wrench className="mr-2 h-4 w-4" />
               {t("Set up server")}
@@ -629,13 +624,9 @@ export default function Servers() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Set up {name}?", { name: confirmSetup?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Runs install.sh as root on this box over SSH: system packages, Caddy, the panel's SSH user with passwordless root, and the panel's key. Takes a few minutes. Safe to re-run.")}
+              {t("Runs install.sh as root on this box over SSH: system packages, Node, Caddy, PHP-FPM with Composer, and the larika user. The panel key is authorized when there is one. Takes a few minutes. Safe to re-run.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={withPhp} onCheckedChange={(v) => setWithPhp(v === true)} />
-            {t("Also install PHP-FPM and Composer")}
-          </label>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => confirmSetup && setupMutation.mutate(confirmSetup)}>

@@ -448,7 +448,7 @@ router.post('/:id/setup', authenticateToken, requireRole(['SUPERADMIN']), async 
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string }, select: { id: true, name: true } });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
 
-    await queueServerSetup(server.id, { withPhp: req.body?.withPhp === true });
+    await queueServerSetup(server.id);
     return res.status(202).json({
       success: true,
       data: { setupState: 'QUEUED' },

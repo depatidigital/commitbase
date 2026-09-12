@@ -15,7 +15,7 @@ import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
 import { resolveAppDir, resolveAppDirByDomain, releasesDirFor, currentDirFor, sharedDirFor } from '../lib/appPaths';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
-import { shellQuote } from '../lib/runner';
+import { shellQuote, remoteReadDir } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
 import * as net from 'net';
@@ -458,8 +458,10 @@ export class DeploymentService {
     const deployLogPath = path.join(appDir, 'logs', 'deploy.log');
     await appUnit('chown', slug, application.id);
 
+    // The pool socket lives on the org's node, next to its Caddy — not on the panel.
+    const node = await serverForApplication(application.id);
     const socketDir = process.env.PHP_FPM_SOCKET_DIR || '/run/php';
-    const sockets = (await fs.readdir(socketDir).catch(() => [] as string[])).filter((n) =>
+    const sockets = (await remoteReadDir(node, socketDir)).filter((n) =>
       new RegExp(`^php[0-9.]+-fpm-cb-${slug}\\.sock$`).test(n)
     );
     if (sockets.length === 0) {
@@ -469,12 +471,7 @@ export class DeploymentService {
     const socket = path.join(socketDir, sockets.sort().reverse()[0] as string);
     const root = path.join(currentDirFor(appDir), docroot);
 
-    await configureCaddyForPhpApplication(
-      await serverForApplication(application.id),
-      application.domain,
-      root,
-      socket,
-    );
+    await configureCaddyForPhpApplication(node, application.domain, root, socket);
     await fs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
     return true;
   }

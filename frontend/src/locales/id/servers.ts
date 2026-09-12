@@ -163,10 +163,8 @@ export default {
   // server setup queue
   "Set up server": "Siapkan server",
   "Set up {name}?": "Siapkan {name}?",
-  "Runs install.sh as root on this box over SSH: system packages, Caddy, the panel's SSH user with passwordless root, and the panel's key. Takes a few minutes. Safe to re-run.":
-    "Menjalankan install.sh sebagai root di server ini lewat SSH: paket sistem, Caddy, pengguna SSH panel dengan root tanpa kata sandi, dan kunci panel. Butuh beberapa menit. Aman dijalankan ulang.",
-  "Also install PHP-FPM and Composer": "Sekalian pasang PHP-FPM dan Composer",
-  "Setup queued": "Penyiapan masuk antrean",
+  "Runs install.sh as root on this box over SSH: system packages, Node, Caddy, PHP-FPM with Composer, and the larika user. The panel key is authorized when there is one. Takes a few minutes. Safe to re-run.":
+    "Menjalankan install.sh sebagai root di server ini lewat SSH: paket sistem, Node, Caddy, PHP-FPM dengan Composer, dan pengguna larika. Kunci panel diotorisasi bila ada. Butuh beberapa menit. Aman dijalankan ulang.",
   "Setup output — {name}": "Keluaran penyiapan — {name}",
   "Waiting to start…": "Menunggu dimulai…",
   "Waiting for output…": "Menunggu keluaran…",

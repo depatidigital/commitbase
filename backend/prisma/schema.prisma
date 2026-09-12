@@ -136,7 +136,7 @@ model Server {
   /// over SSH. Same states as an organization's provisioning.
   setupState    ProvisionState @default(NONE)
   setupError    String?
-  /// { withPhp? } of the pending request
+  /// Unused since PHP-FPM is always installed (was { withPhp }). Kept so existing rows survive.
   setupJob      Json?
   /// Tail of the last setup run's output.
   setupLog      String?

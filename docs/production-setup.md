@@ -22,7 +22,7 @@ as root. By hand, on the node:
 sudo PANEL_SSH_PUBKEY="$(cat id_ed25519.pub)" ./install.sh   # the panel's /opt/larika/.ssh/id_ed25519.pub
 ```
 
-Knobs, all optional: `WITH_PHP=1` (PHP tenants), `WITH_NVM=1` (per-app Node
+Knobs, all optional: `WITH_PHP=0` (skip PHP-FPM + Composer, installed by default), `WITH_NVM=1` (per-app Node
 versions), `NODE_MAJOR=24`, `ACME_EMAIL`, `SSH_USER`, `SERVER_IP`. Idempotent;
 a re-run that finds the Caddyfile already correct does not reload Caddy, so
 live tenant routes are not dropped.
