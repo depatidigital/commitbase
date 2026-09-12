@@ -359,3 +359,17 @@ export async function provisionQueuedOrgs(): Promise<string> {
   for (const row of queued) outcomes.push(await runOrgNode(row.id));
   return [`${queued.length} org node(s) processed`, ...parts, ...outcomes].join('; ');
 }
+
+/** How API responses include an organization's nodes — enough for the list, the badges and the live log. */
+export const orgNodesInclude = {
+  select: {
+    id: true,
+    serverId: true,
+    state: true,
+    error: true,
+    log: true,
+    provisionedAt: true,
+    server: { select: { id: true, name: true, status: true } },
+  },
+  orderBy: { createdAt: 'asc' as const },
+};

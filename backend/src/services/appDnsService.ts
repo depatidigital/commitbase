@@ -9,6 +9,7 @@ import {
   getDefaultDnsTarget,
 } from './cloudflareService';
 import { refreshDomainSummary } from './domainSyncService';
+import { serverForApplication } from '../lib/servers';
 
 /**
  * DNS for an application's hostname.
@@ -38,6 +39,24 @@ const parentNames = (host: string): string[] => {
   const parts = lower(host).split('.');
   return parts.map((_, i) => parts.slice(i).join('.')).filter((name) => name.includes('.'));
 };
+
+type DnsTarget = { type: 'A' | 'CNAME'; content: string };
+
+const asTarget = (address: string): DnsTarget => ({
+  type: /^\d{1,3}(\.\d{1,3}){3}$/.test(address) ? 'A' : 'CNAME',
+  content: address,
+});
+
+/**
+ * Where an app's hostname should point: the public address of the node it runs
+ * on. Organizations span nodes, so one platform-wide address is only right for
+ * apps on that one box; it stays the fallback for an app with no node yet.
+ */
+async function targetForApp(applicationId: string): Promise<DnsTarget | null> {
+  const node = await serverForApplication(applicationId).catch(() => null);
+  if (node?.publicIp?.trim()) return asTarget(node.publicIp.trim());
+  return getDefaultDnsTarget();
+}
 
 /** The zone the app's hostname belongs to, or null when we do not run its DNS. */
 async function zoneFor(application: Pick<Application, 'domainId' | 'domain'>) {
@@ -73,7 +92,7 @@ export async function ensureAppHostname(
     };
   }
 
-  const target = await getDefaultDnsTarget();
+  const target = await targetForApp(application.id);
   if (!target) {
     return { state: 'unavailable', detail: 'No platform DNS target is configured' };
   }
@@ -119,14 +138,14 @@ export async function ensureAppHostname(
 
 /** Drop the record the deploy created. A wildcard or a hand-made record stays. */
 export async function removeAppHostname(
-  application: Pick<Application, 'domain' | 'domainId'>,
+  application: Pick<Application, 'id' | 'domain' | 'domainId'>,
 ): Promise<void> {
   try {
     const host = lower(application.domain);
     const zone = await zoneFor(application);
     if (!zone) return;
 
-    const target = await getDefaultDnsTarget();
+    const target = await targetForApp(application.id);
     if (!target) return;
 
     const records = (await listCloudflareDnsRecords(zone.zoneId)) ?? [];
@@ -152,12 +171,18 @@ export async function removeAppHostname(
  * the whole zone is ours to point.
  */
 export async function ensureWildcardRecord(domainId: string): Promise<HostnameOutcome> {
-  const domain = await prisma.domain.findUnique({ where: { id: domainId } });
+  const domain = await prisma.domain.findUnique({
+    where: { id: domainId },
+    include: { organization: { select: { defaultServer: { select: { publicIp: true } } } } },
+  });
   if (!domain?.cfZoneId) {
     return { state: 'unavailable', detail: 'Domain has no Cloudflare zone' };
   }
 
-  const target = await getDefaultDnsTarget();
+  // The wildcard answers for apps on the org's default server; an app on
+  // another node gets its own record, which wins over the wildcard.
+  const defaultIp = domain.organization?.defaultServer?.publicIp?.trim();
+  const target = defaultIp ? asTarget(defaultIp) : await getDefaultDnsTarget();
   if (!target) return { state: 'unavailable', detail: 'No platform DNS target is configured' };
 
   const name = `*.${lower(domain.name)}`;

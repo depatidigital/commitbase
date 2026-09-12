@@ -8,7 +8,7 @@ import { authenticateToken, requireRole, AuthenticatedRequest } from '../middlew
 import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
-import { queueOrgProvision, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
+import { queueOrgNode, orgNodesInclude } from '../services/orgProvisionService';
 
 const router = Router();
 
@@ -36,7 +36,7 @@ const AddMemberSchema = z.object({
 });
 
 const PlacementSchema = z.object({
-  // null unplaces the org — provisioning then refuses until it is placed again
+  // null clears the default — new apps then have to pick a server
   serverId: z.string().min(1).nullable(),
 });
 
@@ -123,7 +123,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const [organizations, total] = await Promise.all([
       prisma.organization.findMany({
         where: scoped,
-        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
+        include: { _count: { select: { members: true, domains: true, applications: true } }, defaultServer: { select: { id: true, name: true, status: true } }, nodes: orgNodesInclude, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
         orderBy: { createdAt: 'desc' },
         ...(paged && { skip, take: limit }),
       }),
@@ -171,13 +171,12 @@ router.post(
         select: { id: true },
       });
 
-      // Queued, not run: a new org has no server yet, so the worker picks it up
-      // the moment it is placed.
-      await queueOrgProvision(created.id, { userId: req.user!.userId, trigger: 'org-create' });
+      // Nothing to provision yet: an org is provisioned on a node when its
+      // first app lands there (or when a default server is set).
 
       const organization = await prisma.organization.findUniqueOrThrow({
         where: { id: created.id },
-        include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
+        include: { _count: { select: { members: true, domains: true, applications: true } }, defaultServer: { select: { id: true, name: true, status: true } }, nodes: orgNodesInclude, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
       });
 
       return res.status(201).json({ success: true, data: organization, message: 'Organization created' } as ApiResponse);
@@ -189,13 +188,10 @@ router.post(
 );
 
 /**
- * Place an organization on a node.
- *
- * Placement is superadmin-only and one-way in practice: cb-provision-org has
- * already created this org's OS user, home and cgroup slice on its current
- * node, so moving the row does not move the files. Re-pointing a placed org is
- * therefore refused — unplace it deliberately (or move the data first) rather
- * than silently stranding every app the tenant already has.
+ * Set an organization's default server — where its new apps go unless one is
+ * picked. Not a placement: apps carry their own server, so changing the
+ * default moves nothing and strands nothing. Setting one also provisions the
+ * org there, so the first app on it does not wait.
  */
 router.put(
   '/:id/server',
@@ -207,43 +203,31 @@ router.put(
       const id = req.params.id as string;
       const { serverId } = PlacementSchema.parse(req.body);
 
-      const org = await prisma.organization.findUnique({ where: { id }, select: { serverId: true } });
-      if (!org) return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
-
-      if (serverId && org.serverId && org.serverId !== serverId) {
-        return res.status(400).json({
-          success: false,
-          error: 'This organization is already placed on another server. Its home and apps live there — migrate them first.',
-        } as ApiResponse);
+      if (!(await prisma.organization.findUnique({ where: { id }, select: { id: true } }))) {
+        return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
       }
-
       if (serverId && !(await prisma.server.findUnique({ where: { id: serverId } }))) {
         return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
       }
 
-      const organization = await prisma.organization.update({
+      await prisma.organization.update({ where: { id }, data: { defaultServerId: serverId } });
+      if (serverId) await queueOrgNode(id, serverId, { userId: req.user!.userId, trigger: 'default-server' });
+
+      const organization = await prisma.organization.findUniqueOrThrow({
         where: { id },
-        data: { serverId },
         include: {
           _count: { select: { members: true, domains: true, applications: true } },
-          server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
+          defaultServer: { select: { id: true, name: true, status: true } }, nodes: orgNodesInclude, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
         },
       });
-
-      // Placing is what lets provisioning run. Idempotent, so re-placing on
-      // the same server doubles as a repair.
-      if (serverId) {
-        await queueOrgProvision(id, { userId: req.user!.userId, trigger: 'placement' });
-        if (OS_ISOLATION_ENABLED) organization.provisionState = 'QUEUED';
-      }
 
       return res.json({
         success: true,
         data: organization,
-        message: serverId ? 'Organization placed' : 'Organization unplaced',
+        message: serverId ? 'Default server set' : 'Default server cleared',
       } as ApiResponse);
     } catch (error) {
-      console.error('Error placing organization:', error);
+      console.error('Error setting default server:', error);
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
     }
   }
@@ -296,7 +280,7 @@ router.put(
         data: { [field]: databaseServerId },
         include: {
           _count: { select: { members: true, domains: true, applications: true } },
-          server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
+          defaultServer: { select: { id: true, name: true, status: true } }, nodes: orgNodesInclude, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } },
         },
       });
 
@@ -323,7 +307,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 
     const organization = await prisma.organization.findUnique({
       where: { id },
-      include: { _count: { select: { members: true, domains: true, applications: true } }, server: { select: { id: true, name: true, status: true } }, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
+      include: { _count: { select: { members: true, domains: true, applications: true } }, defaultServer: { select: { id: true, name: true, status: true } }, nodes: orgNodesInclude, postgresServer: { select: { id: true, name: true, status: true } }, mysqlServer: { select: { id: true, name: true, status: true } } },
     });
     if (!organization) {
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
