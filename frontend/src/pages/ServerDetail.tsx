@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLayout } from "@/components/PageLayout";
+import { ServerStorage } from "@/components/ServerStorage";
 import { ProvisionBadge } from "@/components/ProvisionBadge";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
@@ -204,6 +205,7 @@ const ServerDetail = () => {
           <TabsTrigger value="apps">{t("Applications")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="snapshots">{t("Snapshots")}</TabsTrigger>
+          <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -406,6 +408,10 @@ const ServerDetail = () => {
           <pre className="max-h-[60vh] overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 text-xs leading-relaxed">
             {logs.data?.output ?? (logs.error as Error)?.message ?? "…"}
           </pre>
+        </TabsContent>
+
+        <TabsContent value="storage">
+          <ServerStorage serverId={id} />
         </TabsContent>
 
         <TabsContent value="snapshots">

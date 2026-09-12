@@ -725,8 +725,8 @@ export default function ApplicationDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList
             className="grid w-full"
-            // overview, deployments, settings, plus files / environment + logs when they apply
-            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2)}, minmax(0, 1fr))` }}
+            // overview, deployments, settings, plus files / environment + logs / storage when they apply
+            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1)}, minmax(0, 1fr))` }}
           >
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
             {!uploadedSite && (
@@ -739,6 +739,8 @@ export default function ApplicationDetail() {
             {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+            {/* a static site keeps its files in R2, not on a node */}
+            {!isStatic && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
             <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
           </TabsList>
 
@@ -1087,10 +1089,15 @@ export default function ApplicationDetail() {
           {/* Deployments Tab */}
           <TabsContent value="deployments" className="space-y-6">
             <ReleasesCard appId={application.id} isStatic={isStatic} />
-            {/* a static site keeps its files in R2, not on a node */}
-            {!isStatic && <AppStorageCard appId={application.id} deploying={deploying} />}
             <DeploymentHistory application={application} />
           </TabsContent>
+
+          {/* measured (du over SSH) only while this tab is open */}
+          {!isStatic && (
+            <TabsContent value="storage" className="space-y-6">
+              <AppStorageCard appId={application.id} deploying={deploying} />
+            </TabsContent>
+          )}
 
           {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-6">
