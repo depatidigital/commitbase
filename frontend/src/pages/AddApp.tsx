@@ -977,7 +977,7 @@ export default function AddApp() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      {t("Where the app is built and runs. The organization is provisioned there if it is not yet. Fixed once the app exists.")}
+                      {t("Fixed once the app exists.")}
                     </p>
                   </div>
                 )}

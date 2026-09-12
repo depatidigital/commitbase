@@ -196,8 +196,7 @@ export default {
   "Runs on every server it is on: {servers}.": "Berjalan di setiap server tempat organisasi ini berada: {servers}.",
   "Runs on its default server, {server}.": "Berjalan di server default-nya, {server}.",
   "Organization's default server": "Server default organisasi",
-  "Where the app is built and runs. The organization is provisioned there if it is not yet. Fixed once the app exists.":
-    "Tempat aplikasi di-build dan berjalan. Organisasi diprovisi di sana jika belum. Tidak bisa diubah setelah aplikasi dibuat.",
+  "Fixed once the app exists.": "Tidak bisa diubah setelah aplikasi dibuat.",
   "No organization is provisioned here yet. An organization is provisioned on a server when its first app is placed on it.":
     "Belum ada organisasi yang diprovisi di sini. Organisasi diprovisi di sebuah server saat aplikasi pertamanya ditempatkan di server itu.",
 } satisfies Record<string, string>;
