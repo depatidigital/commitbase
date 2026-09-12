@@ -30,6 +30,14 @@ const BUILD_CONCURRENCY = Math.max(1, Number(process.env.BUILD_CONCURRENCY || 1)
 
 // ponytail: in-process locks. Fine for one backend; a DB row lock if the backend ever runs twice.
 const deploying = new Set<string>();
+// deploys a user asked to stop; checked between steps (cancelDeploy)
+const cancelling = new Set<string>();
+
+/** A deploy stopped on request — recorded as CANCELLED, not FAILED. */
+class CancelledError extends Error {}
+const throwIfCancelled = (applicationId: string) => {
+  if (cancelling.has(applicationId)) throw new CancelledError('Deployment cancelled');
+};
 let running = 0;
 const waiting: Array<() => void> = [];
 async function withBuildSlot<T>(fn: () => Promise<T>): Promise<T> {
@@ -107,6 +115,8 @@ export interface DeployResult {
   deployLogs?: string;
   /** Failed, but the previous release was put back and is serving. */
   rolledBack?: boolean;
+  /** Stopped on request before it went live — whatever served before still does. */
+  cancelled?: boolean;
 }
 
 export interface StartResult {
@@ -640,7 +650,30 @@ export class DeploymentService {
       return await withBuildSlot(() => this.deployInner(config));
     } finally {
       deploying.delete(id);
+      cancelling.delete(id);
     }
+  }
+
+  /**
+   * Stop a running deploy. Between steps it notices on its own; a build in
+   * progress on the node is stopped outright (its transient cb-build unit).
+   * Once the new release is being switched in it is too late — that finishes,
+   * so there is never half a switch. False when nothing is deploying.
+   */
+  async cancelDeploy(applicationId: string): Promise<boolean> {
+    if (!deploying.has(applicationId)) return false;
+    cancelling.add(applicationId);
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      select: { type: true, organization: { select: { slug: true } } },
+    });
+    // static builds run on the panel and stop at the next step instead
+    if (app && app.type !== 'STATIC' && app.organization?.slug) {
+      await appUnit('cancel-build', app.organization.slug, applicationId).catch((error: any) =>
+        console.error(`Could not stop the build of ${applicationId}:`, error?.message ?? error),
+      );
+    }
+    return true;
   }
 
   private async deployInner(config: DeploymentConfig): Promise<DeployResult> {
