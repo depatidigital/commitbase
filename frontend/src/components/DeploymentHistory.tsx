@@ -58,7 +58,8 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
   const { data: deploymentData, isLoading, error } = useDeploymentHistory(application.id);
   
   const deployments = deploymentData?.data || [];
-  const pagination = deploymentData?.pagination;
+  // numbered from the oldest, across pages
+  const { total = deployments.length, page = 1, limit = deployments.length } = deploymentData?.pagination ?? {};
 
   const getDeploymentIcon = (status: string) => {
     switch (status) {
@@ -118,87 +119,64 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
             <p className="text-sm mt-1">{error.message}</p>
           </div>
         ) : deployments.length > 0 ? (
-          <div className="space-y-4">
-            {deployments.map((deployment, index) => (
-              <div key={deployment.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-3">
+          // one line per deployment; the logs open on demand
+          <div className="divide-y rounded-md border">
+            {deployments.map((deployment, index) => {
+              const done = !IN_PROGRESS.includes(deployment.status);
+              // the first line says what happened: the upload summary, the route error
+              const summary = deployment.deployLogs?.trim().split("\n")[0];
+              const hasLogs = !!(deployment.deployLogs || deployment.buildLogs);
+              return (
+                <details key={deployment.id} className="group" open={!done && index === 0}>
+                  <summary
+                    className={`flex list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50 ${
+                      hasLogs || !done ? "cursor-pointer" : ""
+                    }`}
+                  >
                     {getDeploymentIcon(deployment.status)}
-                    <Badge variant={getDeploymentBadgeVariant(deployment.status)}>
+                    <Badge variant={getDeploymentBadgeVariant(deployment.status)} className="text-xs">
                       {deploymentStatusLabel(deployment.status)}
                     </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      #{deployments.length - index}
+                    <span className="text-muted-foreground">#{total - (page - 1) * limit - index}</span>
+                    <span
+                      className={`min-w-0 flex-1 truncate text-xs ${
+                        deployment.status === "FAILED" ? "text-destructive" : "text-muted-foreground"
+                      }`}
+                      title={summary}
+                    >
+                      {summary}
                     </span>
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {new Date(deployment.createdAt).toLocaleString(locale)}
+                      {" · "}
+                      {done ? formatDuration(deployment.createdAt, deployment.updatedAt) : t("In progress...")}
+                    </span>
+                  </summary>
+
+                  <div className="space-y-3 px-3 pb-3">
+                    {/* the one running: its build log as it prints */}
+                    {!done && index === 0 && <LiveBuildLog appId={application.id} />}
+                    {deployment.deployLogs && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium">{t("Deploy Logs")}</p>
+                        <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">
+                          {deployment.deployLogs}
+                        </pre>
+                      </div>
+                    )}
+                    {deployment.buildLogs && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium">{t("Build Logs")}</p>
+                        <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">
+                          {deployment.buildLogs}
+                        </pre>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                    <Clock className="h-4 w-4" />
-                    <span>{new Date(deployment.createdAt).toLocaleString(locale)}</span>
-                  </div>
-                </div>
-
-                {/* Deployment Details */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium">{t("Status:")}</span>
-                    <p className="text-muted-foreground">
-                      {deploymentStatusLabel(deployment.status)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium">{t("Duration:")}</span>
-                    <p className="text-muted-foreground">
-                      {deployment.status === 'SUCCESS' || deployment.status === 'FAILED'
-                        ? formatDuration(deployment.createdAt, deployment.updatedAt)
-                        : t('In progress...')
-                      }
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium">{t("Created:")}</span>
-                    <p className="text-muted-foreground">
-                      {new Date(deployment.createdAt).toLocaleDateString(locale)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* the one running: its build log as it prints */}
-                {IN_PROGRESS.includes(deployment.status) && index === 0 && (
-                  <LiveBuildLog appId={application.id} />
-                )}
-
-                {/* deploy result: route errors, DNS warnings, upload summary —
-                    open when it failed, since that is where the reason is */}
-                {deployment.deployLogs && (
-                  <details className="mt-4" open={deployment.status === "FAILED"}>
-                    <summary className="cursor-pointer text-sm font-medium hover:text-primary transition-colors">
-                      {t("Deploy Logs")}
-                    </summary>
-                    <div className="mt-2 p-3 bg-muted rounded-md">
-                      <pre className="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
-                        {deployment.deployLogs}
-                      </pre>
-                    </div>
-                  </details>
-                )}
-
-                {/* Build Logs */}
-                {deployment.buildLogs && (
-                  <details className="mt-4">
-                    <summary className="cursor-pointer text-sm font-medium hover:text-primary transition-colors">
-                      {t("Build Logs")}
-                    </summary>
-                    <div className="mt-2 p-3 bg-muted rounded-md">
-                      <pre className="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
-                        {deployment.buildLogs}
-                      </pre>
-                    </div>
-                  </details>
-                )}
-
-
-              </div>
-            ))}
+                </details>
+              );
+            })}
           </div>
         ) : (
           <div className="text-center text-muted-foreground py-8">

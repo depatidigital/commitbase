@@ -46,7 +46,7 @@ import {
   Upload
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
+import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useQueryClient } from "@tanstack/react-query";
 import { Application, UpdateApplicationData, UploadEntry, hasBeenDeployed } from "@/lib/applications";
@@ -55,6 +55,7 @@ import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { SourcePicker } from "@/components/SourcePicker";
+import { DangerZoneCard } from "@/components/DangerZoneCard";
 import { locale, t } from "@/lib/i18n";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
@@ -119,7 +120,7 @@ export default function ApplicationDetail() {
   // files dropped on the empty-site card, handed to the upload dialog
   const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'start' | 'start-existing' | 'stop' | 'restart' | 'delete';
+    type: 'start' | 'start-existing' | 'stop' | 'restart';
     appName: string;
   } | null>(null);
 
@@ -132,7 +133,6 @@ export default function ApplicationDetail() {
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
-  const deleteApp = useDeleteApplication();
 
   // Logs hooks
   // a static site has no process, so the build log is the only one it has
@@ -195,11 +195,6 @@ export default function ApplicationDetail() {
     setConfirmAction({ type: 'restart', appName: application.name });
   };
 
-  const handleDelete = () => {
-    if (!application) return;
-    setConfirmAction({ type: 'delete', appName: application.name });
-  };
-
   const executeAction = async () => {
     if (!confirmAction || !id) return;
 
@@ -216,10 +211,6 @@ export default function ApplicationDetail() {
           break;
         case 'restart':
           await restartApp.mutateAsync(id);
-          break;
-        case 'delete':
-          await deleteApp.mutateAsync(id);
-          navigate('/');
           break;
       }
     } catch (error) {
@@ -296,6 +287,10 @@ export default function ApplicationDetail() {
   // build, no process, so no start/stop/restart, logs or build settings
   const uploadedSite = isStatic && !application.repository;
   const hasSiteFiles = !!(application.staticBucket || application.staticSiteUrl);
+  const hasSiteBucket = isStatic && !!application.staticBucket;
+  // something is published at the hostname: a static site with files, or a
+  // runtime app that is up
+  const published = isStatic ? hasSiteFiles : application.status === 'RUNNING';
   const uploadLabel = !uploadedSite
     ? t("Upload files again")
     : hasSiteFiles
@@ -345,19 +340,13 @@ export default function ApplicationDetail() {
       actionText: t('Restart App'),
       variant: 'default' as const,
     },
-    delete: {
-      title: t('Delete App'),
-      description: t("Are you sure you want to delete \"{name}\"? This action cannot be undone and will permanently remove the application and all its data.", { name: confirmAction.appName }),
-      actionText: t('Delete App'),
-      variant: 'destructive' as const,
-    },
   }[confirmAction.type] : null;
 
   return (
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
             <Button
               variant="outline"
@@ -377,7 +366,7 @@ export default function ApplicationDetail() {
             </div>
           </div>
           
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => refetchApplication()}
@@ -386,10 +375,21 @@ export default function ApplicationDetail() {
               <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
               {t("Refresh")}
             </Button>
-            
+
+            {published && (
+              <Button variant="outline" asChild>
+                <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  {t("Visit site")}
+                </a>
+              </Button>
+            )}
+
             {/* deployed from an upload: new files are how it is redeployed,
                 and the only way back after a failed upload */}
-            {uploadedSite && hasSiteFiles && (application.status === 'ERROR' || application.status === 'STOPPED') && (
+            {/* also while RUNNING: "running" only means the last write went
+                through, not that the hostname reaches the files */}
+            {uploadedSite && hasSiteFiles && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -570,17 +570,6 @@ export default function ApplicationDetail() {
                 </TooltipContent>
               </Tooltip>
             )}
-            
-            {/* confirmed by the shared dialog below, like every other action */}
-            <Button
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={handleDelete}
-              disabled={deleteApp.isPending}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {t("Delete")}
-            </Button>
           </div>
         </div>
 
@@ -621,11 +610,15 @@ export default function ApplicationDetail() {
 
         {/* Main Content */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className={`grid w-full ${uploadedSite ? "grid-cols-2" : "grid-cols-4"}`}>
+          <TabsList
+            className="grid w-full"
+            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 1)}, minmax(0, 1fr))` }}
+          >
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+            {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
-            {!uploadedSite && <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>}
+            <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -658,327 +651,168 @@ export default function ApplicationDetail() {
               </Card>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* Basic Info */}
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Info className="h-5 w-5 text-primary" />
-                    <span>{t("Basic Information")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Name")}</label>
-                    <p className="font-medium">{application.name}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Type")}</label>
-                    <Badge variant="secondary">{application.type}</Badge>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Deployment Mode")}</label>
-                    <p className="font-medium">
-                      {application.type === 'STATIC' ? t('Static Site') : t('Runtime Container')}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Server")}</label>
-                    {application.placement ? (
-                      <div className="space-y-1">
-                        <Link
-                          to={`/servers/${application.placement.id}`}
-                          className="flex items-center gap-2 font-medium hover:text-primary"
-                        >
-                          <Server className="h-4 w-4 text-muted-foreground" />
-                          {application.placement.name}
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {application.placement.publicIp}
-                          </span>
-                        </Link>
-                        {application.placement.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {application.placement.tags.map((tag) => (
-                              <Badge key={tag} variant="outline" className="text-xs">
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      // routes and builds refuse to run without one — say it here
-                      <p className="text-sm text-destructive">
-                        {t("No server — assign the organization to one before deploying.")}
-                      </p>
-                    )}
-                  </div>
-                  {/* a bucket-served site has no directory on a node */}
-                  {(!isStatic || application.rootPath) && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-muted-foreground">{t("Directory")}</label>
-                      <p className="font-mono text-sm break-all">{application.rootPath || t('Not detected')}</p>
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Domain")}</label>
-                    <div className="flex items-center space-x-2">
-                      <Globe className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-mono text-sm">{application.domain}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => copyToClipboard(application.domain)}
-                      >
-                        <Copy className="h-3 w-3" />
-                      </Button>
-                    </div>
+            {/* one card of label/value lines — the whole picture without scrolling */}
+            <Card className="bg-gradient-card border-border/50">
+              <CardContent className="grid gap-x-8 pt-4 pb-2 md:grid-cols-2">
+                <Field label={t("Domain")}>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className="font-mono">{application.domain}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => copyToClipboard(application.domain)}
+                      aria-label={t("Copy")}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
                     {/* whether the hostname actually answers — RUNNING only ever
                         meant the process started */}
-                    <div className="flex items-center gap-2">
-                      {hostname?.live ? (
-                        <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
-                          <Wifi className="h-3 w-3" />
-                          {t("reachable")}
+                    {hostname?.live ? (
+                      <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
+                        <Wifi className="h-3 w-3" />
+                        {t("reachable")}
+                      </Badge>
+                    ) : hostname ? (
+                      <>
+                        <Badge variant="outline" className="gap-1 border-warning text-warning" title={hostname.error}>
+                          <WifiOff className="h-3 w-3" />
+                          {hostname.resolves ? t("not serving yet") : t("no DNS")}
                         </Badge>
-                      ) : hostname ? (
-                        <>
-                          <Badge variant="outline" className="gap-1 border-warning text-warning">
-                            <WifiOff className="h-3 w-3" />
-                            {hostname.resolves ? t("not serving yet") : t("no DNS")}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {hostname.error}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7"
-                            disabled={setupDns.isPending}
-                            onClick={() =>
-                              setupDns.mutate({ id: application.id, force: true })
-                            }
-                          >
-                            {t("Point it here")}
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6"
+                          disabled={setupDns.isPending}
+                          onClick={() => setupDns.mutate({ id: application.id, force: true })}
+                        >
+                          {t("Point it here")}
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
-                </CardContent>
-              </Card>
-
-              {/* Runtime / Static Info */}
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Server className="h-5 w-5 text-primary" />
-                    <span>{application.type === 'STATIC' ? t('Static Site') : t('Runtime Information')}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {application.type === 'STATIC' ? (
-                    <>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">{t("Static Site URL")}</label>
-                        {application.staticSiteUrl ? (
-                          <div className="flex items-center space-x-2">
-                            <span className="font-mono text-xs break-all">{application.staticSiteUrl}</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => copyToClipboard(application.staticSiteUrl || '')}
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <p className="font-medium text-muted-foreground">{t("Not deployed yet")}</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">{t("Hosting")}</label>
-                        {/* where the files actually are: an R2 bucket once uploaded,
-                            the old S3 prefix only for sites deployed before R2 */}
-                        {application.staticBucket ? (
-                          <p className="font-medium">
-                            Cloudflare R2{" "}
-                            <span className="font-mono text-xs text-muted-foreground">
-                              · {application.staticBucket}
-                            </span>
-                          </p>
-                        ) : application.staticSiteUrl ? (
-                          <p className="font-medium">{t("Object storage (S3, legacy)")}</p>
-                        ) : (
-                          <p className="font-medium text-muted-foreground">{t("No files uploaded yet")}</p>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">{t("Internal port")}</label>
-                        <p className="font-medium">
-                          {application.port ? `127.0.0.1:${application.port}` : t('Not configured')}
-                        </p>
-                        {/* bound to loopback and reached only through the proxy —
-                            an admin reading a bare number assumes it is open */}
-                        <p className="text-xs text-muted-foreground">
-                          {t("Bound to loopback on the node. Not reachable from outside; the proxy is what serves this app publicly.")}
-                        </p>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">{t("Memory Usage")}</label>
-                        <p className="font-medium">{t("Not available")}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">{t("CPU Usage")}</label>
-                        <p className="font-medium">{t("Not available")}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-muted-foreground">{t("Uptime")}</label>
-                        <p className="font-medium">{t("Not available")}</p>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Repository Info */}
-              {!uploadedSite && (
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <GitBranch className="h-5 w-5 text-primary" />
-                    <span>{t("Repository")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Repository")}</label>
-                    <p className="font-mono text-sm break-all">{application.repository || t('Not configured')}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Branch")}</label>
-                    <p className="font-medium">{application.branch || 'main'}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Build Command")}</label>
-                    <p className="font-mono text-sm">{application.buildCommand || t('Not configured')}</p>
-                  </div>
-                  {!isStatic && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-muted-foreground">{t("Start Command")}</label>
-                      <p className="font-mono text-sm">{application.startCommand || t('Not configured')}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-              )}
-
-              {/* Deployment Info */}
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Zap className="h-5 w-5 text-primary" />
-                    <span>{t("Deployment")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Last Deployment")}</label>
-                    <p className="font-medium">
-                      {application.deployments && application.deployments.length > 0 
-                        ? new Date(application.deployments[0].createdAt).toLocaleString(locale)
-                        : t('Never deployed')
-                      }
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Deployment Status")}</label>
-                    <Badge variant="outline">
-                      {application.deployments && application.deployments.length > 0 
-                        ? deploymentStatusLabel(application.deployments[0].status) 
-                        : t('Not deployed')
-                      }
+                </Field>
+                {/* where the code comes from says more than a type label twice:
+                    an upload redeploys by uploading, a repository by building */}
+                <Field label={t("Source")}>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {application.repository ? (
+                      <span className="inline-flex min-w-0 items-center gap-1 font-mono text-xs">
+                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="break-all">{application.repository}</span>
+                        <span className="text-muted-foreground">· {application.branch || "main"}</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+                        {t("Uploaded files")}
+                      </span>
+                    )}
+                    <Badge variant="secondary" className="text-xs">
+                      {isStatic ? t("Static Site") : application.type}
                     </Badge>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Total Deployments")}</label>
-                    <p className="font-medium">{application.deployments?.length || 0}</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Environment Variables — only read by a build */}
-              {!uploadedSite && (
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Settings className="h-5 w-5 text-primary" />
-                    <span>{t("Environment Variables")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">{t("Environment Variables")}</label>
-                    <Textarea
-                      value={application.envVars ? JSON.stringify(application.envVars, null, 2) : t('No environment variables configured')}
-                      readOnly
-                      className="font-mono text-xs"
-                      rows={6}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-              )}
-
-              {/* Quick Actions */}
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Activity className="h-5 w-5 text-primary" />
-                    <span>{t("Quick Actions")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {!uploadedSite && (
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => setActiveTab("logs")}
+                </Field>
+                <Field label={t("Server")}>
+                  {application.placement ? (
+                    <Link
+                      to={`/servers/${application.placement.id}`}
+                      className="inline-flex flex-wrap items-center justify-end gap-2 hover:text-primary"
                     >
-                      <Terminal className="h-4 w-4 mr-2" />
-                      {t("View Logs")}
-                    </Button>
+                      <Server className="h-4 w-4 text-muted-foreground" />
+                      {application.placement.name}
+                      <span className="font-mono text-xs text-muted-foreground">{application.placement.publicIp}</span>
+                      {application.placement.tags.map((tag) => (
+                        <Badge key={tag} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </Link>
+                  ) : (
+                    // routes and builds refuse to run without one — say it here
+                    <span className="text-destructive">
+                      {t("No server — assign the organization to one before deploying.")}
+                    </span>
                   )}
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => setActiveTab("deployments")}
-                  >
-                    <Zap className="h-4 w-4 mr-2" />
-                    {t("View Deployments")}
-                  </Button>
-                  {!uploadedSite && (
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => setActiveTab("settings")}
+                </Field>
+                {isStatic ? (
+                  <Field label={t("Hosting")}>
+                    {/* where the files actually are: an R2 bucket once uploaded,
+                        the old S3 prefix only for sites deployed before R2 */}
+                    {application.staticBucket ? (
+                      <>
+                        Cloudflare R2{" "}
+                        <span className="break-all font-mono text-xs text-muted-foreground">· {application.staticBucket}</span>
+                      </>
+                    ) : application.staticSiteUrl ? (
+                      <span title={application.staticSiteUrl}>{t("Object storage (S3, legacy)")}</span>
+                    ) : (
+                      <span className="text-muted-foreground">{t("No files uploaded yet")}</span>
+                    )}
+                  </Field>
+                ) : (
+                  <Field label={t("Internal port")}>
+                    {/* bound to loopback and reached only through the proxy —
+                        an admin reading a bare number assumes it is open */}
+                    <span
+                      className="font-mono"
+                      title={t("Bound to loopback on the node. Not reachable from outside; the proxy is what serves this app publicly.")}
                     >
-                      <Settings className="h-4 w-4 mr-2" />
-                      {t("Edit Settings")}
-                    </Button>
+                      {application.port ? `127.0.0.1:${application.port}` : t("Not configured")}
+                    </span>
+                  </Field>
+                )}
+                {/* a bucket-served site has no directory on a node */}
+                {(!isStatic || application.rootPath) && (
+                  <Field label={t("Directory")}>
+                    <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
+                  </Field>
+                )}
+                <Field label={t("Last Deployment")}>
+                  {lastDeployment ? (
+                    <>
+                      {new Date(lastDeployment.createdAt).toLocaleString(locale)}
+                      {" · "}
+                      {deploymentStatusLabel(lastDeployment.status)}
+                    </>
+                  ) : (
+                    t("Never deployed")
                   )}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* what the static site is serving — only once there is a bucket */}
-            {application.type === "STATIC" && application.staticBucket && (
-              <SiteFilesCard appId={application.id} />
-            )}
+                  <span className="text-muted-foreground">
+                    {" · "}
+                    {t("{count} deployments", { count: application.deployments?.length || 0 })}
+                  </span>
+                </Field>
+                {application.repository && (
+                  <Field label={t("Build Command")}>
+                    <span className="font-mono text-xs">{application.buildCommand || t("Not configured")}</span>
+                  </Field>
+                )}
+                {!isStatic && (
+                  <Field label={t("Start Command")}>
+                    <span className="font-mono text-xs">{application.startCommand || t("Not configured")}</span>
+                  </Field>
+                )}
+                {!uploadedSite && (
+                  <Field label={t("Environment Variables")}>
+                    {/* names only — values can be secrets, and this page is widely viewed */}
+                    {application.envVars && Object.keys(application.envVars).length > 0 ? (
+                      <span className="break-all font-mono text-xs">{Object.keys(application.envVars).join(", ")}</span>
+                    ) : (
+                      <span className="text-muted-foreground">{t("No environment variables configured")}</span>
+                    )}
+                  </Field>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
+
+          {/* what the static site is serving — only once there is a bucket */}
+          {hasSiteBucket && (
+            <TabsContent value="files" className="space-y-6">
+              <SiteFilesCard appId={application.id} />
+            </TabsContent>
+          )}
 
           {/* Logs Tab */}
           <TabsContent value="logs" className="space-y-6">
@@ -1095,17 +929,21 @@ export default function ApplicationDetail() {
 
           {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-6">
-            <Card className="bg-gradient-card border-border/50">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Settings className="h-5 w-5 text-primary" />
-                  <span>{t("App Settings")}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <ApplicationSettingsForm application={application} />
-              </CardContent>
-            </Card>
+            {/* an uploaded site has no build settings — only the danger zone */}
+            {!uploadedSite && (
+              <Card className="bg-gradient-card border-border/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Settings className="h-5 w-5 text-primary" />
+                    <span>{t("App Settings")}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <ApplicationSettingsForm application={application} />
+                </CardContent>
+              </Card>
+            )}
+            <DangerZoneCard application={application} />
           </TabsContent>
         </Tabs>
 
@@ -1124,9 +962,9 @@ export default function ApplicationDetail() {
                 <AlertDialogAction
                   onClick={executeAction}
                   className={dialogContent.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
-                  disabled={startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending}
+                  disabled={startApp.isPending || stopApp.isPending || restartApp.isPending}
                 >
-                  {startApp.isPending || stopApp.isPending || restartApp.isPending || deleteApp.isPending ? (
+                  {startApp.isPending || stopApp.isPending || restartApp.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       {t("Processing...")}
