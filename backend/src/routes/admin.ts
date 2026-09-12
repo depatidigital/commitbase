@@ -10,7 +10,6 @@ import {
   queueOrgNode,
   queueOrgEverywhere,
   orgNodesInclude,
-  OS_ISOLATION_ENABLED,
 } from '../services/orgProvisionService';
 
 // Mounted at /api/admin behind authenticateToken + requireRole(['ADMIN']) in index.ts.
@@ -244,8 +243,7 @@ router.get('/organizations', async (req: AuthenticatedRequest, res: Response) =>
 
     // State comes from the org_nodes rows the provisioning worker keeps — no
     // SSH per org per node on every page load.
-    const rows = organizations.map((org) => ({ ...org, isolationEnabled: OS_ISOLATION_ENABLED }));
-    return res.json(paginated(rows, total, page, limit));
+    return res.json(paginated(organizations, total, page, limit));
   } catch (error) {
     console.error('Error listing organizations:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -262,7 +260,7 @@ router.get('/organizations/:id/provision', async (req: AuthenticatedRequest, res
     if (!org) {
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
     }
-    return res.json({ success: true, data: { enabled: OS_ISOLATION_ENABLED, osUser: `cb-${org.slug}`, ...org } } as ApiResponse);
+    return res.json({ success: true, data: { osUser: `cb-${org.slug}`, ...org } } as ApiResponse);
   } catch (error) {
     console.error('Error reading provisioning status:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -281,13 +279,6 @@ const ProvisionSchema = z.object({
 // "repair ownership" and "apply new resource limits".
 router.post('/organizations/:id/provision', validateRequest(ProvisionSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (!OS_ISOLATION_ENABLED) {
-      return res.status(400).json({
-        success: false,
-        error: 'ORG_OS_ISOLATION is disabled on this server',
-      } as ApiResponse);
-    }
-
     const org = await prisma.organization.findUnique({ where: { id: req.params.id as string } });
     if (!org) {
       return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);

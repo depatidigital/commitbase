@@ -12,15 +12,11 @@
  */
 import { prisma } from '../lib/prisma';
 import { ORG_SLUG_RE } from '../lib/appPaths';
-import { queueOrgNode, ensureOrgOnNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
+import { queueOrgNode, ensureOrgOnNode } from '../services/orgProvisionService';
 
 const DRY = process.argv.includes('--dry-run');
 
 async function main() {
-  if (!OS_ISOLATION_ENABLED && !DRY) {
-    console.error('ORG_OS_ISOLATION is not enabled — set it to "true" in the backend env first.');
-    process.exit(1);
-  }
 
   const orgs = await prisma.organization.findMany({
     select: {

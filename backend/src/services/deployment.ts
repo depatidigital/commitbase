@@ -44,14 +44,14 @@ async function withBuildSlot<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const NL = '\n';
-// Every app path is on a Linux box (a node, or the panel's legacy dir), so posix.
+// Every app path is on a Linux box (the app's node), so posix.
 const join = path.posix.join;
 
 /**
  * Run a command with stdout and stderr appended to a log file as they arrive,
  * so the log can be read while it runs. Rejects on a non-zero exit or when the
  * timeout kills it; the output is already in the file either way.
- * Local only — the legacy in-process build and static builds on the panel.
+ * Local only — static builds on the panel.
  */
 export function streamToLog(
   command: string,
@@ -122,7 +122,7 @@ export interface StartResult {
  * owned by its organization's OS user, inside that org's cgroup slice on that
  * node (see systemdService and orgProvisionService). Every file and command
  * goes through AppFs, which is that node over SSH — or the panel's own disk for
- * the legacy and static cases (lib/appFs.ts).
+ * static sites (lib/appFs.ts).
  */
 export class DeploymentService {
   /** Load an application with the organization the runtime needs. */
