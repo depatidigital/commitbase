@@ -140,5 +140,8 @@ assert.strictEqual(preDeployOf(prismaPkg, 'yarn', false), 'yarn prisma db push -
 assert.strictEqual(preDeployOf({ 'package.json': JSON.stringify({ dependencies: { next: '15' } }) }, 'pnpm'), null);
 assert.strictEqual(detectFromFiles({ ...prismaPkg, 'pnpm-lock.yaml': '' }).preDeployCommand, 'pnpm prisma migrate deploy');
 assert.strictEqual(next.preDeployCommand, null);
+// the client is generated before the build, not left to the install
+assert.strictEqual(detectFromFiles({ ...prismaPkg, 'pnpm-lock.yaml': '' }).generateCommand, 'pnpm prisma generate');
+assert.strictEqual(next.generateCommand, null);
 
 console.log('projectDetect: ok');

@@ -49,6 +49,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
+import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, getAppDetection, hasBeenDeployed } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
@@ -175,6 +176,19 @@ export default function ApplicationDetail() {
     staleTime: 5 * 60_000,
     retry: false,
   });
+  // The deployment history polls itself while a deploy runs (the same query the
+  // Deployments tab shows — shared, no extra requests). The app row only polls
+  // once it reads DEPLOYING, and a cached ERROR from the last deploy never
+  // does — so the history is what says a deploy is running, and when it ends
+  // the app row is fetched again for its new status.
+  const { data: history } = useDeploymentHistory(id!);
+  const newestDeploy = history?.data?.[0];
+  const deployInFlight = ['PENDING', 'BUILDING', 'DEPLOYING'].includes(newestDeploy?.status ?? '');
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (newestDeploy && !deployInFlight) void queryClient.invalidateQueries({ queryKey: ['application', id] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newestDeploy?.id, deployInFlight]);
   // the Environment tab's form, for the setup checklist on the Overview tab
   const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], warnings: [], dirty: false });
   // Before the first deploy, the saved DATABASE_URL tried from the app's node:
@@ -333,13 +347,14 @@ export default function ApplicationDetail() {
   const lastDeployment = application.deployments?.[0];
   const failureReason =
     application.status === 'ERROR' && lastDeployment?.status === 'FAILED'
-      ? (lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-3).join('\n'))
+      ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-3).join('\n') || '') || undefined
       : undefined;
   // A deploy runs in the background after /start answers, so the request being
   // pending says little: the app's status and its newest deployment are the
   // truth. The status poll (useApplicationStatus) flips this back when it ends.
   const deploying =
     startApp.isPending ||
+    deployInFlight ||
     application.status === 'DEPLOYING' ||
     application.status === 'BUILDING' ||
     ['PENDING', 'BUILDING', 'DEPLOYING'].includes(lastDeployment?.status ?? '');

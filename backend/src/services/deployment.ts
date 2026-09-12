@@ -350,6 +350,8 @@ export class DeploymentService {
         }
       }
       if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
+      // every build, even with node_modules reused: the client lands in the release tree
+      if (detected.generateCommand) steps.push(detected.generateCommand);
       const buildCommand = application.buildCommand || detected.buildCommand;
       if (buildCommand) steps.push(buildCommand);
       // Migrations and the like: after the build, in the same script and env,

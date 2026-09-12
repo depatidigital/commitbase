@@ -6,6 +6,16 @@ import { Zap, Clock, CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-r
 import { Application, getLiveBuildLog } from "@/lib/applications";
 import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { locale, t } from "@/lib/i18n";
+import { parseAnsi } from "@/lib/ansi";
+
+/** Build output keeps the tools' terminal colors; draw them instead of printing the escapes. */
+const AnsiText = ({ text }: { text: string }) => (
+  <>
+    {parseAnsi(text).map((segment, i) => (
+      <span key={i} className={segment.className}>{segment.text}</span>
+    ))}
+  </>
+);
 
 /** Displayed word for a deployment status; the raw value stays for logic. */
 const STATUS_LABELS: Record<string, string> = {
@@ -44,7 +54,7 @@ function LiveBuildLog({ appId }: { appId: string }) {
         ref={box}
         className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs"
       >
-        {logs || t("Waiting for output…")}
+        {logs ? <AnsiText text={logs} /> : t("Waiting for output…")}
       </pre>
     </div>
   );
@@ -161,7 +171,7 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                       <div className="space-y-1">
                         <p className="text-xs font-medium">{t("Deploy Logs")}</p>
                         <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">
-                          {deployment.deployLogs}
+                          <AnsiText text={deployment.deployLogs} />
                         </pre>
                       </div>
                     )}
@@ -169,7 +179,7 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                       <div className="space-y-1">
                         <p className="text-xs font-medium">{t("Build Logs")}</p>
                         <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">
-                          {deployment.buildLogs}
+                          <AnsiText text={deployment.buildLogs} />
                         </pre>
                       </div>
                     )}

@@ -38,6 +38,8 @@ export interface DetectedProject {
   warnings: DetectWarning[];
   /** a step after the build, before the release goes live — Prisma's migrations — or null */
   preDeployCommand: string | null;
+  /** a step before the build — Prisma's client generation — or null */
+  generateCommand: string | null;
 }
 
 export type DetectWarning =
@@ -199,15 +201,27 @@ const EXEC: Record<PackageManager, string> = { npm: 'npx', pnpm: 'pnpm', yarn: '
  * syncs its schema with db push — which refuses changes that would lose data.
  */
 export function preDeployOf(files: DetectInput, pm: PackageManager, migrations?: boolean): string | null {
-  let deps: Record<string, unknown> = {};
+  if (!usesPrisma(files)) return null;
+  return migrations === false ? `${EXEC[pm]} prisma db push --skip-generate` : `${EXEC[pm]} prisma migrate deploy`;
+}
+
+/**
+ * `prisma generate`, before the build. The client is not in the repo (Prisma 7's
+ * `generated/prisma` is gitignored) and installing no longer generates it, so
+ * without this the build fails on "Can't resolve '@/generated/prisma'".
+ */
+export function generateOf(files: DetectInput, pm: PackageManager): string | null {
+  return usesPrisma(files) ? `${EXEC[pm]} prisma generate` : null;
+}
+
+function usesPrisma(files: DetectInput): boolean {
   try {
     const pkg = JSON.parse(files['package.json'] || '{}');
-    deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    return 'prisma' in deps || '@prisma/client' in deps;
   } catch {
-    return null;
+    return false;
   }
-  if (!('prisma' in deps) && !('@prisma/client' in deps)) return null;
-  return migrations === false ? `${EXEC[pm]} prisma db push --skip-generate` : `${EXEC[pm]} prisma migrate deploy`;
 }
 
 /**
@@ -221,6 +235,7 @@ export function detectFromFiles(files: DetectInput, prismaMigrations?: boolean):
     env: repoEnvOf(files),
     warnings: warningsOf(files, preset),
     preDeployCommand: preset.type === 'NODEJS' ? preDeployOf(files, preset.packageManager, prismaMigrations) : null,
+    generateCommand: preset.type === 'NODEJS' ? generateOf(files, preset.packageManager) : null,
   };
 }
 
@@ -362,8 +377,8 @@ function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'war
 }
 
 function base(
-  partial: Partial<Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
-): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand'> {
+  partial: Partial<Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
+): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'> {
   return {
     packageManager: 'npm',
     installCommand: 'npm install --no-audit --no-fund',
