@@ -174,6 +174,29 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
           </div>
         ) : (
           <div className="space-y-4">
+            {/* how the last run ended — seen again after the dialog was closed */}
+            {latest && (
+              <div
+                className={`flex items-start gap-2 rounded-md border p-2 text-xs ${
+                  latest.status === "DONE" ? "border-success/40" : "border-destructive/40"
+                }`}
+              >
+                {latest.status === "DONE" ? (
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                ) : (
+                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                )}
+                <div className="min-w-0">
+                  <p>
+                    {latest.status === "DONE"
+                      ? t("Restored {file}", { file: latest.fileName })
+                      : t("Restore of {file} failed", { file: latest.fileName })}
+                    <span className="text-muted-foreground"> · {new Date(latest.finishedAt ?? latest.createdAt).toLocaleString(locale)}</span>
+                  </p>
+                  {latest.error && <p className="mt-1 whitespace-pre-wrap break-words text-destructive">{latest.error}</p>}
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="import-file">{t("SQL file")}</Label>
               <Input
@@ -220,10 +243,20 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
 
             {needsConfirm && (
               <div className="space-y-2">
-                <Label htmlFor="import-confirm">
-                  {t("{name} already has {count} tables. Type its name to restore into it anyway.", { name: dbName, count: tables! })}
+                <p className="text-xs text-muted-foreground">
+                  {t("{name} already has {count} tables.", { name: dbName, count: tables! })}
+                </p>
+                <Label htmlFor="import-confirm" className="font-normal">
+                  {t('Type "{name}" to restore into it anyway', { name: dbName })}
                 </Label>
-                <Input id="import-confirm" autoComplete="off" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+                <Input
+                  id="import-confirm"
+                  autoComplete="off"
+                  className="font-mono"
+                  placeholder={dbName}
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                />
               </div>
             )}
 

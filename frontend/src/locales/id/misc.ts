@@ -77,8 +77,8 @@ export default {
     "MySQL tidak bisa membatalkan perubahan tabel: jika satu perintah gagal, yang sudah berjalan tetap tersimpan. Cadangkan dulu, atau pulihkan ke database kosong.",
   "Runs in one transaction: if any statement fails, nothing is kept.":
     "Berjalan dalam satu transaksi: jika ada perintah yang gagal, tidak ada yang disimpan.",
-  "{name} already has {count} tables. Type its name to restore into it anyway.":
-    "{name} sudah berisi {count} tabel. Ketik namanya untuk tetap memulihkan ke sana.",
+  "{name} already has {count} tables.": "{name} sudah berisi {count} tabel.",
+  'Type "{name}" to restore into it anyway': 'Ketik "{name}" untuk tetap memulihkan',
   "Uploading… {percent}%": "Mengunggah… {percent}%",
   "Restore another file": "Pulihkan berkas lain",
   Restore: "Pulihkan",

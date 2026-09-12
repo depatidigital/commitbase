@@ -348,7 +348,9 @@ export const sniffDump = async (file: File): Promise<{ engine: 'POSTGRESQL' | 'M
       }
       reader.cancel().catch(() => {});
     } else {
-      head = await file.slice(0, LIMIT).text();
+      // UTF-16LE is what PowerShell's `>` writes; the server reads it too
+      const bytes = await file.slice(0, LIMIT).arrayBuffer();
+      head = new TextDecoder(magic[0] === 0xff && magic[1] === 0xfe ? 'utf-16le' : 'utf-8').decode(bytes);
     }
   } catch {
     return { engine: null, otherDatabase: null };

@@ -4,6 +4,7 @@ import { Transform, pipeline } from 'stream';
 import { once } from 'events';
 import { finished } from 'stream/promises';
 import zlib from 'zlib';
+import { StringDecoder } from 'string_decoder';
 import { Client as PgClient } from 'pg';
 import { from as copyFrom, type CopyStreamQuery } from 'pg-copy-streams';
 import mysql from 'mysql2/promise';
@@ -407,6 +408,9 @@ export async function listImports(databaseId: string) {
   });
 }
 
+/** PostgreSQL text cannot hold NUL — a dump (or an error quoting it) can. */
+const clean = (text: string) => text.replace(/\u0000/g, '');
+
 const errorText = (error: any) =>
   [error?.message ?? String(error), error?.detail, error?.hint && `Hint: ${error.hint}`, error?.where]
     .filter(Boolean)
@@ -418,7 +422,19 @@ const errorText = (error: any) =>
  * lock when done.
  */
 export async function runImport(importId: string, databaseId: string, filePath: string): Promise<void> {
-  const live = liveLog((text) => prisma.databaseImport.update({ where: { id: importId }, data: { log: text } }));
+  const live = liveLog((text) => prisma.databaseImport.update({ where: { id: importId }, data: { log: clean(text) } }));
+  /** The outcome, recorded no matter what: a lost write leaves the row RUNNING and the dialog waiting forever. */
+  const finish = async (data: { status: 'DONE' | 'FAILED'; error?: string; sha256?: string }) => {
+    const outcome = { ...data, ...(data.error && { error: clean(data.error) }), statements, skipped, finishedAt: new Date() };
+    try {
+      await prisma.databaseImport.update({ where: { id: importId }, data: { ...outcome, log: clean(live.text) } });
+    } catch (error) {
+      console.error(`Import ${importId}: could not record the result`, error);
+      await prisma.databaseImport
+        .update({ where: { id: importId }, data: { status: data.status, error: 'The result could not be recorded — see the panel log', finishedAt: new Date() } })
+        .catch((again) => console.error(`Import ${importId}: could not record the result at all`, again));
+    }
+  };
   const started = Date.now();
   const hash = crypto.createHash('sha256');
   let statements = 0;
@@ -446,7 +462,6 @@ export async function runImport(importId: string, databaseId: string, filePath: 
     });
     const noop = () => {};
     const text = gzipped ? pipeline(raw, tap, zlib.createGunzip(), noop) : pipeline(raw, tap, noop);
-    text.setEncoding('utf8');
 
     await withTenant(databaseId, async (session) => {
       const { engine, dbName } = session;
@@ -504,10 +519,24 @@ export async function runImport(importId: string, databaseId: string, filePath: 
       };
 
       let rest = '';
-      let first = true;
-      for await (const chunk of text as AsyncIterable<string>) {
-        if (first) {
-          first = false;
+      let decoder: StringDecoder | null = null;
+      for await (const bytes of text as AsyncIterable<Buffer>) {
+        let chunk: string;
+        if (decoder) chunk = decoder.write(bytes);
+        else {
+          // the encoding, from the first bytes: UTF-8 (with or without a BOM) or
+          // UTF-16LE — what PowerShell's `>` writes
+          let body = bytes;
+          if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+            decoder = new StringDecoder('utf16le');
+            body = bytes.subarray(2);
+          } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+            throw new ImportError('The file is UTF-16 (big-endian) — save it as UTF-8 and try again.');
+          } else {
+            decoder = new StringDecoder('utf8');
+            if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) body = bytes.subarray(3);
+          }
+          chunk = decoder.write(body);
           const madeFor = sniffEngine(chunk.slice(0, 64 * 1024));
           if (madeFor && madeFor !== engine) {
             throw new ImportError(
@@ -527,6 +556,8 @@ export async function runImport(importId: string, databaseId: string, filePath: 
           live.push(`${percent}% · line ${line.toLocaleString('en')} · ${statements.toLocaleString('en')} statements\n`);
         }
       }
+      // a character cut at the very end of the file
+      rest += decoder?.end() ?? '';
       if (rest) {
         line++;
         await run(splitter.pushLine(rest));
@@ -539,10 +570,7 @@ export async function runImport(importId: string, databaseId: string, filePath: 
     const seconds = Math.round((Date.now() - started) / 1000);
     live.push(`Done: ${statements.toLocaleString('en')} statements in ${seconds}s${skipped ? `, ${skipped} skipped (owners, grants and other settings a tenant cannot set)` : ''}\n`);
     await live.stop();
-    await prisma.databaseImport.update({
-      where: { id: importId },
-      data: { status: 'DONE', statements, skipped, sha256: hash.digest('hex'), log: live.text, finishedAt: new Date() },
-    });
+    await finish({ status: 'DONE', sha256: hash.digest('hex') });
     if (row) {
       await prisma.log.create({
         data: {
@@ -556,14 +584,10 @@ export async function runImport(importId: string, databaseId: string, filePath: 
     }
   } catch (error: any) {
     const message = (error instanceof ImportError ? error.message : errorText(error)).slice(0, 4000);
+    if (!(error instanceof ImportError)) console.error(`Import ${importId} failed:`, error);
     live.push(`\nFailed: ${message}\n`);
     await live.stop();
-    await prisma.databaseImport
-      .update({
-        where: { id: importId },
-        data: { status: 'FAILED', statements, skipped, error: message, log: live.text, finishedAt: new Date() },
-      })
-      .catch(() => {});
+    await finish({ status: 'FAILED', error: message });
     if (row) {
       await prisma.log.create({
         data: {
@@ -571,7 +595,7 @@ export async function runImport(importId: string, databaseId: string, filePath: 
           message: `Import of ${row.fileName} into database ${database?.dbName} failed`,
           userId: row.userId,
           applicationId: database?.applicationId ?? null,
-          metadata: { databaseId, importId, error: message.slice(0, 500) },
+          metadata: { databaseId, importId, error: clean(message.slice(0, 500)) },
         },
       }).catch(() => {});
     }
