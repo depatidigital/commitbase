@@ -10,6 +10,7 @@ import { Application, DetectedProject, getApplication, hasBeenDeployed, updateAp
 import {
   DATABASE_KEYS,
   PLATFORM_KEYS,
+  expectedRows,
   generateSecret,
   mergeRows,
   parseDatabaseUrl,
@@ -54,16 +55,12 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
     [detected, required],
   );
 
-  // the saved env, then every expected key it lacks — with the example's default when there is
-  // one. PORT/HOST/NODE_ENV are left out: the platform sets them.
-  const initial = useMemo(() => {
-    const expected: EnvRow[] = [
-      ...(detected?.env.example?.vars ?? []).filter((v) => !(v.key in PLATFORM_KEYS)),
-      ...(detected?.env.needsDatabase ? [{ key: "DATABASE_URL", value: "" }] : []),
-    ];
-    return mergeRows(toRows(saved), expected);
+  // the saved env, then every expected key it lacks
+  const initial = useMemo(
+    () => mergeRows(toRows(saved), expectedRows(detected)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(saved), detected]);
+    [JSON.stringify(saved), detected],
+  );
 
   const [rows, setRows] = useState<EnvRow[]>(initial);
   const [dirty, setDirty] = useState(false);

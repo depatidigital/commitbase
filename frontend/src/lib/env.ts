@@ -20,7 +20,15 @@ export function requiredKeys(detected?: DetectedProject | null): Set<string> {
   return keys;
 }
 
-export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Every row the code expects, with the example's default when there is one. PORT/HOST/NODE_ENV are left out: the platform sets them. */
+export function expectedRows(detected?: DetectedProject | null): EnvRow[] {
+  return [
+    ...(detected?.env.example?.vars ?? []).filter((v) => !(v.key in PLATFORM_KEYS)),
+    ...(detected?.env.needsDatabase ? [{ key: "DATABASE_URL", value: "" }] : []),
+  ];
+}
+
+export const ENV_NAME =/^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // shipped to the browser by design — a "KEY" in one of these is a publishable key
 const PUBLIC_PREFIX = /^(NEXT_PUBLIC_|VITE_|PUBLIC_|NUXT_PUBLIC_|EXPO_PUBLIC_|REACT_APP_)/i;

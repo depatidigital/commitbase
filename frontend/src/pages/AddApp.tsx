@@ -27,7 +27,10 @@ import {
   Server,
   Check,
   ChevronsUpDown,
+  Rocket,
 } from "lucide-react";
+import { EnvEditor } from "@/components/EnvEditor";
+import { expectedRows, generateSecret, mergeRows, requiredKeys, rowsToEnv, suggestAppUrl, type EnvRow } from "@/lib/env";
 import {
   Command,
   CommandEmpty,
@@ -49,6 +52,7 @@ import {
   readDetectFiles,
   uploadApplicationSource,
   listRepositoryBranches,
+  startApplication,
   type UploadEntry,
 } from "@/lib/applications";
 import { getGithubAuthUrl, getGitlabAuthUrl, listGitRepositories, type GitRepositoryListing } from "@/lib/git";
@@ -84,8 +88,8 @@ export default function AddApp() {
   const superadmin = isSuperAdmin();
   const [serverId, setServerId] = useState("");
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superadmin });
-  // picked files going up after the app is created
-  const [uploading, setUploading] = useState(false);
+  // what Create is doing after the click: creating, the picked files going up, the first deploy starting
+  const [busy, setBusy] = useState<"" | "uploading" | "deploying">("");
   const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
   // everything picked, and the paths unticked in the preview; what detection
   // and the upload see is the difference
@@ -127,6 +131,16 @@ export default function AddApp() {
   const [detected, setDetected] = useState<DetectedProject | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState("");
+
+  // The variables the code expects, filled here so the app can deploy straight
+  // from this page. A new detection brings its own rows; what was typed stays.
+  const [envRows, setEnvRows] = useState<EnvRow[]>([]);
+  useEffect(() => {
+    setEnvRows((prev) => mergeRows(expectedRows(detected), prev.filter((row) => row.value.trim()), true));
+  }, [detected]);
+  const requiredEnv = useMemo(() => requiredKeys(detected), [detected]);
+  const lockedEnv = useMemo(() => new Set(expectedRows(detected).map((row) => row.key)), [detected]);
+  const missingEnv = [...requiredEnv].filter((key) => !envRows.find((row) => row.key === key)?.value.trim());
 
   // an empty subdomain means the root domain
   const fullDomain = formData.subdomain
@@ -262,8 +276,9 @@ export default function AddApp() {
     // Enter on an earlier step must not fire the deploy
     if (step < 2) return;
 
-    // Build commands and env are not asked here: they are set on the app's page
-    // once its code has been read, and the first deploy happens from there.
+    // Build commands are not asked here: detection's are the defaults, and
+    // they are edited on the app's page. The env is, so it can deploy now.
+    const envVars = wantsEnv ? rowsToEnv(envRows) : {};
     const applicationData: CreateApplicationData = {
       name: formData.name,
       domain: fullDomain,
@@ -275,6 +290,9 @@ export default function AddApp() {
       gitAccountId: (sourceMode === "git" && manualAccountId) || undefined,
       branch: formData.branch,
       serverId: serverId || undefined,
+      envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
+      // Prisma's migrations: the tables have to exist before the release goes live
+      preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
     };
 
     let createdId: string;
@@ -286,22 +304,32 @@ export default function AddApp() {
 
     // Picked files are the app's source: they go up now (a static upload is
     // live straight away; anything else waits for the first deploy).
+    let uploaded = true;
     if (sourceMode === "upload" && uploadFiles.length > 0) {
-      setUploading(true);
+      setBusy("uploading");
       try {
         await uploadApplicationSource(createdId, uploadFiles);
       } catch (error) {
+        uploaded = false;
         toast({
           variant: "destructive",
           title: t("Upload failed"),
           description: error instanceof Error ? error.message : "",
         });
-      } finally {
-        setUploading(false);
       }
     }
 
-    // its page takes it from here: environment, database, then Deploy
+    // Nothing left to fill in: the first deploy starts now and its page shows
+    // it running. An uploaded static site is already live — the upload was its deploy.
+    if (deployNow && uploaded && !staticUpload) {
+      setBusy("deploying");
+      await startApplication(createdId).catch((error: Error) =>
+        toast({ variant: "destructive", title: t("Could not start the deploy"), description: error.message }),
+      );
+    }
+    setBusy("");
+
+    // its page takes it from here: the deploy's progress, or what it still needs
     navigate(`/application/${createdId}`);
   };
 
@@ -333,6 +361,12 @@ export default function AddApp() {
   // no type step: detection fills it from the source, and it is corrected
   // on the configure step next to the detection result
   const steps = [t("Source"), t("Configure")];
+
+  // an uploaded static site is served as uploaded: nothing reads an env
+  const staticUpload = sourceMode === "upload" && formData.type === "STATIC";
+  const wantsEnv = !staticUpload;
+  // every expected variable has a value: Create goes on to the first deploy
+  const deployNow = !wantsEnv || missingEnv.length === 0;
 
   const stepComplete = (value: number) => {
     if (value === 1)
@@ -968,9 +1002,40 @@ export default function AddApp() {
                       {detected.startCommand && (
                         <> · {t("Start:")} <code>{detected.startCommand}</code></>
                       )}
+                      {formData.type !== "STATIC" && detected.preDeployCommand && (
+                        <> · {t("Pre-deploy:")} <code>{detected.preDeployCommand}</code></>
+                      )}
                     </p>
                   ) : null}
                 </div>
+
+                {wantsEnv && (
+                  <div className="space-y-2 border-t pt-5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <Label>{t("Environment variables")}</Label>
+                      <span className="text-xs text-muted-foreground">
+                        {missingEnv.length > 0
+                          ? t("{count} still empty — fill them to deploy now, or finish on the next page.", { count: missingEnv.length })
+                          : t("Paste a whole .env into any name field.")}
+                      </span>
+                    </div>
+                    {/* a database is created and connected from the app's page — it needs the app first */}
+                    {missingEnv.includes("DATABASE_URL") && (
+                      <p className="text-xs text-muted-foreground">
+                        {t("No database yet? Leave DATABASE_URL empty — the next page creates and connects one.")}
+                      </p>
+                    )}
+                    <EnvEditor
+                      rows={envRows}
+                      onChange={setEnvRows}
+                      required={requiredEnv}
+                      locked={lockedEnv}
+                      suggest={(row) => suggestAppUrl(row.key, row.value, fullDomain)}
+                      generate={(row) => (row.value ? null : generateSecret(row.key))}
+                      disabled={!!busy || createApp.isPending}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>
@@ -999,18 +1064,23 @@ export default function AddApp() {
           ) : (
             <Button
               type="submit"
-              disabled={!stepComplete(2) || createApp.isPending || uploading}
+              disabled={!stepComplete(2) || createApp.isPending || !!busy}
               className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300 min-w-[140px]"
             >
-              {createApp.isPending || uploading ? (
+              {createApp.isPending || busy ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent mr-2" />
-                  {uploading ? t("Uploading…") : t("Creating…")}
+                  {busy === "uploading" ? t("Uploading…") : busy === "deploying" ? t("Starting deploy…") : t("Creating…")}
+                </>
+              ) : deployNow ? (
+                <>
+                  <Rocket className="h-4 w-4 mr-2" />
+                  {t("Deploy")}
                 </>
               ) : (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  {t("Create App")}
+                  {t("Create & finish setup")}
                 </>
               )}
             </Button>
