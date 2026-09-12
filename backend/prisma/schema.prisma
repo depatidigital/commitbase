@@ -342,7 +342,7 @@ model Application {
   /// null = the detected one (pnpm install --frozen-lockfile, npm ci, …)
   installCommand   String?
   buildCommand     String?
-  /// After the build, before the new release goes live — migrations. Failing it fails the deploy.
+  /// Before the build, after install — migrations. Failing it fails the deploy.
   preDeployCommand String?
   startCommand     String?
   /// `{ "$enc": <secretBox blob> }` once written through lib/appEnv; a plain

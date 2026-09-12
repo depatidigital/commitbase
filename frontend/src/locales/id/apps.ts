@@ -421,8 +421,8 @@ export default {
   "Pre-deploy Command": "Perintah Pra-deploy",
   "Empty uses the detected one: {command}": "Kosong = memakai hasil deteksi: {command}",
   "Empty uses the detected one.": "Kosong = memakai hasil deteksi.",
-  "Runs after the build with the app's environment, before the new release goes live. If it fails, the old release keeps serving — use it for database migrations.":
-    "Dijalankan setelah build dengan environment aplikasi, sebelum rilis baru aktif. Jika gagal, rilis lama tetap melayani — pakai untuk migrasi database.",
+  "Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.":
+    "Dijalankan sebelum build dengan environment aplikasi, agar build bisa memakai tabelnya. Jika gagal, rilis lama tetap melayani — pakai untuk migrasi database.",
   Manual: "Manual",
   "Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.":
     "Dipasang manual di {runtime} — panel hanya memantaunya, tidak men-deploy atau memprovisinya.",

@@ -36,7 +36,7 @@ export interface DetectedProject {
   env: RepoEnv;
   /** things in the project that will misbehave behind the platform's proxy */
   warnings: DetectWarning[];
-  /** a step after the build, before the release goes live — Prisma's migrations — or null */
+  /** a step before the build, after generate — Prisma's migrations — or null */
   preDeployCommand: string | null;
   /** a step before the build — Prisma's client generation — or null */
   generateCommand: string | null;

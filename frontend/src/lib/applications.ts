@@ -16,7 +16,7 @@ export interface Application {
   /** null = the detected install */
   installCommand?: string | null;
   buildCommand?: string;
-  /** after the build, before the release goes live — migrations */
+  /** before the build, after install — migrations */
   preDeployCommand?: string | null;
   startCommand?: string;
   port?: number;
@@ -197,7 +197,7 @@ export interface DetectedProject {
   outputDir: string | null;
   port: number | null;
   nodeVersion: string | null;
-  /** a step after the build, before the release goes live — Prisma's migrations — or null */
+  /** a step before the build — Prisma's migrations — or null */
   preDeployCommand?: string | null;
   /** a step before the build, run by the deploy on its own — Prisma's client generation — or null */
   generateCommand?: string | null;

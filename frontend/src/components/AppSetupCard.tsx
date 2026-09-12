@@ -146,7 +146,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, d
           >
             <div className="space-y-0.5 font-mono text-xs text-muted-foreground">
               {detected && <p className="font-sans">{t("Detected: {label}", { label: detected.label })}</p>}
-              {[install, detected?.generateCommand, build, application.preDeployCommand, start].filter(Boolean).map((command) => (
+              {[install, detected?.generateCommand, application.preDeployCommand, build, start].filter(Boolean).map((command) => (
                 <p key={command} className="truncate">
                   <Terminal className="mr-1 inline h-3 w-3" />
                   {command}

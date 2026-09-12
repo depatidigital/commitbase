@@ -31,6 +31,8 @@ for (const value of [
   'has "double" quotes and a # hash',
   'spaces  and = signs',
   'line one\nline two',
+  "it's quoted",
+  `mixed 'single' and "double"`,
   '',
 ]) {
   const parsed = parseEnv(dotenvLine('K', value));

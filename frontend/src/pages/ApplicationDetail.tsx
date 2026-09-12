@@ -1273,7 +1273,7 @@ function ApplicationSettingsForm({ application, detected }: ApplicationSettingsF
         <p className="text-xs text-muted-foreground">{detectedHint(detected?.buildCommand)}</p>
       </div>
 
-      {/* Pre-deploy — migrations, after the build and before the release goes live */}
+      {/* Pre-deploy — migrations, before the build and before the release goes live */}
       {!isStatic && (
         <div className="space-y-2">
           <label className="text-sm font-medium">
@@ -1287,7 +1287,7 @@ function ApplicationSettingsForm({ application, detected }: ApplicationSettingsF
             className="font-mono"
           />
           <p className="text-xs text-muted-foreground">
-            {t("Runs after the build with the app's environment, before the new release goes live. If it fails, the old release keeps serving — use it for database migrations.")}
+            {t("Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.")}
           </p>
         </div>
       )}

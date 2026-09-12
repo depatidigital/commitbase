@@ -278,6 +278,26 @@ export class DeploymentService {
     return previous;
   }
 
+  /**
+   * Release trees nothing points at: not `current`, not a READY release a
+   * rollback could switch to — left by builds that failed, were cancelled or
+   * died with the backend. Each carries node_modules and .next, so they add up.
+   */
+  private async removeOrphanReleases(afs: AppFs, applicationId: string): Promise<void> {
+    const dir = releasesDirFor(afs.appDir);
+    const current = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
+    const kept = new Set(
+      (await prisma.release.findMany({ where: { applicationId, status: 'READY' }, select: { path: true } }))
+        .map((release) => release.path)
+        .filter(Boolean),
+    );
+    for (const name of await afs.readdir(dir).catch(() => [] as string[])) {
+      const full = join(dir, name);
+      if (full === current || kept.has(full)) continue;
+      await afs.rm(full, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   private async pruneReleases(afs: AppFs): Promise<void> {
     const dir = releasesDirFor(afs.appDir);
     const keep = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
@@ -308,9 +328,12 @@ export class DeploymentService {
     const log = (line: string) => afs.appendFile(buildLogPath, line + NL);
     const uploadLog = () =>
       afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, application.id, deployment.id)).catch(() => {});
+    // the release this build is making — removed again if it fails
+    let madeRelease: string | null = null;
 
     try {
       if (systemd.needsUnit(application.type)) await this.allocatePort(application, afs);
+      await this.removeOrphanReleases(afs, application.id);
 
       await afs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
 
@@ -320,6 +343,7 @@ export class DeploymentService {
       const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
       const releaseDir = join(releasesDirFor(appDir), stamp);
       await afs.mkdir(releaseDir);
+      madeRelease = releaseDir;
       // ponytail: full copy per release, tar excludes the junk. Hardlink node_modules from the previous release if installs get slow.
       await afs.run(
         ['sh', '-c', 'tar -C "$1" --exclude=./node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "$2" -xf -', 'sh', sourcesDir, releaseDir],
@@ -387,11 +411,13 @@ export class DeploymentService {
       if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
       // every build, even with node_modules reused: the client lands in the release tree
       if (detected.generateCommand) steps.push(detected.generateCommand);
+      // Migrations and the like: before the build, which may query the tables
+      // (Next prerendering), in the same script and env. A failure leaves the
+      // old release live — but a migration that ran and a build that then
+      // failed leave the old release on the new schema.
+      if (application.preDeployCommand) steps.push(application.preDeployCommand);
       const buildCommand = application.buildCommand || detected.buildCommand;
       if (buildCommand) steps.push(buildCommand);
-      // Migrations and the like: after the build, in the same script and env,
-      // before the release is switched to — a failure leaves the old one live.
-      if (application.preDeployCommand) steps.push(application.preDeployCommand);
 
       if (steps.length > 0) {
         // One script for the whole build, so it can run under systemd-run in
@@ -460,6 +486,9 @@ export class DeploymentService {
       const message = error.stderr || error.message || String(error);
       await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message).catch(() => {});
       await uploadLog();
+      // a failed build is never switched to, and node_modules is only ever
+      // reused from the live release — its tree is dead weight. The log stays.
+      if (madeRelease) await afs.rm(madeRelease, { recursive: true, force: true }).catch(() => {});
       return { success: false, error: message };
     }
   }
