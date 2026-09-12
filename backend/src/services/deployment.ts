@@ -694,6 +694,7 @@ export class DeploymentService {
         const node = await serverForApplication(application.id);
         await ensureOrgOnNode(application.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
       }
+      throwIfCancelled(application.id);
 
       const afs = await this.prepareAppDirectory(application.id);
       const { appDir } = afs;
@@ -718,6 +719,7 @@ export class DeploymentService {
           .then(({ stdout }) => stdout.trim())
           .catch(() => undefined);
       }
+      throwIfCancelled(application.id);
 
       if (application.type === 'STATIC') {
         // Static sites build on the panel (AppFs is local for them) and are
@@ -899,6 +901,9 @@ export class DeploymentService {
       }
 
       const buildResult = await this.runBuild(afs, application, deployment, envVars);
+      // a stopped build fails — but that failure is the cancel, not the code;
+      // and a build that finished still does not go live once cancel was asked
+      throwIfCancelled(application.id);
       const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
       if (!buildResult.success) {
@@ -1022,6 +1027,15 @@ export class DeploymentService {
       };
 
     } catch (error: any) {
+      if (error instanceof CancelledError) {
+        // what was built so far stays in the build log; the reason goes first
+        await prisma.deployment.update({
+          where: { id: deployment.id },
+          data: { status: 'CANCELLED', deployLogs: 'Cancelled — the previous release, if any, keeps serving' },
+        });
+        return { success: false, cancelled: true, error: 'Deployment cancelled' };
+      }
+
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: {

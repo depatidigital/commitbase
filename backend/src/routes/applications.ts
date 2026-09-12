@@ -1253,6 +1253,16 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       deployment,
       envVars: readEnv(application.envVars),
     }).then(async (result) => {
+      // cancelled: the service already wrote CANCELLED and why; and whatever
+      // ran before still runs — back to that, or stopped if nothing did
+      if (result.cancelled) {
+        await prisma.application.update({
+          where: { id },
+          data: { status: application.status === 'RUNNING' ? 'RUNNING' : 'STOPPED' },
+        });
+        return;
+      }
+
       // Update deployment record with logs
       await prisma.deployment.update({
         where: { id: deployment.id },
@@ -1305,6 +1315,33 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
 });
 
 // Stop application
+/**
+ * Stop the deploy that is running. It ends as CANCELLED shortly after — the
+ * build on the node is stopped, and a deploy between steps stops at the next
+ * one. What served before keeps serving. 409 when nothing is deploying.
+ */
+router.post('/:id/deploy/cancel', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const imported = refuseImported(application, res);
+    if (imported) return imported;
+
+    if (!(await deploymentService.cancelDeploy(application.id))) {
+      return res.status(409).json({ success: false, error: 'No deployment is running for this app' } as ApiResponse);
+    }
+    await prisma.log.create({
+      data: { level: 'INFO', message: `Deployment of ${application.domain} cancelled`, userId: req.user!.userId, applicationId: application.id },
+    });
+    return res.json({ success: true, message: 'Cancelling the deployment' } as ApiResponse);
+  } catch (error) {
+    console.error('Error cancelling deployment:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
