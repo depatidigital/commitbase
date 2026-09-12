@@ -198,7 +198,7 @@ export const DETECT_FILES = [
 
 /** Detect from a git URL, or from the files the browser already holds. */
 export const detectProject = async (
-  input: { repository: string; branch?: string } | { files: Record<string, string> }
+  input: { repository: string; branch?: string; gitAccountId?: string } | { files: Record<string, string> }
 ): Promise<DetectedProject> => {
   const response = await apiRequest<DetectedProject>('/applications/detect', {
     method: 'POST',
@@ -259,11 +259,19 @@ export const deleteSiteFiles = async (id: string, keys: string[]): Promise<numbe
   throw new Error(response.error || t("Could not delete the files"));
 };
 
-/** Branches of a pasted repository URL. Fails for private repos. */
-export const listRepositoryBranches = async (
-  repository: string
-): Promise<{ defaultBranch: string | null; branches: string[] }> => {
-  const response = await apiRequest<{ defaultBranch: string | null; branches: string[] }>(
+export type RepositoryBranches = {
+  defaultBranch: string | null;
+  branches: string[];
+  /** the caller's account that could read a private repo; null when it is public */
+  gitAccountId: string | null;
+  /** private (or missing) and none of the caller's accounts on this host can read it */
+  needsAccount?: 'github' | 'gitlab';
+  triedAccounts?: number;
+};
+
+/** Branches of a pasted repository URL — public, or private through one of your connected accounts. */
+export const listRepositoryBranches = async (repository: string): Promise<RepositoryBranches> => {
+  const response = await apiRequest<RepositoryBranches>(
     '/applications/branches',
     { method: 'POST', body: JSON.stringify({ repository }) }
   );

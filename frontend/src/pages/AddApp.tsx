@@ -160,10 +160,16 @@ export default function AddApp() {
   const [remoteDefault, setRemoteDefault] = useState<string | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState("");
+  // A private repo is read — and later cloned — through whichever of the
+  // user's connected accounts can see it; the backend finds that account.
+  const [manualAccountId, setManualAccountId] = useState<string | null>(null);
+  const [needsAccount, setNeedsAccount] = useState<{ provider: "github" | "gitlab"; tried: number } | null>(null);
   const manualRepo = sourceMode === "git" && repoSource === "manual";
   useEffect(() => {
     setRemoteBranches(null);
     setBranchesError("");
+    setManualAccountId(null);
+    setNeedsAccount(null);
     const url = formData.repository.trim();
     if (!manualRepo || !url) return;
 
@@ -172,8 +178,14 @@ export default function AddApp() {
     const timer = setTimeout(async () => {
       setBranchesLoading(true);
       try {
-        const { defaultBranch, branches } = await listRepositoryBranches(url);
+        const { defaultBranch, branches, gitAccountId, needsAccount, triedAccounts } =
+          await listRepositoryBranches(url);
         if (cancelled) return;
+        if (needsAccount) {
+          setNeedsAccount({ provider: needsAccount, tried: triedAccounts ?? 0 });
+          return;
+        }
+        setManualAccountId(gitAccountId);
         setRemoteBranches(branches);
         setRemoteDefault(defaultBranch);
         setFormData((prev) => ({
@@ -202,7 +214,8 @@ export default function AddApp() {
     // wait for the branch lookup — detecting "main" on a "master" repo just fails
     if (isGit && branchesLoading) return;
     const canDetect = isGit
-      ? !!formData.repository.trim()
+      ? // a private repo nobody can read yet would only fail detection too
+        !!formData.repository.trim() && !(manualRepo && needsAccount)
       : uploadFiles.length > 0;
     if (!canDetect) {
       setDetected(null);
@@ -219,6 +232,7 @@ export default function AddApp() {
           ? await detectProject({
               repository: formData.repository.trim(),
               branch: formData.branch || "main",
+              gitAccountId: (manualRepo && manualAccountId) || undefined,
             })
           : await detectProject({ files: await readDetectFiles(uploadFiles) });
         if (cancelled) return;
@@ -254,7 +268,7 @@ export default function AddApp() {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading]);
+  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading, manualAccountId, needsAccount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -279,14 +293,14 @@ export default function AddApp() {
       repository:
         sourceMode === "git" ? formData.repository || undefined : undefined,
       // Which connected account clones it — a private repo cannot be cloned
-      // without one, and a manually typed URL has no account behind it.
+      // without one. A pasted URL uses the account the branch lookup found.
       gitAccountId:
         sourceMode === "git"
           ? (repoSource === "github"
               ? selectedGithubAccountId
               : repoSource === "gitlab"
                 ? selectedGitlabAccountId
-                : "") || undefined
+                : manualAccountId) || undefined
           : undefined,
       branch: formData.branch,
       buildCommand: formData.buildCommand || undefined,
@@ -383,7 +397,7 @@ export default function AddApp() {
     if (value === 1)
       return sourceMode === "upload"
         ? uploadFiles.length > 0
-        : !!formData.repository;
+        : !!formData.repository && !(manualRepo && needsAccount);
     return !!formData.name && !!formData.selectedDomain && !!formData.type;
   };
 
