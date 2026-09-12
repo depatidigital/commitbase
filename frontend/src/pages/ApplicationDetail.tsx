@@ -52,7 +52,7 @@ import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildL
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, getAppDetection, hasBeenDeployed } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
-import { AppEnvironment } from "@/components/AppEnvironment";
+import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { ReleasesCard } from "@/components/ReleasesCard";
@@ -167,10 +167,12 @@ export default function ApplicationDetail() {
   const detection = useQuery({
     queryKey: ['application', id, 'detect'],
     queryFn: () => getAppDetection(id!),
-    enabled: canDetect && (needsSetup || activeTab === 'settings'),
+    enabled: canDetect && (needsSetup || activeTab === 'environment' || activeTab === 'settings'),
     staleTime: 5 * 60_000,
     retry: false,
   });
+  // the Environment tab's form, for the setup checklist on the Overview tab
+  const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], dirty: false });
 
   // Update logs when data changes
   useEffect(() => {
@@ -632,6 +634,13 @@ export default function ApplicationDetail() {
             style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 1)}, minmax(0, 1fr))` }}
           >
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+            {!uploadedSite && (
+              <TabsTrigger value="environment" className="gap-1.5">
+                {t("Environment")}
+                {/* the tab says so when something is empty or unsaved, whichever tab is open */}
+                {(envStatus.missing.length > 0 || envStatus.dirty) && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
+              </TabsTrigger>
+            )}
             {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
@@ -646,7 +655,9 @@ export default function ApplicationDetail() {
                 application={application}
                 detected={detection.data}
                 detecting={detection.isLoading}
+                env={envStatus}
                 onDeploy={handleStart}
+                onEditEnv={() => setActiveTab("environment")}
                 onEditBuild={() => setActiveTab("settings")}
               />
             )}
@@ -858,6 +869,24 @@ export default function ApplicationDetail() {
             </div>
           </TabsContent>
 
+          {/* Kept mounted while hidden: switching tabs must not throw away unsaved
+              edits, and the checklist on Overview reads its status from here. */}
+          {!uploadedSite && (
+            <TabsContent value="environment" forceMount className="space-y-6 data-[state=inactive]:hidden">
+              <Card className="bg-gradient-card border-border/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <KeyRound className="h-5 w-5 text-primary" />
+                    <span>{t("Environment Variables")}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
           {/* what the static site is serving — only once there is a bucket */}
           {hasSiteBucket && (
             <TabsContent value="files" className="space-y-6">
@@ -991,19 +1020,6 @@ export default function ApplicationDetail() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <ApplicationSettingsForm application={application} detected={detection.data} />
-                </CardContent>
-              </Card>
-            )}
-            {!uploadedSite && (
-              <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <KeyRound className="h-5 w-5 text-primary" />
-                    <span>{t("Environment Variables")}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <AppEnvironment application={application} detected={detection.data} />
                 </CardContent>
               </Card>
             )}

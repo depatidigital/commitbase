@@ -2,7 +2,7 @@
  * Self-check for .env paste parsing: npx tsx src/lib/env.check.ts
  */
 import assert from "node:assert";
-import { parseEnv, rowsToEnv, mergeRows, isSecret, parseDatabaseUrl, pointsAtLocalhost } from "./env";
+import { parseEnv, rowsToEnv, mergeRows, isSecret, parseDatabaseUrl, pointsAtLocalhost, suggestAppUrl } from "./env";
 
 const NL = "\n";
 const pasted = [
@@ -72,5 +72,18 @@ for (const value of [
 for (const value of ["postgresql://u:p@db.depatidigital.com:5432/app", "https://mylocalhost.dev", "http://localhost.example.com", "3000", ""]) {
   assert.ok(!pointsAtLocalhost(value), `${value} is not local`);
 }
+
+// the app's own URL is offered for its URL variables — empty or still local
+const domain = "umojati.desahebat.id";
+assert.strictEqual(suggestAppUrl("NEXT_PUBLIC_BASE_URL", "http://localhost:3000", domain), "https://umojati.desahebat.id");
+assert.strictEqual(suggestAppUrl("BETTER_AUTH_URL", "", domain), "https://umojati.desahebat.id");
+assert.strictEqual(suggestAppUrl("NEXTAUTH_URL", "http://127.0.0.1:3000/api/auth/", domain), "https://umojati.desahebat.id/api/auth");
+assert.strictEqual(suggestAppUrl("APP_ORIGIN", "http://localhost:5173?x=1", domain), "https://umojati.desahebat.id?x=1");
+// already real, another service, or not a URL variable: nothing
+assert.strictEqual(suggestAppUrl("NEXT_PUBLIC_BASE_URL", "https://umojati.desahebat.id", domain), null);
+assert.strictEqual(suggestAppUrl("DATABASE_URL", "postgresql://u:p@localhost/db", domain), null);
+assert.strictEqual(suggestAppUrl("REDIS_URL", "", domain), null);
+assert.strictEqual(suggestAppUrl("NEXT_PUBLIC_API_URL", "http://localhost:4000", domain), null);
+assert.strictEqual(suggestAppUrl("PORT", "", domain), null);
 
 console.log("env: ok");

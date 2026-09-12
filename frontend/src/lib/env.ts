@@ -6,7 +6,7 @@
  * duplicated because the two packages share no code. Keep them in step.
  */
 
-import type { Application, DetectedProject } from "./applications";
+import type { DetectedProject } from "./applications";
 
 export type EnvRow = { key: string; value: string };
 
@@ -15,12 +15,6 @@ export function requiredKeys(detected?: DetectedProject | null): Set<string> {
   const keys = new Set((detected?.env.example?.vars ?? []).filter((v) => !v.value).map((v) => v.key));
   if (detected?.env.needsDatabase) keys.add("DATABASE_URL");
   return keys;
-}
-
-/** Required keys the app's saved env has no value for — what a first deploy would fail on. */
-export function missingKeys(application: Application, detected?: DetectedProject | null): string[] {
-  const env = application.envVars ?? {};
-  return [...requiredKeys(detected)].filter((key) => !env[key]);
 }
 
 export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -58,6 +52,30 @@ export function parseDatabaseUrl(url?: string): { engine?: "POSTGRESQL" | "MYSQL
  */
 export function pointsAtLocalhost(value: string): boolean {
   return /(^|[/@=\s])(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1)(?=[:/?#\s]|$)/i.test(value.trim());
+}
+
+// URLs that lead to another service, never to the app itself
+const SERVICE_URL = /DATABASE|DB_|_DB|REDIS|MONGO|POSTGRES|MYSQL|AMQP|RABBIT|KAFKA|SMTP|MAIL|S3|STORAGE|BUCKET|CDN|CACHE|QUEUE|WEBHOOK|API/i;
+
+/**
+ * The app's own public URL for a variable that should hold it —
+ * NEXT_PUBLIC_BASE_URL, BETTER_AUTH_URL, APP_URL… — when it is empty or still
+ * the local one (`http://localhost:3000/auth` → `https://<domain>/auth`).
+ * null when it holds something else, or names another service.
+ */
+export function suggestAppUrl(key: string, value: string, domain: string): string | null {
+  if (!domain || !/(URL|ORIGIN)$/i.test(key) || SERVICE_URL.test(key)) return null;
+  const target = `https://${domain}`;
+  if (!value.trim()) return target;
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  if (!/^https?:$/.test(url.protocol) || !pointsAtLocalhost(value)) return null;
+  const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+  return target + path + url.search;
 }
 
 /**

@@ -28,6 +28,8 @@ interface EnvEditorProps {
   hints?: Record<string, string>;
   /** an extra control on a row, e.g. "Connect database" on DATABASE_URL */
   renderAction?: (row: EnvRow) => React.ReactNode;
+  /** a better value for a row, offered as a one-click fix (the app's own URL for NEXT_PUBLIC_BASE_URL) */
+  suggest?: (row: EnvRow) => string | null;
   disabled?: boolean;
 }
 
@@ -36,7 +38,7 @@ interface EnvEditorProps {
  * into any name field splits it into rows, which is how most people arrive
  * with their variables.
  */
-export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, disabled }: EnvEditorProps) {
+export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, suggest, disabled }: EnvEditorProps) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [pasting, setPasting] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -89,6 +91,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         const multiline = row.value.includes("\n");
         const fixed = !!locked?.has(row.key);
         const local = pointsAtLocalhost(row.value);
+        const suggestion = suggest?.(row) ?? null;
         return (
           <div key={index} className="contents">
             <div className="space-y-1">
@@ -142,12 +145,26 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
               />
             )}
             {/* said even when masked — the host is the part that matters here */}
-            {local && (
-              <p className="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
-                {row.key === "DATABASE_URL"
-                  ? t("Local address, won't work on the server. Use Connect database.")
-                  : t("Local address, won't work on the server.")}
+            {(local || suggestion) && (
+              <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
+                {local && (
+                  <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    {row.key === "DATABASE_URL"
+                      ? t("Local address, won't work on the server. Use Connect database.")
+                      : t("Local address, won't work on the server.")}
+                  </span>
+                )}
+                {suggestion && (
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                    disabled={disabled}
+                    onClick={() => update(index, { value: suggestion })}
+                  >
+                    {t("Use {url}", { url: suggestion })}
+                  </button>
+                )}
               </p>
             )}
             </div>

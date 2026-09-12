@@ -6,15 +6,19 @@ import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, getApplication, hasBeenDeployed, updateApplication } from "@/lib/applications";
-import { mergeRows, requiredKeys, rowsToEnv, type EnvRow } from "@/lib/env";
+import { mergeRows, requiredKeys, rowsToEnv, suggestAppUrl, type EnvRow } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
 const toRows = (env?: Record<string, string>): EnvRow[] =>
   Object.entries(env ?? {}).map(([key, value]) => ({ key, value }));
 
+/** How the form stands right now — what the setup checklist shows, saved or not. */
+export type EnvStatus = { missing: string[]; dirty: boolean };
+
 interface AppEnvironmentProps {
   application: Application;
   detected?: DetectedProject | null;
+  onStatus?: (status: EnvStatus) => void;
 }
 
 /**
@@ -22,7 +26,7 @@ interface AppEnvironmentProps {
  * .env.example, and DATABASE_URL when it uses an ORM) as empty rows to fill.
  * A database connects through its own dialog so its URL never passes here.
  */
-export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
+export function AppEnvironment({ application, detected, onStatus }: AppEnvironmentProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const saved = application.envVars ?? {};
@@ -51,6 +55,16 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
   useEffect(() => {
     if (!dirty) setRows(initial);
   }, [initial, dirty]);
+
+  // counted from what is on screen, not what is saved: a value just typed is no longer "empty"
+  const missing = useMemo(
+    () => [...required].filter((key) => !rows.find((row) => row.key === key)?.value.trim()),
+    [required, rows],
+  );
+  useEffect(() => {
+    onStatus?.({ missing, dirty });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missing.join(","), dirty]);
 
   const hints = useMemo(() => {
     const from: Record<string, string> = {};
@@ -109,6 +123,8 @@ export function AppEnvironment({ application, detected }: AppEnvironmentProps) {
             </Button>
           ) : null
         }
+        // the app's own https URL for NEXT_PUBLIC_BASE_URL and friends
+        suggest={(row) => suggestAppUrl(row.key, row.value, application.domain)}
         disabled={saving}
         onChange={(next) => {
           setRows(next);
