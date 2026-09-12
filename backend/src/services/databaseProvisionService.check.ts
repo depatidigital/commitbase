@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ProvisionError, accountName, connectionUrl, databaseName, loginName, ownerRoleName } from './databaseProvisionService';
+import { ProvisionError, accountName, connectionUrl, databaseName, hostForApp, loginName, ownerRoleName } from './databaseProvisionService';
 
 // login names: dashes become underscores, and MySQL's 32-char cap is kept
 assert.equal(loginName('acme', 'POSTGRESQL'), 'org_acme');
@@ -40,4 +40,13 @@ assert.ok(ownerRoleName(longDb).length <= 63);
 assert.notEqual(ownerRoleName(longDb), ownerRoleName('a'.repeat(62) + 'b'));
 assert.match(ownerRoleName(longDb), /_owner$/);
 
-console.log('databaseProvisionService: names + connectionUrl + logins OK');
+// where an app reaches a tunnelled server: loopback on its node, an outside address from elsewhere
+const tunnelled = { mode: 'TUNNEL', host: '127.0.0.1', appHost: '127.0.0.1', serverId: 'node-a', server: { publicIp: '103.1.2.3' } };
+assert.equal(hostForApp(tunnelled, 'node-a'), '127.0.0.1');
+assert.equal(hostForApp(tunnelled, 'node-b'), '103.1.2.3');
+assert.equal(hostForApp({ ...tunnelled, appHost: '10.0.0.5' }, 'node-b'), '10.0.0.5');
+assert.equal(hostForApp({ ...tunnelled, appHost: 'localhost' }, 'node-b'), '103.1.2.3');
+// a managed service is the same address from everywhere
+assert.equal(hostForApp({ mode: 'DIRECT', host: 'db.example.com', appHost: 'db.example.com', serverId: null }, 'node-a'), 'db.example.com');
+
+console.log('databaseProvisionService: names + connectionUrl + logins + hostForApp OK');
