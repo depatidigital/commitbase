@@ -8,6 +8,8 @@
 #   cb-app-unit install <org-slug> <app-id>
 #   cb-app-unit start|stop|restart|remove|status <org-slug> <app-id>
 #   cb-app-unit chown <org-slug> <app-id>     ownership only — PHP apps have no unit
+#   cb-app-unit cancel-build <org-slug> <app-id>
+#       stops that app's running build (its transient cb-build-* unit), if any
 #   cb-app-unit build <org-slug> <app-id> [memory-max] [cpu-weight]
 #       runs <app-dir>/build.sh as the build user inside cb-build.slice with a
 #       memory ceiling and low CPU/IO weight, so a build cannot starve the apps
@@ -33,7 +35,7 @@ BUILD_CPU_WEIGHT="${5:-50}"
 [[ "$BUILD_CPU_WEIGHT" =~ ^[0-9]{1,5}$ ]]    || { echo "cb-app-unit: invalid cpu weight: '$BUILD_CPU_WEIGHT'" >&2; exit 2; }
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
-[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
+[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build|cancel-build)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-app-unit: must run as root" >&2; exit 2; }
@@ -76,6 +78,13 @@ case "$ACTION" in
       -p CPUWeight="$BUILD_CPU_WEIGHT" -p IOWeight="$BUILD_CPU_WEIGHT" -p Nice=10 \
       -p TimeoutStartSec=0 \
       /bin/bash "$APP_DIR/build.sh"
+    ;;
+
+  cancel-build)
+    # the unit build) starts is cb-build-<slug>-<app>-<pid>: stop whichever is
+    # running. Its --wait then returns non-zero and the backend records CANCELLED.
+    systemctl stop "cb-build-$SLUG-$APP_ID-*.service" 2>/dev/null || true
+    echo "cancelled builds of $APP_ID"
     ;;
 
   install)

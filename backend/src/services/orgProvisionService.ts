@@ -146,7 +146,7 @@ export async function provisionOrgOnNode(
   return sudo(node, 'cb-provision-org', [org.slug, diskQuota, cpuQuota, memoryMax, String(uid)], 60_000, opts.onOutput);
 }
 
-export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown';
+export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown' | 'cancel-build';
 
 const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
 const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
