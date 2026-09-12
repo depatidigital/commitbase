@@ -468,15 +468,21 @@ export async function detectFromRepo(repository: string, branch = 'main', auth: 
   }
 }
 
-export type RemoteBranches = { defaultBranch: string | null; branches: string[] };
+export type RemoteBranches = {
+  defaultBranch: string | null;
+  branches: string[];
+  /** each branch's newest commit — "is there something newer than what is live" without a clone */
+  heads: Record<string, string>;
+};
 
 /**
  * Parse `git ls-remote --symref <url>`: the `ref: refs/heads/X\tHEAD` line
- * names the default branch, every `refs/heads/*` line is a branch.
+ * names the default branch, every `refs/heads/*` line is a branch and its head.
  */
 export function parseLsRemote(output: string): RemoteBranches {
   let defaultBranch: string | null = null;
   const branches: string[] = [];
+  const heads: Record<string, string> = {};
 
   for (const line of output.split(/\r?\n/)) {
     const symref = line.match(/^ref: refs\/heads\/(.+)\tHEAD$/);
@@ -484,13 +490,16 @@ export function parseLsRemote(output: string): RemoteBranches {
       defaultBranch = symref[1];
       continue;
     }
-    const head = line.match(/^[0-9a-f]+\trefs\/heads\/(.+)$/);
-    if (head?.[1]) branches.push(head[1]);
+    const head = line.match(/^([0-9a-f]+)\trefs\/heads\/(.+)$/);
+    if (head?.[2]) {
+      branches.push(head[2]);
+      heads[head[2]] = head[1]!;
+    }
   }
 
   // default first, the rest alphabetical
   branches.sort((a, b) => Number(b === defaultBranch) - Number(a === defaultBranch) || a.localeCompare(b));
-  return { defaultBranch, branches };
+  return { defaultBranch, branches, heads };
 }
 
 /** Branches of any remote, without cloning. A private repo needs `auth`. */

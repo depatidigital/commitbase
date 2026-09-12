@@ -290,6 +290,39 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
 });
 
 /**
+ * An app's repository as it is now, for its Source panel: the branches, each
+ * one's newest commit, and the commit that is live — so "is there something
+ * newer to deploy" is answered without a clone. Read through the app's own git
+ * account, which may be a teammate's: whoever can see the app can read this.
+ */
+router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      select: { repository: true, branch: true, gitAccountId: true, activeRelease: { select: { commitSha: true } } },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    if (!application.repository) {
+      return res.status(400).json({ success: false, error: 'This app is not deployed from a repository' } as ApiResponse);
+    }
+
+    const remote = await listRemoteBranches(
+      application.repository,
+      application.gitAccountId ? await gitAuthFor(application.gitAccountId) : undefined,
+    );
+    return res.json({
+      success: true,
+      data: { ...remote, branch: application.branch || 'main', liveCommit: application.activeRelease?.commitSha ?? null },
+    } as ApiResponse);
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      error: `Could not read the repository: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    } as ApiResponse);
+  }
+});
+
+/**
  * Branches and the default branch of a pasted repository URL, for the add-app
  * form — and which of the caller's git accounts it needs.
  *

@@ -66,6 +66,7 @@ import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
+import { SourcePanel } from "@/components/SourcePanel";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { SourcePicker } from "@/components/SourcePicker";
 import { DangerZoneCard } from "@/components/DangerZoneCard";
@@ -631,6 +632,11 @@ export default function ApplicationDetail() {
           </div>
           </CardContent>
         </Card>
+        {/* the branch and what is newer than live — after the first deploy;
+            before it the setup card is where deploying happens */}
+        {application.repository && !needsSetup && (
+          <SourcePanel application={application} onDeploy={deploy} starting={starting} deploying={deploying} />
+        )}
         </aside>
 
         {/* Main Content */}
@@ -770,11 +776,13 @@ export default function ApplicationDetail() {
                 <Field label={t("Source")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {application.repository ? (
-                      <span className="inline-flex min-w-0 items-center gap-1 font-mono text-xs">
-                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="break-all">{application.repository}</span>
-                        <span className="text-muted-foreground">· {application.branch || "main"}</span>
-                      </span>
+                      <>
+                        <span className="inline-flex min-w-0 items-center gap-1 font-mono text-xs">
+                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="break-all">{application.repository}</span>
+                          <span className="text-muted-foreground">· {application.branch || "main"}</span>
+                        </span>
+                      </>
                     ) : (
                       <span className="inline-flex items-center gap-1">
                         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1058,6 +1066,7 @@ export default function ApplicationDetail() {
         </AlertDialog>
 
         <RestoreDialog appId={application.id} isStatic={isStatic} release={undoTo} onClose={() => setUndoTo(null)} />
+
 
         <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
           <AlertDialogContent>

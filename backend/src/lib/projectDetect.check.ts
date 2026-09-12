@@ -88,6 +88,7 @@ const remote = parseLsRemote(
 );
 assert.strictEqual(remote.defaultBranch, 'master');
 assert.deepStrictEqual(remote.branches, ['master', 'dev', 'feat/x']);
+assert.deepStrictEqual(remote.heads, { dev: 'bbb', master: 'aaa', 'feat/x': 'ddd' });
 assert.strictEqual(parseLsRemote('').defaultBranch, null);
 
 // .env files: example keys prefill the form, .env.production is listed, a committed .env is flagged

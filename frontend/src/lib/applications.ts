@@ -317,6 +317,21 @@ export const listRepositoryBranches = async (repository: string): Promise<Reposi
   throw new Error(response.error || t("Could not read the branches"));
 };
 
+/** An app's repository right now: branches, each one's newest commit, and the commit that is live. */
+export type AppBranches = {
+  defaultBranch: string | null;
+  branches: string[];
+  heads: Record<string, string>;
+  branch: string;
+  liveCommit: string | null;
+};
+
+export const getAppBranches = async (id: string): Promise<AppBranches> => {
+  const response = await apiRequest<AppBranches>(`/applications/${id}/branches`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not read the branches"));
+};
+
 /**
  * A file to upload and its path inside the upload. Kept apart from the File
  * because dropped files carry no webkitRelativePath.
