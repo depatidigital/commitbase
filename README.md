@@ -15,7 +15,7 @@ The panel is set up by hand: [docs/production-setup.md](docs/production-setup.md
 it for you from Servers → Set up; by hand on the node:
 
 ```bash
-sudo PANEL_SSH_PUBKEY='ssh-ed25519 AAAA… commitbase-panel' ./install.sh
+sudo PANEL_SSH_PUBKEY='ssh-ed25519 AAAA… larika-panel' ./install.sh
 ```
 
 ## Getting Started

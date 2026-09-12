@@ -1,5 +1,5 @@
 {
-  "name": "commitbase-backend",
+  "name": "larika-backend",
   "version": "1.0.0",
   "description": "Backend API for Larika application management platform",
   "main": "dist/index.js",

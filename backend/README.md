@@ -70,7 +70,7 @@ The application uses a comprehensive database schema with the following main ent
    
    Edit `.env` with your configuration:
    ```env
-   DATABASE_URL="postgresql://username:password@localhost:5432/commitbase?schema=public"
+   DATABASE_URL="postgresql://username:password@localhost:5432/larika?schema=public"
    JWT_SECRET="your-super-secret-jwt-key-here"
    PORT=3001
    ```
@@ -208,8 +208,8 @@ yarn db:studio
 
 The seeding script creates:
 
-- **Admin User**: `admin@commitbase.com` / `admin123`
-- **Demo User**: `user@commitbase.com` / `user123`
+- **Admin User**: `admin@larika.local` / `admin123`
+- **Demo User**: `user@larika.local` / `user123`
 - **Sample Applications**: Portfolio, API Server, Blog
 - **Sample Deployments**: With build logs and metrics
 - **Sample Databases**: PostgreSQL and Redis instances

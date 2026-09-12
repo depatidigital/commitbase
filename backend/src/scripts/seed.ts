@@ -9,10 +9,10 @@ async function main() {
   // Create admin user
   const adminPassword = await bcrypt.hash('admin123', 12);
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@commitbase.com' },
+    where: { email: 'admin@larika.local' },
     update: {},
     create: {
-      email: 'admin@commitbase.com',
+      email: 'admin@larika.local',
       name: 'Admin User',
       password: adminPassword,
       role: 'SUPERADMIN',
@@ -22,10 +22,10 @@ async function main() {
   // Create regular user
   const userPassword = await bcrypt.hash('user123', 12);
   const user = await prisma.user.upsert({
-    where: { email: 'user@commitbase.com' },
+    where: { email: 'user@larika.local' },
     update: {},
     create: {
-      email: 'user@commitbase.com',
+      email: 'user@larika.local',
       name: 'Demo User',
       password: userPassword,
       role: 'USER',

@@ -1,4 +1,4 @@
-# Install as /etc/logrotate.d/commitbase.
+# Install as /etc/logrotate.d/larika.
 # App stdout/stderr are appended by systemd; copytruncate keeps the open fd valid.
 /home/cb-*/apps/*/logs/out.log /home/cb-*/apps/*/logs/error.log /home/cb-*/logs/php-error.log {
     daily

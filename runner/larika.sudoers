@@ -1,5 +1,5 @@
-# Install as /etc/sudoers.d/commitbase (mode 0440, root:root).
-# Validate before reloading:  visudo -cf /etc/sudoers.d/commitbase
+# Install as /etc/sudoers.d/larika (mode 0440, root:root).
+# Validate before reloading:  visudo -cf /etc/sudoers.d/larika
 #
 # The panel runs its runner scripts by sending their text over SSH
 # (`sudo -n bash -c <script> ...`), so nothing is installed on the node and

@@ -6,7 +6,7 @@ alwaysApply: true
 # Project Structure
 
 ```
-commitbase/
+larika/
 |-- frontend/
 |-- backend/
 

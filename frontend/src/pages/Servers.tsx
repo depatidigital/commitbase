@@ -528,7 +528,7 @@ export default function Servers() {
                   <Label htmlFor="srv-key">{t("SSH key path")}</Label>
                   <Input
                     id="srv-key"
-                    placeholder="/home/commitbase/.ssh/id_ed25519"
+                    placeholder="/opt/larika/.ssh/id_ed25519"
                     value={form.sshKeyPath ?? ""}
                     onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })}
                   />

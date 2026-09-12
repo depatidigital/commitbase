@@ -27,7 +27,7 @@ SLUG="${1-}"
 QUOTA="${2-20G}"
 CPU_QUOTA="${3-50%}"
 MEM_MAX="${4-1G}"
-CB_GROUP="${CB_GROUP:-commitbase}"
+CB_GROUP="${CB_GROUP:-larika}"
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
 # Validate here as well as in the caller — this script runs as root.
@@ -36,14 +36,18 @@ HOME_ROOT="${CB_HOME_ROOT:-/home}"
 [[ "$CPU_QUOTA" =~ ^[0-9]+%$ ]]                         || { echo "cb-provision-org: invalid cpu quota: '$CPU_QUOTA'" >&2; exit 2; }
 [[ "$MEM_MAX"   =~ ^[0-9]+[MG]$ ]]                      || { echo "cb-provision-org: invalid memory max: '$MEM_MAX'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-provision-org: must run as root" >&2; exit 2; }
+# Provisioning onto the old group would split this node's tenants across two.
+getent group commitbase >/dev/null && { echo "cb-provision-org: this node still has the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4; }
 
-# A bare node has no install step, so the backend's group and user are made
+# A bare node has no install step, so the group and the build user are made
 # here: the group grants the panel file access, the user runs builds (cb-app-unit).
-CB_USER="${CB_USER:-commitbase}"
+BUILD_USER="${BUILD_USER:-larika-build}"
 getent group "$CB_GROUP" >/dev/null || { groupadd --system "$CB_GROUP"; echo "created group $CB_GROUP"; }
-if ! id -u "$CB_USER" >/dev/null 2>&1; then
-  useradd --system --gid "$CB_GROUP" --no-create-home --shell /usr/sbin/nologin "$CB_USER"
-  echo "created user $CB_USER"
+if ! id -u "$BUILD_USER" >/dev/null 2>&1; then
+  # A real home: npm and composer keep their caches there.
+  useradd --system --gid "$CB_GROUP" --create-home --home-dir "/var/lib/$BUILD_USER" --shell /usr/sbin/nologin "$BUILD_USER"
+  chmod 0700 "/var/lib/$BUILD_USER"
+  echo "created user $BUILD_USER"
 fi
 
 OS_USER="cb-$SLUG"

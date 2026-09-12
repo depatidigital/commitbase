@@ -1,7 +1,7 @@
 #!/bin/bash
 
 APP_NAME="app-a"
-APP_DIR="/opt/commitbase-apps/$APP_NAME"
+APP_DIR="/opt/larika-apps/$APP_NAME"
 PM2_CONFIG="$APP_DIR/pm2.config.js"
 SOCKET_PATH="/run/$APP_NAME.sock"
 

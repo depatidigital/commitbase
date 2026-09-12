@@ -8,10 +8,10 @@
 # Normally the panel runs this for you: Servers page -> Set up, which sends this
 # file's text over SSH and runs it as root (serverSetupService). By hand:
 #
-#   sudo PANEL_SSH_PUBKEY='ssh-ed25519 AAAA... commitbase-panel' ./install.sh
+#   sudo PANEL_SSH_PUBKEY='ssh-ed25519 AAAA... larika-panel' ./install.sh
 #
 # The panel's own box is a node too: run it there with the panel's key
-# (/opt/commitbase/.ssh/id_ed25519.pub). The panel itself is set up by hand —
+# (/opt/larika/.ssh/id_ed25519.pub). The panel itself is set up by hand —
 # docs/production-setup.md.
 #
 # Idempotent: re-running upgrades packages and re-applies the config it owns.
@@ -40,8 +40,10 @@ WITH_PHP="${WITH_PHP:-0}"
 WITH_NVM="${WITH_NVM:-0}"
 SERVER_IP="${SERVER_IP:-}"
 
-CB_USER=commitbase
-CB_GROUP=commitbase
+# Group that owns tenant homes; the SSH user and Caddy are in it.
+CB_GROUP=larika
+# Runs tenant builds. No sudo, no key - see runner/cb-app-unit.sh.
+BUILD_USER=larika-build
 SSH_USER="${SSH_USER:-larika}"
 
 say()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
@@ -51,11 +53,13 @@ die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo)"
 # Without the key the control plane cannot reach this box, and a node it
 # cannot reach is a node that does nothing. Fail now, not at provision time.
-[ -n "$PANEL_SSH_PUBKEY" ] || die "PANEL_SSH_PUBKEY is required - the panel's /opt/commitbase/.ssh/id_ed25519.pub"
+[ -n "$PANEL_SSH_PUBKEY" ] || die "PANEL_SSH_PUBKEY is required - the panel's /opt/larika/.ssh/id_ed25519.pub"
 [[ "$PANEL_SSH_PUBKEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9]+)[[:space:]] ]] \
   || die "PANEL_SSH_PUBKEY does not look like an OpenSSH public key"
 [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "SSH_USER looks wrong: $SSH_USER"
 command -v apt-get >/dev/null || die "Debian/Ubuntu only"
+# A box set up before the rename: its tenants belong to the old group.
+getent group commitbase >/dev/null && die "this box still has the pre-rename 'commitbase' group - run migrate-to-larika.sh first"
 
 # ---------------------------------------------------------------- 1. packages
 say "System packages"
@@ -85,25 +89,29 @@ if [ "$WITH_PHP" = "1" ]; then
   apt-get install -y -qq php-fpm php-cli php-mysql php-pgsql php-xml php-mbstring php-curl php-zip composer >/dev/null
 fi
 
-# ------------------------------------------------------------ 2. service user
-# Tenant homes are owned cb-<slug>:commitbase, mode 2770. The group is how the
-# SSH user and Caddy reach them; the user owns build output. cb-provision-org
-# creates both too - done here so the SSH user can join the group right away.
-say "Service user $CB_USER"
+# ------------------------------------------------------------ 2. build user
+# Tenant homes are owned cb-<slug>:larika, mode 2770. The group is how the SSH
+# user, the build user and Caddy reach them. cb-provision-org creates both too -
+# done here so the SSH user can join the group right away.
+say "Group $CB_GROUP, build user $BUILD_USER"
 getent group "$CB_GROUP" >/dev/null || groupadd --system "$CB_GROUP"
-id -u "$CB_USER" >/dev/null 2>&1 || useradd --system --gid "$CB_GROUP" --no-create-home --shell /usr/sbin/nologin "$CB_USER"
+if ! id -u "$BUILD_USER" >/dev/null 2>&1; then
+  # A real home: npm and composer keep their caches there.
+  useradd --system --gid "$CB_GROUP" --create-home --home-dir "/var/lib/$BUILD_USER" --shell /usr/sbin/nologin "$BUILD_USER"
+  chmod 0700 "/var/lib/$BUILD_USER"
+fi
 
 if [ "$WITH_NVM" = "1" ] && [ ! -s /opt/nvm/nvm.sh ]; then
   note "system-wide nvm in /opt/nvm"
   export NVM_DIR=/opt/nvm; mkdir -p "$NVM_DIR"
   curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | PROFILE=/dev/null bash >/dev/null
-  chmod -R a+rX "$NVM_DIR"; chown -R "$CB_USER:$CB_GROUP" "$NVM_DIR"
+  chmod -R a+rX "$NVM_DIR"; chown -R "$BUILD_USER:$CB_GROUP" "$NVM_DIR"
 fi
 
 # --------------------------------------------------------------- 3. ssh access
 say "SSH access for the control plane"
 if ! id -u "$SSH_USER" >/dev/null 2>&1; then
-  useradd --create-home --shell /bin/bash --groups "$CB_GROUP" "$SSH_USER"
+  useradd --create-home --shell /bin/bash --gid "$CB_GROUP" "$SSH_USER"
   note "created SSH user $SSH_USER"
 else
   usermod -aG "$CB_GROUP" "$SSH_USER"
@@ -134,7 +142,7 @@ systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/
 # ------------------------------------------------------ 4. sudoers, logrotate
 # Inlined, not copied from runner/: this script arrives over SSH as text, so
 # there is no checkout on the box to copy from. Keep in step with
-# runner/commitbase.sudoers and runner/commitbase.logrotate.
+# runner/larika.sudoers and runner/larika.logrotate.
 say "Sudoers, logrotate"
 SUDOERS_TMP="$(mktemp)"
 cat > "$SUDOERS_TMP" <<EOF
@@ -145,10 +153,10 @@ $SSH_USER ALL=(root) NOPASSWD: ALL
 Defaults:$SSH_USER !requiretty
 EOF
 visudo -cf "$SUDOERS_TMP" >/dev/null || { rm -f "$SUDOERS_TMP"; die "generated sudoers file did not validate"; }
-install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/commitbase
+install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/larika
 rm -f "$SUDOERS_TMP"
 
-cat > /etc/logrotate.d/commitbase <<'EOF'
+cat > /etc/logrotate.d/larika <<'EOF'
 # Written by install.sh.
 # App stdout/stderr are appended by systemd; copytruncate keeps the open fd valid.
 /home/cb-*/apps/*/logs/out.log /home/cb-*/apps/*/logs/error.log /home/cb-*/logs/php-error.log {
@@ -163,7 +171,7 @@ cat > /etc/logrotate.d/commitbase <<'EOF'
     su root root
 }
 EOF
-chmod 0644 /etc/logrotate.d/commitbase
+chmod 0644 /etc/logrotate.d/larika
 
 # Left over from when the scripts were installed; a stale copy would only mislead.
 rm -f /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit
@@ -223,7 +231,7 @@ fi
 say "Verify"
 # Checked here so a broken box fails at install time rather than on someone's first deploy.
 sudo -u "$SSH_USER" sudo -n true \
-  || die "$SSH_USER has no passwordless root - check /etc/sudoers.d/commitbase"
+  || die "$SSH_USER has no passwordless root - check /etc/sudoers.d/larika"
 note "$SSH_USER has passwordless root for the runner scripts"
 systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
 
@@ -234,9 +242,9 @@ cat <<EOF
     Add it in the panel (Servers) with:
       hostname   $(hostname -I | awk '{print $1}')
       ssh user   $SSH_USER
-      ssh key    the panel's /opt/commitbase/.ssh/id_ed25519
+      ssh key    the panel's /opt/larika/.ssh/id_ed25519
       public ip  ${SERVER_IP:-$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}
 
-    Verify from the panel box:  sudo -u $CB_USER ssh $SSH_USER@<this-host> sudo -n true
+    Verify from the panel box:  sudo -u larika ssh $SSH_USER@<this-host> sudo -n true
     The runner scripts come from the panel on every call - nothing to upgrade here.
 EOF

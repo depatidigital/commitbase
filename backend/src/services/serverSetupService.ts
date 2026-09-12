@@ -20,7 +20,7 @@ import { pingServer } from './serverHealthService';
 
 // Same depth from src/services (tsx) and dist/services (node).
 const INSTALL_SH = path.resolve(__dirname, '../../../install.sh');
-const PANEL_KEY = process.env.CB_SSH_KEY_PATH || '/opt/commitbase/.ssh/id_ed25519';
+const PANEL_KEY = process.env.CB_SSH_KEY_PATH || '/opt/larika/.ssh/id_ed25519';
 const SETUP_TIMEOUT_MS = 30 * 60_000;
 const LOG_TAIL = 8_000;
 

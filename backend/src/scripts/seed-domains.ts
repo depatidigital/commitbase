@@ -43,8 +43,8 @@ async function seedDomains() {
           sslExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
           dnsRecords: {
             a: '192.168.1.1',
-            cname: 'app.commitbase.com',
-            mx: 'mail.commitbase.com',
+            cname: 'app.larika.local',
+            mx: 'mail.larika.local',
           },
           userId: user.id,
         },

@@ -9,7 +9,7 @@
 #   cb-app-unit start|stop|restart|remove|status <org-slug> <app-id>
 #   cb-app-unit chown <org-slug> <app-id>     ownership only — PHP apps have no unit
 #   cb-app-unit build <org-slug> <app-id> [memory-max] [cpu-weight]
-#       runs <app-dir>/build.sh as the backend user inside cb-build.slice with a
+#       runs <app-dir>/build.sh as the build user inside cb-build.slice with a
 #       memory ceiling and low CPU/IO weight, so a build cannot starve the apps
 #       that are serving. Output streams back on stdout.
 #
@@ -23,8 +23,10 @@ set -euo pipefail
 ACTION="${1-}"
 SLUG="${2-}"
 APP_ID="${3-}"
-CB_GROUP="${CB_GROUP:-commitbase}"
-CB_USER="${CB_USER:-commitbase}"
+CB_GROUP="${CB_GROUP:-larika}"
+# Tenant build code (npm scripts, composer) runs as this user. Never the SSH
+# user: that one has passwordless root, and a postinstall script would get it.
+BUILD_USER="${BUILD_USER:-larika-build}"
 BUILD_MEMORY_MAX="${4:-2G}"
 BUILD_CPU_WEIGHT="${5:-50}"
 [[ "$BUILD_MEMORY_MAX" =~ ^[0-9]+[KMGT]?$ ]] || { echo "cb-app-unit: invalid memory max: '$BUILD_MEMORY_MAX'" >&2; exit 2; }
@@ -35,6 +37,7 @@ HOME_ROOT="${CB_HOME_ROOT:-/home}"
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-app-unit: must run as root" >&2; exit 2; }
+getent group commitbase >/dev/null && { echo "cb-app-unit: this node still has the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4; }
 
 OS_USER="cb-$SLUG"
 HOME_DIR="$HOME_ROOT/$OS_USER"
@@ -66,7 +69,7 @@ case "$ACTION" in
     # --wait returns the script's exit code; --pipe streams its output to ours.
     exec systemd-run --wait --pipe --collect --quiet \
       --unit="cb-build-$SLUG-$APP_ID-$$" --slice=cb-build.slice \
-      --uid="$CB_USER" --gid="$CB_GROUP" \
+      --uid="$BUILD_USER" --gid="$CB_GROUP" \
       -p MemoryMax="$BUILD_MEMORY_MAX" -p MemorySwapMax=0 \
       -p CPUWeight="$BUILD_CPU_WEIGHT" -p IOWeight="$BUILD_CPU_WEIGHT" -p Nice=10 \
       -p TimeoutStartSec=0 \

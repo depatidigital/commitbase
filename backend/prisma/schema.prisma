@@ -96,7 +96,7 @@ model Server {
   name          String
   /// SSH target - hostname or IP. The control plane's own VM is a row like any other.
   hostname      String
-  sshUser       String   @default("commitbase")
+  sshUser       String   @default("larika")
   sshPort       Int      @default(22)
   /// How the control plane authenticates to this node. A key is the default and
   /// the one to prefer; PASSWORD exists for boxes where installing a key is not

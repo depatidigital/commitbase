@@ -96,7 +96,7 @@ async function lookupRdapUncapped(name: string, attempt = 0): Promise<RdapLookup
   try {
     const res = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
       // rdap.org sits behind Cloudflare and 403s a request with no User-Agent
-      headers: { accept: 'application/rdap+json', 'user-agent': 'commitbase-domain-sync/1.0' },
+      headers: { accept: 'application/rdap+json', 'user-agent': 'larika-domain-sync/1.0' },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 

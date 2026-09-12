@@ -33,7 +33,7 @@ const router = Router();
  * belong in one directory anyway, so confining the path there costs nothing.
  */
 const SSH_KEY_DIR = path.resolve(
-  process.env.CB_SSH_KEY_DIR || path.dirname(process.env.CB_SSH_KEY_PATH || '/opt/commitbase/.ssh/id_ed25519')
+  process.env.CB_SSH_KEY_DIR || path.dirname(process.env.CB_SSH_KEY_PATH || '/opt/larika/.ssh/id_ed25519')
 );
 
 /** Reject anything outside SSH_KEY_DIR, including via `..`. */

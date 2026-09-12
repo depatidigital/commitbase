@@ -435,7 +435,7 @@ router.get(
         headers: {
           Authorization: `Bearer ${accessToken}`,
           Accept: 'application/vnd.github+json',
-          'User-Agent': 'commitbase',
+          'User-Agent': 'larika',
         },
       });
 
@@ -824,7 +824,7 @@ router.get(
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'commitbase',
+            'User-Agent': 'larika',
           },
         },
       );
@@ -1073,7 +1073,7 @@ router.get(
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github+json',
-          'User-Agent': 'commitbase',
+          'User-Agent': 'larika',
         },
       });
 

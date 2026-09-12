@@ -453,7 +453,7 @@ export default function DatabaseServers() {
                 <Input
                   id="dbs-admin"
                   autoComplete="off"
-                  placeholder={form.engine === "POSTGRESQL" ? "commitbase_admin" : "cb_admin"}
+                  placeholder={form.engine === "POSTGRESQL" ? "larika_admin" : "cb_admin"}
                   value={form.adminUser}
                   onChange={(e) => setForm({ ...form, adminUser: e.target.value })}
                 />

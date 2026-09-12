@@ -6,8 +6,8 @@ const prisma = new PrismaClient();
 
 /**
  * Reset a user password from the server.
- *   npx tsx src/scripts/setPassword.ts admin@commitbase.com            # generates one
- *   npx tsx src/scripts/setPassword.ts admin@commitbase.com 'my-pass'  # sets a specific one
+ *   npx tsx src/scripts/setPassword.ts admin@larika.local            # generates one
+ *   npx tsx src/scripts/setPassword.ts admin@larika.local 'my-pass'  # sets a specific one
  */
 async function main() {
   const email = process.argv[2]?.trim().toLowerCase();

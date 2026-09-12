@@ -482,7 +482,7 @@ export class DeploymentService {
   /**
    * Push every running app's route into Caddy again. Routes live in Caddy's
    * memory; a `caddy reload` from the Caddyfile drops them. Called at backend
-   * start, so "restart commitbase" is the recovery.
+   * start, so "restart larika" is the recovery.
    */
   /** Hostnames that should have a route right now — what the watchdog compares against. */
   async expectedCaddyHosts(serverId?: string): Promise<string[]> {

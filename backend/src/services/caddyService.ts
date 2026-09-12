@@ -125,12 +125,14 @@ async function putCaddyConfig(server: SshTarget, config: any): Promise<void> {
  *
  * A box whose Caddy was set up from a Caddyfile has its sites under whatever
  * name the adapter chose — `srv0`, usually — not under ours. Writing to a
- * hardcoded `commitbase` block on such a node creates a second server that
+ * hardcoded `larika` block on such a node creates a second server that
  * fights the first for :443, and reading from it finds nothing even though the
  * box is serving dozens of sites.
  */
 export function serverNameFor(config: any): string {
   const servers = config?.apps?.http?.servers ?? {};
+  if (servers.larika) return 'larika';
+  // installs from before the rename keep their block under the old name
   if (servers.commitbase) return 'commitbase';
 
   // the block already bound to the web ports is the one already serving traffic
@@ -140,7 +142,7 @@ export function serverNameFor(config: any): string {
     ),
   );
 
-  return existing?.[0] ?? 'commitbase';
+  return existing?.[0] ?? 'larika';
 }
 
 /** Every route in the config, whatever server block it lives in. */

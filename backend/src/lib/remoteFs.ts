@@ -15,8 +15,8 @@ import type { Stats } from 'ssh2';
  * more ways to be wrong. Recursion is the exception — `mkdir -p` and `rm -rf`
  * are one round trip each where an SFTP walk would be many.
  *
- * Everything runs as the `commitbase` user, never root. That works because
- * cb-provision-org makes each tenant home `cb-<slug>:commitbase` mode 2770 —
+ * Everything runs as the `larika` user, never root. That works because
+ * cb-provision-org makes each tenant home `cb-<slug>:larika` mode 2770 —
  * group access for the control plane is the reason that group is set at all.
  * Operations genuinely needing root still go through the two sudo scripts.
  */

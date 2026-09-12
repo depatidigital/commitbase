@@ -6,21 +6,21 @@
  */
 import assert from 'assert';
 
-process.env.CB_SSH_KEY_DIR = '/home/commitbase/.ssh';
+process.env.CB_SSH_KEY_DIR = '/opt/larika/.ssh';
 
 async function main() {
   const { keyPathError } = await import('./servers');
 
   // inside the fence
-  assert.strictEqual(keyPathError('/home/commitbase/.ssh/id_ed25519'), null);
-  assert.strictEqual(keyPathError('/home/commitbase/.ssh/nodes/node2'), null);
-  assert.strictEqual(keyPathError('/home/commitbase/.ssh'), null);
+  assert.strictEqual(keyPathError('/opt/larika/.ssh/id_ed25519'), null);
+  assert.strictEqual(keyPathError('/opt/larika/.ssh/nodes/node2'), null);
+  assert.strictEqual(keyPathError('/opt/larika/.ssh'), null);
 
   // outside it
   assert.ok(keyPathError('/etc/shadow'));
-  assert.ok(keyPathError('/home/commitbase/.ssh/../../../etc/shadow'));
+  assert.ok(keyPathError('/opt/larika/.ssh/../../../etc/shadow'));
   // a sibling directory that merely starts with the same string
-  assert.ok(keyPathError('/home/commitbase/.sshsecrets/key'));
+  assert.ok(keyPathError('/opt/larika/.sshsecrets/key'));
   assert.ok(keyPathError('relative/key'));
 
   console.log('servers: keyPathError OK');
