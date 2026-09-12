@@ -14,6 +14,7 @@ import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor 
 import { appFsFor, appFsForDomain, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
+import { sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
@@ -313,12 +314,15 @@ export class DeploymentService {
       const has = (f: string) => afs.exists(join(releaseDir, f));
       const steps: string[] = [];
 
+      // the app's own install command when set, else the detected one
+      const installCommand = application.installCommand || detected.installCommand;
+
       if (detected.type === 'PHP') {
-        if (detected.installCommand) {
+        if (installCommand) {
           if (await this.reuseInstalled(afs, releaseDir, 'composer.lock', 'vendor')) {
             await log('vendor: composer.lock unchanged, hardlinked from the previous release');
           } else {
-            steps.push(detected.installCommand);
+            steps.push(installCommand);
           }
         }
         // Laravel and friends read .env from the app root. The platform's env
@@ -327,7 +331,7 @@ export class DeploymentService {
           // Laravel refuses to boot without one. Generate once and keep it on
           // the app so sessions survive the next deploy.
           envVars.APP_KEY = 'base64:' + require('crypto').randomBytes(32).toString('base64');
-          await prisma.application.update({ where: { id: application.id }, data: { envVars } });
+          await prisma.application.update({ where: { id: application.id }, data: { envVars: sealEnv(envVars) } });
           await log('Generated APP_KEY and saved it to the app env');
         }
         const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
@@ -342,12 +346,15 @@ export class DeploymentService {
         if (lock && (await this.reuseInstalled(afs, releaseDir, lock, 'node_modules'))) {
           await log('node_modules: lockfile unchanged, hardlinked from the previous release');
         } else {
-          steps.push(detected.installCommand);
+          steps.push(installCommand);
         }
       }
       if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
       const buildCommand = application.buildCommand || detected.buildCommand;
       if (buildCommand) steps.push(buildCommand);
+      // Migrations and the like: after the build, in the same script and env,
+      // before the release is switched to — a failure leaves the old one live.
+      if (application.preDeployCommand) steps.push(application.preDeployCommand);
 
       if (steps.length > 0) {
         // One script for the whole build, so it can run under systemd-run in

@@ -284,16 +284,13 @@ export async function detectFromRepo(repository: string, branch = 'main', auth: 
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-detect-'));
   try {
-    const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--branch', branch, repository, tmp]);
+    // --sparse checks out the root-level files only — every detection file is
+    // one — and the clone fetches their blobs itself, in one batch: ~100 KB for
+    // a Next app. Not --no-checkout plus a checkout per file afterwards: those
+    // raced for index.lock, and a lazy blob fetch from a shallow blobless clone
+    // comes back without the blob, so detection never saw a package.json.
+    const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', branch, repository, tmp]);
     await execFileAsync('git', clone.argv, { timeout: 60000, env: clone.env });
-    // One checkout per file: a missing file fails the command, the others still land.
-    // Blobless, so each checkout fetches its blob — with the same credentials.
-    await Promise.all(
-      DETECT_FILES.map((name) => {
-        const checkout = remoteGit(auth, ['-C', tmp, 'checkout', '--quiet', 'HEAD', '--', name]);
-        return execFileAsync('git', checkout.argv, { timeout: 30000, env: checkout.env }).catch(() => {});
-      })
-    );
     return detectProject(tmp);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});

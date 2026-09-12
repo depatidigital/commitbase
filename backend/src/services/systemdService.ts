@@ -3,6 +3,7 @@ import { Application } from '@prisma/client';
 import { sourcesDirFor, logsDirFor, currentDirFor } from '../lib/appPaths';
 import { appFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
+import { readEnv } from '../lib/appEnv';
 import { appUnit, OS_ISOLATION_ENABLED } from './orgProvisionService';
 
 /**
@@ -72,7 +73,7 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
   }
   startCommand = startCommand || DEFAULT_START_COMMANDS[application.type] || 'npm start';
 
-  const envVars = (application.envVars || {}) as Record<string, string>;
+  const envVars = readEnv(application.envVars);
   const exports = Object.entries(envVars)
     .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
     .map(([key, value]) => `export ${key}=${shellQuote(value)}`);

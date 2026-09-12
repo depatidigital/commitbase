@@ -322,9 +322,15 @@ model Application {
   branch      String? @default("main")
   
   // Build & runtime config
-  buildCommand String?
-  startCommand String?
-  envVars     Json? // Store as JSON object
+  /// null = the detected one (pnpm install --frozen-lockfile, npm ci, …)
+  installCommand   String?
+  buildCommand     String?
+  /// After the build, before the new release goes live — migrations. Failing it fails the deploy.
+  preDeployCommand String?
+  startCommand     String?
+  /// `{ "$enc": <secretBox blob> }` once written through lib/appEnv; a plain
+  /// object on rows from before encryption, read as is until next saved.
+  envVars     Json?
   
   // Static sites: the R2 bucket holding the files and the public host Caddy
   // proxies to (Cloudflare caches in front of it)

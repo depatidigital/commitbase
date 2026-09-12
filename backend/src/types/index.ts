@@ -99,7 +99,9 @@ export const CreateApplicationSchema = z.object({
   // Which connected GitHub/GitLab account clones a private repository
   gitAccountId: z.string().optional(),
   branch: z.string().optional(),
+  installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
+  preDeployCommand: z.string().optional(),
   startCommand: z.string().optional(),
   envVars: z.record(z.string()).optional(),
   // the node to run on — honoured for superadmins; others get the org's default
@@ -113,7 +115,9 @@ export const UpdateApplicationSchema = z.object({
   repository: z.string().optional(),
   gitAccountId: z.string().nullable().optional(),
   branch: z.string().optional(),
+  installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
+  preDeployCommand: z.string().optional(),
   startCommand: z.string().optional(),
   envVars: z.record(z.string()).optional(),
 });

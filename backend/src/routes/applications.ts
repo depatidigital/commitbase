@@ -29,6 +29,7 @@ import { appFsFor } from '../lib/appFs';
 import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
+import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
@@ -507,6 +508,8 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
       success: true,
       data: {
         ...application,
+        // the detail page edits them; everywhere else only the sealed blob goes out
+        envVars: readEnv(application.envVars),
         staticSiteUrl,
         placement: application.server ?? application.organization?.defaultServer ?? null,
       },
@@ -524,7 +527,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create a new application
 router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, type, repository, branch, buildCommand, startCommand, port, envVars, gitAccountId } = req.body;
+    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId } = req.body;
     const domain = String(req.body.domain || '').trim().toLowerCase();
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
@@ -576,10 +579,12 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         repository,
         gitAccountId,
         branch,
+        installCommand,
         buildCommand,
+        preDeployCommand,
         startCommand,
         port,
-        envVars,
+        ...(envVars && { envVars: sealEnv(envVars) }),
         userId: req.user!.userId,
         domainId: parentDomain.id,
         organizationId: parentDomain.organizationId,
@@ -894,7 +899,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
   try {
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
-    const { name, domain, type, repository, branch, buildCommand, startCommand, port, envVars, gitAccountId } = req.body || {};
+    const { name, domain, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId } =
+      req.body || {};
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -961,29 +967,23 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         // undefined leaves it alone; null deliberately clears it
         ...(gitAccountId !== undefined && { gitAccountId }),
         branch,
+        // '' clears back to the detected install / no pre-deploy step
+        ...(installCommand !== undefined && { installCommand: installCommand.trim() || null }),
         buildCommand,
+        ...(preDeployCommand !== undefined && { preDeployCommand: preDeployCommand.trim() || null }),
         startCommand,
         port,
-        envVars,
+        ...(envVars !== undefined && { envVars: sealEnv(envVars) }),
       },
-    });
-    console.log('Updated application:', updatedApp, {
-      port: port,
     });
     return res.json({
       success: true,
-      data: updatedApp,
+      data: { ...updatedApp, envVars: readEnv(updatedApp.envVars) },
       message: 'Application updated successfully',
     } as ApiResponse<Application>);
   } catch (error) {
+    // not the body or headers: they carry the env vars and the bearer token
     console.error('Error updating application:', error);
-    console.error('Request details:', {
-      params: req.params,
-      body: req.body,
-      url: req.url,
-      method: req.method,
-      headers: req.headers
-    });
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -1217,7 +1217,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     deploymentService.deploy({
       application,
       deployment,
-      envVars: application.envVars as Record<string, string> || {},
+      envVars: readEnv(application.envVars),
     }).then(async (result) => {
       // Update deployment record with logs
       await prisma.deployment.update({
