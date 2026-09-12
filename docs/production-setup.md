@@ -408,8 +408,8 @@ Every later account arrives by invite (`/team`) or by admin creation (`/admin`).
 
 ### Register this box as the first node
 
-Organizations are placed on a node, and nothing provisions or routes until this
-row exists. It reads the environment this install already has:
+Apps run on nodes, and nothing provisions or routes until this row exists. It
+reads the environment this install already has:
 
 ```bash
 sudo -u larika -H bash -c 'cd /opt/larika/app/backend && npx tsx src/scripts/seedServer.ts --dry-run'
@@ -417,7 +417,9 @@ sudo -u larika -H bash -c 'cd /opt/larika/app/backend && npx tsx src/scripts/see
 ```
 
 It creates a `Server` row for `127.0.0.1` (override with `SEED_SERVER_HOSTNAME`)
-and places every unplaced organization on it. Re-runnable. A node that comes up
+and makes it the default server of every organization without one (organizations
+can span nodes — see [per-org-os-isolation.md](per-org-os-isolation.md#organizations-span-nodes)).
+Re-runnable. A node that comes up
 `OFFLINE` here means the self-authorised key from section 2 is missing — that is
 what this depends on.
 

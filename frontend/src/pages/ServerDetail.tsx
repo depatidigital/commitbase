@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLayout } from "@/components/PageLayout";
+import { ProvisionBadge } from "@/components/ProvisionBadge";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 import {
@@ -236,12 +237,15 @@ const ServerDetail = () => {
                 {server.organizations?.length ? (
                   server.organizations.map((org) => (
                     <Row key={org.id} label={org.name}>
-                      <span className="font-mono text-xs">{org.slug}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono text-xs">cb-{org.slug}</span>
+                        <ProvisionBadge state={org.state} />
+                      </span>
                     </Row>
                   ))
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {t("Nothing placed here yet. Apps deploy to the node their organization sits on.")}
+                    {t("No organization is provisioned here yet. An organization is provisioned on a server when its first app is placed on it.")}
                   </p>
                 )}
               </CardContent>

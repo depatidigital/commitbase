@@ -186,4 +186,18 @@ export default {
   Failed: "Gagal",
   "Waiting for server": "Menunggu server",
   "Provisioning queued": "Provisi masuk antrean",
+  "On no server yet": "Belum ada di server mana pun",
+  "Default server": "Server default",
+  "Provisioned on": "Terprovisi di",
+  "New apps of this organization have to pick a server.": "Aplikasi baru organisasi ini harus memilih server.",
+  "Default server: {server}": "Server default: {server}",
+  "New apps run on the default server unless another is picked. The organization is provisioned only on the servers its apps use — its OS user has the same UID on each.":
+    "Aplikasi baru berjalan di server default kecuali dipilih server lain. Organisasi hanya diprovisi di server yang dipakai aplikasinya — pengguna OS-nya memiliki UID yang sama di setiap server.",
+  "Runs on every server it is on: {servers}.": "Berjalan di setiap server tempat organisasi ini berada: {servers}.",
+  "Runs on its default server, {server}.": "Berjalan di server default-nya, {server}.",
+  "Organization's default server": "Server default organisasi",
+  "Where the app is built and runs. The organization is provisioned there if it is not yet. Fixed once the app exists.":
+    "Tempat aplikasi di-build dan berjalan. Organisasi diprovisi di sana jika belum. Tidak bisa diubah setelah aplikasi dibuat.",
+  "No organization is provisioned here yet. An organization is provisioned on a server when its first app is placed on it.":
+    "Belum ada organisasi yang diprovisi di sini. Organisasi diprovisi di sebuah server saat aplikasi pertamanya ditempatkan di server itu.",
 } satisfies Record<string, string>;

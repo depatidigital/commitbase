@@ -6,6 +6,25 @@ files, and one tenant cannot eat the whole VPS.
 
 Docker is not used at all — apps run as systemd units.
 
+## Organizations span nodes
+
+An organization is not pinned to one server. Each **application** has its own
+server (`Application.serverId`), chosen when it is created — a superadmin can
+pick any node; everyone else gets the organization's **default server**. The
+organization is provisioned on a node only when it is needed there, and each
+such presence is one `org_nodes` row with its own provisioning state and log.
+
+* The OS user is always `cb-<slug>`, with the **same UID and GID on every
+  node** (`Organization.uid`, from 200000 up — `ORG_UID_BASE`). Files copied
+  between nodes keep their owner. An org provisioned before UIDs were tracked
+  keeps the UID its user already has.
+* Quota, CPU and memory limits are **per node**: an org on three nodes can use
+  up to three times its limits in total.
+* An app's DNS record points at its own node's `publicIp`; a domain's wildcard
+  record points at the org's default server.
+* Moving an app to another node is a migration (files, DNS), not an edit —
+  there is no button for it yet.
+
 ## What an organization owns
 
 ```
@@ -54,27 +73,32 @@ Disk quotas need the filesystem holding `/home` mounted with `usrquota` and
 ORG_OS_ISOLATION="true"
 ```
 
-Then provision every existing organization and move the app directories out of
-the old flat `apps_dir`:
+Then provision every existing organization on every node its apps use:
 
 ```bash
 cd backend
-npm run provision:orgs -- --dry-run   # shows what would move
+npm run provision:orgs -- --dry-run   # shows what would run where
 npm run provision:orgs
 npm run check:app-paths               # path-layout self-check
 ```
 
-New organizations are provisioned automatically at `POST /api/organizations` —
-the OS user is created before the row, so an org can never exist without a home.
+After that it runs on its own — see below.
 
 ## When provisioning runs
 
+Always per node, through the `org_nodes` queue (kicked in-process, swept by
+the `org-provision` cron job every minute). Output is shown live: click a node's
+badge on the Organizations, organization or `/admin` page.
+
 | Trigger | What happens |
 |---|---|
-| `POST /api/organizations` (an org is created) | The OS user is provisioned **before** the row is written. If provisioning fails the request returns 500 and no organization is created — an org can never exist without a home |
-| First-ever registration (`POST /api/auth/register`) | The bootstrap `default` organization is provisioned too, but a failure is logged and ignored so the very first login cannot be locked out. Re-run it from `/admin` |
-| `POST /api/admin/organizations/:id/provision` | Manual re-run. This is the **Provision / Re-provision** button on `/admin` → Organizations |
-| `npm run provision:orgs` | Bulk run over every organization, plus the move of app directories out of the old flat `apps_dir` |
+| An app is created | Queued on the app's node, so the first deploy does not wait |
+| A deploy starts | If the org is not yet DONE on the app's node, the deploy queues it (or joins a run in flight) and waits for it; a failure fails the deploy with the node's error |
+| The default server is set (`PUT /api/organizations/:id/server`) | Queued on that node |
+| `POST /api/admin/organizations/:id/provision` | Manual re-run on one node (`serverId`) or on every node the org is on. The **Provision / Re-provision** button on `/admin` → Organizations |
+| `npm run provision:orgs` | Every organization on every node its apps use, waiting for each |
+
+Creating an organization provisions nothing — it has no app anywhere yet.
 
 The script is idempotent, so a re-run is also how you repair file ownership
 after a manual edit and how you apply changed resource limits.

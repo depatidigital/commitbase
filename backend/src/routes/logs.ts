@@ -173,7 +173,8 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      // no-transform: compression() (and any proxy) would gzip-buffer the stream to nothing
+      'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
@@ -193,14 +194,14 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
       clearInterval(heartbeat);
       clearTimeout(cap);
       openStreams.set(server.id, (openStreams.get(server.id) ?? 1) - 1);
-      res.end();
     }
+    return res.end();
   } catch (error) {
     console.error('Error streaming pm2 logs:', error);
     if (!res.headersSent) {
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
     }
-    res.end();
+    return res.end();
   }
 });
 

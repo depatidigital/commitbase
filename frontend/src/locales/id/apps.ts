@@ -134,6 +134,7 @@ export default {
 
   // logs tab
   "Log Type": "Tipe Log",
+  "Live": "Langsung",
   "Combined Logs": "Log Gabungan",
   "Output Logs": "Log Output",
   "Error Logs": "Log Error",

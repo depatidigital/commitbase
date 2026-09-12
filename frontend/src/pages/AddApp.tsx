@@ -65,6 +65,8 @@ import {
   getGitConnectionStatus,
 } from "@/lib/git";
 import { t } from "@/lib/i18n";
+import { isSuperAdmin } from "@/lib/auth";
+import { getServers } from "@/lib/servers";
 
 // Radix Select forbids an empty-string item value, so "no filter" needs a sentinel.
 const ALL_WORKSPACES = "__all__";
@@ -96,6 +98,10 @@ export default function AddApp() {
   );
   // 1 = where the code comes from, 2 = type, name and domain
   const [step, setStep] = useState(1);
+  // Which node the app runs on. Only a superadmin picks; "" = the org's default server.
+  const superadmin = isSuperAdmin();
+  const [serverId, setServerId] = useState("");
+  const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superadmin });
   // set once the app exists — the wizard turns into a progress view rather than
   // dumping the user on the dashboard while the deploy is still running
   const [launch, setLaunch] = useState<{
@@ -287,6 +293,7 @@ export default function AddApp() {
       startCommand: formData.startCommand || undefined,
       port: formData.port ? parseInt(formData.port) : undefined,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
+      serverId: serverId || undefined,
     };
 
     try {
@@ -1326,6 +1333,28 @@ export default function AddApp() {
                     </p>
                   </div>
                 </div>
+
+                {superadmin && (
+                  <div className="space-y-2">
+                    <Label htmlFor="server">{t("Server")}</Label>
+                    <Select value={serverId || "__default"} onValueChange={(v) => setServerId(v === "__default" ? "" : v)}>
+                      <SelectTrigger id="server" className="max-w-md">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default">{t("Organization's default server")}</SelectItem>
+                        {servers.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name} ({s.status})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t("Where the app is built and runs. The organization is provisioned there if it is not yet. Fixed once the app exists.")}
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   {/* what detection found sits on the heading line */}

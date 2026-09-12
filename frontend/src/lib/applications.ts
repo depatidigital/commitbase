@@ -76,6 +76,8 @@ export interface CreateApplicationData {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
+  /** Node to run on. Superadmin only; omitted = the organization's default server. */
+  serverId?: string;
 }
 
 export interface UpdateApplicationData {

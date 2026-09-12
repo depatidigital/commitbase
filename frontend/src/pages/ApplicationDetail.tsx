@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useApplicationStatus, useStartApplication, useStartExistingApplication, useStopApplication, useRestartApplication, useDeleteApplication, useUpdateApplication, useApplicationHostname, useSetupApplicationDns } from "@/hooks/useApplications";
-import { useApplicationLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
+import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useQueryClient } from "@tanstack/react-query";
 import { Application, UpdateApplicationData, hasBeenDeployed } from "@/lib/applications";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -132,7 +132,15 @@ export default function ApplicationDetail() {
   const deleteApp = useDeleteApplication();
 
   // Logs hooks
-  const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, selectedLogType, logLines);
+  // pm2 apps stream live, and only while the Logs tab is open; the rest poll
+  const liveLogs = application?.runtime === 'PM2' && selectedLogType !== 'build';
+  const live = useLiveLogs(id!, selectedLogType, logLines, liveLogs && activeTab === 'logs');
+  const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useApplicationLogs(id!, selectedLogType, logLines, !liveLogs);
+  const shownLogs = liveLogs ? live.error ?? live.text : logs[selectedLogType as keyof ApplicationLogs];
+  const logsEndRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (liveLogs) logsEndRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [liveLogs, shownLogs]);
   const { data: buildLogStatus } = useBuildLogStatus(id!);
   const createTestLog = useCreateTestBuildLog();
 
@@ -868,6 +876,12 @@ export default function ApplicationDetail() {
                 <CardTitle className="flex items-center space-x-2">
                   <Terminal className="h-5 w-5 text-primary" />
                   <span>{t("App Logs")}</span>
+                  {liveLogs && !live.error && (
+                    <Badge variant="outline" className="gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                      {t("Live")}
+                    </Badge>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -923,7 +937,7 @@ export default function ApplicationDetail() {
                     
                     <Button
                       variant="outline"
-                      onClick={() => copyToClipboard(logs[selectedLogType as keyof ApplicationLogs] || '')}
+                      onClick={() => copyToClipboard(shownLogs || '')}
                     >
                       <Copy className="h-4 w-4 mr-2" />
                       {t("Copy")}
@@ -940,9 +954,10 @@ export default function ApplicationDetail() {
                 <div className="border rounded-md">
                   <ScrollArea className="h-96">
                     <div className="p-4">
-                      {logs[selectedLogType as keyof ApplicationLogs] ? (
+                      {shownLogs ? (
                         <pre className="text-sm font-mono whitespace-pre-wrap">
-                          {logs[selectedLogType as keyof ApplicationLogs]}
+                          {shownLogs}
+                          <span ref={logsEndRef} />
                         </pre>
                       ) : (
                         <div className="text-center text-muted-foreground py-8">

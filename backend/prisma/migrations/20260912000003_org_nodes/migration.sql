@@ -23,6 +23,9 @@ CREATE UNIQUE INDEX "org_nodes_organizationId_serverId_key" ON "org_nodes"("orga
 ALTER TABLE "org_nodes" ADD CONSTRAINT "org_nodes_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "org_nodes" ADD CONSTRAINT "org_nodes_serverId_fkey" FOREIGN KEY ("serverId") REFERENCES "servers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- 20260912000002 (provisionLog) may not have been applied where this runs.
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "provisionLog" TEXT;
+
 -- The old one-node placement becomes the org's first node, with its state.
 INSERT INTO "org_nodes" ("id", "organizationId", "serverId", "state", "error", "log", "job", "provisionedAt", "updatedAt")
 SELECT 'on_' || "id", "id", "serverId", "provisionState", "provisionError", "provisionLog", "provisionJob", "provisionedAt", CURRENT_TIMESTAMP
