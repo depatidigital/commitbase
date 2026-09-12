@@ -27,7 +27,7 @@ import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
 import { queueOrgNode, OS_ISOLATION_ENABLED } from '../services/orgProvisionService';
-import { detectFromFiles, detectFromRepo, listRemoteBranches, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectFromFiles, detectFromRepo, listRemoteBranches, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
@@ -228,7 +228,7 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
     if (files && typeof files === 'object') {
       const input: DetectInput = {};
       for (const name of DETECT_FILES) {
-        if (typeof files[name] === 'string') input[name] = String(files[name]).slice(0, 256 * 1024);
+        if (typeof files[name] === 'string') input[name] = presenceOnly(name) ? '' : String(files[name]).slice(0, 256 * 1024);
       }
       return res.json({ success: true, data: detectFromFiles(input) } as ApiResponse);
     }

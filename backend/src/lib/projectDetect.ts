@@ -33,10 +33,28 @@ export interface DetectedProject {
   outputDir: string | null; // static sites: build output; PHP: document root
   port: number | null;
   nodeVersion: string | null;
+  env: RepoEnv;
 }
+
+/** What the repository says about its environment — the add-app form prefills from it. */
+export interface RepoEnv {
+  /** from .env.example / .sample / .template: every key, with its default when it has one */
+  example: { file: string; vars: Array<{ key: string; value: string }> } | null;
+  /** keys the repo's own .env.production sets — Next.js and Vite load it at build by themselves */
+  production: string[];
+  /** secret files that are committed and should not be: .env, .env.local */
+  committed: string[];
+}
+
+const EXAMPLE_ENV_FILES = ['.env.example', '.env.sample', '.env.template'] as const;
+// read for their presence only — never their contents, which are secrets
+const SECRET_ENV_FILES = ['.env', '.env.local'] as const;
 
 /** The files worth reading. Detection needs nothing else. */
 export const DETECT_FILES = [
+  ...EXAMPLE_ENV_FILES,
+  '.env.production',
+  ...SECRET_ENV_FILES,
   'package.json',
   'package-lock.json',
   'pnpm-lock.yaml',
@@ -104,8 +122,50 @@ function startScript(pm: PackageManager): string {
   return pm === 'yarn' ? 'yarn start' : pm === 'npm' ? 'npm start' : `${pm} run start`;
 }
 
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * `.env` text → [key, value] pairs, by dotenv's own line rules: `#` comments,
+ * an optional `export `, '…' literal, "…" with \n and \r expanded (and able to
+ * span lines), `…`, or a bare value up to an inline ` #`. Keys that are not a
+ * valid shell name are dropped — they could never be exported.
+ */
+export function parseEnvFile(text: string): Array<[string, string]> {
+  // [ \t], never \s: `KEY=` with no value must not swallow the next line
+  const LINE =
+    /^[ \t]*(?:export[ \t]+)?([\w.-]+)[ \t]*=[ \t]*('(?:\\'|[^'])*'|"(?:\\"|[^"])*"|`(?:\\`|[^`])*`|[^#\r\n]+)?[ \t]*(?:#.*)?$/gm;
+  const out: Array<[string, string]> = [];
+  for (const match of text.replace(/\r\n?/g, '\n').matchAll(LINE)) {
+    const key = match[1]!;
+    if (!ENV_NAME.test(key)) continue;
+    let value = (match[2] ?? '').trim();
+    const quote = value[0];
+    if ((quote === '"' || quote === "'" || quote === '`') && value.endsWith(quote) && value.length >= 2) {
+      value = value.slice(1, -1);
+      if (quote === '"') value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\"/g, '"');
+    }
+    out.push([key, value]);
+  }
+  return out;
+}
+
+function repoEnvOf(files: DetectInput): RepoEnv {
+  const exampleFile = EXAMPLE_ENV_FILES.find((name) => files[name] !== undefined);
+  return {
+    example: exampleFile
+      ? { file: exampleFile, vars: parseEnvFile(files[exampleFile] || '').map(([key, value]) => ({ key, value })) }
+      : null,
+    production: parseEnvFile(files['.env.production'] || '').map(([key]) => key),
+    committed: SECRET_ENV_FILES.filter((name) => files[name] !== undefined),
+  };
+}
+
 /** Pure: takes file contents, returns the preset. Same logic for upload, git and deploy. */
 export function detectFromFiles(files: DetectInput): DetectedProject {
+  return { ...presetFromFiles(files), env: repoEnvOf(files) };
+}
+
+function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env'> {
   const nodeVersion = (files['.nvmrc'] || files['.node-version'] || '').trim().replace(/^v/, '') || null;
 
   // PHP first: Laravel ships a package.json for its assets, which must not
@@ -218,7 +278,9 @@ export function detectFromFiles(files: DetectInput): DetectedProject {
   });
 }
 
-function base(partial: Partial<DetectedProject> & Pick<DetectedProject, 'type' | 'framework' | 'label'>): DetectedProject {
+function base(
+  partial: Partial<Omit<DetectedProject, 'env'>> & Pick<DetectedProject, 'type' | 'framework' | 'label'>,
+): Omit<DetectedProject, 'env'> {
   return {
     packageManager: 'npm',
     installCommand: 'npm install --no-audit --no-fund',
@@ -230,6 +292,13 @@ function base(partial: Partial<DetectedProject> & Pick<DetectedProject, 'type' |
     ...partial,
   };
 }
+
+/**
+ * Detection files whose contents are never kept: lockfiles are huge and only
+ * their presence matters; a committed .env is noted, its secrets never read.
+ */
+export const presenceOnly = (name: string): boolean =>
+  (SECRET_ENV_FILES as readonly string[]).includes(name) || /(\.lockb?|lock\.json|lock\.yaml)$/.test(name);
 
 type ReadText = (file: string) => Promise<string>;
 const readLocal: ReadText = (file) => fs.readFile(file, 'utf-8');
@@ -243,9 +312,8 @@ export async function readDetectFiles(dir: string, read: ReadText = readLocal): 
   await Promise.all(
     DETECT_FILES.map(async (name) => {
       try {
-        // Lockfiles can be huge and only their presence matters.
         const content = await read(path.posix.join(dir, name));
-        out[name] = name.endsWith('.lock') || name.endsWith('lock.json') || name.endsWith('lock.yaml') || name.endsWith('.lockb') ? '' : content;
+        out[name] = presenceOnly(name) ? '' : content;
       } catch {
         /* absent */
       }

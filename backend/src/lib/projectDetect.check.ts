@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { detectFromFiles, nvmPreamble, parseLsRemote } from './projectDetect';
+import { detectFromFiles, nvmPreamble, parseLsRemote, parseEnvFile, presenceOnly } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -74,5 +74,42 @@ const remote = parseLsRemote(
 assert.strictEqual(remote.defaultBranch, 'master');
 assert.deepStrictEqual(remote.branches, ['master', 'dev', 'feat/x']);
 assert.strictEqual(parseLsRemote('').defaultBranch, null);
+
+// .env files: example keys prefill the form, .env.production is listed, a committed .env is flagged
+const env = detectFromFiles({
+  'package.json': JSON.stringify({ dependencies: { next: '16' } }),
+  '.env.example': [
+    '# database',
+    'DATABASE_URL=',
+    'export AUTH_SECRET=""',
+    'PORT=3000 # default',
+    "GREETING='hello # not a comment'",
+    'MULTI="line1\\nline2"',
+    'KEY_WITH_SPACES = spaced value ',
+    'bad-key=x',
+  ].join(NL),
+  '.env.production': 'NEXT_PUBLIC_SITE=https://x.id',
+  '.env': '',
+}).env;
+assert.strictEqual(env.example?.file, '.env.example');
+assert.deepStrictEqual(env.example?.vars, [
+  { key: 'DATABASE_URL', value: '' },
+  { key: 'AUTH_SECRET', value: '' },
+  { key: 'PORT', value: '3000' },
+  { key: 'GREETING', value: 'hello # not a comment' },
+  { key: 'MULTI', value: 'line1' + NL + 'line2' },
+  { key: 'KEY_WITH_SPACES', value: 'spaced value' },
+]);
+assert.deepStrictEqual(env.production, ['NEXT_PUBLIC_SITE']);
+assert.deepStrictEqual(env.committed, ['.env']);
+assert.deepStrictEqual(detectFromFiles({ 'index.html': '' }).env, { example: null, production: [], committed: [] });
+// a real multi-line value in double quotes
+assert.deepStrictEqual(parseEnvFile('CERT="-----BEGIN' + NL + 'abc' + NL + '-----END"' + NL + 'NEXT=1'), [
+  ['CERT', '-----BEGIN' + NL + 'abc' + NL + '-----END'],
+  ['NEXT', '1'],
+]);
+// secrets are never kept, lockfiles only by presence
+assert.ok(presenceOnly('.env') && presenceOnly('.env.local') && presenceOnly('pnpm-lock.yaml') && presenceOnly('bun.lockb'));
+assert.ok(!presenceOnly('.env.example') && !presenceOnly('package.json'));
 
 console.log('projectDetect: ok');
