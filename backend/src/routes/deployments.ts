@@ -56,6 +56,8 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
             domain: true,
           },
         },
+        // who deployed — the history row says so
+        user: { select: { name: true, email: true } },
       },
     });
 

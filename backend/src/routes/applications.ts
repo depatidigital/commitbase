@@ -769,7 +769,7 @@ router.post(
         }
 
         const release = await prisma.release.create({
-          data: { applicationId: application.id, status: 'READY', path: folder },
+          data: { applicationId: application.id, status: 'READY', path: folder, deploymentId: deployment.id },
         });
         const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
 
@@ -1711,6 +1711,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
           applicationId: application.id,
           userId: req.user!.userId,
           status: 'SUCCESS',
+          commitHash: release.commitSha,
           deployLogs: `Switched to the release from ${release.createdAt.toISOString()} (${release.path || 'site root'})`,
         },
       });
@@ -1736,6 +1737,18 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       data: {
         status: started ? 'RUNNING' : 'ERROR',
         lastDeployment: new Date(),
+      },
+    });
+    // in the history too, like a static switch
+    await prisma.deployment.create({
+      data: {
+        applicationId: application.id,
+        userId: req.user!.userId,
+        status: started ? 'SUCCESS' : 'FAILED',
+        commitHash: release.commitSha,
+        deployLogs: started
+          ? `Switched to the release from ${release.createdAt.toISOString()}`
+          : `Switched to the release from ${release.createdAt.toISOString()}, but it did not start`,
       },
     });
 

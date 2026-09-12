@@ -10,8 +10,31 @@ import {
   type CreateDeploymentData,
   type UpdateDeploymentData
 } from '@/lib/deployments';
+import { activateRelease, getReleases, type Release } from '@/lib/applications';
 import { useToast } from '@/hooks/use-toast';
 import { t } from '@/lib/i18n';
+
+/** Kept builds, newest first, and which one serves. */
+export const useReleases = (appId: string) =>
+  useQuery({ queryKey: ['releases', appId], queryFn: () => getReleases(appId), enabled: !!appId });
+
+/** Switch back to a kept build — no rebuild. */
+export const useRestoreRelease = (appId: string) => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: (release: Release) => activateRelease(appId, release.id),
+    onSuccess: () => toast({ title: t("Switched release"), description: t("The selected release is now serving.") }),
+    onError: (error: Error) => toast({ variant: 'destructive', title: t("Error"), description: error.message }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['releases', appId] });
+      queryClient.invalidateQueries({ queryKey: ['application', appId] });
+      // a switch is recorded in the history, and changes which files serve
+      queryClient.invalidateQueries({ queryKey: ['deployments', appId] });
+      queryClient.invalidateQueries({ queryKey: ['site-files', appId] });
+    },
+  });
+};
 
 const IN_PROGRESS = ['PENDING', 'BUILDING', 'DEPLOYING'];
 

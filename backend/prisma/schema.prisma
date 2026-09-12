@@ -449,6 +449,9 @@ model Release {
   health        String?
   logsRef       String?
   path          String?       // releases/<stamp> directory this release was built into
+  // the deploy that produced it, so the history shows one row per version.
+  // ponytail: plain id, no relation — null for releases from before this column
+  deploymentId  String?
 
   @@map("releases")
 

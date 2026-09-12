@@ -19,6 +19,8 @@ export interface Deployment {
     name: string;
     domain: string;
   };
+  /** who started it */
+  user?: { name: string | null; email: string };
 }
 
 export interface CreateDeploymentData {

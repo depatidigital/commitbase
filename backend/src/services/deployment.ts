@@ -772,6 +772,14 @@ export class DeploymentService {
         commitSha = await gitIn(afs, sourcesDir, ['rev-parse', 'HEAD'])
           .then(({ stdout }) => stdout.trim())
           .catch(() => undefined);
+        // what the history row says: the commit's subject line, not just when
+        const commitMessage = await gitIn(afs, sourcesDir, ['log', '-1', '--format=%s'])
+          .then(({ stdout }) => stdout.trim() || undefined)
+          .catch(() => undefined);
+        await prisma.deployment.update({
+          where: { id: deployment.id },
+          data: { commitHash: commitSha ?? null, commitMessage: commitMessage ?? null },
+        });
       }
       throwIfCancelled(application.id);
 
@@ -896,7 +904,7 @@ export class DeploymentService {
           }
 
           const release = await prisma.release.create({
-            data: { applicationId: application.id, status: 'READY', path: folder, commitSha: commitSha ?? null },
+            data: { applicationId: application.id, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
           });
           const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
 
@@ -1040,6 +1048,7 @@ export class DeploymentService {
           health: 'HEALTHY',
           logsRef: logsDir,
           path: buildResult.releaseDir ?? null,
+          deploymentId: deployment.id,
         },
       });
 

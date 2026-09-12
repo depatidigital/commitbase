@@ -250,6 +250,8 @@ export type Release = {
   commitSha?: string | null;
   /** static sites: the release's folder in R2 — '' for files from before releases */
   path?: string | null;
+  /** the deploy that produced it — null for releases from before that was recorded */
+  deploymentId?: string | null;
   createdAt: string;
 };
 
