@@ -60,14 +60,15 @@ export function LiveBuildLog({ appId }: { appId: string }) {
   }, [logs]);
 
   return (
-    <div className="mt-4 space-y-2">
+    <div className="mt-3 space-y-2">
       <p className="flex items-center gap-2 text-sm font-medium">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         {t("Build log (live)")}
       </p>
+      {/* a fixed height, not a max: the box does not grow line by line and push the page down */}
       <pre
         ref={box}
-        className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs"
+        className="h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs"
       >
         {logs ? <AnsiText text={logs} /> : t("Waiting for output…")}
       </pre>

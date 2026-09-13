@@ -418,84 +418,6 @@ export default function ApplicationDetail() {
           </div>
         </div>
 
-        {/* Status Banner — a running deploy shows its progress and build log
-            here, on every tab; an app never deployed shows what it still needs */}
-        {deploying ? (
-          <Card className="bg-gradient-card border-primary/40">
-            <CardContent className="p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="flex items-center gap-2 text-lg font-semibold">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  {deployed ? t("Redeploying…") : t("Deploying…")}
-                </h3>
-                <ol className="flex flex-wrap items-center gap-2 text-sm">
-                  {DEPLOY_PHASES.map((phase, index) => (
-                    <li
-                      key={phase.status}
-                      className={`flex items-center gap-1.5 ${
-                        index < phaseIndex ? "text-primary" : index === phaseIndex ? "font-medium" : "text-muted-foreground/60"
-                      }`}
-                    >
-                      {index < phaseIndex ? <CheckCircle className="h-4 w-4" /> : index === phaseIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="h-4 w-4 rounded-full border" />}
-                      {phase.label}
-                      {index < DEPLOY_PHASES.length - 1 && <span className="text-muted-foreground/50">→</span>}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-              {published && (
-                <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
-              )}
-              {!uploadedSite && <LiveBuildLog appId={application.id} />}
-            </CardContent>
-          </Card>
-        ) : needsSetup ? (
-          <AppSetupCard
-            application={application}
-            detected={detection.data}
-            detecting={detection.isLoading}
-            env={envStatus}
-            dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
-            failure={failureReason}
-            starting={starting}
-            onDeploy={deploy}
-            onEditEnv={() => setActiveTab("environment")}
-            onEditBuild={() => setActiveTab("settings")}
-          />
-        ) : failureReason ? (
-          // why it failed needs room to be read — full width, not the side panel
-          <Card className="bg-gradient-card border-destructive/40">
-            <CardContent className="space-y-3 p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="flex items-center gap-2 text-lg font-semibold text-destructive">
-                    <AlertCircle className="h-5 w-5" />
-                    {t("The last deploy failed")}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">{t("Whatever was serving before keeps serving.")}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
-                    {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
-                    {t("Retry deploy")}
-                  </Button>
-                  {!uploadedSite && (
-                    <Button variant="outline" onClick={() => setActiveTab("environment")}>
-                      {t("Edit environment")}
-                    </Button>
-                  )}
-                  <Button variant="ghost" onClick={() => setActiveTab("deployments")}>
-                    {t("Full log")}
-                  </Button>
-                </div>
-              </div>
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs text-destructive">
-                {failureReason}
-              </pre>
-            </CardContent>
-          </Card>
-        ) : null}
-
         {/* the tabs, with a control panel beside them: what the app is doing
             and what can be done to it, always in view instead of stacked on top */}
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -657,7 +579,88 @@ export default function ApplicationDetail() {
         </aside>
 
         {/* Main Content */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 space-y-6">
+          {/* the main column: what the app is doing right now (deploy, setup, a
+              failure) sits above the tabs, beside the control panel — not across
+              the whole page, so the layout does not jump when it comes and goes */}
+          <div className="min-w-0 space-y-6">
+          {/* Status Banner — a running deploy shows its progress and build log
+              here, on every tab; an app never deployed shows what it still needs */}
+          {deploying ? (
+            <Card className="bg-gradient-card border-primary/40">
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="flex items-center gap-2 text-lg font-semibold">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    {deployed ? t("Redeploying…") : t("Deploying…")}
+                  </h3>
+                  <ol className="flex flex-wrap items-center gap-2 text-sm">
+                    {DEPLOY_PHASES.map((phase, index) => (
+                      <li
+                        key={phase.status}
+                        className={`flex items-center gap-1.5 ${
+                          index < phaseIndex ? "text-primary" : index === phaseIndex ? "font-medium" : "text-muted-foreground/60"
+                        }`}
+                      >
+                        {index < phaseIndex ? <CheckCircle className="h-4 w-4" /> : index === phaseIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="h-4 w-4 rounded-full border" />}
+                        {phase.label}
+                        {index < DEPLOY_PHASES.length - 1 && <span className="text-muted-foreground/50">→</span>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+                {published && (
+                  <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
+                )}
+                {!uploadedSite && <LiveBuildLog appId={application.id} />}
+              </CardContent>
+            </Card>
+          ) : needsSetup ? (
+            <AppSetupCard
+              application={application}
+              detected={detection.data}
+              detecting={detection.isLoading}
+              env={envStatus}
+              dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
+              failure={failureReason}
+              starting={starting}
+              onDeploy={deploy}
+              onEditEnv={() => setActiveTab("environment")}
+              onEditBuild={() => setActiveTab("settings")}
+            />
+          ) : failureReason ? (
+            // why it failed needs room to be read — the main column, not the side panel
+            <Card className="bg-gradient-card border-destructive/40">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-lg font-semibold text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      {t("The last deploy failed")}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{t("Whatever was serving before keeps serving.")}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                      {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                      {t("Retry deploy")}
+                    </Button>
+                    {!uploadedSite && (
+                      <Button variant="outline" onClick={() => setActiveTab("environment")}>
+                        {t("Edit environment")}
+                      </Button>
+                    )}
+                    <Button variant="ghost" onClick={() => setActiveTab("deployments")}>
+                      {t("Full log")}
+                    </Button>
+                  </div>
+                </div>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs text-destructive">
+                  {failureReason}
+                </pre>
+              </CardContent>
+            </Card>
+          ) : null}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList
             className="grid w-full"
             // overview, deployments, domains, settings, plus files / environment + logs / database when they apply
@@ -1063,6 +1066,7 @@ export default function ApplicationDetail() {
             <DangerZoneCard application={application} />
           </TabsContent>
         </Tabs>
+          </div>
         </div>
 
         <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
