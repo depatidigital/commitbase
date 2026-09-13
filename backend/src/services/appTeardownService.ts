@@ -84,6 +84,46 @@ async function serverOf(app: Application) {
   return app.serverId ? prisma.server.findUnique({ where: { id: app.serverId } }) : null;
 }
 
+/** Every other app's folder on the server. */
+const otherFolders = async (serverId: string, appId: string) =>
+  (
+    await prisma.application.findMany({
+      where: { serverId, id: { not: appId }, rootPath: { not: null } },
+      select: { rootPath: true },
+    })
+  ).map((other) => other.rootPath!);
+
+/**
+ * `rm -rf` of the app's folder, checked again on the box itself right before it
+ * runs. The row's path passed folderRisk, but the disk can disagree: a symlink
+ * anywhere along it (/home/deploy/app → /) makes the folder that would really go
+ * something else. So: resolve the real path, require a directory, and run the
+ * same rules on what it resolves to — and on the other apps' resolved folders,
+ * and the SSH user's own home. Only the resolved path is removed.
+ */
+async function removeFolder(server: NonNullable<Awaited<ReturnType<typeof serverOf>>>, app: Application): Promise<void> {
+  const others = await otherFolders(server.id, app.id);
+  // line 1: the real directory (empty when it is not one), line 2: $HOME, then each other folder resolved
+  const script = [
+    'if [ -d "$1" ]; then realpath -e -- "$1"; else echo; fi',
+    'printf "%s\\n" "$HOME"',
+    'shift',
+    'for d; do realpath -m -- "$d"; done',
+  ].join('; ');
+  const { stdout } = await exec(server, ['sh', '-c', script, 'sh', cleanPath(app.rootPath!), ...others], { timeout: 15_000 });
+  // not trimmed: "/srv/app " and "/srv/app" are different folders
+  const [real = '', home = '', ...resolvedOthers] = stdout.split('\n').map((line) => line.replace(/\r$/, ''));
+  if (!real) throw new Error(`${app.rootPath} is not a folder on the server`);
+
+  const risk =
+    folderRisk(real, [...others, ...resolvedOthers.filter(Boolean)]) ??
+    (home && (real === cleanPath(home) || home.startsWith(real + '/')) ? msg("{dir} is the SSH user's home", { dir: real }) : null);
+  if (risk) throw new Error(real === cleanPath(app.rootPath!) ? format(risk) : `${app.rootPath} resolves to ${real}: ${format(risk)}`);
+
+  // as the SSH user, not root: a folder that user cannot delete is reported, not forced
+  await rm(server, real, { recursive: true });
+}
+
 /** What can be removed for this app, and what cannot and why. Empty for panel-deployed apps. */
 export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
   if (!app.runtime) return [];
@@ -118,18 +158,12 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
 
   // a proxied process may still be running from its folder; do not pull it out from under it
   if (app.runtime !== 'CADDY_PROXY') {
-    const others = server
-      ? (
-          await prisma.application.findMany({
-            where: { serverId: server.id, id: { not: app.id }, rootPath: { not: null } },
-            select: { rootPath: true },
-          })
-        ).map((other) => other.rootPath!)
-      : [];
+    const others = server ? await otherFolders(server.id, app.id) : [];
+    const risk = folderRisk(app.rootPath, others);
     steps.push({
       id: 'files',
-      ...(app.rootPath ? { command: `rm -rf ${app.rootPath}` } : { detail: msg('The app folder') }),
-      blocked: isPanel ?? noServer ?? folderRisk(app.rootPath, others) ?? undefined,
+      ...(app.rootPath && !risk ? { command: `rm -rf ${cleanPath(app.rootPath)}` } : { detail: msg('The app folder') }),
+      blocked: isPanel ?? noServer ?? risk ?? undefined,
     });
   }
 
@@ -161,8 +195,7 @@ export async function teardownApp(app: Application, requested: string[]): Promis
       if (id === 'process') await deletePm2Process(server!, app.processName!);
       if (id === 'route') await removeCaddySite(server!, app.domain);
       if (id === 'dns') await removeAppHostname(app);
-      // as the SSH user, not root: a folder that user cannot delete is reported, not forced
-      if (id === 'files') await rm(server!, app.rootPath!, { recursive: true });
+      if (id === 'files') await removeFolder(server!, app);
       done.push(id);
     } catch (error: any) {
       return { done, failed: { step: id, error: String(error?.stderr || error?.message || error).trim() } };
