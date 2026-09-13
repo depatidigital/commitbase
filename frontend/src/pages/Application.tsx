@@ -90,14 +90,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-/** How an imported app is run on its box, for the "Manual" badge. */
-const RUNTIME_LABEL: Record<string, string> = {
-  PM2: "pm2",
-  CADDY_PHP: "Caddy + PHP-FPM",
-  CADDY_STATIC: "Caddy (static files)",
-  CADDY_PROXY: "Caddy (reverse proxy)",
-};
-
 /** Compact relative time — "3d ago". The exact stamp lives in the title. */
 const ago = (value: string) => {
   const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
