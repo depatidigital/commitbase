@@ -614,6 +614,7 @@ export default {
   "{dir} is not a plain absolute path": "{dir} bukan path absolut yang wajar",
   "{dir} is a system or home folder": "{dir} adalah folder sistem atau home",
   "{dir} belongs to another app": "{dir} milik aplikasi lain",
+  "{dir} belongs to another app — kept": "{dir} milik aplikasi lain — tidak dihapus",
   "{dir} is a hidden folder": "{dir} adalah folder tersembunyi",
   "{dir} is managed by the panel": "{dir} dikelola oleh panel",
   "Set up on the server": "Dipasang di server",

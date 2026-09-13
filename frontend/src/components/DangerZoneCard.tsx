@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, Circle, Database as DatabaseIcon, Loader2, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Database as DatabaseIcon, Loader2, MinusCircle, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -118,6 +118,8 @@ export function DangerZoneCard({ application }: { application: Application }) {
                     <div key={step.id} className="flex items-start gap-2">
                       {step.blocked ? (
                         <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                      ) : step.kept ? (
+                        <MinusCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                       ) : step.satisfied ? (
                         <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />
                       ) : (
@@ -130,6 +132,9 @@ export function DangerZoneCard({ application }: { application: Application }) {
                         )}
                         {step.detail && (
                           <span className="block break-all text-xs text-muted-foreground">{t(step.detail.text, step.detail.params)}</span>
+                        )}
+                        {step.kept && (
+                          <span className="block text-xs text-muted-foreground">{t(step.kept.text, step.kept.params)}</span>
                         )}
                         {step.satisfied && (
                           <span className="block text-xs text-success">{t(step.satisfied.text, step.satisfied.params)}</span>

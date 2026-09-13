@@ -552,7 +552,7 @@ export const deleteApplication = async (id: string): Promise<void> => {
 export type TeardownStepId = 'process' | 'route' | 'dns' | 'files';
 /** English text (the i18n key) and its {placeholders}, from the API — render with t(text, params). */
 export type ApiMsg = { text: string; params?: Record<string, string | number> };
-export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg; satisfied?: ApiMsg };
+export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg; satisfied?: ApiMsg; kept?: ApiMsg };
 
 /** `git pull --ff-only` in an imported app's checkout on its server — code only (superadmin). */
 export const pullOnServer = async (id: string): Promise<string> =>

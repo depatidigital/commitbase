@@ -10,9 +10,9 @@ import { exec } from '../lib/runner';
 
 /**
  * Removing an imported app from its server — the pieces someone set up by
- * hand. Nothing here runs on its own: the user ticks each step in the delete
- * dialog, and only those run. Apps the panel deployed (no runtime) are torn
- * down by the delete route itself; this is only for the imported ones.
+ * hand. Deleting one runs every step of its plan or none: a blocked step keeps
+ * the app. A folder another app uses is kept, and does not block. Apps the panel
+ * deployed (no runtime) are torn down by the delete route itself.
  *
  * Order matters: stop the process before its route goes (no window where the
  * route points at nothing but the process still writes), and delete files last.
@@ -40,6 +40,8 @@ export type TeardownStep = {
   blocked?: Msg | undefined;
   /** already true on the server, nothing to run (the proxied port has no listener) */
   satisfied?: Msg | undefined;
+  /** deliberately left in place (another app uses it) — not run, and not in the way of the delete */
+  kept?: Msg | undefined;
 };
 
 const cleanPath = (dir: string) => path.posix.normalize(dir).replace(/\/+$/, '') || '/';
@@ -78,10 +80,18 @@ export function folderRisk(dir: string | null | undefined, others: string[]): Ms
   const isRoot = clean === HOME || ALLOWED_ROOTS.includes(clean);
   if (isRoot || (!underHome && !underRoot)) return msg('{dir} is a system or home folder', { dir: clean });
 
-  const shared = others
-    .map((other) => path.posix.normalize(other).replace(/\/+$/, ''))
-    .find((other) => other === clean || other.startsWith(clean + '/') || clean.startsWith(other + '/'));
+  const shared = sharedWith(clean, others);
   return shared ? msg('{dir} belongs to another app', { dir: shared }) : null;
+}
+
+/** The other app's folder `dir` is, sits in, or contains — or null. Pure. */
+export function sharedWith(dir: string, others: string[]): string | null {
+  const clean = cleanPath(dir);
+  return (
+    others
+      .map(cleanPath)
+      .find((other) => other === clean || other.startsWith(clean + '/') || clean.startsWith(other + '/')) ?? null
+  );
 }
 
 async function serverOf(app: Application) {
@@ -179,16 +189,20 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
   // from under it. No folder detected: nothing known to delete.
   if (app.runtime !== 'CADDY_PROXY' && app.rootPath) {
     const others = server ? await otherFolders(server.id, app.id) : [];
-    const risk = folderRisk(app.rootPath, others);
+    // another app's files: the app can go, its folder stays
+    const shared = sharedWith(app.rootPath, others);
+    const risk = shared ? null : folderRisk(app.rootPath, others);
     const dir = cleanPath(app.rootPath);
     // what the row says is not always on disk (an old sync guessed folders)
     const exists = server ? (await folderExists(server, dir)) : null;
     steps.push({
       id: 'files',
-      ...(risk ? { detail: msg('The app folder') } : { command: `rm -rf ${dir}` }),
+      ...(risk || shared ? { detail: msg('The app folder') } : { command: `rm -rf ${dir}` }),
       ...(isPanel ?? noServer
         ? { blocked: isPanel ?? noServer }
-        : exists === false
+        : shared
+          ? { kept: msg('{dir} belongs to another app — kept', { dir: shared }) }
+          : exists === false
           ? { satisfied: msg('{dir} is not on the server — nothing to delete', { dir }) }
           : exists === null
             ? { blocked: msg('Could not check whether {dir} is on the server', { dir }) }
@@ -217,7 +231,7 @@ export async function teardownApp(app: Application): Promise<TeardownResult> {
   const blocked = blockedBy(plan);
   if (blocked) throw new Error(blocked);
 
-  const steps = TEARDOWN_ORDER.filter((id) => plan.some((step) => step.id === id && !step.satisfied));
+  const steps = TEARDOWN_ORDER.filter((id) => plan.some((step) => step.id === id && !step.satisfied && !step.kept));
   const server = await serverOf(app);
   const done: TeardownStepId[] = [];
 
