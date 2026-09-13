@@ -148,6 +148,8 @@ export async function ensureAppHostname(
 /** Drop the record the deploy created. A wildcard or a hand-made record stays. */
 export async function removeAppHostname(
   application: Pick<Application, 'id' | 'domain' | 'domainId'>,
+  // teardown is all-or-nothing, so there a failed removal must stop the delete
+  { strict = false }: { strict?: boolean } = {},
 ): Promise<void> {
   try {
     const host = lower(application.domain);
@@ -169,6 +171,7 @@ export async function removeAppHostname(
     await deleteDnsRecord(zone.zoneId, ours.id);
     await refreshDomainSummary(zone.domain.id);
   } catch (error: any) {
+    if (strict) throw error;
     // never block deleting the app on a DNS cleanup
     console.error(`Could not remove DNS for ${application.domain}:`, error?.message);
   }

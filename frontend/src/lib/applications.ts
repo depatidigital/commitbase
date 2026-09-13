@@ -533,14 +533,10 @@ export const checkHostname = async (
 };
 
 // Delete application
-/**
- * `remove`: for an imported app, the server-side steps the user ticked
- * (see getTeardownPlan). Empty deletes only the panel's row.
- */
-export const deleteApplication = async ({ id, remove = [] }: { id: string; remove?: TeardownStepId[] }): Promise<void> => {
+/** An imported app is removed from its server too — every step of getTeardownPlan, or nothing. */
+export const deleteApplication = async (id: string): Promise<void> => {
   const response = await apiRequest(`/applications/${id}`, {
     method: 'DELETE',
-    body: JSON.stringify({ remove }),
   });
 
   if (!response.success) {
@@ -551,7 +547,7 @@ export const deleteApplication = async ({ id, remove = [] }: { id: string; remov
 export type TeardownStepId = 'process' | 'route' | 'dns' | 'files';
 /** English text (the i18n key) and its {placeholders}, from the API — render with t(text, params). */
 export type ApiMsg = { text: string; params?: Record<string, string | number> };
-export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg };
+export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg; satisfied?: ApiMsg };
 
 /** What deleting an imported app could remove from its server (superadmin only). */
 export const getTeardownPlan = async (id: string): Promise<TeardownStep[]> =>

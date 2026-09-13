@@ -210,7 +210,7 @@ export async function teardownApp(app: Application): Promise<TeardownResult> {
     try {
       if (id === 'process') await deletePm2Process(server!, app.processName!);
       if (id === 'route') await removeCaddySite(server!, app.domain);
-      if (id === 'dns') await removeAppHostname(app);
+      if (id === 'dns') await removeAppHostname(app, { strict: true });
       if (id === 'files') await removeFolder(server!, app);
       done.push(id);
     } catch (error: any) {

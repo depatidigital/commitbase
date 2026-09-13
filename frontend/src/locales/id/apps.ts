@@ -563,28 +563,28 @@ export default {
   "The last deploy failed": "Deploy terakhir gagal",
   Runtime: "Runtime",
   "Build Settings": "Pengaturan Build",
-  "Set up by hand on {runtime}. Nothing on the server is touched unless you tick it below.":
-    "Dipasang manual di {runtime}. Tidak ada yang diubah di server kecuali Anda mencentangnya di bawah.",
-  "Also remove from the server": "Hapus juga dari server",
+  "Set up by hand on {runtime}. All of this is removed from the server — if any of it cannot be, the app is not deleted.":
+    "Dipasang manual di {runtime}. Semua ini dihapus dari server — jika ada yang tidak bisa dihapus, aplikasi tidak dihapus.",
+  "Removed from the server": "Dihapus dari server",
   "Only a superadmin can remove things from the server.": "Hanya superadmin yang dapat menghapus sesuatu dari server.",
-  "Nothing ticked: only the panel forgets it, and the next server sync brings it back while it is still there.":
-    "Tidak ada yang dicentang: hanya panel yang melupakannya, dan sinkronisasi server berikutnya akan memunculkannya lagi selama masih ada di server.",
-  "I understand the site keeps running on the server.": "Saya paham situs tetap berjalan di server.",
-  "Removes it from the panel. You choose what is also removed from the server.":
-    "Menghapusnya dari panel. Anda memilih apa yang juga dihapus dari server.",
+  "Sort out what is marked above first — until then the app cannot be deleted.":
+    "Selesaikan yang ditandai di atas dulu — sampai itu, aplikasi tidak bisa dihapus.",
+  "Removes it from the panel and from the server. If anything cannot be removed, nothing is deleted.":
+    "Menghapusnya dari panel dan dari server. Jika ada yang tidak bisa dihapus, tidak ada yang dihapus.",
+  "Nothing listens on port {port} any more": "Tidak ada lagi yang mendengarkan di port {port}",
+  "Could not check whether port {port} is in use": "Tidak bisa memeriksa apakah port {port} sedang dipakai",
+  "Something still listens on port {port}. It was not started by pm2 — stop it on the server first":
+    "Masih ada yang mendengarkan di port {port}. Tidak dijalankan oleh pm2 — hentikan dulu di server",
   "Stop and remove the process": "Hentikan dan hapus proses",
   "Remove the Caddy route": "Hapus route Caddy",
   "Remove the DNS record": "Hapus record DNS",
   "Delete the app folder": "Hapus folder aplikasi",
   // teardown step details and reasons — sent by the API as English keys
   "Whatever listens on port {port}": "Apa pun yang mendengarkan di port {port}",
-  "The process behind the proxy": "Proses di balik proxy",
   "Caddy route for {domain}": "Route Caddy untuk {domain}",
   "DNS record {domain} → this server (Cloudflare, only if it points here)":
     "Record DNS {domain} → server ini (Cloudflare, hanya jika mengarah ke sini)",
   "The app folder": "Folder aplikasi",
-  "Not started by pm2, so we do not know how to stop it — stop it on the server yourself":
-    "Tidak dijalankan oleh pm2, jadi kami tidak tahu cara menghentikannya — hentikan sendiri di server",
   "Not linked to a server — sync the apps again first": "Belum terhubung ke server — sinkronkan aplikasi dulu",
   "This is the panel itself": "Ini adalah panel itu sendiri",
   "No folder was detected for this app": "Folder aplikasi ini tidak terdeteksi",

@@ -1199,18 +1199,18 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
 
-    // Imported apps (runtime set) were set up by hand: only the steps the user
-    // ticked run, and a failed one keeps the row so they can see what is left.
-    const remove: string[] = Array.isArray(req.body?.remove) ? req.body.remove.map(String) : [];
-    if (application.runtime && remove.length > 0) {
+    // Imported apps (runtime set) were set up by hand. Deleting one removes it
+    // from the server too, all of it or nothing: anything that cannot be removed
+    // refuses the delete, and a failed step keeps the row so the user sees what is left.
+    if (application.runtime) {
       if (req.user?.role !== 'SUPERADMIN') {
-        return res.status(403).json({ success: false, error: 'Only a superadmin can remove things from a server' } as ApiResponse);
+        return res.status(403).json({ success: false, error: 'Only a superadmin can delete an app that was set up on the server' } as ApiResponse);
       }
       let result;
       try {
-        result = await teardownApp(application, remove);
+        result = await teardownApp(application);
       } catch (error: any) {
-        return res.status(400).json({ success: false, error: error?.message || 'Invalid removal' } as ApiResponse);
+        return res.status(409).json({ success: false, error: `Not deleted: ${error?.message || 'something cannot be removed'}` } as ApiResponse);
       }
       if (result.failed) {
         return res.status(502).json({

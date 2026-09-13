@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Database as DatabaseIcon, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Database as DatabaseIcon, Loader2, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,16 +47,16 @@ export function DangerZoneCard({ application }: { application: Application }) {
     enabled: open,
   });
 
-  // imported by the server sync: the pieces on the box were set up by hand, so
-  // each one is removed only when ticked
+  // imported by the server sync: deleting it removes it from the server too,
+  // all of it or nothing — one step that cannot run keeps the app
   const imported = !!application.runtime;
   const superAdmin = isSuperAdmin();
-  const [remove, setRemove] = useState<TeardownStepId[]>([]);
   const plan = useQuery({
     queryKey: ["application", application.id, "teardown"],
     queryFn: () => getTeardownPlan(application.id),
     enabled: open && imported && superAdmin,
   });
+  const blocked = imported && (!superAdmin || !plan.data || plan.data.some((step) => step.blocked));
 
   const close = (next: boolean) => {
     if (deleteApp.isPending) return;
@@ -64,7 +64,6 @@ export function DangerZoneCard({ application }: { application: Application }) {
     if (!next) {
       setTyped("");
       setUnderstood(false);
-      setRemove([]);
     }
   };
 
@@ -81,7 +80,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
           <p className="font-medium">{t("Delete this app")}</p>
           <p className="text-muted-foreground">
             {imported
-              ? t("Removes it from the panel. You choose what is also removed from the server.")
+              ? t("Removes it from the panel and from the server. If anything cannot be removed, nothing is deleted.")
               : t("{domain} stops being served and the app is removed from the panel. This cannot be undone.", {
                   domain: application.domain,
                 })}
@@ -99,7 +98,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
             <DialogTitle>{t("Delete {name}?", { name: application.name })}</DialogTitle>
             <DialogDescription>
               {imported
-                ? t("Set up by hand on {runtime}. Nothing on the server is touched unless you tick it below.", {
+                ? t("Set up by hand on {runtime}. All of this is removed from the server — if any of it cannot be, the app is not deleted.", {
                     runtime: runtimeLabel(application.runtime),
                   })
                 : t("Its route, DNS record, files and deployment history go with it. There is no undo.")}
@@ -109,22 +108,21 @@ export function DangerZoneCard({ application }: { application: Application }) {
           <div className="space-y-4">
             {imported && (
               <div className="space-y-2 rounded-md border p-3 text-sm">
-                <p className="font-medium">{t("Also remove from the server")}</p>
+                <p className="font-medium">{t("Removed from the server")}</p>
                 {!superAdmin ? (
                   <p className="text-muted-foreground">{t("Only a superadmin can remove things from the server.")}</p>
                 ) : plan.isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : (
                   (plan.data ?? []).map((step) => (
-                    <label key={step.id} className={`flex items-start gap-2 ${step.blocked ? "opacity-60" : ""}`}>
-                      <Checkbox
-                        checked={remove.includes(step.id)}
-                        disabled={!!step.blocked}
-                        onCheckedChange={(checked) =>
-                          setRemove((prev) => (checked === true ? [...prev, step.id] : prev.filter((id) => id !== step.id)))
-                        }
-                        className="mt-0.5"
-                      />
+                    <div key={step.id} className="flex items-start gap-2">
+                      {step.blocked ? (
+                        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                      ) : step.satisfied ? (
+                        <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                      ) : (
+                        <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
                       <span className="min-w-0">
                         {STEP_LABEL[step.id]()}
                         {step.command && (
@@ -133,16 +131,19 @@ export function DangerZoneCard({ application }: { application: Application }) {
                         {step.detail && (
                           <span className="block break-all text-xs text-muted-foreground">{t(step.detail.text, step.detail.params)}</span>
                         )}
+                        {step.satisfied && (
+                          <span className="block text-xs text-success">{t(step.satisfied.text, step.satisfied.params)}</span>
+                        )}
                         {step.blocked && (
-                          <span className="block text-xs text-warning">{t(step.blocked.text, step.blocked.params)}</span>
+                          <span className="block text-xs text-destructive">{t(step.blocked.text, step.blocked.params)}</span>
                         )}
                       </span>
-                    </label>
+                    </div>
                   ))
                 )}
-                {remove.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {t("Nothing ticked: only the panel forgets it, and the next server sync brings it back while it is still there.")}
+                {superAdmin && plan.data?.some((step) => step.blocked) && (
+                  <p className="text-xs text-destructive">
+                    {t("Sort out what is marked above first — until then the app cannot be deleted.")}
                   </p>
                 )}
               </div>
@@ -177,9 +178,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
                 className="mt-0.5"
               />
               <span>
-                {imported && remove.length === 0
-                  ? t("I understand the site keeps running on the server.")
-                  : t("I understand the site goes offline and this cannot be undone.")}
+                {t("I understand the site goes offline and this cannot be undone.")}
               </span>
             </label>
           </div>
@@ -190,8 +189,8 @@ export function DangerZoneCard({ application }: { application: Application }) {
             </Button>
             <Button
               variant="destructive"
-              disabled={!ready || deleteApp.isPending}
-              onClick={() => deleteApp.mutate({ id: application.id, remove }, { onSuccess: () => navigate("/") })}
+              disabled={!ready || blocked || deleteApp.isPending}
+              onClick={() => deleteApp.mutate(application.id, { onSuccess: () => navigate("/") })}
             >
               {deleteApp.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
               {t("Delete permanently")}
