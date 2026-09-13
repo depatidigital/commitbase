@@ -6,9 +6,9 @@ import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
 
 /** The panel's own hostname is a route like any other, and is not a tenant app. */
-const PANEL_HOST = (process.env.PANEL_HOST || process.env.FRONTEND_HOST || '').trim().toLowerCase();
+export const PANEL_HOST = (process.env.PANEL_HOST || process.env.FRONTEND_HOST || '').trim().toLowerCase();
 
-const APPS_ROOT_DIR = process.env.APPS_ROOT_DIR || '/var/www/html';
+export const APPS_ROOT_DIR = process.env.APPS_ROOT_DIR || '/var/www/html';
 
 export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
 
@@ -525,6 +525,15 @@ export async function controlPm2Process(
   } catch (error: any) {
     return { success: false, output: error?.stderr || error?.message || `pm2 ${action} failed` };
   }
+}
+
+/**
+ * Remove a process from pm2 for good: `delete`, then `save` — without the save
+ * `pm2 resurrect` brings it back on the next reboot. Throws with pm2's words.
+ */
+export async function deletePm2Process(node: SshTarget, processName: string): Promise<void> {
+  await exec(node, pm2(['delete', processName]), { maxBuffer: 5 * 1024 * 1024 });
+  await exec(node, pm2(['save']), { maxBuffer: 5 * 1024 * 1024 });
 }
 
 /**

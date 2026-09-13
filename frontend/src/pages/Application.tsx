@@ -25,7 +25,6 @@ import {
   Square,
   Upload,
   RotateCcw,
-  Trash2,
   Search,
   Loader2,
   RefreshCw,
@@ -40,7 +39,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HeartbeatBar } from "@/components/HeartbeatBar";
@@ -65,12 +63,11 @@ import {
   useStartExistingApplication,
   useStopApplication,
   useRestartApplication,
-  useDeleteApplication,
   useSyncServerApps,
 } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { useDomains } from "@/hooks/useDomains";
-import { bulkAssignApplications, hasBeenDeployed } from "@/lib/applications";
+import { bulkAssignApplications, hasBeenDeployed, runtimeLabel } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
   Tooltip,
@@ -143,7 +140,7 @@ export default function Application() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
-    type: "stop" | "delete";
+    type: "stop";
     appId: string;
     appName: string;
   } | null>(null);
@@ -178,7 +175,6 @@ export default function Application() {
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
-  const deleteApp = useDeleteApplication();
 
   const applications = applicationsData?.data || [];
 
@@ -222,17 +218,13 @@ export default function Application() {
     );
 
   // no confirm: a deploy replaces nothing until it works, and a start or
-  // restart only brings back what was running. Stop and Delete still ask.
+  // restart only brings back what was running. Stop still asks.
   const handleStart = (id: string) => startApp.mutate(id);
   const handleStartExisting = (id: string) => startExistingApp.mutate(id);
   const handleRestart = (id: string) => restartApp.mutate(id);
 
   const handleStop = async (id: string, name: string) => {
     setConfirmAction({ type: "stop", appId: id, appName: name });
-  };
-
-  const handleDelete = async (id: string, name: string) => {
-    setConfirmAction({ type: "delete", appId: id, appName: name });
   };
 
   const executeAction = async () => {
@@ -242,9 +234,6 @@ export default function Application() {
       switch (confirmAction.type) {
         case "stop":
           await stopApp.mutateAsync(confirmAction.appId);
-          break;
-        case "delete":
-          await deleteApp.mutateAsync(confirmAction.appId);
           break;
       }
     } catch (error) {
@@ -265,13 +254,6 @@ export default function Application() {
           title: t("Stop App"),
           description: t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: appName }),
           actionText: t("Stop App"),
-          variant: "destructive" as const,
-        };
-      case "delete":
-        return {
-          title: t("Delete App"),
-          description: t("Are you sure you want to delete \"{name}\"? This action cannot be undone and will permanently remove the application and all its data.", { name: appName }),
-          actionText: t("Delete App"),
           variant: "destructive" as const,
         };
     }
@@ -403,9 +385,17 @@ export default function Application() {
                 </a>
               )}
             </span>
-            {named && (
+            {/* what runs it on the box — how it is stopped and removed depends on it */}
+            {(named || superAdmin) && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="truncate">{app.domain}</span>
+                {superAdmin && (
+                  <span className={`shrink-0 ${app.runtime ? "text-warning" : ""}`}>
+                    {runtimeLabel(app.runtime)}
+                    {app.runtime === "PM2" && app.processName && ` · ${app.processName}`}
+                  </span>
+                )}
+                {superAdmin && named && <span>·</span>}
+                {named && <span className="truncate">{app.domain}</span>}
               </span>
             )}
           </div>
@@ -564,16 +554,7 @@ export default function Application() {
                 {app.status === "RUNNING" ? t("Redeploy") : t("Deploy")}
               </DropdownMenuItem>
             )}
-
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={deleteApp.isPending || app.status === "RUNNING"}
-              onClick={() => handleDelete(app.id, app.name)}
-              className="text-destructive focus:text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t("Delete")}
-            </DropdownMenuItem>
+            {/* delete lives on the detail page only — one click from the list was too easy */}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -769,14 +750,12 @@ export default function Application() {
                   disabled={
                     startApp.isPending ||
                     stopApp.isPending ||
-                    restartApp.isPending ||
-                    deleteApp.isPending
+                    restartApp.isPending
                   }
                 >
                   {startApp.isPending ||
                   stopApp.isPending ||
-                  restartApp.isPending ||
-                  deleteApp.isPending ? (
+                  restartApp.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       {t("Processing...")}

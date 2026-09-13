@@ -61,7 +61,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed, runtimeLabel, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -334,6 +334,8 @@ export default function ApplicationDetail() {
   const uploadedSite = isStatic && !application.repository;
   const hasSiteFiles = !!(application.staticBucket || application.staticSiteUrl);
   const hasSiteBucket = isStatic && !!application.staticBucket;
+  // an uploaded site never builds, and an imported app is not deployed by us
+  const showBuild = !uploadedSite && !application.runtime;
   // something is published at the hostname: a static site with files, or a
   // runtime app that is up
   const published = isStatic ? hasSiteFiles : application.status === 'RUNNING';
@@ -625,7 +627,7 @@ export default function ApplicationDetail() {
               starting={starting}
               onDeploy={deploy}
               onEditEnv={() => setActiveTab("environment")}
-              onEditBuild={() => setActiveTab("settings")}
+              onEditBuild={() => setActiveTab("build")}
             />
           ) : failureReason ? (
             // why it failed needs room to be read — the main column, not the side panel
@@ -663,8 +665,8 @@ export default function ApplicationDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList
             className="grid w-full"
-            // overview, deployments, domains, settings, plus files / environment + logs / database when they apply
-            style={{ gridTemplateColumns: `repeat(${4 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1)}, minmax(0, 1fr))` }}
+            // overview, deployments, domains, settings, plus files / environment + logs / database / build when they apply
+            style={{ gridTemplateColumns: `repeat(${4 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
           >
             {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
@@ -680,6 +682,7 @@ export default function ApplicationDetail() {
               </TabsTrigger>
             )}
             {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
+            {showBuild && <TabsTrigger value="build">Build</TabsTrigger>}
             <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
           </TabsList>
 
@@ -842,6 +845,16 @@ export default function ApplicationDetail() {
                     <span className="text-destructive">
                       {t("No server — assign the organization to one before deploying.")}
                     </span>
+                  )}
+                </Field>
+                <Field label={t("Runtime")}>
+                  {/* decides how it stops and what removing it touches on the box */}
+                  <span className={application.runtime ? "text-warning" : undefined}>{runtimeLabel(application.runtime)}</span>
+                  {application.processName && (
+                    <span className="font-mono text-xs text-muted-foreground"> · {application.processName}</span>
+                  )}
+                  {application.configPath && (
+                    <span className="block break-all font-mono text-xs text-muted-foreground">{application.configPath}</span>
                   )}
                 </Field>
                 {isStatic && (
@@ -1044,22 +1057,25 @@ export default function ApplicationDetail() {
             <DeploymentHistory application={application} />
           </TabsContent>
 
-          {/* Settings Tab */}
-          <TabsContent value="settings" className="space-y-6">
-            {/* an uploaded site has no build settings — only the danger zone */}
-            {!uploadedSite && (
+          {/* Build Tab */}
+          {showBuild && (
+            <TabsContent value="build" className="space-y-6">
               <Card className="bg-gradient-card border-border/50">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Settings className="h-5 w-5 text-primary" />
-                    <span>{t("App Settings")}</span>
+                    <span>{t("Build Settings")}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <ApplicationSettingsForm application={application} detected={detection.data} />
                 </CardContent>
               </Card>
-            )}
+            </TabsContent>
+          )}
+
+          {/* Settings Tab */}
+          <TabsContent value="settings" className="space-y-6">
             {/* a static site keeps its files in R2, not on a node; measured (du
                 over SSH) only while Settings is open — TabsContent unmounts */}
             {!isStatic && <AppStorageCard appId={application.id} deploying={deploying} />}

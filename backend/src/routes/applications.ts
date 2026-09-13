@@ -36,6 +36,7 @@ import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
+import { teardownApp, teardownPlan } from '../services/appTeardownService';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
@@ -1150,6 +1151,20 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
   }
 });
 
+// What deleting an imported app could remove from its server — for the delete dialog
+router.get('/:id/teardown', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    }
+    return res.json({ success: true, data: await teardownPlan(application) } as ApiResponse);
+  } catch (error) {
+    console.error('Error building teardown plan:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 // Delete an application
 router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1184,8 +1199,29 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
 
+    // Imported apps (runtime set) were set up by hand: only the steps the user
+    // ticked run, and a failed one keeps the row so they can see what is left.
+    const remove: string[] = Array.isArray(req.body?.remove) ? req.body.remove.map(String) : [];
+    if (application.runtime && remove.length > 0) {
+      if (req.user?.role !== 'SUPERADMIN') {
+        return res.status(403).json({ success: false, error: 'Only a superadmin can remove things from a server' } as ApiResponse);
+      }
+      let result;
+      try {
+        result = await teardownApp(application, remove);
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Invalid removal' } as ApiResponse);
+      }
+      if (result.failed) {
+        return res.status(502).json({
+          success: false,
+          data: result,
+          error: `Stopped at "${result.failed.step}": ${result.failed.error}. The app was not deleted.`,
+        } as ApiResponse);
+      }
+    }
+
     // Tear down what the deploy created: the unit, the site config, the files.
-    // Inventory-imported apps (runtime set) are not ours to remove from the box.
     if (!application.runtime) {
       await systemd.removeApplication(application).catch((error) => {
         console.error(`Failed to remove unit for ${application.domain}:`, error);
@@ -1212,10 +1248,11 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       });
     }
 
-    // Delete application
+    // Delete application; its health history is keyed by id, not a foreign key
     await prisma.application.delete({
       where: { id },
     });
+    await prisma.heartbeat.deleteMany({ where: { targetType: 'APPLICATION', targetId: id } });
 
     return res.json({
       success: true,

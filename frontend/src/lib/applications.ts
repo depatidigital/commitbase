@@ -1,6 +1,19 @@
 import apiRequest, { API_BASE_URL, PaginatedResponse } from './api';
 import { type ListParams, listQuery } from './admin';
 import { t } from './i18n';
+import { APP_NAME } from './branding';
+
+/**
+ * What runs the app on its server — which decides how it is stopped and what
+ * removing it means. No runtime: deployed by the panel, which owns all of it.
+ */
+export const runtimeLabel = (runtime?: string | null): string =>
+  ({
+    PM2: 'pm2',
+    CADDY_PHP: 'Caddy + PHP-FPM',
+    CADDY_STATIC: t('Caddy (static files)'),
+    CADDY_PROXY: t('Caddy (reverse proxy)'),
+  })[runtime ?? ''] ?? (runtime || t('Managed by {appName}', { appName: APP_NAME }));
 
 export interface Application {
   /** The node it was discovered on, when it came from a server sync. */
@@ -520,15 +533,27 @@ export const checkHostname = async (
 };
 
 // Delete application
-export const deleteApplication = async (id: string): Promise<void> => {
+/**
+ * `remove`: for an imported app, the server-side steps the user ticked
+ * (see getTeardownPlan). Empty deletes only the panel's row.
+ */
+export const deleteApplication = async ({ id, remove = [] }: { id: string; remove?: TeardownStepId[] }): Promise<void> => {
   const response = await apiRequest(`/applications/${id}`, {
     method: 'DELETE',
+    body: JSON.stringify({ remove }),
   });
-  
+
   if (!response.success) {
     throw new Error(response.error || t("Failed to delete application"));
   }
 };
+
+export type TeardownStepId = 'process' | 'route' | 'dns' | 'files';
+export type TeardownStep = { id: TeardownStepId; detail: string; blocked?: string };
+
+/** What deleting an imported app could remove from its server (superadmin only). */
+export const getTeardownPlan = async (id: string): Promise<TeardownStep[]> =>
+  (await apiRequest<TeardownStep[]>(`/applications/${id}/teardown`)).data ?? [];
 
 // Start existing application (without redeploying)
 export const startExistingApplication = async (id: string): Promise<Application | boolean> => {

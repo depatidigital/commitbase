@@ -15,9 +15,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteApplication } from "@/hooks/useApplications";
-import type { Application } from "@/lib/applications";
+import { getTeardownPlan, runtimeLabel, type Application, type TeardownStepId } from "@/lib/applications";
 import { getAppDatabases } from "@/lib/databases";
+import { isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
+
+// functions, so t() reads the dictionary at render, not at import
+const STEP_LABEL: Record<TeardownStepId, () => string> = {
+  process: () => t("Stop and remove the process"),
+  route: () => t("Remove the Caddy route"),
+  dns: () => t("Remove the DNS record"),
+  files: () => t("Delete the app folder"),
+};
 
 /**
  * Deleting an app, kept away from the everyday buttons and made deliberate:
@@ -38,12 +47,24 @@ export function DangerZoneCard({ application }: { application: Application }) {
     enabled: open,
   });
 
+  // imported by the server sync: the pieces on the box were set up by hand, so
+  // each one is removed only when ticked
+  const imported = !!application.runtime;
+  const superAdmin = isSuperAdmin();
+  const [remove, setRemove] = useState<TeardownStepId[]>([]);
+  const plan = useQuery({
+    queryKey: ["application", application.id, "teardown"],
+    queryFn: () => getTeardownPlan(application.id),
+    enabled: open && imported && superAdmin,
+  });
+
   const close = (next: boolean) => {
     if (deleteApp.isPending) return;
     setOpen(next);
     if (!next) {
       setTyped("");
       setUnderstood(false);
+      setRemove([]);
     }
   };
 
@@ -59,9 +80,11 @@ export function DangerZoneCard({ application }: { application: Application }) {
         <div className="min-w-0 text-sm">
           <p className="font-medium">{t("Delete this app")}</p>
           <p className="text-muted-foreground">
-            {t("{domain} stops being served and the app is removed from the panel. This cannot be undone.", {
-              domain: application.domain,
-            })}
+            {imported
+              ? t("Removes it from the panel. You choose what is also removed from the server.")
+              : t("{domain} stops being served and the app is removed from the panel. This cannot be undone.", {
+                  domain: application.domain,
+                })}
           </p>
         </div>
         <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setOpen(true)}>
@@ -75,11 +98,48 @@ export function DangerZoneCard({ application }: { application: Application }) {
           <DialogHeader>
             <DialogTitle>{t("Delete {name}?", { name: application.name })}</DialogTitle>
             <DialogDescription>
-              {t("Its route, DNS record, files and deployment history go with it. There is no undo.")}
+              {imported
+                ? t("Set up by hand on {runtime}. Nothing on the server is touched unless you tick it below.", {
+                    runtime: runtimeLabel(application.runtime),
+                  })
+                : t("Its route, DNS record, files and deployment history go with it. There is no undo.")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            {imported && (
+              <div className="space-y-2 rounded-md border p-3 text-sm">
+                <p className="font-medium">{t("Also remove from the server")}</p>
+                {!superAdmin ? (
+                  <p className="text-muted-foreground">{t("Only a superadmin can remove things from the server.")}</p>
+                ) : plan.isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : (
+                  (plan.data ?? []).map((step) => (
+                    <label key={step.id} className={`flex items-start gap-2 ${step.blocked ? "opacity-60" : ""}`}>
+                      <Checkbox
+                        checked={remove.includes(step.id)}
+                        disabled={!!step.blocked}
+                        onCheckedChange={(checked) =>
+                          setRemove((prev) => (checked === true ? [...prev, step.id] : prev.filter((id) => id !== step.id)))
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        {STEP_LABEL[step.id]()}
+                        <span className="block break-all font-mono text-xs text-muted-foreground">{step.detail}</span>
+                        {step.blocked && <span className="block text-xs text-warning">{step.blocked}</span>}
+                      </span>
+                    </label>
+                  ))
+                )}
+                {remove.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("Nothing ticked: only the panel forgets it, and the next server sync brings it back while it is still there.")}
+                  </p>
+                )}
+              </div>
+            )}
             {!!databases?.length && (
               <p className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 text-sm">
                 <DatabaseIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -109,7 +169,11 @@ export function DangerZoneCard({ application }: { application: Application }) {
                 onCheckedChange={(checked) => setUnderstood(checked === true)}
                 className="mt-0.5"
               />
-              <span>{t("I understand the site goes offline and this cannot be undone.")}</span>
+              <span>
+                {imported && remove.length === 0
+                  ? t("I understand the site keeps running on the server.")
+                  : t("I understand the site goes offline and this cannot be undone.")}
+              </span>
             </label>
           </div>
 
@@ -120,7 +184,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
             <Button
               variant="destructive"
               disabled={!ready || deleteApp.isPending}
-              onClick={() => deleteApp.mutate(application.id, { onSuccess: () => navigate("/") })}
+              onClick={() => deleteApp.mutate({ id: application.id, remove }, { onSuccess: () => navigate("/") })}
             >
               {deleteApp.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
               {t("Delete permanently")}

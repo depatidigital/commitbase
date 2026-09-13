@@ -561,4 +561,22 @@ export default {
   "Full log": "Log lengkap",
   "Unsaved changes — saved when you deploy.": "Perubahan belum disimpan — disimpan saat Anda deploy.",
   "The last deploy failed": "Deploy terakhir gagal",
+  Runtime: "Runtime",
+  "Build Settings": "Pengaturan Build",
+  "Set up by hand on {runtime}. Nothing on the server is touched unless you tick it below.":
+    "Dipasang manual di {runtime}. Tidak ada yang diubah di server kecuali Anda mencentangnya di bawah.",
+  "Also remove from the server": "Hapus juga dari server",
+  "Only a superadmin can remove things from the server.": "Hanya superadmin yang dapat menghapus sesuatu dari server.",
+  "Nothing ticked: only the panel forgets it, and the next server sync brings it back while it is still there.":
+    "Tidak ada yang dicentang: hanya panel yang melupakannya, dan sinkronisasi server berikutnya akan memunculkannya lagi selama masih ada di server.",
+  "I understand the site keeps running on the server.": "Saya paham situs tetap berjalan di server.",
+  "Removes it from the panel. You choose what is also removed from the server.":
+    "Menghapusnya dari panel. Anda memilih apa yang juga dihapus dari server.",
+  "Stop and remove the process": "Hentikan dan hapus proses",
+  "Remove the Caddy route": "Hapus route Caddy",
+  "Remove the DNS record": "Hapus record DNS",
+  "Delete the app folder": "Hapus folder aplikasi",
+  "Managed by {appName}": "Dikelola {appName}",
+  "Caddy (static files)": "Caddy (file statis)",
+  "Caddy (reverse proxy)": "Caddy (reverse proxy)",
 } satisfies Record<string, string>;

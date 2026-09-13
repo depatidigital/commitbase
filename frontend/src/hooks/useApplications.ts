@@ -182,7 +182,7 @@ export const useDeleteApplication = () => {
         description: t('App deleted successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
-      queryClient.removeQueries({ queryKey: ['application', variables] });
+      queryClient.removeQueries({ queryKey: ['application', variables.id] });
     },
     onError: (error: Error) => {
       toast({
