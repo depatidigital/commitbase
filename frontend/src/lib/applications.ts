@@ -181,6 +181,14 @@ export interface HostnameHealth {
   /** what the registry says is wrong with the domain itself (e.g. semata.id), if anything */
   domainProblem?: 'unregistered' | 'expired' | 'suspended' | 'inactive' | null;
   registeredDomain?: string | null;
+  /** where the name really leads, compared with this app's server */
+  pointing?: {
+    state: 'here' | 'elsewhere' | 'proxied' | 'none';
+    addresses: string[];
+    /** behind Cloudflare's proxy: the record's real target, when the zone is ours */
+    origin: string | null;
+    expected: string | null;
+  } | null;
 }
 
 export const getApplicationHostname = async (id: string): Promise<HostnameHealth> => {

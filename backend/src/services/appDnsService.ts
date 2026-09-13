@@ -1,4 +1,6 @@
 import * as https from 'https';
+import { isIPv4 } from 'net';
+import { resolve4 } from 'node:dns/promises';
 import { Application } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import {
@@ -58,10 +60,10 @@ async function targetForApp(applicationId: string): Promise<DnsTarget | null> {
   return getDefaultDnsTarget();
 }
 
-/** The zone the app's hostname belongs to, or null when we do not run its DNS. */
 /** Whether the app's hostname sits in a Cloudflare zone we run — the only DNS "point it here" can write. */
 export const dnsManaged = async (application: Pick<Application, 'domainId' | 'domain'>) => !!(await zoneFor(application));
 
+/** The zone the app's hostname belongs to, or null when we do not run its DNS. */
 async function zoneFor(application: Pick<Application, 'domainId' | 'domain'>) {
   const domain = application.domainId
     ? await prisma.domain.findUnique({ where: { id: application.domainId } })
@@ -283,4 +285,64 @@ export async function checkAppHostname(host: string, timeoutMs = 5000): Promise<
 
     request.end();
   });
+}
+
+// Cloudflare's published edge ranges (cloudflare.com/ips-v4). An answer inside
+// them is the orange cloud: public DNS then says nothing about the origin.
+// ponytail: a static copy — refresh from that page if Cloudflare adds ranges.
+const CLOUDFLARE_V4 = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18',
+  '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17',
+  '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+];
+
+const ipv4ToInt = (ip: string) => ip.split('.').reduce((n, octet) => (n << 8) + Number(octet), 0) >>> 0;
+
+/** Whether an IPv4 address is one of Cloudflare's edge addresses. Pure. */
+export function isCloudflareIp(ip: string): boolean {
+  if (!isIPv4(ip)) return false;
+  const address = ipv4ToInt(ip);
+  return CLOUDFLARE_V4.some((cidr) => {
+    const [base, bits] = cidr.split('/');
+    const mask = Number(bits) === 0 ? 0 : (~0 << (32 - Number(bits))) >>> 0;
+    return (address & mask) === (ipv4ToInt(base!) & mask);
+  });
+}
+
+export type DnsPointing = {
+  /** here: at this app's server · elsewhere: somewhere else · proxied: behind Cloudflare, origin unknown to us · none: no A record */
+  state: 'here' | 'elsewhere' | 'proxied' | 'none';
+  /** what public DNS answers */
+  addresses: string[];
+  /** behind the orange cloud, the record's real target — read from our Cloudflare zone */
+  origin: string | null;
+  /** what "here" means: the server's address (or the platform DNS target) */
+  expected: string | null;
+};
+
+/**
+ * Where the app's hostname really sends visitors, compared with the server it
+ * runs on. Public DNS for a proxied record only shows Cloudflare; when the zone
+ * is ours, the record itself names the origin.
+ */
+export async function whereHostnamePoints(application: Pick<Application, 'id' | 'domain' | 'domainId'>): Promise<DnsPointing> {
+  const host = lower(application.domain);
+  const target = await targetForApp(application.id);
+  const expected = target?.content ?? null;
+  const addresses = await resolve4(host).catch(() => [] as string[]);
+
+  if (!addresses.length) return { state: 'none', addresses, origin: null, expected };
+  if (expected && addresses.includes(expected)) return { state: 'here', addresses, origin: null, expected };
+  if (!addresses.every(isCloudflareIp)) return { state: 'elsewhere', addresses, origin: null, expected };
+
+  // proxied: ask our own zone what the record points at
+  const zone = await zoneFor(application).catch(() => null);
+  const records = zone ? (await listCloudflareDnsRecords(zone.zoneId)) ?? [] : [];
+  const address = (name: string) => records.find((r: any) => lower(r?.name) === name && (r?.type === 'A' || r?.type === 'CNAME'));
+  // an explicit record wins; otherwise the zone's wildcard is what answers
+  const record = address(host) ?? (zone ? address(`*.${lower(zone.domain.name)}`) : undefined);
+  if (!record) return { state: 'proxied', addresses, origin: null, expected };
+
+  const origin = String(record.content);
+  return { state: expected && lower(origin) === lower(expected) ? 'here' : 'elsewhere', addresses, origin, expected };
 }

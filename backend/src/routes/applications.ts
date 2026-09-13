@@ -24,7 +24,7 @@ import {
 } from '../services/staticReleaseService';
 import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
-import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged } from '../services/appDnsService';
+import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
@@ -1807,14 +1807,22 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
     }
 
     // the registration too: an expired domain often still resolves — to the registrar's parking page
-    const [health, managed, registration] = await Promise.all([
+    const [health, managed, registration, pointing] = await Promise.all([
       checkAppHostname(application.domain),
       dnsManaged(application),
       hostnameRegistration(application.domain).catch(() => null),
+      // does the name lead to the server this app runs on — or somewhere else that happens to answer
+      whereHostnamePoints(application).catch(() => null),
     ]);
     return res.json({
       success: true,
-      data: { ...health, dnsManaged: managed, domainProblem: registration?.problem ?? null, registeredDomain: registration?.domain ?? null },
+      data: {
+        ...health,
+        dnsManaged: managed,
+        domainProblem: registration?.problem ?? null,
+        registeredDomain: registration?.domain ?? null,
+        pointing,
+      },
     } as ApiResponse);
   } catch (error) {
     console.error('Error checking application hostname:', error);

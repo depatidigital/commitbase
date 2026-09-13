@@ -588,6 +588,13 @@ export default {
   "Nothing listens on port {port} any more": "Tidak ada lagi yang mendengarkan di port {port}",
   "Not on the server": "Tidak ada di server",
   "Proxy target": "Tujuan proxy",
+  "DNS points to": "DNS mengarah ke",
+  "This server": "Server ini",
+  "via Cloudflare": "lewat Cloudflare",
+  "Not this server ({ip})": "Bukan server ini ({ip})",
+  "Cloudflare proxy — origin unknown": "Proxy Cloudflare — server asal tidak diketahui",
+  "Cloudflare's proxy hides the real server, and this domain is not on Cloudflare here, so the record cannot be read.":
+    "Proxy Cloudflare menyembunyikan server aslinya, dan domain ini tidak terhubung ke Cloudflare di sini, jadi record-nya tidak bisa dibaca.",
   "Port not listening": "Port tidak aktif",
   "Nothing was listening on this port at the last sync": "Tidak ada yang mendengarkan di port ini saat sinkronisasi terakhir",
   "{domain} has no DNS record, so nobody can reach it.": "{domain} tidak punya record DNS, jadi tidak ada yang bisa mengaksesnya.",

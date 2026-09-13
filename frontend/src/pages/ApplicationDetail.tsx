@@ -832,6 +832,37 @@ export default function ApplicationDetail() {
                     ) : null}
                   </div>
                 </Field>
+                {/* answering is not enough: it has to answer from this app's server */}
+                {hostname?.pointing && hostname.pointing.state !== "none" && (
+                  <Field label={t("DNS points to")}>
+                    {hostname.pointing.state === "here" ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-success">
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                        {t("This server")}
+                        <span className="font-mono text-muted-foreground">
+                          {hostname.pointing.origin ? `(${t("via Cloudflare")})` : hostname.pointing.expected}
+                        </span>
+                      </span>
+                    ) : hostname.pointing.state === "elsewhere" ? (
+                      <>
+                        <span className="break-all font-mono text-xs">
+                          {hostname.pointing.origin ?? hostname.pointing.addresses.join(", ")}
+                        </span>
+                        <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          {t("Not this server ({ip})", { ip: hostname.pointing.expected ?? "—" })}
+                        </span>
+                      </>
+                    ) : (
+                      <span
+                        className="text-xs text-muted-foreground"
+                        title={t("Cloudflare's proxy hides the real server, and this domain is not on Cloudflare here, so the record cannot be read.")}
+                      >
+                        {t("Cloudflare proxy — origin unknown")}
+                      </span>
+                    )}
+                  </Field>
+                )}
                 {/* the version visitors are getting */}
                 <Field label={t("Last Deployment")}>
                   {lastDeployment ? (
