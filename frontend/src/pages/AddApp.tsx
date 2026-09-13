@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,8 @@ import {
   Server,
   Check,
   ChevronsUpDown,
+  ChevronDown,
+  ChevronRight,
   Rocket,
 } from "lucide-react";
 import { EnvEditor } from "@/components/EnvEditor";
@@ -60,10 +62,19 @@ import {
 } from "@/lib/applications";
 import { getGithubAuthUrl, getGitlabAuthUrl, listGitRepositories, type GitRepositoryListing } from "@/lib/git";
 import { t } from "@/lib/i18n";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { getServers } from "@/lib/servers";
 
 const PENDING_REPOSITORY = "addApp.pendingRepository";
+
+/** A DNS-safe label: `My Shop_v2` → `my-shop-v2`. */
+const slugify = (value?: string | null) =>
+  (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+
 // what the backend accepts as a repository (projectDetect.ts REPOSITORY_URL)
 const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
 
@@ -96,8 +107,6 @@ export default function AddApp() {
     repository: "",
     branch: "main",
   });
-  // 1 = where the code comes from, 2 = type, name and domain
-  const [step, setStep] = useState(1);
   // Which node the app runs on. Only a superadmin picks; "" = the org's default server.
   const superadmin = isSuperAdmin();
   const [serverId, setServerId] = useState("");
@@ -154,52 +163,64 @@ export default function AddApp() {
   const requiredEnv = useMemo(() => requiredKeys(detected), [detected]);
   const lockedEnv = useMemo(() => new Set(expectedRows(detected).map((row) => row.key)), [detected]);
   const missingEnv = [...requiredEnv].filter((key) => !envRows.find((row) => row.key === key)?.value.trim());
+  // env folded unless something is required; the type shown as a confirmed chip until "Change"
+  const [envOpen, setEnvOpen] = useState(false);
+  const envShown = envOpen || missingEnv.length > 0;
+  const [typeOpen, setTypeOpen] = useState(false);
 
-  // an empty subdomain means the root domain
-  const fullDomain = joinHost(formData.subdomain, formData.selectedDomain);
   const availableDomains = domains ?? [];
+  const sharedChoices = availableDomains.filter((domain) => domain.shared);
+  const ownChoices = availableDomains.filter((domain) => !domain.shared);
+  // A shared platform domain gives every app a free address, as on Vercel or
+  // Render: nothing to decide here, a custom domain comes later on the app's
+  // Domains tab. Without one, the org's own domain is the only way in.
+  const addressMode: "free" | "own" = sharedChoices.length > 0 ? "free" : "own";
+  // the free address follows the name until the user edits the address itself
+  const [subdomainTouched, setSubdomainTouched] = useState(false);
+  // the bare domain, only when ticked — an empty subdomain alone never means it
+  const [root, setRoot] = useState(false);
   const pickedDomain = availableDomains.find((domain) => domain.name === formData.selectedDomain);
+  const useRoot = root && !!pickedDomain && !pickedDomain.shared;
+  const fullDomain = joinHost(formData.subdomain, formData.selectedDomain, useRoot);
   // Under a shared domain the app is the caller's org's; only someone with a
   // choice of orgs (several, or a platform admin seeing all) has to pick one.
   const needsOrg = !!pickedDomain?.shared && (myOrgs?.pagination?.total ?? 0) > 1;
 
   // The source's own name — the repo, or the picked folder (loose files have
   // none worth using) — as a DNS-safe label.
-  const sourceLabel = useMemo(() => {
-    const source =
-      sourceMode === "git"
-        ? formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
-        : uploadFiles[0]?.path.includes("/")
-          ? uploadFiles[0].path.split("/")[0]
-          : undefined;
-    return (source ?? "")
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 63);
-  }, [sourceMode, formData.repository, uploadFiles]);
+  const sourceLabel = useMemo(
+    () =>
+      slugify(
+        sourceMode === "git"
+          ? formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
+          : uploadFiles[0]?.path.includes("/")
+            ? uploadFiles[0].path.split("/")[0]
+            : undefined,
+      ),
+    [sourceMode, formData.repository, uploadFiles],
+  );
 
   // The name is the app's own label, not its address (as on Vercel, Netlify,
-  // Fly): it comes from the source and stays when the domain changes. Only
-  // loose files, with no source name, fall back to the hostname.
+  // Fly): it comes from the source and stays when the domain changes. Loose
+  // files have no source name: under an own domain the hostname stands in;
+  // under a free address it cannot (the address follows the name), so it is typed.
   const [nameTouched, setNameTouched] = useState(false);
+  const fallbackName = addressMode === "own" ? fullDomain : "";
   useEffect(() => {
-    if (!nameTouched) setFormData((prev) => ({ ...prev, name: sourceLabel || fullDomain }));
-  }, [sourceLabel, fullDomain, nameTouched]);
+    if (!nameTouched) setFormData((prev) => ({ ...prev, name: sourceLabel || fallbackName }));
+  }, [sourceLabel, fallbackName, nameTouched]);
 
-  // A shared domain needs a name under it: the app's name, as a starting
-  // point — so the free address reads like the app. Typed names are left alone.
+  // The free address: the app's name under the shared domain (the first one;
+  // more are a "Change" away). It follows the name until the address is edited.
   useEffect(() => {
-    if (step !== 2 || formData.subdomain || !pickedDomain?.shared) return;
-    // not a name that merely echoes the hostname (loose files)
-    const label = (nameTouched ? formData.name : sourceLabel)
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 63);
-    if (label) setFormData((prev) => ({ ...prev, subdomain: label }));
+    if (addressMode !== "free") return;
+    setFormData((prev) => ({
+      ...prev,
+      selectedDomain: prev.selectedDomain || sharedChoices[0].name,
+      subdomain: subdomainTouched ? prev.subdomain : slugify(prev.name),
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, pickedDomain?.shared]);
+  }, [addressMode, formData.name, subdomainTouched, sharedChoices[0]?.name]);
 
   // A pasted URL: read its branches and switch to the default one (not every
   // repo uses "main"). null = not read, which leaves the branch as free text.
@@ -315,8 +336,8 @@ export default function AddApp() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Enter on an earlier step must not fire the deploy
-    if (step < 2) return;
+    // Enter in a half-filled form must not fire the deploy
+    if (!stepComplete(1) || !stepComplete(2)) return;
 
     // Build commands are not asked here: detection's are the defaults, and
     // they are edited on the app's page. The env is, so it can deploy now.
@@ -403,9 +424,6 @@ export default function AddApp() {
     },
   ];
 
-  // no type step: detection fills it from the source, and it is corrected
-  // on the configure step next to the detection result
-  const steps = [t("Source"), t("Configure")];
 
   // an uploaded static site is served as uploaded: nothing reads an env
   const staticUpload = sourceMode === "upload" && formData.type === "STATIC";
@@ -421,7 +439,7 @@ export default function AddApp() {
           !!remoteBranches?.length;
     return (
       !!formData.name &&
-      !hostnameProblem(formData.subdomain, pickedDomain) &&
+      !hostnameProblem(formData.subdomain, pickedDomain, useRoot) &&
       !hostBlocked &&
       (!needsOrg || !!organizationId) &&
       !!formData.type
@@ -543,36 +561,8 @@ export default function AddApp() {
       description={t("Point at the code, then name it — the type is detected.")}
     >
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Wizard progress */}
-        <ol className="flex flex-wrap items-center gap-2 text-sm">
-          {steps.map((label, index) => {
-            const value = index + 1;
-            return (
-              <li key={label} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  // only step back — moving forward has to pass the checks below
-                  onClick={() => value < step && setStep(value)}
-                  className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
-                    value === step
-                      ? "border-primary bg-primary/10 font-medium text-primary"
-                      : value < step
-                        ? "border-border/60 text-muted-foreground hover:border-primary/40"
-                        : "border-border/40 text-muted-foreground/60"
-                  }`}
-                >
-                  <span className="font-mono text-xs">{value}</span>
-                  {label}
-                </button>
-                {index < steps.length - 1 && (
-                  <span className="text-muted-foreground/50">/</span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-
-        {step === 1 && (
+        {/* where the code comes from — the rest of the form opens once it is read */}
+        {sourceMode && (
           <>
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardHeader>
@@ -845,80 +835,72 @@ export default function AddApp() {
           </>
         )}
 
-        {step === 2 && (
+        {stepComplete(1) && (
           <>
             {/* one card: the app's name (from its source), where it is
                 reached, then the type — which lives next to what detection
                 guessed, so a wrong guess is fixed where it is shown */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardContent className="space-y-5 pt-6">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">
-                      {t("App Name")} <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="name"
-                      placeholder="my-app"
-                      value={formData.name}
-                      onChange={(e) => {
-                        setNameTouched(true);
-                        handleInputChange("name", e.target.value);
-                      }}
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("Your label for the app, taken from its source. It stays when the domain changes.")}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="subdomain">
-                      {t("Domain Configuration")}{" "}
-                      <span className="text-red-500">*</span>
-                    </Label>
-                    <HostnamePicker
-                      choices={availableDomains}
-                      subdomain={formData.subdomain}
-                      domain={formData.selectedDomain}
-                      onSubdomain={(value) => handleInputChange("subdomain", value)}
-                      onDomain={(name) => handleInputChange("selectedDomain", name)}
-                      onBlockedChange={setHostBlocked}
-                      onConsentChange={setDnsConsent}
-                      serverId={serverId || undefined}
-                      organizationId={organizationId || undefined}
-                    />
-                    {needsOrg && (
-                      <OrganizationCombobox
-                        value={organizationId || null}
-                        onChange={(id) => setOrganizationId(id ?? "")}
-                        placeholder={t("Whose app is it?")}
-                      />
-                    )}
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="name">
+                    {t("App Name")} <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="name"
+                    placeholder="my-app"
+                    value={formData.name}
+                    onChange={(e) => {
+                      setNameTouched(true);
+                      handleInputChange("name", e.target.value);
+                    }}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("Your label for the app, taken from its source. It stays when the domain changes.")}
+                  </p>
                 </div>
 
-                {superadmin && (
-                  <div className="space-y-2">
-                    <Label htmlFor="server">{t("Server")}</Label>
-                    <Select value={serverId || "__default"} onValueChange={(v) => setServerId(v === "__default" ? "" : v)}>
-                      <SelectTrigger id="server" className="max-w-md">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__default">{t("Organization's default server")}</SelectItem>
-                        {servers.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name} ({s.status})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                {/* where it is reached: a free address, filled in from the name
+                    (a custom domain is added later, on the app's Domains tab);
+                    only with no shared domain does the org's own come in here */}
+                <div className="space-y-2">
+                  <Label>
+                    {t("Address (URL)")} <span className="text-red-500">*</span>
+                  </Label>
+                  <HostnamePicker
+                    compact={addressMode === "free"}
+                    choices={addressMode === "free" ? sharedChoices : ownChoices}
+                    subdomain={formData.subdomain}
+                    domain={formData.selectedDomain}
+                    onSubdomain={(value) => {
+                      setSubdomainTouched(true);
+                      handleInputChange("subdomain", value);
+                    }}
+                    onDomain={(name) => handleInputChange("selectedDomain", name)}
+                    onBlockedChange={setHostBlocked}
+                    onConsentChange={setDnsConsent}
+                    serverId={serverId || undefined}
+                    organizationId={organizationId || undefined}
+                    root={root}
+                    onRoot={setRoot}
+                  />
+                  {addressMode === "own" && isAdmin() && (
                     <p className="text-xs text-muted-foreground">
-                      {t("Fixed once the app exists.")}
+                      {t("Want every new app to get a free address? Share a platform domain:")}{" "}
+                      <Link to="/domains" className="underline hover:text-primary">
+                        {t("Domains → Settings → Shared platform domain")}
+                      </Link>
                     </p>
-                  </div>
-                )}
+                  )}
+                  {needsOrg && (
+                    <OrganizationCombobox
+                      value={organizationId || null}
+                      onChange={(id) => setOrganizationId(id ?? "")}
+                      placeholder={t("Whose app is it?")}
+                    />
+                  )}
+                </div>
 
                 <div className="space-y-2">
                   {/* what detection found sits on the heading line */}
@@ -948,6 +930,24 @@ export default function AddApp() {
                       </span>
                     ) : null}
                   </div>
+                  {/* a confident detection is a fact to confirm, not a choice to make */}
+                  {detected && formData.type && !typeOpen && !detecting ? (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      {(() => {
+                        const option = appTypeOptions.find((o) => o.value === formData.type);
+                        const Icon = option?.icon ?? Server;
+                        return (
+                          <span className="flex items-center gap-2 rounded-md border border-primary bg-primary/5 px-3 py-1.5 font-medium text-primary">
+                            <Icon className="h-4 w-4" />
+                            {option?.label ?? formData.type}
+                          </span>
+                        );
+                      })()}
+                      <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setTypeOpen(true)}>
+                        {t("Change")}
+                      </Button>
+                    </div>
+                  ) : (
                   <div className="flex flex-wrap gap-2">
                     {appTypeOptions.map((option) => {
                       const Icon = option.icon;
@@ -971,6 +971,7 @@ export default function AddApp() {
                       );
                     })}
                   </div>
+                  )}
                   {!formData.type && !detecting ? (
                     <p className="text-xs text-destructive">
                       {t("Could not tell what this project is — pick its type.")}
@@ -993,14 +994,35 @@ export default function AddApp() {
 
                 {wantsEnv && (
                   <div className="space-y-2 border-t pt-5">
+                    {/* folded when nothing is required — open by itself when something is */}
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      <Label>{t("Environment variables")}</Label>
-                      <span className="text-xs text-muted-foreground">
-                        {missingEnv.length > 0
-                          ? t("{count} still empty — fill them to deploy now, or finish on the next page.", { count: missingEnv.length })
-                          : t("Paste a whole .env into any name field.")}
-                      </span>
+                      {missingEnv.length > 0 ? (
+                        <Label>{t("Environment variables")}</Label>
+                      ) : (
+                        <button
+                          type="button"
+                          aria-expanded={envShown}
+                          onClick={() => setEnvOpen(!envOpen)}
+                          className="flex items-center gap-1.5 text-sm font-medium"
+                        >
+                          {envShown ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          {t("Environment variables")}
+                          <span className="font-normal text-muted-foreground">
+                            {envRows.some((row) => row.key.trim())
+                              ? t("({count})", { count: envRows.filter((row) => row.key.trim()).length })
+                              : t("(optional)")}
+                          </span>
+                        </button>
+                      )}
+                      {envShown && (
+                        <span className="text-xs text-muted-foreground">
+                          {missingEnv.length > 0
+                            ? t("{count} still empty — fill them to deploy now, or finish on the next page.", { count: missingEnv.length })
+                            : t("Paste a whole .env into any name field.")}
+                        </span>
+                      )}
                     </div>
+                    {envShown && (<>
                     {/* a database is created and connected from the app's page — it needs the app first */}
                     {missingEnv.includes("DATABASE_URL") && (
                       <p className="text-xs text-muted-foreground">
@@ -1016,37 +1038,58 @@ export default function AddApp() {
                       generate={(row) => (row.value ? null : generateSecret(row.key))}
                       disabled={!!busy || createApp.isPending}
                     />
+                    </>)}
                   </div>
+                )}
+
+                {/* the rare choices, out of the way: native details, no state */}
+                {superadmin && (
+                  <details className="border-t pt-5">
+                    <summary className="cursor-pointer text-sm font-medium">{t("Advanced")}</summary>
+                    <div className="mt-3 space-y-2">
+                      <Label htmlFor="server">{t("Server")}</Label>
+                      <Select value={serverId || "__default"} onValueChange={(v) => setServerId(v === "__default" ? "" : v)}>
+                        <SelectTrigger id="server" className="max-w-md">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default">{t("Organization's default server")}</SelectItem>
+                          {servers.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.name} ({s.status})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {t("Fixed once the app exists. Build and start commands can be changed on the app's Settings tab.")}
+                      </p>
+                    </div>
+                  </details>
                 )}
               </CardContent>
             </Card>
           </>
         )}
 
-        {/* Wizard navigation */}
         <div className="flex items-center justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => (step === 1 ? navigate("/") : setStep(step - 1))}
-          >
+          <Button type="button" variant="outline" onClick={() => navigate("/")}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            {step === 1 ? t("Cancel") : t("Back")}
+            {t("Cancel")}
           </Button>
 
-          {step < 2 ? (
-            <Button
-              type="button"
-              disabled={!stepComplete(step)}
-              onClick={() => setStep(step + 1)}
-              className="bg-gradient-primary min-w-[140px]"
-            >
-              {t("Continue")}
-            </Button>
-          ) : (
+            <div className="flex flex-wrap items-center justify-end gap-3">
+            {/* what the click will do, next to the click */}
+            {stepComplete(1) && stepComplete(2) && !createApp.isPending && !busy && (
+              <span className="text-right text-xs text-muted-foreground">
+                {deployNow
+                  ? t("Goes live at {url}", { url: `https://${fullDomain}` })
+                  : t("Created now; fill the rest on its page, then deploy.")}
+              </span>
+            )}
             <Button
               type="submit"
-              disabled={!stepComplete(2) || createApp.isPending || !!busy}
+              disabled={!stepComplete(1) || !stepComplete(2) || createApp.isPending || !!busy}
               className="bg-gradient-primary shadow-glow hover:shadow-elegant transition-all duration-300 min-w-[140px]"
             >
               {createApp.isPending || busy ? (
@@ -1066,7 +1109,7 @@ export default function AddApp() {
                 </>
               )}
             </Button>
-          )}
+            </div>
         </div>
       </form>
     </PageLayout>

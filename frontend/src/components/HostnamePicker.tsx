@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronsUpDown, Globe, Loader2, XCircle } from "lucide-react";
+import { Check, ChevronsUpDown, Globe, Loader2, XCircle } from "lucide-react";
 import { checkHostname, dnsNeedsConsent } from "@/lib/applications";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DnsChangeNotice } from "@/components/DnsChangeNotice";
@@ -13,17 +13,21 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { DomainChoice } from "@/lib/domains";
 import { t } from "@/lib/i18n";
 
-/** `sub` + `domain` → the hostname; an empty subdomain means the root domain. */
-export const joinHost = (subdomain: string, domain: string) => (subdomain ? `${subdomain}.${domain}` : domain);
+/** `sub` + `domain` → the hostname; the root domain only when asked for (`root`). */
+export const joinHost = (subdomain: string, domain: string, root = false) =>
+  root || !subdomain ? domain : `${subdomain}.${domain}`;
 
 /**
  * A name under a shared platform domain must be one label and never its root —
- * the root and deeper trees are the platform's. Owned domains allow anything.
+ * the root and deeper trees are the platform's. Under an owned domain the root
+ * is allowed, but only ticked on purpose: an empty field that silently meant
+ * "the main website" is how a live site got replaced by accident.
  */
-export const hostnameProblem = (subdomain: string, choice: DomainChoice | undefined): string | null => {
+export const hostnameProblem = (subdomain: string, choice: DomainChoice | undefined, root = false): string | null => {
   if (!choice) return t("Select a domain");
   if (choice.shared && !subdomain) return t("Pick a name under {domain}", { domain: choice.name });
   if (choice.shared && subdomain.includes(".")) return t("One name only — no dots");
+  if (!choice.shared && !subdomain && !root) return t("Enter a subdomain, or tick “Use the root domain”.");
   return null;
 };
 
@@ -42,12 +46,20 @@ export function HostnamePicker({
   organizationId,
   onBlockedChange,
   onConsentChange,
+  root = false,
+  onRoot,
+  compact = false,
 }: {
+  /** show only the resulting address with "Change" — for an address filled in automatically */
+  compact?: boolean;
   choices: DomainChoice[];
   subdomain: string;
   domain: string;
   onSubdomain: (value: string) => void;
   onDomain: (name: string) => void;
+  /** the bare domain itself, ticked on purpose — owned domains only */
+  root?: boolean;
+  onRoot?: (root: boolean) => void;
   /** the app being moved — its own current name is not "taken" */
   excludeAppId?: string;
   /** where a new app would run, so the DNS preview shows its real address */
@@ -60,10 +72,11 @@ export function HostnamePicker({
 }) {
   const [open, setOpen] = useState(false);
   const picked = choices.find((choice) => choice.name === domain);
-  const problem = hostnameProblem(subdomain, picked);
+  const useRoot = root && !!picked && !picked.shared;
+  const problem = hostnameProblem(subdomain, picked, useRoot);
 
   // what the name is today, asked once typing pauses
-  const host = domain && !problem ? joinHost(subdomain, domain) : "";
+  const host = domain && !problem ? joinHost(subdomain, domain, useRoot) : "";
   const [settled, setSettled] = useState(host);
   useEffect(() => {
     const timer = setTimeout(() => setSettled(host), 400);
@@ -85,14 +98,29 @@ export function HostnamePicker({
   useEffect(() => onBlockedChange?.(blocked), [blocked, onBlockedChange]);
   useEffect(() => onConsentChange?.(agreed), [agreed, onConsentChange]);
 
+  // compact: just the address; the fields open on "Change" — or by themselves
+  // when something needs fixing (a taken name, a missing one)
+  const [expanded, setExpanded] = useState(false);
+  const showFields = !compact || expanded || !!problem || !!current?.usedBy;
+
   return (
     <div className="space-y-2">
+      {!showFields && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="break-all font-mono text-base font-medium">https://{host}</span>
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setExpanded(true)}>
+            {t("Change")}
+          </Button>
+        </div>
+      )}
+      {showFields && (<>
       <div className="flex items-center gap-2">
         <Globe className="min-w-4 min-h-4 text-muted-foreground" />
         <Input
           id="subdomain"
-          placeholder="app"
-          value={subdomain}
+          placeholder={useRoot ? "" : "app"}
+          value={useRoot ? "" : subdomain}
+          disabled={useRoot}
           onChange={(e) => onSubdomain(e.target.value.trim().toLowerCase())}
         />
         <span className="text-muted-foreground">.</span>
@@ -156,22 +184,25 @@ export function HostnamePicker({
           </PopoverContent>
         </Popover>
       </div>
-      {/* the result and the hint on one line */}
-      <p className="text-xs text-muted-foreground">
-        {domain && !problem && (
-          <>
-            <span className="font-mono text-foreground">{joinHost(subdomain, domain)}</span>
-            {" · "}
-          </>
-        )}
-        {picked?.shared ? (
-          <span className={problem ? "text-destructive" : undefined}>
-            {problem ?? t("A free address — add your own domain any time from the app's Domains tab.")}
-          </span>
-        ) : (
-          t("Leave the subdomain empty to use the root domain.")
-        )}
-      </p>
+      {picked && !picked.shared && onRoot && (
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={useRoot} onCheckedChange={(checked) => onRoot(checked === true)} />
+          <span>{t("Use the root domain ({domain}) — usually the main website", { domain: picked.name })}</span>
+        </label>
+      )}
+
+      {/* the address it will have, big enough to read before saving — or what is missing */}
+      {host ? (
+        <p className="break-all font-mono text-base font-medium">https://{host}</p>
+      ) : domain && problem ? (
+        <p className="text-xs text-destructive">{problem}</p>
+      ) : null}
+      </>)}
+      {picked?.shared && host && (
+        <p className="text-xs text-muted-foreground">
+          {t("A free address — add your own domain any time from the app's Domains tab.")}
+        </p>
+      )}
 
       {host && settled === host && checking && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -209,12 +240,6 @@ export function HostnamePicker({
           />
           <span>{t("I understand and agree that the DNS of {host} is changed as listed above.", { host })}</span>
         </label>
-      )}
-      {current && !current.usedBy && current.apex && !needsConsent && !current.pointsHere && (
-        <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-          <span>{t("This is the root domain — usually the main website. Add a subdomain unless you mean it.")}</span>
-        </p>
       )}
     </div>
   );

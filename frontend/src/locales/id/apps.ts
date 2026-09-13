@@ -256,6 +256,17 @@ export default {
   "I understand and agree that the DNS of {host} is changed as listed above.":
     "Saya mengerti dan setuju DNS {host} diubah seperti di atas.",
   "I agree — change DNS": "Saya setuju — ubah DNS",
+  "Address (URL)": "Alamat (URL)",
+  "Free address": "Alamat gratis",
+  "{name}.{domain} — ready right away": "{name}.{domain} — langsung siap",
+  "My domain": "Domain saya",
+  "A subdomain or the root of a domain your organization owns": "Subdomain atau domain utama milik organisasi Anda",
+  "Enter a subdomain, or tick “Use the root domain”.": "Isi subdomain, atau centang “Pakai domain utama”.",
+  "Use the root domain ({domain}) — usually the main website": "Pakai domain utama ({domain}) — biasanya situs utama",
+  "Goes live at {url}": "Akan live di {url}",
+  "Created now; fill the rest on its page, then deploy.": "Dibuat sekarang; lengkapi sisanya di halaman aplikasi, lalu deploy.",
+  "({count})": "({count})",
+  Change: "Ubah",
   "Your label for the app, taken from its source. It stays when the domain changes.":
     "Label aplikasi Anda, diambil dari sumbernya. Tetap sama walau domain berubah.",
   "Redeploy Site": "Deploy Ulang Situs",

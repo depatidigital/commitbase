@@ -41,17 +41,21 @@ export function AppDomainsCard({ application }: { application: Application }) {
 
   const [domain, setDomain] = useState("");
   const [subdomain, setSubdomain] = useState("");
+  const [root, setRoot] = useState(false);
   const reset = () => {
     setDomain(current?.name ?? "");
-    setSubdomain(current && application.domain !== current.name ? application.domain.slice(0, -(current.name.length + 1)) : "");
+    const onRoot = !!current && application.domain === current.name;
+    setRoot(onRoot);
+    setSubdomain(current && !onRoot ? application.domain.slice(0, -(current.name.length + 1)) : "");
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(reset, [current?.id, application.domain]);
 
   const picked = choices.find((choice) => choice.name === domain);
-  const next = joinHost(subdomain, domain);
+  const useRoot = root && !!picked && !picked.shared;
+  const next = joinHost(subdomain, domain, useRoot);
   const changed = !!domain && next !== application.domain;
-  const problem = hostnameProblem(subdomain, picked);
+  const problem = hostnameProblem(subdomain, picked, useRoot);
   const [confirming, setConfirming] = useState(false);
   const [hostBlocked, setHostBlocked] = useState(false);
   const [dnsConsent, setDnsConsent] = useState(false);
@@ -125,6 +129,8 @@ export function AppDomainsCard({ application }: { application: Application }) {
               excludeAppId={application.id}
               onBlockedChange={setHostBlocked}
               onConsentChange={setDnsConsent}
+              root={root}
+              onRoot={setRoot}
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
               {isAdmin() && (
