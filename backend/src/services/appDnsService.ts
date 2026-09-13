@@ -318,19 +318,7 @@ export type DnsPointing = {
   origin: string | null;
   /** what "here" means: the server's address (or the platform DNS target) */
   expected: string | null;
-  /** pointing elsewhere, at another server registered in this panel — the app probably runs there */
-  otherServer?: { id: string; name: string } | null;
 };
-
-/** The registered server a DNS target is — by public IP or SSH hostname. */
-async function registeredServerAt(targets: string[]) {
-  const values = targets.map(lower).filter(Boolean);
-  if (!values.length) return null;
-  return prisma.server.findFirst({
-    where: { OR: [{ publicIp: { in: values } }, { hostname: { in: values } }] },
-    select: { id: true, name: true },
-  });
-}
 
 /**
  * Where the app's hostname really sends visitors, compared with the server it
@@ -345,9 +333,7 @@ export async function whereHostnamePoints(application: Pick<Application, 'id' | 
 
   if (!addresses.length) return { state: 'none', addresses, origin: null, expected };
   if (expected && addresses.includes(expected)) return { state: 'here', addresses, origin: null, expected };
-  if (!addresses.every(isCloudflareIp)) {
-    return { state: 'elsewhere', addresses, origin: null, expected, otherServer: await registeredServerAt(addresses) };
-  }
+  if (!addresses.every(isCloudflareIp)) return { state: 'elsewhere', addresses, origin: null, expected };
 
   // proxied: ask our own zone what the record points at
   const zone = await zoneFor(application).catch(() => null);
@@ -359,5 +345,5 @@ export async function whereHostnamePoints(application: Pick<Application, 'id' | 
 
   const origin = String(record.content);
   if (expected && lower(origin) === lower(expected)) return { state: 'here', addresses, origin, expected };
-  return { state: 'elsewhere', addresses, origin, expected, otherServer: await registeredServerAt([origin]) };
+  return { state: 'elsewhere', addresses, origin, expected };
 }

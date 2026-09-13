@@ -73,7 +73,8 @@ import { SourcePicker } from "@/components/SourcePicker";
 import { DangerZoneCard } from "@/components/DangerZoneCard";
 import { AppStorageCard } from "@/components/AppStorageCard";
 import { locale, t } from "@/lib/i18n";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdmin, isSuperAdmin } from "@/lib/auth";
+import { DnsFixCard } from "@/components/DnsFixCard";
 import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { AppDomainsCard } from "@/components/AppDomainsCard";
@@ -632,6 +633,18 @@ export default function ApplicationDetail() {
           </div>
           </CardContent>
         </Card>
+        {/* answers from someone else's server: how to make it right, either way round */}
+        {elsewhere && (
+          <DnsFixCard
+            application={application}
+            pointing={hostname?.pointing ?? null}
+            dnsManaged={!!hostname?.dnsManaged}
+            portDead={application.runtime === "CADDY_PROXY" && application.status === "ERROR"}
+            canManage={isAdmin()}
+            pending={setupDns.isPending}
+            onRepoint={() => setConfirmRepoint(true)}
+          />
+        )}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
         {application.repository && !needsSetup && (
@@ -843,8 +856,9 @@ export default function ApplicationDetail() {
                           {/* no record, and its domain is not a zone we run: not connected to the panel at all */}
                           {hostname.resolves ? t("not serving yet") : hostname.dnsManaged ? t("no DNS") : t("not connected")}
                         </Badge>
-                        {/* only a Cloudflare zone we run can take the record — anywhere else the button could only fail */}
-                        {hostname.dnsManaged && (
+                        {/* only a Cloudflare zone we run can take the record — anywhere else the button could only fail.
+                            Already pointing here: DNS is not the problem, the app not answering is */}
+                        {hostname.dnsManaged && hostname.pointing?.state !== "here" && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -867,9 +881,7 @@ export default function ApplicationDetail() {
                       <span className="inline-flex items-center gap-1 text-xs text-success">
                         <CheckCircle className="h-3.5 w-3.5 shrink-0" />
                         {t("This server")}
-                        <span className="font-mono text-muted-foreground">
-                          {hostname.pointing.origin ? `(${t("via Cloudflare")})` : hostname.pointing.expected}
-                        </span>
+                        <span className="font-mono text-muted-foreground">{hostname.pointing.expected}</span>
                       </span>
                     ) : hostname.pointing.state === "elsewhere" ? (
                       <>

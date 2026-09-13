@@ -26,7 +26,7 @@ import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError }
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
-import { healthFor } from '../services/heartbeatService';
+import { forgetPointing, healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
 import { queueOrgNode } from '../services/orgProvisionService';
@@ -1843,6 +1843,8 @@ router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res
 
     // force = the user confirmed the repoint dialog, which showed what is replaced
     const result = await applyAppDns(req, application, req.body?.force === true);
+    // the record just moved: what the hostname check remembered about it is stale
+    forgetPointing(application.id);
 
     return res.json({
       success: result.state !== 'conflict' && result.state !== 'unavailable',

@@ -132,6 +132,8 @@ export const useSetupApplicationDns = () => {
       setupApplicationDns(id, force ?? false),
     onSuccess: (result, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['applications', id, 'hostname'] });
+      // the status card and the list dot read "points elsewhere" from here too
+      queryClient.invalidateQueries({ queryKey: ['applications', 'health'] });
       queryClient.invalidateQueries({ queryKey: ['domains'] });
       toast({ title: t('DNS updated'), description: result.detail });
     },

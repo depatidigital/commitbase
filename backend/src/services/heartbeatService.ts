@@ -118,6 +118,9 @@ const EMPTY: Health = {
 const POINTING_TTL_MS = 10 * 60 * 1000;
 const pointing = new Map<string, { at: number; elsewhere: string | undefined }>();
 
+/** Drop what is remembered about an app's DNS — its record just changed. */
+export const forgetPointing = (applicationId: string) => pointing.delete(applicationId);
+
 /**
  * Health for many targets at once, for a table that renders a bar per row.
  * One query for the beats and one for the day's totals, however many rows.

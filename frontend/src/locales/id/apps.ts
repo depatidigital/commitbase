@@ -41,6 +41,7 @@ export default {
   "domain inactive": "domain tidak aktif",
   "{domain} at the registry: {problem}": "{domain} di registri: {problem}",
   "Point it here": "Arahkan ke sini",
+  "Changing DNS…": "Mengubah DNS…",
   "Successful checks in the last 24 hours": "Pengecekan berhasil dalam 24 jam terakhir",
 
   // app type badge
@@ -591,10 +592,14 @@ export default {
   "DNS points to": "DNS mengarah ke",
   "Active, not connected": "Aktif, tidak terhubung",
   "reachable elsewhere": "dijangkau di server lain",
+  "How to fix": "Cara memperbaiki",
+  "Port {port} is not listening yet — the site answers here once the app runs.":
+    "Port {port} belum aktif — situs akan merespons di sini setelah aplikasinya berjalan.",
+  "Replaces the Cloudflare record with {ip}.": "Record Cloudflare diganti menjadi {ip}.",
+  "Set this record at your DNS provider (DNS only).": "Pasang record ini di pengelola DNS Anda (DNS only).",
   "DNS points to {ip}": "DNS mengarah ke {ip}",
   "{domain} is answered by another server ({ip}), not this one.": "{domain} dijawab oleh server lain ({ip}), bukan server ini.",
   "This server": "Server ini",
-  "via Cloudflare": "lewat Cloudflare",
   "Not this server ({ip})": "Bukan server ini ({ip})",
   "Cloudflare proxy — origin unknown": "Proxy Cloudflare — server asal tidak diketahui",
   "Cloudflare's proxy hides the real server, and this domain is not on Cloudflare here, so the record cannot be read.":
