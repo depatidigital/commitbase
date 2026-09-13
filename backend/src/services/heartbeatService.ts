@@ -97,6 +97,8 @@ export type Health = {
   uptime24h: number | null;
   lastError: string | null;
   responseMs: number | null;
+  /** answers, but its DNS leads to another server — up for someone, not for this app's server */
+  pointsElsewhere?: string | undefined;
 };
 
 const EMPTY: Health = {
@@ -106,6 +108,15 @@ const EMPTY: Health = {
   lastError: null,
   responseMs: null,
 };
+
+/**
+ * Where each app's name leads, refreshed by the hostname check. Not every
+ * minute: a proxied record costs a Cloudflare API call to resolve.
+ * ponytail: in memory — empty after a restart until the next check fills it.
+ * Persist it on the app row if that gap ever matters.
+ */
+const POINTING_TTL_MS = 10 * 60 * 1000;
+const pointing = new Map<string, { at: number; elsewhere: string | undefined }>();
 
 /**
  * Health for many targets at once, for a table that renders a bar per row.
@@ -187,6 +198,7 @@ export async function healthFor(
       uptime24h: counts && counts.total > 0 ? Math.round((counts.ok / counts.total) * 1000) / 10 : null,
       lastError: beats.find((beat) => !beat.ok)?.error ?? null,
       responseMs: beats[0]?.responseMs ?? null,
+      pointsElsewhere: targetType === 'APPLICATION' ? pointing.get(id)?.elsewhere : undefined,
     };
   }
 
@@ -210,12 +222,12 @@ export async function pruneHeartbeats(): Promise<number> {
  * the bars mean something: a minute of resolution instead of ten.
  */
 export async function checkApplicationHostnames(): Promise<string> {
-  const { checkAppHostname } = await import('./appDnsService');
+  const { checkAppHostname, whereHostnamePoints } = await import('./appDnsService');
 
   const apps = await prisma.application.findMany({
     // a hostname that only exists inside the platform has nothing to check
     where: { domain: { not: { endsWith: '.pm2.local' } } },
-    select: { id: true, domain: true },
+    select: { id: true, domain: true, domainId: true },
   });
 
   if (apps.length === 0) return 'no applications to check';
@@ -231,7 +243,17 @@ export async function checkApplicationHostnames(): Promise<string> {
       slice.map(async (app) => {
         const startedAt = Date.now();
         const health = await checkAppHostname(app.domain);
-        return { app, health, ms: Date.now() - startedAt };
+        const ms = Date.now() - startedAt;
+
+        // only an answer can come from the wrong place; a stale entry is refreshed
+        const known = pointing.get(app.id);
+        if (health.live && (!known || Date.now() - known.at > POINTING_TTL_MS)) {
+          const where = await whereHostnamePoints(app).catch(() => null);
+          // unknown (no answer, or proxied and unreadable) is not "elsewhere"
+          const elsewhere = where?.state === 'elsewhere' ? where.origin ?? where.addresses.join(', ') : undefined;
+          pointing.set(app.id, { at: Date.now(), elsewhere });
+        }
+        return { app, health, ms };
       }),
     );
 
