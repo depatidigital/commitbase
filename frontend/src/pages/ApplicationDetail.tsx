@@ -390,9 +390,13 @@ export default function ApplicationDetail() {
   const deployed = hasBeenDeployed(application);
   // where the running deploy is, from its row's status (PENDING → BUILDING → DEPLOYING)
   const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
-  const siteLive = published && !!hostname?.live;
+  // same verdict as the apps list's dot: the uptime checks win over the stored status
+  const overall = appStatus(application.status, healthById?.[application.id]);
+  // answering now, and either expected to (published) or the checks agree — a
+  // sync's ERROR ("no listener on the port") must not call a site that answers dead
+  const siteLive = !!hostname?.live && (published || overall.tone === 'up');
   // down by the checks (or an ERROR row) — the card must say so, not "Running"
-  const down = !siteLive && !failureReason && appStatus(application.status, healthById?.[application.id]).tone === 'down';
+  const down = !siteLive && !failureReason && overall.tone === 'down';
   // start/stop reach a process we deployed, or pm2's; anything else imported
   // was started by someone we cannot ask
   const controllable = !application.runtime || application.runtime === 'PM2';
@@ -928,6 +932,22 @@ export default function ApplicationDetail() {
                     <span className="block break-all font-mono text-xs text-muted-foreground">{application.configPath}</span>
                   )}
                 </Field>
+                {/* where Caddy sends the traffic — loopback on the node, never public */}
+                {application.port && (
+                  <Field label={t("Proxy target")}>
+                    <span className="font-mono text-xs">127.0.0.1:{application.port}</span>
+                    {/* the sync's ERROR for a proxy means exactly this */}
+                    {application.runtime === "CADDY_PROXY" && application.status === "ERROR" && (
+                      <span
+                        className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive"
+                        title={t("Nothing was listening on this port at the last sync")}
+                      >
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        {t("Port not listening")}
+                      </span>
+                    )}
+                  </Field>
+                )}
                 {isStatic && (
                   <Field label={t("Hosting")}>
                     {/* where the files actually are: an R2 bucket once uploaded,

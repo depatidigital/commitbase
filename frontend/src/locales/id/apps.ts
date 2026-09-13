@@ -587,6 +587,9 @@ export default {
     "Menghapusnya dari panel dan dari server. Jika ada yang tidak bisa dihapus, tidak ada yang dihapus.",
   "Nothing listens on port {port} any more": "Tidak ada lagi yang mendengarkan di port {port}",
   "Not on the server": "Tidak ada di server",
+  "Proxy target": "Tujuan proxy",
+  "Port not listening": "Port tidak aktif",
+  "Nothing was listening on this port at the last sync": "Tidak ada yang mendengarkan di port ini saat sinkronisasi terakhir",
   "{domain} has no DNS record, so nobody can reach it.": "{domain} tidak punya record DNS, jadi tidak ada yang bisa mengaksesnya.",
   "{domain} does not answer.": "{domain} tidak merespons.",
   "{domain} has no DNS record, and its domain is not on Cloudflare here — add the record wherever its DNS is hosted.":
