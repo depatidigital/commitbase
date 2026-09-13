@@ -75,6 +75,8 @@ import { locale, t } from "@/lib/i18n";
 import { isSuperAdmin } from "@/lib/auth";
 import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
+import { AppDomainsCard } from "@/components/AppDomainsCard";
+import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {
@@ -250,6 +252,7 @@ export default function ApplicationDetail() {
   });
   // the Environment tab's save: a deploy uses the saved env, so unsaved edits go first
   const envSave = useRef<(() => Promise<boolean>) | null>(null);
+  const connectDb = useRef<(() => void) | null>(null);
   const [savingForDeploy, setSavingForDeploy] = useState(false);
   const deploy = async () => {
     if (envStatus.dirty) {
@@ -655,10 +658,15 @@ export default function ApplicationDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 space-y-6">
           <TabsList
             className="grid w-full"
-            // overview, deployments, settings, plus files / environment + logs / database + storage when they apply
-            style={{ gridTemplateColumns: `repeat(${3 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 2)}, minmax(0, 1fr))` }}
+            // overview, deployments, domains, settings, plus files / environment + logs / database when they apply
+            style={{ gridTemplateColumns: `repeat(${4 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1)}, minmax(0, 1fr))` }}
           >
+            {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+            <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+            {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
+            <TabsTrigger value="domains">{t("Domains")}</TabsTrigger>
+            {!isStatic && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {!uploadedSite && (
               <TabsTrigger value="environment" className="gap-1.5">
                 {t("Environment")}
@@ -666,12 +674,7 @@ export default function ApplicationDetail() {
                 {(envStatus.missing.length > 0 || envStatus.dirty) && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
               </TabsTrigger>
             )}
-            {!isStatic && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {hasSiteBucket && <TabsTrigger value="files">{t("Site files")}</TabsTrigger>}
-            {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
-            <TabsTrigger value="deployments">{t("History")}</TabsTrigger>
-            {/* a static site keeps its files in R2, not on a node */}
-            {!isStatic && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
             <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
           </TabsList>
 
@@ -720,6 +723,7 @@ export default function ApplicationDetail() {
                 <Field label={t("Domain")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <span className="font-mono">{application.domain}</span>
+                    <DomainExpiryBadge domain={application.parentDomain} />
                     <Button
                       variant="ghost"
                       size="sm"
@@ -882,12 +886,17 @@ export default function ApplicationDetail() {
             </div>
           </TabsContent>
 
+          <TabsContent value="domains">
+            <AppDomainsCard application={application} />
+          </TabsContent>
+
           {!isStatic && (
             <TabsContent value="database">
               <AppDatabasesTab
                 applicationId={application.id}
                 applicationName={application.name}
-                onConnect={() => setActiveTab("environment")}
+                // the dialog lives in the (always mounted) env form, so it opens right here
+                onConnect={() => (connectDb.current ? connectDb.current() : setActiveTab("environment"))}
               />
             </TabsContent>
           )}
@@ -904,7 +913,7 @@ export default function ApplicationDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} />
+                  <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1029,13 +1038,6 @@ export default function ApplicationDetail() {
             <DeploymentHistory application={application} />
           </TabsContent>
 
-          {/* measured (du over SSH) only while this tab is open */}
-          {!isStatic && (
-            <TabsContent value="storage" className="space-y-6">
-              <AppStorageCard appId={application.id} deploying={deploying} />
-            </TabsContent>
-          )}
-
           {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-6">
             {/* an uploaded site has no build settings — only the danger zone */}
@@ -1052,6 +1054,9 @@ export default function ApplicationDetail() {
                 </CardContent>
               </Card>
             )}
+            {/* a static site keeps its files in R2, not on a node; measured (du
+                over SSH) only while Settings is open — TabsContent unmounts */}
+            {!isStatic && <AppStorageCard appId={application.id} deploying={deploying} />}
             <DangerZoneCard application={application} />
           </TabsContent>
         </Tabs>

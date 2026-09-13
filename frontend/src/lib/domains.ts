@@ -58,6 +58,30 @@ export const getDomains = async (): Promise<Domain[]> => {
   throw new Error(response.error || t("Failed to fetch domains"));
 };
 
+/** A domain an app may be put under: the caller's orgs' own, or a shared platform one. */
+export interface DomainChoice {
+  id: string;
+  name: string;
+  shared: boolean;
+  organizationId: string | null;
+  _count: { applications: number };
+}
+
+export const getDomainChoices = async (): Promise<DomainChoice[]> => {
+  const response = await apiRequest<DomainChoice[]>("/domains/choices");
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Failed to fetch domains"));
+};
+
+export const setDomainShared = async (id: string, shared: boolean): Promise<string> => {
+  const response = await apiRequest<Domain>(`/domains/${id}/shared`, {
+    method: "POST",
+    body: JSON.stringify({ shared }),
+  });
+  if (response.success) return response.message ?? "";
+  throw new Error(response.error || t("Could not update the domain"));
+};
+
 // Get a specific domain
 export const getDomain = async (id: string): Promise<Domain> => {
   const response = await apiRequest<Domain>(`/domains/${id}`, {

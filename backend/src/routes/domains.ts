@@ -140,6 +140,26 @@ router.get('/platform-target', authenticateToken, async (_req: AuthenticatedRequ
 });
 
 /**
+ * Where the caller may put an app: their orgs' active domains, plus the shared
+ * platform domains every org may use (one label under them). Only what the
+ * picker needs — a shared domain's DNS and settings stay admin-only.
+ */
+router.get('/choices', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const domains = await prisma.domain.findMany({
+      where: { status: 'ACTIVE', OR: [await orgScope(req), { shared: true }] },
+      select: { id: true, name: true, shared: true, organizationId: true, _count: { select: { applications: true } } },
+      // shared first: the default for an app with no domain of its own
+      orderBy: [{ shared: 'desc' }, { name: 'asc' }],
+    });
+    return res.json({ success: true, data: domains } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching domain choices:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
  * Domain search for the "register new domain" flow — availability + price for
  * the name typed and the same label on our offered TLDs.
  *
@@ -1109,6 +1129,42 @@ router.post('/:id/wildcard', authenticateToken, requireRole(['ADMIN']), async (r
       success: false,
       error: error?.message || 'Could not create the wildcard record',
     } as ApiResponse);
+  }
+});
+
+/**
+ * Open (or close) a domain to every organization's apps. Needs a Cloudflare
+ * zone — the takeover check reads its records — and gets the wildcard, so a
+ * new app answers without a record of its own. Closing it leaves the apps
+ * already under it where they are.
+ */
+router.post('/:id/shared', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const shared = req.body?.shared === true;
+    const domain = await prisma.domain.findUnique({ where: { id: req.params.id as string } });
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+    if (shared && !domain.cfZoneId) {
+      return res.status(400).json({ success: false, error: 'Move the domain to Cloudflare before sharing it' } as ApiResponse);
+    }
+
+    const updated = await prisma.domain.update({ where: { id: domain.id }, data: { shared } });
+    const wildcard = shared ? await ensureWildcardRecord(domain.id) : null;
+
+    return res.json({
+      success: true,
+      data: { ...updated, wildcard },
+      message:
+        wildcard?.state === 'unavailable'
+          ? `Shared, but the wildcard record was not set: ${wildcard.detail}`
+          : shared
+            ? `Every organization can now put apps under ${domain.name}`
+            : `${domain.name} is no longer offered to other organizations`,
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error sharing domain:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not update the domain' } as ApiResponse);
   }
 });
 

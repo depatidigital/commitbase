@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Database as DatabaseIcon, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { useDeleteApplication } from "@/hooks/useApplications";
 import type { Application } from "@/lib/applications";
+import { getAppDatabases } from "@/lib/databases";
 import { t } from "@/lib/i18n";
 
 /**
@@ -29,6 +31,12 @@ export function DangerZoneCard({ application }: { application: Application }) {
   const [typed, setTyped] = useState("");
   const [understood, setUnderstood] = useState(false);
   const ready = typed.trim() === application.domain && understood;
+  // same key as the Database tab: already cached when the user got here
+  const { data: databases } = useQuery({
+    queryKey: ["databases", "application", application.id],
+    queryFn: () => getAppDatabases(application.id),
+    enabled: open,
+  });
 
   const close = (next: boolean) => {
     if (deleteApp.isPending) return;
@@ -72,6 +80,16 @@ export function DangerZoneCard({ application }: { application: Application }) {
           </DialogHeader>
 
           <div className="space-y-4">
+            {!!databases?.length && (
+              <p className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 text-sm">
+                <DatabaseIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span>
+                  {t("Kept: {names}. The data stays on its server — connect it to another app or delete it from Databases.", {
+                    names: databases.map((db) => db.dbName ?? db.name).join(", "),
+                  })}
+                </span>
+              </p>
+            )}
             <label className="block space-y-2 text-sm">
               <span>{t("Type {domain} to confirm", { domain: application.domain })}</span>
               <Input

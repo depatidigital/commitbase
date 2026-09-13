@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -66,6 +66,8 @@ import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
+import { DomainSharedCard } from "@/components/DomainSharedCard";
+import { expiryTone, needsRenewal } from "@/lib/domainExpiry";
 import { isAdmin } from "@/lib/auth";
 import { Domain } from "@/types/domain";
 import {
@@ -131,69 +133,6 @@ const SSL_LABELS: Record<string, string> = {
   ERROR: t("error"),
 };
 
-// expired, or inside the 30-day window the Expires column already highlights
-const needsRenewal = (domain: Pick<Domain, "expiresAt">) => {
-  if (!domain.expiresAt) return false;
-  const daysLeft =
-    (new Date(domain.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-  return daysLeft <= 30;
-};
-
-type ExpiryTone = {
-  days: number;
-  className: string;
-  note: string;
-  urgent: boolean;
-};
-
-/** How loudly to shout about a registration expiry date. */
-const expiryTone = (value: Date): ExpiryTone => {
-  const days = Math.ceil(
-    (value.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-  );
-
-  if (days < 0) {
-    return {
-      days,
-      className: "text-destructive font-semibold",
-      note: t("expired"),
-      urgent: true,
-    };
-  }
-  if (days === 0) {
-    return {
-      days,
-      className: "text-destructive font-semibold",
-      note: t("expires today"),
-      urgent: true,
-    };
-  }
-  if (days <= 7) {
-    return {
-      days,
-      className: "text-destructive font-semibold",
-      note: t("{days}d left", { days }),
-      urgent: true,
-    };
-  }
-  if (days <= 30) {
-    return {
-      days,
-      className: "text-warning font-medium",
-      note: t("{days}d left", { days }),
-      urgent: true,
-    };
-  }
-  if (days <= 60) {
-    return {
-      days,
-      className: "text-warning",
-      note: t("{days}d left", { days }),
-      urgent: false,
-    };
-  }
-  return { days, className: "", note: "", urgent: false };
-};
 
 // compact form for the table — "25 Sep 2027"
 const formatDateShort = (value: Date) =>
@@ -214,8 +153,6 @@ export default function Domains() {
   const navigate = useNavigate();
   const params = useParams();
   const domainId = params.id ?? null;
-  // ?destination=1 comes from the list's "Set up destination" action
-  const [searchParams, setSearchParams] = useSearchParams();
 
   const query = useTableQuery();
   const [confirmAction, setConfirmAction] = useState<{
@@ -314,44 +251,6 @@ export default function Domains() {
   // editing the domain itself: there is no subdomain part to fill in
   const editingApex =
     !!recordForm?.id && (recordForm.name === "" || recordForm.name === "@");
-
-  // what the domain itself resolves to, hidden-from-list or not
-  const apexRecord = (domainDnsZone?.records ?? []).find(
-    (record: any) =>
-      record?.name === domainDetail?.name &&
-      ["A", "AAAA", "CNAME"].includes(String(record?.type).toUpperCase()),
-  );
-
-  /** Open the destination dialog on the apex record, adding one if there is none. */
-  const openDestinationForm = () =>
-    setRecordForm(
-      apexRecord
-        ? {
-            id: apexRecord.id,
-            mode: "custom",
-            name: "",
-            type: apexRecord.type,
-            content: apexRecord.content,
-            ttl: String(apexRecord.ttl ?? 1),
-            proxied: !!apexRecord.proxied,
-          }
-        : {
-            name: "",
-            mode: "auto",
-            type: "A",
-            content: "",
-            ttl: "1",
-            proxied: true,
-          },
-    );
-
-  // arriving from the list's "Set up destination" action: open it once the zone is in
-  useEffect(() => {
-    if (!searchParams.get("destination") || dnsZoneLoading || !domainDetail) return;
-    openDestinationForm();
-    setSearchParams({}, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, dnsZoneLoading, domainDetail?.id]);
 
   const wildcardRecord = (domainDnsZone?.records ?? []).find(
     (record: any) => String(record?.name) === `*.${domainDetail?.name}`,
@@ -455,60 +354,12 @@ export default function Domains() {
       },
     },
     {
-      header: t("Destination"),
-      className: "w-[14%]",
+      // where it points is each app's business now — the list says how many live here
+      header: t("Apps"),
+      className: "w-20",
       cell: (domain) => {
-        // a redirect set by hand wins; otherwise the apex DNS record found by sync
-        const cf = domain.customConfig?.cloudflare;
-        const value = domain.redirectTo || cf?.target?.content;
-        const subdomains = cf?.subdomains;
-
-        return (
-          <div className="min-w-0 leading-tight">
-            {value ? (
-              <span
-                className="flex min-w-0 items-center gap-1 text-muted-foreground"
-                title={
-                  domain.redirectTo
-                    ? t("Redirects to {target}", { target: domain.redirectTo })
-                    : cf?.target?.proxied
-                      ? t("Apex {type} record (proxied)", { type: cf?.target?.type ?? "" })
-                      : t("Apex {type} record", { type: cf?.target?.type ?? "" })
-                }
-              >
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                {!domain.redirectTo && isPlatformTarget(value) ? (
-                  <Badge className="gap-1">
-                    <Cloud className="h-3 w-3" />
-                    {t("This platform")}
-                  </Badge>
-                ) : (
-                  <span className="truncate">{value}</span>
-                )}
-              </span>
-            ) : admin && domain.cfZoneId ? (
-              // one click from the list to where the domain actually points
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => navigate(`/domains/${domain.id}?destination=1`)}
-              >
-                <Cloud className="mr-1 h-3 w-3" />
-                {t("Set up destination")}
-              </Button>
-            ) : (
-              <span className="text-muted-foreground">-</span>
-            )}
-            {typeof subdomains === "number" && subdomains > 0 && (
-              <span className="block text-xs text-muted-foreground">
-                {subdomains === 1
-                  ? t("{count} subdomain", { count: subdomains })
-                  : t("{count} subdomains", { count: subdomains })}
-              </span>
-            )}
-          </div>
-        );
+        const apps = domain._count?.applications ?? 0;
+        return apps ? <span>{apps}</span> : <span className="text-muted-foreground">-</span>;
       },
     },
     {
@@ -598,14 +449,6 @@ export default function Domains() {
               <Eye className="mr-2 h-4 w-4" />
               {t("Manage")}
             </DropdownMenuItem>
-            {admin && domain.cfZoneId && (
-              <DropdownMenuItem
-                onClick={() => navigate(`/domains/${domain.id}?destination=1`)}
-              >
-                <Cloud className="mr-2 h-4 w-4" />
-                {t("Set up destination")}
-              </DropdownMenuItem>
-            )}
             {admin && (
               <DropdownMenuItem
                 onClick={() => {
@@ -1055,57 +898,6 @@ export default function Domains() {
                         {getStatusBadge(
                           domainDetail.status,
                           domainDetail.expiresAt,
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-muted-foreground">{t("Destination")}</span>
-                        {apexRecord ? (
-                          <span className="flex items-center gap-2">
-                            {isPlatformTarget(apexRecord.content) ? (
-                              <Badge className="gap-1">
-                                <Cloud className="h-3.5 w-3.5" />
-                                {t("This platform")}
-                              </Badge>
-                            ) : (
-                              <span className="font-mono text-xs">
-                                {apexRecord.type} → {apexRecord.content}
-                              </span>
-                            )}
-                            {admin && domainDetail.cfZoneId && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                aria-label={t("Edit the destination")}
-                                onClick={() =>
-                                  setRecordForm({
-                                    id: apexRecord.id,
-                                    mode: "custom",
-                                    name: "",
-                                    type: apexRecord.type,
-                                    content: apexRecord.content,
-                                    ttl: String(apexRecord.ttl ?? 1),
-                                    proxied: !!apexRecord.proxied,
-                                  })
-                                }
-                              >
-                                <Edit className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </span>
-                        ) : dnsZoneLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        ) : admin && domainDetail.cfZoneId ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7"
-                            onClick={openDestinationForm}
-                          >
-                            {t("Set up destination")}
-                          </Button>
-                        ) : (
-                          <span className="text-muted-foreground">{t("Not set")}</span>
                         )}
                       </div>
 
@@ -1697,6 +1489,7 @@ export default function Domains() {
               </TabsContent>
 
               <TabsContent value="settings" className="space-y-4">
+                <DomainSharedCard domain={domainDetail} />
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Cloudflare</CardTitle>

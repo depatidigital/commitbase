@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import {
@@ -398,6 +399,7 @@ export default function Application() {
               >
                 {app.name}
               </Link>
+              <DomainExpiryBadge domain={app.parentDomain} />
               {!internal && (
                 <a
                   href={`https://${app.domain}`}

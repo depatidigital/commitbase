@@ -5,10 +5,11 @@ import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Applicat
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
-import { orgScope, resolveOwnedDomain } from '../lib/scope';
+import { orgScope } from '../lib/scope';
+import { mayForceDns, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
-import { ensureSiteBucket, uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
+import { uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
 import {
   adoptRootFiles,
   deleteAllSiteFiles,
@@ -19,6 +20,7 @@ import {
   releaseFolder,
   servingFolder,
   siteRootOrigin,
+  siteStorage,
 } from '../services/staticReleaseService';
 import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
@@ -400,6 +402,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           // which box it runs on — with more than one node, the row is
           // ambiguous without it
           server: { select: { id: true, name: true } },
+          // registration expiry of the domain it sits under — flagged on the row when close
+          parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
           deployments: {
             orderBy: {
               createdAt: 'desc',
@@ -553,6 +557,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
         organization: {
           select: { defaultServer: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
         },
+        parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
       },
     });
 
@@ -599,7 +604,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId } = req.body;
-    const domain = String(req.body.domain || '').trim().toLowerCase();
+    const domain = normalizeHost(req.body.domain);
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
 
@@ -615,20 +620,19 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       } as ApiResponse);
     }
 
-    // Ownership boundary: the hostname must sit under a domain owned by one of the
-    // caller's organizations. The app inherits that organization.
-    const parentDomain = await resolveOwnedDomain(req, domain);
-    if (!parentDomain) {
-      return res.status(403).json({
-        success: false,
-        error: 'Domain is not assigned to your organization. Ask an administrator to assign it first.',
-      } as ApiResponse);
+    // Ownership boundary: the hostname sits under a domain owned by one of the
+    // caller's organizations (the app inherits that org), or under a shared
+    // platform domain (the app belongs to the caller's org).
+    const resolved = await resolveAppHost(req, domain, req.body.organizationId);
+    if ('error' in resolved) {
+      return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
     }
+    const { parent: parentDomain, organizationId } = resolved;
 
     // Which node it runs on: a superadmin may pick one, everyone else gets the
     // organization's default server. An org spans nodes — this is per app.
-    const org = parentDomain.organizationId
-      ? await prisma.organization.findUnique({ where: { id: parentDomain.organizationId }, select: { defaultServerId: true } })
+    const org = organizationId
+      ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { defaultServerId: true } })
       : null;
     const requested = req.user!.role === 'SUPERADMIN' && typeof req.body.serverId === 'string' ? req.body.serverId : null;
     if (requested && !(await prisma.server.findUnique({ where: { id: requested }, select: { id: true } }))) {
@@ -640,6 +644,15 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         success: false,
         error: "No server for this app — pick one, or ask an administrator to set the organization's default server.",
       } as ApiResponse);
+    }
+
+    const node = await prisma.server.findUnique({ where: { id: serverId } });
+    if (!node) {
+      return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
+    }
+    const taken = await sharedHostTaken(parentDomain, domain, node);
+    if (taken) {
+      return res.status(409).json({ success: false, error: taken } as ApiResponse);
     }
 
     const application = await prisma.application.create({
@@ -658,7 +671,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         ...(envVars && { envVars: sealEnv(envVars) }),
         userId: req.user!.userId,
         domainId: parentDomain.id,
-        organizationId: parentDomain.organizationId,
+        organizationId,
         serverId,
       },
     });
@@ -666,8 +679,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // Provision the org on that node now, so the first deploy does not wait
     // for it (the deploy still checks, and waits if this has not finished).
     // Static sites are served from R2 and never need the org's OS user.
-    if (parentDomain.organizationId && serverId && type !== 'STATIC') {
-      await queueOrgNode(parentDomain.organizationId, serverId, { userId: req.user!.userId, trigger: 'app-create' }).catch(
+    if (organizationId && serverId && type !== 'STATIC') {
+      await queueOrgNode(organizationId, serverId, { userId: req.user!.userId, trigger: 'app-create' }).catch(
         (error) => console.error(`Could not queue provisioning for ${domain}:`, error),
       );
     }
@@ -675,7 +688,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // Point the hostname at the platform now, so the app is reachable the
     // moment it deploys. A hostname already pointing somewhere else is left
     // alone and reported — the caller can retry with ?force=1.
-    const dns = await ensureAppHostname(application, { force: req.query.force === '1' }).catch(
+    const force = req.query.force === '1' && (await mayForceDns(req, application.domainId));
+    const dns = await ensureAppHostname(application, { force }).catch(
       (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
     );
 
@@ -776,7 +790,7 @@ router.post(
         let carried = 0;
 
         try {
-          ({ bucket, origin } = await ensureSiteBucket(application.domain));
+          ({ bucket, origin } = await siteStorage(application));
           await adoptRootFiles(application);
 
           for (const [index, file] of files.entries()) {
@@ -999,9 +1013,15 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // Check if new domain conflicts with existing application
     let domainId: string | undefined;
     let organizationId: string | null | undefined;
-    const normalizedDomain = domain ? String(domain).trim().toLowerCase() : undefined;
+    const normalizedDomain = domain ? normalizeHost(domain) : undefined;
+    const renamed = !!normalizedDomain && normalizedDomain !== existingApp.domain;
 
-    if (normalizedDomain && normalizedDomain !== existingApp.domain) {
+    if (renamed) {
+      // an imported app's route and files are someone else's config
+      if (existingApp.runtime) {
+        return res.status(400).json({ success: false, error: 'An imported app keeps its hostname' } as ApiResponse);
+      }
+
       const domainConflict = await prisma.application.findUnique({
         where: { domain: normalizedDomain },
       });
@@ -1013,16 +1033,24 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         } as ApiResponse);
       }
 
-      // Same ownership boundary as create — a rename must not escape the tenant
-      const parentDomain = await resolveOwnedDomain(req, normalizedDomain);
-      if (!parentDomain) {
+      // Same ownership boundary as create — and a rename never moves the app
+      // to another org: that is an admin's reassignment, not a hostname change
+      const resolved = await resolveAppHost(req, normalizedDomain, existingApp.organizationId);
+      if ('error' in resolved) {
+        return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
+      }
+      if (existingApp.organizationId && resolved.organizationId !== existingApp.organizationId) {
         return res.status(403).json({
           success: false,
-          error: 'Domain is not assigned to your organization. Ask an administrator to assign it first.',
+          error: "That domain belongs to another organization — pick one of this app's organization",
         } as ApiResponse);
       }
-      domainId = parentDomain.id;
-      organizationId = parentDomain.organizationId;
+      const taken = await sharedHostTaken(resolved.parent, normalizedDomain, await serverForApplication(existingApp.id));
+      if (taken) {
+        return res.status(409).json({ success: false, error: taken } as ApiResponse);
+      }
+      domainId = resolved.parent.id;
+      organizationId = resolved.organizationId;
     }
 
     // Update application
@@ -1047,10 +1075,45 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         ...(envVars !== undefined && { envVars: sealEnv(envVars) }),
       },
     });
+
+    // A new hostname is served before the old one stops: route the new name,
+    // and only once that worked drop the old route and its DNS record. A
+    // failed route puts the old name back, so the app is never unreachable.
+    let dns: Awaited<ReturnType<typeof ensureAppHostname>> | undefined;
+    if (renamed) {
+      const node = await serverForApplication(existingApp.id);
+      try {
+        if (existingApp.status === 'RUNNING') {
+          const withOrg = await prisma.application.findUniqueOrThrow({
+            where: { id },
+            include: { organization: { select: { slug: true } } },
+          });
+          await deploymentService.applyCaddyRoute(withOrg);
+        }
+      } catch (error: any) {
+        await prisma.application.update({
+          where: { id },
+          data: { domain: existingApp.domain, domainId: existingApp.domainId, organizationId: existingApp.organizationId },
+        });
+        return res.status(502).json({
+          success: false,
+          error: `${normalizedDomain} could not be routed, so the app stays on ${existingApp.domain}: ${error?.message ?? error}`,
+        } as ApiResponse);
+      }
+      await removeCaddySite(node, existingApp.domain).catch(() => {});
+      await removeAppHostname(existingApp);
+      dns = await ensureAppHostname(updatedApp).catch(
+        (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+      );
+    }
+
     return res.json({
       success: true,
-      data: { ...updatedApp, envVars: readEnv(updatedApp.envVars) },
-      message: 'Application updated successfully',
+      data: { ...updatedApp, envVars: readEnv(updatedApp.envVars), ...(dns && { dns }) },
+      message:
+        dns && (dns.state === 'conflict' || dns.state === 'unavailable')
+          ? `Application updated, but DNS was not set up: ${dns.detail}`
+          : 'Application updated successfully',
     } as ApiResponse<Application>);
   } catch (error) {
     // not the body or headers: they carry the env vars and the bearer token
@@ -1113,6 +1176,15 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       }
       const afs = await appFsFor(application.id).catch(() => null);
       await afs?.rm(afs.appDir, { recursive: true, force: true }).catch(() => {});
+    }
+
+    // Its databases outlive it (onDelete: SetNull). One that only knew its org
+    // through the app would drop out of every org's view — pin the org first.
+    if (application.organizationId) {
+      await prisma.database.updateMany({
+        where: { applicationId: id, organizationId: null },
+        data: { organizationId: application.organizationId },
+      });
     }
 
     // Delete application
@@ -1602,7 +1674,8 @@ router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    const result = await ensureAppHostname(application, { force: req.body?.force === true });
+    const force = req.body?.force === true && (await mayForceDns(req, application.domainId));
+    const result = await ensureAppHostname(application, { force });
 
     return res.json({
       success: result.state !== 'conflict' && result.state !== 'unavailable',

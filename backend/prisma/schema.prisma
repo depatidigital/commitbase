@@ -482,8 +482,10 @@ model Database {
   // Relations
   // Optional: a database belongs to its organization, and one found on a
   // server by the inventory sync has no app at all until it is attached.
+  // SetNull: deleting an app must not drop the panel's record of real data —
+  // the database stays on its server, so it stays listed, unattached.
   applicationId String?
-  application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
 
   // The org the database belongs to and the server it lives on. Nullable until
   // databases are created for real: rows from before database servers carry no
@@ -573,10 +575,15 @@ model Domain {
   cfZoneId     String?   // set when a Cloudflare zone exists for it
   expiresAt    DateTime? // domain registration expiry, from the registrar
   lastSyncedAt DateTime?
-  
+
+  /// A platform domain any organization may put apps under (`shop.<name>`),
+  /// so an app never waits on a domain of its own. Apps under it belong to
+  /// the org that created them, not to the domain's org. Set by an admin.
+  shared       Boolean   @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relations
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)

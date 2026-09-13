@@ -33,7 +33,8 @@ const size = (bytes?: number | null) => {
 /**
  * The app's Database tab: the databases it uses — linked to it, or named by
  * its env (`inUse`, the one its code talks to) — and restoring one from a
- * .sql dump. Connecting a database stays in the Environment tab.
+ * .sql dump. Connecting opens the Environment form's dialog (`onConnect`), so
+ * the URL merges with any unsaved env edits.
  */
 export function AppDatabasesTab({
   applicationId,
@@ -60,12 +61,19 @@ export function AppDatabasesTab({
 
   return (
     <Card className="bg-gradient-card border-border/50">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <DatabaseIcon className="h-5 w-5 text-primary" />
-          {t("Database")}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">{t("What this app stores its data in")}</p>
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle className="flex items-center gap-2">
+            <DatabaseIcon className="h-5 w-5 text-primary" />
+            {t("Database")}
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">{t("What this app stores its data in")}</p>
+        </div>
+        {!!sorted.length && (
+          <Button variant="outline" size="sm" onClick={onConnect}>
+            {t("Change database")}
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (

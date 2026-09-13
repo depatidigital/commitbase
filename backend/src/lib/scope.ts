@@ -98,7 +98,7 @@ export function candidateParents(fqdn: string): string[] {
 /**
  * The Domain a hostname sits under, from an already-loaded list — no org
  * check, for background jobs. candidateParents runs longest first, so
- * sub.client.com beats client.com, as in resolveOwnedDomain.
+ * sub.client.com beats client.com, as in resolveAppHost (lib/appHostname.ts).
  */
 export function parentDomainOf<T extends { name: string }>(fqdn: string, domains: T[]): T | null {
   const byName = new Map(domains.map((domain) => [domain.name.toLowerCase(), domain]));
@@ -107,23 +107,4 @@ export function parentDomainOf<T extends { name: string }>(fqdn: string, domains
     if (match) return match;
   }
   return null;
-}
-
-/**
- * Resolve the Domain row that `fqdn` must live under, enforcing that the caller's
- * organization owns it. Returns null when the caller may not use this hostname.
- */
-export async function resolveOwnedDomain(req: AuthenticatedRequest, fqdn: string) {
-  const names = candidateParents(fqdn);
-  if (names.length === 0) return null;
-
-  const matches = await prisma.domain.findMany({
-    where: {
-      ...(await orgScope(req)),
-      name: { in: names },
-    },
-  });
-
-  // longest match wins: sub.client.com beats client.com
-  return matches.sort((a, b) => b.name.length - a.name.length)[0] ?? null;
 }

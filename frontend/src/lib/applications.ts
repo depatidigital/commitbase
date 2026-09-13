@@ -23,6 +23,10 @@ export interface Application {
   envVars?: Record<string, string>;
   userId: string | null;
   organizationId?: string | null;
+  /** the Domain (zone) its hostname sits under */
+  domainId?: string | null;
+  /** list and detail endpoints: that domain, for its registration expiry */
+  parentDomain?: { id: string; name: string; expiresAt?: string | null; shared?: boolean } | null;
   organization?: { id: string; name: string; slug: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +91,8 @@ export interface CreateApplicationData {
   envVars?: Record<string, string>;
   /** Node to run on. Superadmin only; omitted = the organization's default server. */
   serverId?: string;
+  /** Whose app it is under a shared platform domain; an owned domain decides it itself. */
+  organizationId?: string;
 }
 
 export interface UpdateApplicationData {

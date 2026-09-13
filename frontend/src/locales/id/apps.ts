@@ -191,6 +191,40 @@ export default {
   "I understand the site goes offline and this cannot be undone.":
     "Saya paham situs akan offline dan ini tidak bisa dibatalkan.",
   "Delete permanently": "Hapus permanen",
+  "Kept: {names}. The data stays on its server — connect it to another app or delete it from Databases.":
+    "Tetap disimpan: {names}. Datanya tetap di servernya — hubungkan ke aplikasi lain atau hapus dari Database.",
+  // hostname picker, the app's Domains tab, shared platform domains
+  "Pick a name under {domain}": "Pilih nama di bawah {domain}",
+  "One name only — no dots": "Satu nama saja — tanpa titik",
+  free: "gratis",
+  "A free address — add your own domain any time from the app's Domains tab.":
+    "Alamat gratis — tambahkan domain sendiri kapan saja dari tab Domain aplikasi.",
+  "Whose app is it?": "Aplikasi milik organisasi mana?",
+  "There is no domain to put an app under yet. An administrator can share a platform domain (every organization gets free addresses under it) or assign one to your organization.":
+    "Belum ada domain untuk aplikasi. Administrator bisa membagikan domain platform (setiap organisasi mendapat alamat gratis di bawahnya) atau menetapkan domain ke organisasi Anda.",
+  "Where visitors reach this app": "Tempat pengunjung mengakses aplikasi ini",
+  "An imported app keeps its hostname.": "Aplikasi impor tetap memakai hostname-nya.",
+  "Change address": "Ganti alamat",
+  "Buy a domain": "Beli domain",
+  "Move app": "Pindahkan aplikasi",
+  "Moved to {host}": "Dipindahkan ke {host}",
+  "The old address no longer serves this app.": "Alamat lama tidak lagi menyajikan aplikasi ini.",
+  "Could not move the app": "Tidak bisa memindahkan aplikasi",
+  "Move to {host}?": "Pindahkan ke {host}?",
+  "{old} stops serving this app once {host} does. Links and bookmarks to the old address break.":
+    "{old} berhenti menyajikan aplikasi ini begitu {host} aktif. Tautan dan bookmark ke alamat lama akan rusak.",
+  "{keys} still hold the old address — update them in Environment and redeploy.":
+    "{keys} masih berisi alamat lama — perbarui di Environment lalu deploy ulang.",
+  "Shared platform domain": "Domain platform bersama",
+  "Every organization can put apps under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing apps where they are.":
+    "Setiap organisasi bisa menaruh aplikasi di bawah {name} (shop.{name}) tanpa domain sendiri. Root dan nama yang sudah ada tetap milik Anda. Mematikannya tidak memindahkan aplikasi yang sudah ada.",
+  "Could not update the domain": "Tidak bisa memperbarui domain",
+  "Domain expired": "Domain kedaluwarsa",
+  "Domain expires today": "Domain habis hari ini",
+  "Domain expires in {days}d": "Domain habis {days} hari lagi",
+  "{name} registration {state} {date}": "Registrasi {name} {state} {date}",
+  "expired on": "kedaluwarsa pada",
+  "expires on": "habis pada",
   "Redeploy Site": "Deploy Ulang Situs",
   'Build "{name}" from {branch} and publish the result to the site.':
     'Build "{name}" dari {branch} lalu terbitkan hasilnya ke situs.',

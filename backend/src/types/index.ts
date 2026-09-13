@@ -106,6 +106,8 @@ export const CreateApplicationSchema = z.object({
   envVars: z.record(z.string()).optional(),
   // the node to run on — honoured for superadmins; others get the org's default
   serverId: z.string().min(1).optional(),
+  // whose app it is, under a shared platform domain; an owned domain decides it itself
+  organizationId: z.string().min(1).optional(),
 });
 
 export const UpdateApplicationSchema = z.object({

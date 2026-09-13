@@ -8,8 +8,8 @@ import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication
 import { appUnit, appBuild, ensureOrgOnNode } from './orgProvisionService';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
-import { ensureSiteBucket, uploadSiteDirectory } from './r2Service';
-import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder } from './staticReleaseService';
+import { uploadSiteDirectory } from './r2Service';
+import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
 import { appFsFor, appFsForDomain, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
@@ -579,25 +579,30 @@ export class DeploymentService {
     let failed = 0;
     for (const app of apps) {
       try {
-        const node = await serverForApplication(app.id);
-        if (app.type === 'STATIC') {
-          await configureCaddyForStaticApplication(node, app.id, app.domain, app.staticOrigin);
-        } else if (app.type === 'PHP') {
-          const afs = await appFsFor(app.id);
-          const detected = await detectProject(currentDirFor(afs.appDir), afs.readText);
-          if (!(await this.publishPhp(app, afs, detected.outputDir || '.'))) throw new Error('no FPM socket');
-        } else if (app.port) {
-          await configureCaddyForRuntimeApplication(node, app.domain, app.port);
-        } else {
-          continue;
-        }
-        applied += 1;
+        if (await this.applyCaddyRoute(app)) applied += 1;
       } catch (error: any) {
         failed += 1;
         console.error(`Caddy route for ${app.domain} not re-applied: ${error?.message || error}`);
       }
     }
     return { applied, failed };
+  }
+
+  /** Route one app's hostname to what it serves. False when it has nothing to route yet. */
+  async applyCaddyRoute(app: AppWithOrg): Promise<boolean> {
+    const node = await serverForApplication(app.id);
+    if (app.type === 'STATIC') {
+      await configureCaddyForStaticApplication(node, app.id, app.domain, app.staticOrigin);
+    } else if (app.type === 'PHP') {
+      const afs = await appFsFor(app.id);
+      const detected = await detectProject(currentDirFor(afs.appDir), afs.readText);
+      if (!(await this.publishPhp(app, afs, detected.outputDir || '.'))) throw new Error('no FPM socket');
+    } else if (app.port) {
+      await configureCaddyForRuntimeApplication(node, app.domain, app.port);
+    } else {
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -920,7 +925,7 @@ export class DeploymentService {
           // into a fresh release folder; the serving one is not touched until
           // the route moves (services/staticReleaseService.ts)
           const previousOrigin: string | null = (application as any).staticOrigin ?? null;
-          const { bucket, origin } = await ensureSiteBucket(application.domain);
+          const { bucket, origin } = await siteStorage(application as any);
           await adoptRootFiles(application as any);
           const folder = releaseFolder(deployment.id);
           try {

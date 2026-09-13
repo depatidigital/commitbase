@@ -43,7 +43,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { SourcePicker } from "@/components/SourcePicker";
-import { useDomains } from "@/hooks/useDomains";
+import { getDomainChoices } from "@/lib/domains";
+import { getOrganizationsPage } from "@/lib/organizations";
+import { HostnamePicker, hostnameProblem, joinHost } from "@/components/HostnamePicker";
+import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { PageLayout } from "@/components/PageLayout";
 import {
   CreateApplicationData,
@@ -68,11 +71,18 @@ export default function AddApp() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const createApp = useCreateApplication();
+  // the org's own domains and the shared platform ones (shared first)
   const {
     data: domains,
     isLoading: domainsLoading,
     error: domainsError,
-  } = useDomains();
+  } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
+  // two is enough to know whether there is a choice of org to make
+  const { data: myOrgs } = useQuery({
+    queryKey: ["organizations", "mine"],
+    queryFn: () => getOrganizationsPage({ page: 1, limit: 2, search: "" }),
+  });
+  const [organizationId, setOrganizationId] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -103,7 +113,6 @@ export default function AddApp() {
     setPickedFiles(entries);
     setExcluded(new Set());
   };
-  const [domainOpen, setDomainOpen] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
   const [repoSearch, setRepoSearch] = useState("");
   // every repo the connected accounts can see — cmdk searches the list locally
@@ -143,9 +152,30 @@ export default function AddApp() {
   const missingEnv = [...requiredEnv].filter((key) => !envRows.find((row) => row.key === key)?.value.trim());
 
   // an empty subdomain means the root domain
-  const fullDomain = formData.subdomain
-    ? `${formData.subdomain}.${formData.selectedDomain}`
-    : formData.selectedDomain;
+  const fullDomain = joinHost(formData.subdomain, formData.selectedDomain);
+  const availableDomains = domains ?? [];
+  const pickedDomain = availableDomains.find((domain) => domain.name === formData.selectedDomain);
+  // Under a shared domain the app is the caller's org's; only someone with a
+  // choice of orgs (several, or a platform admin seeing all) has to pick one.
+  const needsOrg = !!pickedDomain?.shared && (myOrgs?.pagination?.total ?? 0) > 1;
+
+  // A shared domain needs a name under it: the repo's or the folder's, as a
+  // starting point on the configure step. Typed names are left alone.
+  useEffect(() => {
+    if (step !== 2 || formData.subdomain || !pickedDomain?.shared) return;
+    const source =
+      sourceMode === "git"
+        ? formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
+        : // a picked folder's name; loose files have none worth using
+          uploadFiles[0]?.path.includes("/") ? uploadFiles[0].path.split("/")[0] : undefined;
+    const label = (source ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63);
+    if (label) setFormData((prev) => ({ ...prev, subdomain: label }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, pickedDomain?.shared]);
 
   // The domain is picked first and the app name follows it until the user
   // edits the name — the name is only a label, so it may then differ.
@@ -290,6 +320,8 @@ export default function AddApp() {
       gitAccountId: (sourceMode === "git" && manualAccountId) || undefined,
       branch: formData.branch,
       serverId: serverId || undefined,
+      // with one org there is nothing to pick — but say which, for an admin who is not its member
+      organizationId: pickedDomain?.shared ? organizationId || myOrgs?.data[0]?.id : undefined,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
       // Prisma's migrations: the tables have to exist before the release goes live
       preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
@@ -374,11 +406,14 @@ export default function AddApp() {
         ? uploadFiles.length > 0
         : // read, public or through an account, and has a branch to deploy
           !!remoteBranches?.length;
-    return !!formData.name && !!formData.selectedDomain && !!formData.type;
+    return (
+      !!formData.name &&
+      !hostnameProblem(formData.subdomain, pickedDomain) &&
+      (!needsOrg || !!organizationId) &&
+      !!formData.type
+    );
   };
 
-  const availableDomains =
-    domains?.filter((domain) => domain.status === "ACTIVE") || [];
   // The OAuth round trip reloads the page; keep the pasted URL across it.
   const rememberRepository = () => {
     if (formData.repository.trim()) sessionStorage.setItem(PENDING_REPOSITORY, formData.repository.trim());
@@ -471,7 +506,7 @@ export default function AddApp() {
             <h3 className="text-lg font-semibold mb-2">{t("No Active Domains")}</h3>
             <p className="text-muted-foreground text-center max-w-md mb-4">
               {t(
-                "You need to have at least one active domain to deploy applications. Please add a domain first.",
+                "There is no domain to put an app under yet. An administrator can share a platform domain (every organization gets free addresses under it) or assign one to your organization.",
               )}
             </p>
             <Button
@@ -809,91 +844,20 @@ export default function AddApp() {
                       {t("Domain Configuration")}{" "}
                       <span className="text-red-500">*</span>
                     </Label>
-                    <div className="flex items-center gap-2">
-                      <Globe className="min-w-4 min-h-4 text-muted-foreground" />
-                      <Input
-                        id="subdomain"
-                        placeholder="app"
-                        value={formData.subdomain}
-                        onChange={(e) =>
-                          handleInputChange("subdomain", e.target.value.trim().toLowerCase())
-                        }
+                    <HostnamePicker
+                      choices={availableDomains}
+                      subdomain={formData.subdomain}
+                      domain={formData.selectedDomain}
+                      onSubdomain={(value) => handleInputChange("subdomain", value)}
+                      onDomain={(name) => handleInputChange("selectedDomain", name)}
+                    />
+                    {needsOrg && (
+                      <OrganizationCombobox
+                        value={organizationId || null}
+                        onChange={(id) => setOrganizationId(id ?? "")}
+                        placeholder={t("Whose app is it?")}
                       />
-                      <span className="text-muted-foreground">.</span>
-                      <Popover open={domainOpen} onOpenChange={setDomainOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            id="domain-select"
-                            type="button"
-                            variant="outline"
-                            role="combobox"
-                            aria-expanded={domainOpen}
-                            aria-invalid={!formData.selectedDomain}
-                            // red until picked — the deploy button stays disabled without it
-                            className={`w-full justify-between bg-card font-normal ${
-                              formData.selectedDomain
-                                ? ""
-                                : "border-destructive text-destructive hover:text-destructive"
-                            }`}
-                          >
-                            <span className="truncate">
-                              {formData.selectedDomain || t("Select a domain")}
-                            </span>
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-72 p-0" align="end">
-                          {/* the whole list is already loaded, so cmdk filters it locally */}
-                          <Command>
-                            <CommandInput placeholder={t("Search domains…")} />
-                            <CommandList>
-                              <CommandEmpty>{t("No domains found.")}</CommandEmpty>
-                              <CommandGroup>
-                                {availableDomains.map((domain) => {
-                                  const apps = domain._count?.applications ?? 0;
-                                  return (
-                                    <CommandItem
-                                      key={domain.id}
-                                      value={domain.name}
-                                      onSelect={() => {
-                                        handleInputChange("selectedDomain", domain.name);
-                                        setDomainOpen(false);
-                                      }}
-                                    >
-                                      <Check
-                                        className={`mr-2 h-4 w-4 shrink-0 ${
-                                          formData.selectedDomain === domain.name
-                                            ? "opacity-100"
-                                            : "opacity-0"
-                                        }`}
-                                      />
-                                      <span className="flex-1 truncate">{domain.name}</span>
-                                      <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                                        {apps === 0
-                                          ? t("Unused")
-                                          : apps === 1
-                                            ? t("{count} app", { count: apps })
-                                            : t("{count} apps", { count: apps })}
-                                      </span>
-                                    </CommandItem>
-                                  );
-                                })}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    {/* the result and the hint on one line */}
-                    <p className="text-xs text-muted-foreground">
-                      {formData.selectedDomain && (
-                        <>
-                          <span className="font-mono text-foreground">{fullDomain}</span>
-                          {" · "}
-                        </>
-                      )}
-                      {t("Leave the subdomain empty to use the root domain.")}
-                    </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">

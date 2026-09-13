@@ -37,6 +37,8 @@ interface AppEnvironmentProps {
   onStatus?: (status: EnvStatus) => void;
   /** set to this form's save, so Deploy can take unsaved edits with it; resolves false when it failed */
   saveRef?: React.MutableRefObject<(() => Promise<boolean>) | null>;
+  /** set to open the database dialog — the Database tab connects through this form so unsaved edits merge */
+  connectDbRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 /**
@@ -44,7 +46,7 @@ interface AppEnvironmentProps {
  * .env.example, and DATABASE_URL when it uses an ORM) as empty rows to fill.
  * A database connects through its own dialog so its URL never passes here.
  */
-export function AppEnvironment({ application, detected, onStatus, saveRef }: AppEnvironmentProps) {
+export function AppEnvironment({ application, detected, onStatus, saveRef, connectDbRef }: AppEnvironmentProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const saved = application.envVars ?? {};
@@ -162,6 +164,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef }: App
     }
   };
   if (saveRef) saveRef.current = () => save(true);
+  if (connectDbRef) connectDbRef.current = () => setDbOpen(true);
 
 
   return (
