@@ -72,7 +72,9 @@ export function folderRisk(dir: string | null | undefined, others: string[]): Ms
 
   const underHome = clean.startsWith(HOME + '/') && clean.split('/').length - HOME.split('/').length >= 2;
   const underRoot = ALLOWED_ROOTS.some((root) => clean.startsWith(root + '/'));
-  if (!underHome && !underRoot) return msg('{dir} is a system or home folder', { dir: clean });
+  // a root nested in another (/var/www/html in /var/www) is still a root: every app lives in it
+  const isRoot = clean === HOME || ALLOWED_ROOTS.includes(clean);
+  if (isRoot || (!underHome && !underRoot)) return msg('{dir} is a system or home folder', { dir: clean });
 
   const shared = others
     .map((other) => path.posix.normalize(other).replace(/\/+$/, ''))
