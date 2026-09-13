@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { rm } from '../lib/remoteFs';
 import { removeCaddySite } from './caddyService';
 import { removeAppHostname } from './appDnsService';
-import { APPS_ROOT_DIR, PANEL_HOST, deletePm2Process } from './appSyncService';
+import { APPS_ROOT_DIR, PANEL_HOST, deletePm2Process, listListeningPorts } from './appSyncService';
 import { HOME_ROOT } from '../lib/appPaths';
 import { exec } from '../lib/runner';
 
@@ -36,8 +36,10 @@ export type TeardownStep = {
   command?: string | undefined;
   /** what is removed, when there is no command to show */
   detail?: Msg | undefined;
-  /** why it cannot be offered; the checkbox is disabled */
+  /** why it cannot run — and so the app cannot be deleted until it is sorted out */
   blocked?: Msg | undefined;
+  /** already true on the server, nothing to run (the proxied port has no listener) */
+  satisfied?: Msg | undefined;
 };
 
 const cleanPath = (dir: string) => path.posix.normalize(dir).replace(/\/+$/, '') || '/';
@@ -139,11 +141,20 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
 
   if (app.runtime === 'PM2' && app.processName) {
     steps.push({ id: 'process', command: `pm2 delete ${app.processName} && pm2 save`, blocked: isPanel ?? noServer });
-  } else if (app.runtime === 'CADDY_PROXY') {
+  } else if (app.runtime === 'CADDY_PROXY' && app.port) {
+    // not pm2's, so we cannot stop it — but we can see whether it is already gone
+    const listening = server ? await listListeningPorts(server) : new Map();
+    const port = app.port;
     steps.push({
       id: 'process',
-      detail: app.port ? msg('Whatever listens on port {port}', { port: app.port }) : msg('The process behind the proxy'),
-      blocked: msg('Not started by pm2, so we do not know how to stop it — stop it on the server yourself'),
+      detail: msg('Whatever listens on port {port}', { port }),
+      ...(noServer
+        ? { blocked: noServer }
+        : listening.size === 0
+          ? { blocked: msg('Could not check whether port {port} is in use', { port }) }
+          : listening.has(port)
+            ? { blocked: msg('Something still listens on port {port}. It was not started by pm2 — stop it on the server first', { port }) }
+            : { satisfied: msg('Nothing listens on port {port} any more', { port }) }),
     });
   }
 
@@ -158,13 +169,14 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
     }
   }
 
-  // a proxied process may still be running from its folder; do not pull it out from under it
-  if (app.runtime !== 'CADDY_PROXY') {
+  // a proxied process may still be running from its folder; do not pull it out
+  // from under it. No folder detected: nothing known to delete.
+  if (app.runtime !== 'CADDY_PROXY' && app.rootPath) {
     const others = server ? await otherFolders(server.id, app.id) : [];
     const risk = folderRisk(app.rootPath, others);
     steps.push({
       id: 'files',
-      ...(app.rootPath && !risk ? { command: `rm -rf ${cleanPath(app.rootPath)}` } : { detail: msg('The app folder') }),
+      ...(risk ? { detail: msg('The app folder') } : { command: `rm -rf ${cleanPath(app.rootPath)}` }),
       blocked: isPanel ?? noServer ?? risk ?? undefined,
     });
   }
@@ -172,23 +184,25 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
   return steps;
 }
 
+/** Steps that stop the delete, as one English sentence; null when it can go ahead. */
+export const blockedBy = (plan: TeardownStep[]): string | null => {
+  const blocked = plan.filter((step) => step.blocked);
+  return blocked.length ? blocked.map((step) => `${step.command ?? format(step.detail!)}: ${format(step.blocked!)}`).join('; ') : null;
+};
+
 export type TeardownResult = { done: TeardownStepId[]; failed?: { step: TeardownStepId; error: string } };
 
 /**
- * Run the ticked steps, in TEARDOWN_ORDER. Every requested step is checked
- * against the plan before anything runs; after that the first failure stops the
- * rest, so the caller keeps the row and the user can see what is left.
+ * All or nothing: every step in the plan runs, in TEARDOWN_ORDER. A blocked step
+ * refuses the whole thing before anything runs; after that the first failure
+ * stops the rest, and the caller keeps the row so the user sees what is left.
  */
-export async function teardownApp(app: Application, requested: string[]): Promise<TeardownResult> {
+export async function teardownApp(app: Application): Promise<TeardownResult> {
   const plan = await teardownPlan(app);
-  const steps = TEARDOWN_ORDER.filter((id) => requested.includes(id));
+  const blocked = blockedBy(plan);
+  if (blocked) throw new Error(blocked);
 
-  for (const id of requested) {
-    const step = plan.find((s) => s.id === id);
-    if (!step) throw new Error(`"${id}" is not something that can be removed for this app`);
-    if (step.blocked) throw new Error(`Cannot remove ${step.command ?? format(step.detail!)}: ${format(step.blocked)}`);
-  }
-
+  const steps = TEARDOWN_ORDER.filter((id) => plan.some((step) => step.id === id && !step.satisfied));
   const server = await serverOf(app);
   const done: TeardownStepId[] = [];
 
