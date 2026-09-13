@@ -176,6 +176,8 @@ export interface HostnameHealth {
   httpStatus: number | null;
   live: boolean;
   error: string | null;
+  /** its domain is a Cloudflare zone we run — only then can "point it here" write the record */
+  dnsManaged?: boolean;
 }
 
 export const getApplicationHostname = async (id: string): Promise<HostnameHealth> => {

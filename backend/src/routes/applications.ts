@@ -24,7 +24,7 @@ import {
 } from '../services/staticReleaseService';
 import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
-import { ensureAppHostname, removeAppHostname, checkAppHostname } from '../services/appDnsService';
+import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
 import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
@@ -1736,7 +1736,8 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    return res.json({ success: true, data: await checkAppHostname(application.domain) } as ApiResponse);
+    const [health, managed] = await Promise.all([checkAppHostname(application.domain), dnsManaged(application)]);
+    return res.json({ success: true, data: { ...health, dnsManaged: managed } } as ApiResponse);
   } catch (error) {
     console.error('Error checking application hostname:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);

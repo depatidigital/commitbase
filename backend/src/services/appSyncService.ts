@@ -139,10 +139,16 @@ export function classifyRoute(route: any): {
     proxies.find((handler) => handler?.transport?.protocol === 'fastcgi') ?? proxies[proxies.length - 1];
   const dial = String(proxy?.upstreams?.[0]?.dial ?? '');
 
+  // `root /srv/site` in a Caddyfile is a vars handler; a placeholder
+  // ("{http.vars.root}") is not a path
+  const varsRoot = handlers.find((handler) => handler?.handler === 'vars' && handler?.root)?.root;
+  const realPath = (value: unknown) => (typeof value === 'string' && value.startsWith('/') ? value : undefined);
+
   if (proxy?.transport?.protocol === 'fastcgi') {
     return {
       type: 'PHP',
-      rootPath: proxy.transport.root ? String(proxy.transport.root) : undefined,
+      // php_fastcgi's own root first, else the site's `root`
+      rootPath: realPath(proxy.transport.root) ?? realPath(varsRoot),
       // Caddy writes `unix/` + an absolute path, so the prefix leaves a double slash
       socket: dial.startsWith('unix/') ? dial.replace(/^unix\/+/, '/') : undefined,
     };
@@ -159,8 +165,7 @@ export function classifyRoute(route: any): {
 
   const files = handlers.find((handler) => handler?.handler === 'file_server');
   if (files) {
-    const vars = handlers.find((handler) => handler?.handler === 'vars' && handler?.root);
-    return { type: 'STATIC', rootPath: vars?.root ? String(vars.root) : undefined };
+    return { type: 'STATIC', rootPath: realPath(varsRoot) ?? realPath(files.root) };
   }
 
   // redirects, ACME plumbing, anything else: not an application
@@ -452,7 +457,10 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
   const folders = await probeFolders(node, [...new Set(apps.map((app) => app.rootPath).filter((dir): dir is string => !!dir))]);
   for (const app of apps) {
     const state = app.rootPath ? folders?.get(app.rootPath) : undefined;
-    // a guess that is not on disk is no folder at all (a probe that failed proves nothing)
+    // a PHP/static site is its files: a route to a folder that is not there
+    // serves nothing, whatever the route says (a probe that failed proves nothing)
+    if (state && !state.exists && !app.port) app.status = 'ERROR';
+    // a guess that is not on disk is no folder at all
     if (guessed.has(app) && state && !state.exists) app.rootPath = undefined;
     if (state?.repository) Object.assign(app, { repository: state.repository, branch: state.branch });
   }

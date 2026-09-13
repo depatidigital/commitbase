@@ -67,6 +67,7 @@ import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { SourcePanel } from "@/components/SourcePanel";
+import { appStatus, getApplicationHealth } from "@/lib/health";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { SourcePicker } from "@/components/SourcePicker";
 import { DangerZoneCard } from "@/components/DangerZoneCard";
@@ -163,6 +164,12 @@ export default function ApplicationDetail() {
   const { application, isLoading, error } = useApplicationStatus(id!);
   // keeps polling until the hostname answers, then settles
   const { data: hostname } = useApplicationHostname(id!, true);
+  // the same uptime checks the apps list colours its dot from
+  const { data: healthById } = useQuery({
+    queryKey: ['applications', 'health', [id]],
+    queryFn: () => getApplicationHealth([id!]),
+    refetchInterval: 60_000,
+  });
   const setupDns = useSetupApplicationDns();
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
@@ -376,6 +383,8 @@ export default function ApplicationDetail() {
   // where the running deploy is, from its row's status (PENDING → BUILDING → DEPLOYING)
   const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
   const siteLive = published && !!hostname?.live;
+  // down by the checks (or an ERROR row) — the card must say so, not "Running"
+  const down = !siteLive && !failureReason && appStatus(application.status, healthById?.[application.id]).tone === 'down';
   // start/stop reach a process we deployed, or pm2's; anything else imported
   // was started by someone we cannot ask
   const controllable = !application.runtime || application.runtime === 'PM2';
@@ -441,14 +450,17 @@ export default function ApplicationDetail() {
           <CardContent className="space-y-4 p-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="mt-0.5 shrink-0">
-                {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(application.status)}
+                {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(down ? 'ERROR' : application.status)}
               </div>
               <div className="min-w-0">
                 <h3 className="font-semibold">
-                  {siteLive ? t("Live and serving") : failureReason ? t("Deploy failed") : STATUS_LABELS[application.status] ?? application.status}
+                  {siteLive ? t("Live and serving") : failureReason ? t("Deploy failed") : down ? t("Down") : STATUS_LABELS[application.status] ?? application.status}
                 </h3>
                 <p className="break-words text-sm text-muted-foreground">
                   {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
+                   down ? (hostname && !hostname.resolves
+                     ? t("{domain} has no DNS record, so nobody can reach it.", { domain: application.domain })
+                     : t("{domain} does not answer.", { domain: application.domain })) :
                    siteLive ? (
                      <a href={`https://${application.domain}`} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline">
                        https://{application.domain}
@@ -763,10 +775,22 @@ export default function ApplicationDetail() {
                       </Badge>
                     ) : hostname ? (
                       <>
-                        <Badge variant="outline" className="gap-1 border-warning text-warning" title={hostname.error}>
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-warning text-warning"
+                          title={
+                            hostname.resolves
+                              ? hostname.error
+                              : hostname.dnsManaged
+                                ? t("{domain} has no DNS record, so browsers cannot find this server. Point it here to fix it.", { domain: application.domain })
+                                : t("{domain} has no DNS record, and its domain is not on Cloudflare here — add the record wherever its DNS is hosted.", { domain: application.domain })
+                          }
+                        >
                           <WifiOff className="h-3 w-3" />
                           {hostname.resolves ? t("not serving yet") : t("no DNS")}
                         </Badge>
+                        {/* only a Cloudflare zone we run can take the record — anywhere else the button could only fail */}
+                        {hostname.dnsManaged && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -777,6 +801,7 @@ export default function ApplicationDetail() {
                         >
                           {t("Point it here")}
                         </Button>
+                        )}
                       </>
                     ) : null}
                   </div>
@@ -868,10 +893,14 @@ export default function ApplicationDetail() {
                 </Field>
                 <Field label={t("Runtime")}>
                   {/* decides how it stops and what removing it touches on the box */}
-                  <span className={application.runtime ? "text-warning" : undefined}>{runtimeLabel(application.runtime)}</span>
-                  {application.processName && (
-                    <span className="font-mono text-xs text-muted-foreground"> · {application.processName}</span>
-                  )}
+                  <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                    <Badge variant="outline" className={application.runtime ? "border-warning/50 text-warning" : undefined}>
+                      {runtimeLabel(application.runtime)}
+                    </Badge>
+                    {application.processName && (
+                      <span className="font-mono text-xs text-muted-foreground">{application.processName}</span>
+                    )}
+                  </span>
                   {application.configPath && (
                     <span className="block break-all font-mono text-xs text-muted-foreground">{application.configPath}</span>
                   )}
@@ -898,7 +927,10 @@ export default function ApplicationDetail() {
                   <Field label={t("Directory")}>
                     <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
                     {folder.data?.exists === false && (
-                      <span className="block text-xs text-warning">{t("Not on the server")}</span>
+                      <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        {t("Not on the server")}
+                      </span>
                     )}
                   </Field>
                 )}

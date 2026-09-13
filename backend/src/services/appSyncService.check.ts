@@ -66,6 +66,15 @@ assert.strictEqual(php?.rootPath, '/home/acme/apps/shop/current/public');
 // the socket has to survive the unix/ prefix, or the route cannot be rebuilt
 assert.strictEqual(php?.socket, '/run/php/php8.3-fpm-acme.sock');
 
+// a Caddyfile site: php_fastcgi's root is a placeholder, the real one is the site's `root`
+const caddyfilePhp = JSON.parse(JSON.stringify(phpRoute));
+caddyfilePhp.handle[0].routes[1].handle[0].transport.root = '{http.vars.root}';
+caddyfilePhp.handle[0].routes[0].handle[0].root = '/var/www/news';
+assert.strictEqual(classifyRoute(caddyfilePhp)?.rootPath, '/var/www/news');
+// neither says: no folder, rather than a placeholder or a guess here
+delete caddyfilePhp.handle[0].routes[0].handle[0].root;
+assert.strictEqual(classifyRoute(caddyfilePhp)?.rootPath, undefined);
+
 assert.deepStrictEqual(classifyRoute(filesRoute), {
   type: 'STATIC',
   rootPath: '/var/www/html/static',

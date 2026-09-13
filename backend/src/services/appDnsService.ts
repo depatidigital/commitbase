@@ -59,6 +59,9 @@ async function targetForApp(applicationId: string): Promise<DnsTarget | null> {
 }
 
 /** The zone the app's hostname belongs to, or null when we do not run its DNS. */
+/** Whether the app's hostname sits in a Cloudflare zone we run — the only DNS "point it here" can write. */
+export const dnsManaged = async (application: Pick<Application, 'domainId' | 'domain'>) => !!(await zoneFor(application));
+
 async function zoneFor(application: Pick<Application, 'domainId' | 'domain'>) {
   const domain = application.domainId
     ? await prisma.domain.findUnique({ where: { id: application.domainId } })

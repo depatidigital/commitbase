@@ -54,7 +54,7 @@ import {
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
 const ALL = "__all__";
-import { getApplicationHealth, type Health } from "@/lib/health";
+import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 import {
@@ -95,29 +95,12 @@ const ago = (value: string) => {
   return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
-type Tone = "up" | "down" | "warn" | "deploying" | "muted";
 const TONE_DOT: Record<Tone, string> = {
   up: "bg-success",
   down: "bg-destructive",
   warn: "bg-warning",
   deploying: "",
   muted: "bg-muted-foreground/40",
-};
-
-/**
- * One word for "is it OK?", from the app's own status and the uptime checks.
- * `rank` puts what needs a look first: broken, then in flight, then fine.
- */
-const appStatus = (status: string, health?: Health): { text: string; tone: Tone; rank: number } => {
-  if (status === "DEPLOYING" || status === "BUILDING") return { text: t("Deploying"), tone: "deploying", rank: 1 };
-  // stopped on purpose — not an outage, whatever the checks say
-  if (status === "STOPPED") return { text: t("Stopped"), tone: "muted", rank: 3 };
-  if (health?.state === "down") return { text: t("Down"), tone: "down", rank: 0 };
-  // failing lately, not yet long enough to call it an outage
-  if (health?.state === "pending") return { text: t("Unstable"), tone: "warn", rank: 0 };
-  if (health?.state === "up") return { text: t("Online"), tone: "up", rank: 2 };
-  if (status === "ERROR") return { text: t("Error"), tone: "down", rank: 0 };
-  return { text: t("Not monitored"), tone: "muted", rank: 4 };
 };
 
 /**
@@ -389,10 +372,13 @@ export default function Application() {
             {(named || superAdmin) && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                 {superAdmin && (
-                  <span className={`shrink-0 ${app.runtime ? "text-warning" : ""}`}>
+                  <Badge
+                    variant="outline"
+                    className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}
+                  >
                     {runtimeLabel(app.runtime)}
                     {app.runtime === "PM2" && app.processName && ` · ${app.processName}`}
-                  </span>
+                  </Badge>
                 )}
                 {superAdmin && named && <span>·</span>}
                 {named && <span className="truncate">{app.domain}</span>}
