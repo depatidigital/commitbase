@@ -4,8 +4,9 @@ import { decrypt } from '../lib/secretBox';
 const RDASH_PROVIDER = 'rdash';
 const CLOUDFLARE_PROVIDER = 'cloudflare';
 const R2_PROVIDER = 'r2';
+const GOOGLE_PROVIDER = 'google';
 
-type Provider = typeof RDASH_PROVIDER | typeof CLOUDFLARE_PROVIDER | typeof R2_PROVIDER;
+type Provider = typeof RDASH_PROVIDER | typeof CLOUDFLARE_PROVIDER | typeof R2_PROVIDER | typeof GOOGLE_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -100,3 +101,28 @@ export async function getR2ConfigFromDb() {
 }
 
 export const setR2ConfigValue = (key: R2Key, value: string) => setIntegrationConfigValue(R2_PROVIDER, key, value);
+
+/**
+ * Google service account for Search Console, as set in the admin panel. The key
+ * JSON is stored secretBox-encrypted; `owners` are the Google accounts granted
+ * owner access to every property it adds. Null until a key is saved.
+ */
+export async function getGoogleConfigFromDb() {
+  const [serviceAccount, owners] = await Promise.all([
+    getIntegrationConfigValue(GOOGLE_PROVIDER, 'serviceAccount'),
+    getIntegrationConfigValue(GOOGLE_PROVIDER, 'owners'),
+  ]);
+  if (!serviceAccount) return null;
+
+  const key = JSON.parse(decrypt(serviceAccount)) as { client_email: string; private_key: string };
+  return { clientEmail: key.client_email, privateKey: key.private_key, owners: splitEmails(owners) };
+}
+
+export const splitEmails = (value: string | null | undefined) =>
+  String(value ?? '')
+    .split(/[\s,]+/)
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+export const setGoogleConfigValue = (key: 'serviceAccount' | 'owners', value: string) =>
+  setIntegrationConfigValue(GOOGLE_PROVIDER, key, value);

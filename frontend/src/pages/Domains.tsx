@@ -67,6 +67,7 @@ import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { DomainSharedCard } from "@/components/DomainSharedCard";
+import { DomainSearchConsole } from "@/components/DomainSearchConsole";
 import { expiryTone, needsRenewal } from "@/lib/domainExpiry";
 import { isAdmin } from "@/lib/auth";
 import { Domain } from "@/types/domain";
@@ -963,6 +964,8 @@ export default function Domains() {
                           )}
                         </span>
                       </div>
+
+                      <DomainSearchConsole domain={domainDetail} admin={admin} />
 
                       {/* who owns it and for how long */}
                       <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm">

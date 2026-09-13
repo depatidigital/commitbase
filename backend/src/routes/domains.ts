@@ -14,6 +14,8 @@ import { provisionDomain } from '../services/domainProvisionService';
 import { ensureWildcardRecord } from '../services/appDnsService';
 import { moveDomainToCloudflare, toImportableRecords } from '../services/domainCloudflareService';
 import { suggestDomains } from '../services/domainSuggestService';
+import { addDomainToSearchConsole } from '../services/searchConsoleService';
+import { splitEmails } from '../services/integrationConfigService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
 const sortOrder = (sort: unknown, order: unknown): any => {
@@ -835,6 +837,43 @@ router.post('/:id/cloudflare/disable', authenticateToken, requireRole(['ADMIN'])
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
+  }
+});
+
+/**
+ * Verify the domain with Google and add it to Search Console. On Cloudflare the
+ * TXT record is published for you; otherwise the response carries the record to
+ * add at the registrar, and calling again once it is there finishes the job.
+ * `owners`: extra Google accounts (comma-separated) to grant owner access.
+ */
+router.post('/:id/search-console', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const domain = await prisma.domain.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+    });
+    if (!domain) {
+      return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
+    }
+
+    const owners = splitEmails(req.body?.owners);
+    const invalid = owners.find((email) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email));
+    if (invalid) {
+      return res.status(400).json({ success: false, error: `Not an email address: ${invalid}` } as ApiResponse);
+    }
+
+    try {
+      const result = await addDomainToSearchConsole(domain, owners);
+      return res.json({
+        success: true,
+        data: result,
+        message: result.verified ? 'Added to Google Search Console' : 'Waiting for the TXT record',
+      } as ApiResponse);
+    } catch (error: any) {
+      return res.status(502).json({ success: false, error: error?.message || 'Google Search Console failed' } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error adding domain to Search Console:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 

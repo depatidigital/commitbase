@@ -41,6 +41,7 @@ import metricsRoutes from './routes/metrics';
 import domainsRoutes from './routes/domains';
 import rdashRoutes from './routes/rdash';
 import cloudflareRoutes from './routes/cloudflare';
+import googleRoutes from './routes/google';
 import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
 import organizationsRoutes from './routes/organizations';
@@ -115,6 +116,7 @@ app.use('/api/domains', domainsRoutes);
 // Integration credentials are platform-owner only
 app.use('/api/rdash', authenticateToken, requireRole(['SUPERADMIN']), rdashRoutes);
 app.use('/api/cloudflare', authenticateToken, requireRole(['SUPERADMIN']), cloudflareRoutes);
+app.use('/api/google', authenticateToken, requireRole(['SUPERADMIN']), googleRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
 app.use('/api/organizations', organizationsRoutes);
 app.use('/api/servers', serversRoutes);

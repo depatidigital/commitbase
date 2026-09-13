@@ -243,6 +243,27 @@ export const enableCloudflare = async (
   throw new Error(response.error || t("Failed to enable Cloudflare"));
 };
 
+export type SearchConsoleResult =
+  | { verified: true; siteUrl: string; owners: string[]; addedAt: string; consoleUrl: string }
+  | { verified: false; record: { type: "TXT"; name: string; content: string }; reason: string };
+
+/** Verify with Google and add as a Search Console property. Safe to repeat. */
+export const addToSearchConsole = async (
+  id: string,
+  owners: string,
+): Promise<SearchConsoleResult> => {
+  const response = await apiRequest<SearchConsoleResult>(
+    `/domains/${id}/search-console`,
+    { method: "POST", body: JSON.stringify({ owners }) },
+  );
+
+  if (response.success && response.data) {
+    return response.data;
+  }
+
+  throw new Error(response.error || t("Failed to add to Search Console"));
+};
+
 export const disableCloudflare = async (id: string): Promise<void> => {
   const response = await apiRequest(`/domains/${id}/cloudflare/disable`, {
     method: "POST",
