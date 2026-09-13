@@ -8,6 +8,7 @@ import { DnsChangeNotice } from "@/components/DnsChangeNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DomainChoice } from "@/lib/domains";
@@ -27,7 +28,7 @@ export const hostnameProblem = (subdomain: string, choice: DomainChoice | undefi
   if (!choice) return t("Select a domain");
   if (choice.shared && !subdomain) return t("Pick a name under {domain}", { domain: choice.name });
   if (choice.shared && subdomain.includes(".")) return t("One name only — no dots");
-  if (!choice.shared && !subdomain && !root) return t("Enter a subdomain, or tick “Use the root domain”.");
+  if (!choice.shared && !subdomain && !root) return t("Enter a subdomain");
   return null;
 };
 
@@ -102,6 +103,8 @@ export function HostnamePicker({
   // when something needs fixing (a taken name, a missing one)
   const [expanded, setExpanded] = useState(false);
   const showFields = !compact || expanded || !!problem || !!current?.usedBy;
+  // no red before the user has had a go at the name
+  const [touched, setTouched] = useState(false);
 
   return (
     <div className="space-y-2">
@@ -114,16 +117,27 @@ export function HostnamePicker({
         </div>
       )}
       {showFields && (<>
+      {picked && !picked.shared && onRoot && (
+        // one choice, one control: the root is picked on purpose, never implied by an empty field
+        <Tabs value={useRoot ? "root" : "sub"} onValueChange={(value) => onRoot(value === "root")}>
+          <TabsList>
+            <TabsTrigger value="sub">{t("Subdomain")}</TabsTrigger>
+            <TabsTrigger value="root">{t("Root domain")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
       <div className="flex items-center gap-2">
         <Globe className="min-w-4 min-h-4 text-muted-foreground" />
-        <Input
-          id="subdomain"
-          placeholder={useRoot ? "" : "app"}
-          value={useRoot ? "" : subdomain}
-          disabled={useRoot}
-          onChange={(e) => onSubdomain(e.target.value.trim().toLowerCase())}
-        />
-        <span className="text-muted-foreground">.</span>
+        {!useRoot && (<>
+          <Input
+            id="subdomain"
+            placeholder="app"
+            value={subdomain}
+            onBlur={() => setTouched(true)}
+            onChange={(e) => onSubdomain(e.target.value.trim().toLowerCase())}
+          />
+          <span className="text-muted-foreground">.</span>
+        </>)}
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -184,17 +198,12 @@ export function HostnamePicker({
           </PopoverContent>
         </Popover>
       </div>
-      {picked && !picked.shared && onRoot && (
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={useRoot} onCheckedChange={(checked) => onRoot(checked === true)} />
-          <span>{t("Use the root domain ({domain}) — usually the main website", { domain: picked.name })}</span>
-        </label>
-      )}
-
-      {/* the address it will have, big enough to read before saving — or what is missing */}
+      {/* the address it will have — or what is missing */}
       {host ? (
-        <p className="break-all font-mono text-base font-medium">https://{host}</p>
-      ) : domain && problem ? (
+        <p className="break-all text-sm text-muted-foreground">
+          → <span className="font-medium text-foreground">https://{host}</span>
+        </p>
+      ) : domain && problem && touched ? (
         <p className="text-xs text-destructive">{problem}</p>
       ) : null}
       </>)}

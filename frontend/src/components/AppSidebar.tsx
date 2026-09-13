@@ -47,9 +47,8 @@ export function AppSidebar() {
           <div className="flex items-center space-x-2">
             {!collapsed && (
               <>
-                <div className="p-2 bg-gradient-primary rounded-lg shadow-glow">
-                  <Server className="h-5 w-5 text-primary-foreground" />
-                </div>
+                {/* the favicon is the logo — one file for both */}
+                <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg shadow-glow" />
                 <div>
                   <h1 className="text-lg font-bold bg-gradient-primary bg-clip-text text-transparent">
                     {APP_NAME}
@@ -59,9 +58,7 @@ export function AppSidebar() {
               </>
             )}
             {collapsed && (
-              <div className="p-1.5 bg-gradient-primary rounded-lg shadow-glow mx-auto">
-                <Server className="h-4 w-4 text-primary-foreground" />
-              </div>
+              <img src="/favicon.svg" alt="" className="mx-auto h-7 w-7 rounded-lg shadow-glow" />
             )}
           </div>
         </div>

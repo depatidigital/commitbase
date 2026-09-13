@@ -261,11 +261,17 @@ export default {
   "{name}.{domain} — ready right away": "{name}.{domain} — langsung siap",
   "My domain": "Domain saya",
   "A subdomain or the root of a domain your organization owns": "Subdomain atau domain utama milik organisasi Anda",
-  "Enter a subdomain, or tick “Use the root domain”.": "Isi subdomain, atau centang “Pakai domain utama”.",
-  "Use the root domain ({domain}) — usually the main website": "Pakai domain utama ({domain}) — biasanya situs utama",
+  "Enter a subdomain": "Isi subdomain",
+  "Root domain": "Domain utama",
   "Goes live at {url}": "Akan live di {url}",
   "Created now; fill the rest on its page, then deploy.": "Dibuat sekarang; lengkapi sisanya di halaman aplikasi, lalu deploy.",
   "({count})": "({count})",
+  Advanced: "Lanjutan",
+  "Want every new app to get a free address? Share a platform domain:":
+    "Ingin setiap app baru dapat alamat gratis? Bagikan domain platform:",
+  "Domains → Settings → Shared platform domain": "Domain → Settings → Domain platform bersama",
+  "Fixed once the app exists. Build and start commands can be changed on the app's Settings tab.":
+    "Tidak bisa diubah setelah app dibuat. Perintah build dan start bisa diubah di tab Settings aplikasi.",
   Change: "Ubah",
   "Your label for the app, taken from its source. It stays when the domain changes.":
     "Label aplikasi Anda, diambil dari sumbernya. Tetap sama walau domain berubah.",
