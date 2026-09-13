@@ -28,8 +28,13 @@ export default {
   "no DNS": "DNS tidak ditemukan",
   "not connected": "tidak terhubung",
   "The server has the newest commit on {branch}.": "Server sudah memakai commit terbaru di {branch}.",
-  "The server is behind {branch} — pull on the server to update it.":
-    "Server tertinggal dari {branch} — lakukan pull di server untuk memperbaruinya.",
+  "The server is behind {branch}.": "Server tertinggal dari {branch}.",
+  "Pull on server": "Pull di server",
+  "Pull {branch} on the server?": "Pull {branch} di server?",
+  "Runs git pull --ff-only in {dir}. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
+    "Menjalankan git pull --ff-only di {dir}. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
+  "Pulled on the server": "Pull di server berhasil",
+  "Could not pull": "Pull gagal",
   "domain not registered": "domain belum terdaftar",
   "domain expired": "domain kedaluwarsa",
   "domain suspended": "domain ditangguhkan",

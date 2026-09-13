@@ -554,6 +554,10 @@ export type TeardownStepId = 'process' | 'route' | 'dns' | 'files';
 export type ApiMsg = { text: string; params?: Record<string, string | number> };
 export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg; satisfied?: ApiMsg };
 
+/** `git pull --ff-only` in an imported app's checkout on its server — code only (superadmin). */
+export const pullOnServer = async (id: string): Promise<string> =>
+  (await apiRequest<{ output: string }>(`/applications/${id}/pull`, { method: 'POST' })).data?.output ?? '';
+
 /** Whether an imported app's recorded folder is on its server; exists null when it could not be asked. */
 export const getAppFolder = async (id: string): Promise<{ path: string | null; exists: boolean | null }> =>
   (await apiRequest<{ path: string | null; exists: boolean | null }>(`/applications/${id}/folder`)).data!;

@@ -5,7 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Application, getAppBranches, updateApplication } from "@/lib/applications";
+import { Application, getAppBranches, pullOnServer, updateApplication } from "@/lib/applications";
+import { isSuperAdmin } from "@/lib/auth";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { t } from "@/lib/i18n";
 
 /** owner/repo out of a clone URL — the part a person recognises */
@@ -60,6 +71,17 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not save"), description: error.message }),
   });
 
+  const [confirmPull, setConfirmPull] = useState(false);
+  const pull = useMutation({
+    mutationFn: () => pullOnServer(application.id),
+    onSuccess: (output) => {
+      toast({ title: t("Pulled on the server"), description: output.split("\n").slice(-3).join(" · ") });
+      // the server's HEAD moved
+      void queryClient.invalidateQueries({ queryKey: ["branches", application.id] });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not pull"), description: error.message }),
+  });
+
   const deployBranch = async () => {
     if (changed) await saveBranch.mutateAsync();
     onDeploy();
@@ -100,16 +122,41 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
         ) : remote.error ? (
           <p className="break-words text-xs text-destructive">{(remote.error as Error).message}</p>
         ) : readOnly ? (
-          <p
-            className="text-xs text-muted-foreground"
-            title={`${t("Live now")}: ${live?.slice(0, 7) ?? "—"} · ${t("Newest on {branch}", { branch: current })}: ${head?.slice(0, 7) ?? "—"}`}
-          >
-            {!head || !live
-              ? t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })
-              : head === live
-                ? t("The server has the newest commit on {branch}.", { branch: current })
-                : t("The server is behind {branch} — pull on the server to update it.", { branch: current })}
-          </p>
+          <>
+            <p
+              className="text-xs text-muted-foreground"
+              title={`${t("Live now")}: ${live?.slice(0, 7) ?? "—"} · ${t("Newest on {branch}", { branch: current })}: ${head?.slice(0, 7) ?? "—"}`}
+            >
+              {!head || !live
+                ? t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })
+                : head === live
+                  ? t("The server has the newest commit on {branch}.", { branch: current })
+                  : t("The server is behind {branch}.", { branch: current })}
+            </p>
+            {/* only the operator touches a server by hand, and only when there is something to pull */}
+            {isSuperAdmin() && head && live && head !== live && (
+              <Button type="button" variant="outline" className="w-full" disabled={pull.isPending} onClick={() => setConfirmPull(true)}>
+                {pull.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                {t("Pull on server")}
+              </Button>
+            )}
+            <AlertDialog open={confirmPull} onOpenChange={setConfirmPull}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t("Pull {branch} on the server?", { branch: current })}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("Runs git pull --ff-only in {dir}. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.", {
+                      dir: application.rootPath ?? "",
+                    })}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => pull.mutate()}>{t("Pull on server")}</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
         ) : (
           <>
             <Select value={branch} onValueChange={setBranch} disabled={deploying}>

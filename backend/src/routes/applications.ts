@@ -300,6 +300,56 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
  * newer to deploy" is answered without a clone. Read through the app's own git
  * account, which may be a teammate's: whoever can see the app can read this.
  */
+/**
+ * git in an imported app's checkout, on its server, with that server's
+ * credentials. Never waits on a prompt: there is no tty to answer a password
+ * or a new host key.
+ */
+const checkoutGit = (server: Parameters<typeof exec>[0], rootPath: string, args: string[]) =>
+  exec(
+    server,
+    ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', rootPath, ...args],
+    { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
+  );
+
+/**
+ * Pull an imported app's checkout on its server — code only: no install, no
+ * build, no restart. Fast-forward only, so local edits or a diverged history
+ * make it refuse instead of merging. And only as the folder's owner: pulling as
+ * another user (root, typically) leaves files the app then cannot write.
+ */
+router.post('/:id/pull', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    if (!application.runtime || !application.repository || !application.rootPath || !application.serverId) {
+      return res.status(400).json({ success: false, error: 'Only an app set up on the server from a git checkout can be pulled here' } as ApiResponse);
+    }
+    const server = await prisma.server.findUnique({ where: { id: application.serverId } });
+    if (!server) return res.status(409).json({ success: false, error: 'This app is not linked to a server — sync the apps again' } as ApiResponse);
+
+    const { stdout: who } = await exec(server, ['sh', '-c', 'stat -c %U -- "$1" && id -un', 'sh', application.rootPath], { timeout: 15_000 });
+    const [owner, user] = who.trim().split('\n');
+    if (!owner || owner !== user) {
+      return res.status(409).json({
+        success: false,
+        error: `${application.rootPath} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Pull it on the server as ${owner}.`,
+      } as ApiResponse);
+    }
+
+    const branch = application.branch || 'main';
+    try {
+      const { stdout, stderr } = await checkoutGit(server, application.rootPath, ['pull', '--ff-only', 'origin', branch]);
+      return res.json({ success: true, data: { output: `${stdout}${stderr}`.trim() }, message: `Pulled ${branch}` } as ApiResponse);
+    } catch (error: any) {
+      return res.status(502).json({ success: false, error: String(error?.stderr || error?.message || error).trim().slice(0, 500) } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error pulling application:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
@@ -320,13 +370,7 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
     if (application.runtime && application.rootPath && application.serverId) {
       const server = await prisma.server.findUnique({ where: { id: application.serverId } });
       if (server) {
-        // never wait on a prompt: no tty to answer a password or a new host key
-        const git = (args: string[]) =>
-          exec(
-            server,
-            ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', application.rootPath!, ...args],
-            { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
-          );
+        const git = (args: string[]) => checkoutGit(server, application.rootPath!, args);
         const [remote, head] = await Promise.all([git(['ls-remote', '--symref', 'origin']), git(['rev-parse', 'HEAD']).catch(() => null)]);
         return res.json({
           success: true,
