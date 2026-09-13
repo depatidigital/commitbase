@@ -40,6 +40,9 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
   const [branch, setBranch] = useState(current);
   useEffect(() => setBranch(current), [current]);
 
+  // imported by the server sync: the checkout on the box is someone else's, so
+  // this only says where the code comes from — no branch switch, no deploy
+  const readOnly = !!application.runtime;
   const changed = branch !== current;
   const head = remote.data?.heads[branch];
   const live = remote.data?.liveCommit ?? null;
@@ -96,6 +99,10 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
           </p>
         ) : remote.error ? (
           <p className="break-words text-xs text-destructive">{(remote.error as Error).message}</p>
+        ) : readOnly ? (
+          <p className="text-xs text-muted-foreground">
+            {t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })}
+          </p>
         ) : (
           <>
             <Select value={branch} onValueChange={setBranch} disabled={deploying}>

@@ -190,7 +190,8 @@ export default function ApplicationDetail() {
   // What the code expects (env keys, database, commands), read from the repo as
   // it is now. For the setup card before the first deploy, and for Settings.
   const canDetect = !!application && !(application.type === 'STATIC' && !application.repository);
-  const needsSetup = canDetect && !hasBeenDeployed(application!);
+  // an imported app (runtime set) is run by whoever set it up — the panel never deploys it
+  const needsSetup = canDetect && !application?.runtime && !hasBeenDeployed(application!);
   const detection = useQuery({
     queryKey: ['application', id, 'detect'],
     queryFn: () => getAppDetection(id!),
@@ -494,7 +495,7 @@ export default function ApplicationDetail() {
                 <Square className="h-4 w-4 mr-2" />
                 {t("Cancel deploy")}
               </Button>
-            ) : needsSetup || uploadedSite ? null : !deployed ? (
+            ) : needsSetup || uploadedSite ? null : !deployed && !application.runtime ? (
               <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
                 {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
                 {t("Deploy")}

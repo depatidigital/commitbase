@@ -576,6 +576,8 @@ export default {
   "Remove the Caddy route": "Hapus route Caddy",
   "Remove the DNS record": "Hapus record DNS",
   "Delete the app folder": "Hapus folder aplikasi",
+  "Checked out on the server from {branch}. Newest on the remote: {sha}.":
+    "Di-checkout di server dari {branch}. Terbaru di remote: {sha}.",
   "Managed by {appName}": "Dikelola {appName}",
   "Caddy (static files)": "Caddy (file statis)",
   "Caddy (reverse proxy)": "Caddy (reverse proxy)",
