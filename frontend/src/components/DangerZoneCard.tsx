@@ -127,8 +127,15 @@ export function DangerZoneCard({ application }: { application: Application }) {
                       />
                       <span className="min-w-0">
                         {STEP_LABEL[step.id]()}
-                        <span className="block break-all font-mono text-xs text-muted-foreground">{step.detail}</span>
-                        {step.blocked && <span className="block text-xs text-warning">{step.blocked}</span>}
+                        {step.command && (
+                          <span className="block break-all font-mono text-xs text-muted-foreground">{step.command}</span>
+                        )}
+                        {step.detail && (
+                          <span className="block break-all text-xs text-muted-foreground">{t(step.detail.text, step.detail.params)}</span>
+                        )}
+                        {step.blocked && (
+                          <span className="block text-xs text-warning">{t(step.blocked.text, step.blocked.params)}</span>
+                        )}
                       </span>
                     </label>
                   ))

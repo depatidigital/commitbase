@@ -549,7 +549,9 @@ export const deleteApplication = async ({ id, remove = [] }: { id: string; remov
 };
 
 export type TeardownStepId = 'process' | 'route' | 'dns' | 'files';
-export type TeardownStep = { id: TeardownStepId; detail: string; blocked?: string };
+/** English text (the i18n key) and its {placeholders}, from the API — render with t(text, params). */
+export type ApiMsg = { text: string; params?: Record<string, string | number> };
+export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg };
 
 /** What deleting an imported app could remove from its server (superadmin only). */
 export const getTeardownPlan = async (id: string): Promise<TeardownStep[]> =>
