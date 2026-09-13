@@ -85,6 +85,8 @@ export default function AddApp() {
   const [organizationId, setOrganizationId] = useState("");
   // the hostname belongs to another app, or is still being checked
   const [hostBlocked, setHostBlocked] = useState(false);
+  // the user ticked the DNS change the picker listed
+  const [dnsConsent, setDnsConsent] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -161,16 +163,36 @@ export default function AddApp() {
   // choice of orgs (several, or a platform admin seeing all) has to pick one.
   const needsOrg = !!pickedDomain?.shared && (myOrgs?.pagination?.total ?? 0) > 1;
 
-  // A shared domain needs a name under it: the repo's or the folder's, as a
-  // starting point on the configure step. Typed names are left alone.
-  useEffect(() => {
-    if (step !== 2 || formData.subdomain || !pickedDomain?.shared) return;
+  // The source's own name — the repo, or the picked folder (loose files have
+  // none worth using) — as a DNS-safe label.
+  const sourceLabel = useMemo(() => {
     const source =
       sourceMode === "git"
         ? formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
-        : // a picked folder's name; loose files have none worth using
-          uploadFiles[0]?.path.includes("/") ? uploadFiles[0].path.split("/")[0] : undefined;
-    const label = (source ?? "")
+        : uploadFiles[0]?.path.includes("/")
+          ? uploadFiles[0].path.split("/")[0]
+          : undefined;
+    return (source ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63);
+  }, [sourceMode, formData.repository, uploadFiles]);
+
+  // The name is the app's own label, not its address (as on Vercel, Netlify,
+  // Fly): it comes from the source and stays when the domain changes. Only
+  // loose files, with no source name, fall back to the hostname.
+  const [nameTouched, setNameTouched] = useState(false);
+  useEffect(() => {
+    if (!nameTouched) setFormData((prev) => ({ ...prev, name: sourceLabel || fullDomain }));
+  }, [sourceLabel, fullDomain, nameTouched]);
+
+  // A shared domain needs a name under it: the app's name, as a starting
+  // point — so the free address reads like the app. Typed names are left alone.
+  useEffect(() => {
+    if (step !== 2 || formData.subdomain || !pickedDomain?.shared) return;
+    // not a name that merely echoes the hostname (loose files)
+    const label = (nameTouched ? formData.name : sourceLabel)
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "")
@@ -178,18 +200,6 @@ export default function AddApp() {
     if (label) setFormData((prev) => ({ ...prev, subdomain: label }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, pickedDomain?.shared]);
-
-  // The domain is picked first and the app name follows it until the user
-  // edits the name — the name is only a label, so it may then differ.
-  const [nameTouched, setNameTouched] = useState(false);
-  useEffect(() => {
-    if (!nameTouched) {
-      setFormData((prev) => ({
-        ...prev,
-        name: prev.selectedDomain ? fullDomain : "",
-      }));
-    }
-  }, [fullDomain, nameTouched]);
 
   // A pasted URL: read its branches and switch to the default one (not every
   // repo uses "main"). null = not read, which leaves the branch as free text.
@@ -324,6 +334,7 @@ export default function AddApp() {
       serverId: serverId || undefined,
       // with one org there is nothing to pick — but say which, for an admin who is not its member
       organizationId: pickedDomain?.shared ? organizationId || myOrgs?.data[0]?.id : undefined,
+      dnsConsent: dnsConsent || undefined,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
       // Prisma's migrations: the tables have to exist before the release goes live
       preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
@@ -836,12 +847,31 @@ export default function AddApp() {
 
         {step === 2 && (
           <>
-            {/* one card: domain first, then the name it prefills, then the
-                type — which lives next to what detection guessed, so a wrong
-                guess is fixed where it is shown */}
+            {/* one card: the app's name (from its source), where it is
+                reached, then the type — which lives next to what detection
+                guessed, so a wrong guess is fixed where it is shown */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardContent className="space-y-5 pt-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">
+                      {t("App Name")} <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="name"
+                      placeholder="my-app"
+                      value={formData.name}
+                      onChange={(e) => {
+                        setNameTouched(true);
+                        handleInputChange("name", e.target.value);
+                      }}
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("Your label for the app, taken from its source. It stays when the domain changes.")}
+                    </p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="subdomain">
                       {t("Domain Configuration")}{" "}
@@ -854,6 +884,9 @@ export default function AddApp() {
                       onSubdomain={(value) => handleInputChange("subdomain", value)}
                       onDomain={(name) => handleInputChange("selectedDomain", name)}
                       onBlockedChange={setHostBlocked}
+                      onConsentChange={setDnsConsent}
+                      serverId={serverId || undefined}
+                      organizationId={organizationId || undefined}
                     />
                     {needsOrg && (
                       <OrganizationCombobox
@@ -862,25 +895,6 @@ export default function AddApp() {
                         placeholder={t("Whose app is it?")}
                       />
                     )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="name">
-                      {t("App Name")} <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="name"
-                      placeholder={t("Filled from the domain")}
-                      value={formData.name}
-                      onChange={(e) => {
-                        setNameTouched(true);
-                        handleInputChange("name", e.target.value);
-                      }}
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("Follows the domain — change it for a friendlier label.")}
-                    </p>
                   </div>
                 </div>
 

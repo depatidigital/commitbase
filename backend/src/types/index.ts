@@ -108,6 +108,8 @@ export const CreateApplicationSchema = z.object({
   serverId: z.string().min(1).optional(),
   // whose app it is, under a shared platform domain; an owned domain decides it itself
   organizationId: z.string().min(1).optional(),
+  // the user agreed to replace what the hostname points at today (lib/appHostname applyAppDns)
+  dnsConsent: z.boolean().optional(),
 });
 
 export const UpdateApplicationSchema = z.object({
@@ -122,6 +124,7 @@ export const UpdateApplicationSchema = z.object({
   preDeployCommand: z.string().optional(),
   startCommand: z.string().optional(),
   envVars: z.record(z.string()).optional(),
+  dnsConsent: z.boolean().optional(),
 });
 
 // Database schemas

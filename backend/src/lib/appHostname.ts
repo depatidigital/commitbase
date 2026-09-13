@@ -1,9 +1,12 @@
-import type { Domain } from '@prisma/client';
+import type { Application, Domain } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from './prisma';
-import { candidateParents, getOrgIds, isPlatformAdmin, orgScope } from './scope';
-import { getDefaultDnsTarget, listCloudflareDnsRecords } from '../services/cloudflareService';
+import { canManageOrg, candidateParents, getOrgIds, isPlatformAdmin, orgScope } from './scope';
+import { serverForApplication } from './servers';
+import { findCloudflareZone, getDefaultDnsTarget, listCloudflareDnsRecords } from '../services/cloudflareService';
 import { listCaddyRouteHosts } from '../services/caddyService';
+import { ensureAppHostname, type HostnameOutcome } from '../services/appDnsService';
+import { linkExistingCloudflareZone, moveDomainToCloudflare } from '../services/domainCloudflareService';
 
 /**
  * Where an app's hostname may live, and which organization the app then
@@ -92,31 +95,79 @@ export async function sharedHostTaken(
   return null;
 }
 
+type DnsTarget = { type: 'A' | 'CNAME'; content: string };
+
 export type HostInspection = {
   /** another app already has this hostname; name only when the caller may see that app */
   usedBy: { id: string; name: string } | { id: null; name: null } | null;
-  /** its own A/AAAA/CNAME record in a zone we run, and whether that points at one of our nodes */
-  record: { type: string; content: string; pointsHere: boolean } | null;
   /** the bare domain — usually the main website */
   apex: boolean;
+  /**
+   * Who answers DNS for the domain: a Cloudflare zone we can edit (linked, or
+   * sitting unlinked in the account), the registrar (RDASH — it can be moved
+   * to Cloudflare), or somebody else entirely.
+   */
+  dns: 'cloudflare' | 'registrar' | 'external' | 'unknown';
+  /** A/AAAA/CNAME records at the hostname that point somewhere else — removed only with consent */
+  replaces: { type: string; content: string }[];
+  /** a record at the hostname already points at our node */
+  pointsHere: boolean;
+  /** the record the app gets: its node's address */
+  target: DnsTarget | null;
+  /** may this caller move the domain to Cloudflare (org owner/admin, never a shared domain) */
+  canMove: boolean;
 };
 
+const DNS_TYPES = ['A', 'AAAA', 'CNAME'];
+const asTarget = (address: string): DnsTarget => ({
+  type: /^\d{1,3}(\.\d{1,3}){3}$/.test(address) ? 'A' : 'CNAME',
+  content: address,
+});
+
+/** Where the app's record will point: the app's node, else the node it would get, else the platform default. */
+async function previewTarget(
+  req: AuthenticatedRequest,
+  parent: Domain | undefined,
+  opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined },
+): Promise<DnsTarget | null> {
+  let ip: string | null | undefined;
+  if (opts.excludeAppId) {
+    ip = (await serverForApplication(opts.excludeAppId).catch(() => null))?.publicIp;
+  } else if (opts.serverId && req.user!.role === 'SUPERADMIN') {
+    ip = (await prisma.server.findUnique({ where: { id: opts.serverId }, select: { publicIp: true } }))?.publicIp;
+  } else {
+    const orgIds = await getOrgIds(req);
+    const orgId =
+      (opts.organizationId && (isPlatformAdmin(req) || orgIds.includes(opts.organizationId)) ? opts.organizationId : null) ??
+      (parent && !parent.shared ? parent.organizationId : null) ??
+      (orgIds.length === 1 ? orgIds[0] : null);
+    if (orgId) {
+      ip = (
+        await prisma.organization.findUnique({ where: { id: orgId }, select: { defaultServer: { select: { publicIp: true } } } })
+      )?.defaultServer?.publicIp;
+    }
+  }
+  if (ip?.trim()) return asTarget(ip.trim());
+  return getDefaultDnsTarget().catch(() => null);
+}
+
 /**
- * What a hostname means today, before an app takes it — for warning the user,
- * not for deciding: create and rename still enforce their own rules.
- * `excludeAppId`: the app being renamed, which may keep its own name.
+ * What a hostname means today, before an app takes it — for warning the user
+ * and asking consent, not for deciding: create and rename enforce their rules.
+ * `excludeAppId`: the app being renamed (or repointed), which keeps its own name.
  */
 export async function inspectHost(
   req: AuthenticatedRequest,
   host: string,
-  excludeAppId?: string,
+  opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined } = {},
 ): Promise<HostInspection> {
   const app = await prisma.application.findUnique({
     where: { domain: host },
     select: { id: true, name: true, organizationId: true },
   });
   const visible = app && (isPlatformAdmin(req) || (app.organizationId && (await getOrgIds(req)).includes(app.organizationId)));
-  const usedBy = app && app.id !== excludeAppId ? (visible ? { id: app.id, name: app.name } : { id: null, name: null }) : null;
+  const usedBy =
+    app && app.id !== opts.excludeAppId ? (visible ? { id: app.id, name: app.name } : { id: null, name: null }) : null;
 
   // only zones the caller could put an app under — public DNS, but no reason to widen it
   const parent = (
@@ -125,25 +176,65 @@ export async function inspectHost(
     })
   ).sort((a, b) => b.name.length - a.name.length)[0];
 
-  let record: HostInspection['record'] = null;
-  if (parent?.cfZoneId) {
-    const found = ((await listCloudflareDnsRecords(parent.cfZoneId).catch(() => null)) ?? []).find(
-      (r: any) => normalizeHost(r?.name) === host && ['A', 'AAAA', 'CNAME'].includes(String(r?.type).toUpperCase()),
-    );
-    if (found) {
-      const ours = new Set(
-        [
-          ...(await prisma.server.findMany({ select: { publicIp: true } })).map((s) => s.publicIp),
-          (await getDefaultDnsTarget().catch(() => null))?.content,
-        ]
-          .filter(Boolean)
-          .map((value) => normalizeHost(value)),
-      );
-      record = { type: String(found.type), content: String(found.content), pointsHere: ours.has(normalizeHost(found.content)) };
+  const target = await previewTarget(req, parent, opts);
+  const base = { usedBy, apex: !!parent && parent.name === host, target, replaces: [], pointsHere: false };
+  if (!parent) return { ...base, dns: 'unknown', canMove: false };
+
+  const canMove = !parent.shared && (isPlatformAdmin(req) || (!!parent.organizationId && (await canManageOrg(req, parent.organizationId))));
+
+  // a zone in the account counts even before it is linked — create links it
+  const zoneId = parent.cfZoneId ?? (await findCloudflareZone(parent.name).catch(() => null))?.id;
+  if (!zoneId) {
+    return { ...base, dns: parent.registrar === 'RDASH' ? 'registrar' : 'external', canMove };
+  }
+
+  const ours = new Set(
+    [
+      ...(await prisma.server.findMany({ select: { publicIp: true } })).map((s) => s.publicIp),
+      target?.content,
+      (await getDefaultDnsTarget().catch(() => null))?.content,
+    ]
+      .filter(Boolean)
+      .map((value) => normalizeHost(value)),
+  );
+  const atHost = ((await listCloudflareDnsRecords(zoneId).catch(() => null)) ?? []).filter(
+    (r: any) => normalizeHost(r?.name) === host && DNS_TYPES.includes(String(r?.type).toUpperCase()),
+  );
+  const here = (r: any) => ours.has(normalizeHost(r?.content));
+
+  return {
+    ...base,
+    dns: 'cloudflare',
+    canMove,
+    pointsHere: atHost.some(here),
+    replaces: atHost.filter((r: any) => !here(r)).map((r: any) => ({ type: String(r.type), content: String(r.content) })),
+  };
+}
+
+/**
+ * Get the app's hostname pointed at it, as far as the user agreed. A zone
+ * sitting unlinked in the Cloudflare account is linked (no DNS change). With
+ * consent: a registrar-run domain is moved to Cloudflare (records copied,
+ * nameservers switched) and records at the hostname that point elsewhere are
+ * replaced. Without consent nothing that exists is touched.
+ */
+export async function applyAppDns(
+  req: AuthenticatedRequest,
+  application: Pick<Application, 'id' | 'domain' | 'domainId'>,
+  consent: boolean,
+): Promise<HostnameOutcome> {
+  let parent = application.domainId ? await prisma.domain.findUnique({ where: { id: application.domainId } }) : null;
+
+  if (parent && !parent.cfZoneId) {
+    parent = (await linkExistingCloudflareZone(parent).catch(() => null)) ?? parent;
+    const canMove = !parent.shared && (isPlatformAdmin(req) || (!!parent.organizationId && (await canManageOrg(req, parent.organizationId))));
+    if (!parent.cfZoneId && consent && parent.registrar === 'RDASH' && canMove) {
+      await moveDomainToCloudflare(parent);
     }
   }
 
-  return { usedBy, record, apex: !!parent && parent.name === host };
+  const force = consent && (await mayForceDns(req, application.domainId));
+  return ensureAppHostname(application, { force });
 }
 
 /** Overwriting a conflicting DNS record is an admin's call under a shared domain. */

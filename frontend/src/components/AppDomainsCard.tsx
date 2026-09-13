@@ -54,6 +54,7 @@ export function AppDomainsCard({ application }: { application: Application }) {
   const problem = hostnameProblem(subdomain, picked);
   const [confirming, setConfirming] = useState(false);
   const [hostBlocked, setHostBlocked] = useState(false);
+  const [dnsConsent, setDnsConsent] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // values that spell out the address — the app's own URL — do not follow a move
@@ -64,7 +65,7 @@ export function AppDomainsCard({ application }: { application: Application }) {
   const move = async () => {
     setSaving(true);
     try {
-      const updated = (await updateApplication(application.id, { domain: next })) as Application & {
+      const updated = (await updateApplication(application.id, { domain: next, dnsConsent: dnsConsent || undefined })) as Application & {
         dns?: { state: string; detail: string };
       };
       const dnsProblem = updated.dns && ["conflict", "unavailable"].includes(updated.dns.state);
@@ -123,6 +124,7 @@ export function AppDomainsCard({ application }: { application: Application }) {
               onDomain={setDomain}
               excludeAppId={application.id}
               onBlockedChange={setHostBlocked}
+              onConsentChange={setDnsConsent}
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
               {isAdmin() && (

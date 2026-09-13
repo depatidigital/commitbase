@@ -12,6 +12,7 @@ import { startDomainSync, getDomainSyncState, refreshDomainSummary } from '../se
 import { getDomainRegistration, getDomainAvailability } from '../services/rdapService';
 import { provisionDomain } from '../services/domainProvisionService';
 import { ensureWildcardRecord } from '../services/appDnsService';
+import { moveDomainToCloudflare, toImportableRecords } from '../services/domainCloudflareService';
 import { suggestDomains } from '../services/domainSuggestService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
@@ -700,37 +701,6 @@ router.get('/:id/dns-zone', authenticateToken, async (req: AuthenticatedRequest,
   }
 });
 
-/** RDASH sends records in a few shapes — normalise to what Cloudflare's API wants. */
-const toImportableRecords = (rows: any[], domainName: string) =>
-  rows
-    .map((row) => {
-      const type = String(row?.type || row?.record_type || '').trim().toUpperCase();
-      const rawName = String(row?.name || row?.host || row?.hostname || '').trim();
-      const content = String(row?.content ?? row?.value ?? row?.data ?? '').trim();
-
-      if (!type || !content) return null;
-
-      // "@", "" and bare subdomains all need to be fully qualified for Cloudflare
-      const name =
-        !rawName || rawName === '@'
-          ? domainName
-          : rawName.endsWith(domainName)
-          ? rawName
-          : `${rawName}.${domainName}`;
-
-      const ttl = Number(row?.ttl);
-      const priority = Number(row?.priority ?? row?.prio ?? row?.mx_priority);
-
-      return {
-        type,
-        name,
-        content,
-        ...(Number.isFinite(ttl) && ttl > 0 && { ttl }),
-        ...(Number.isFinite(priority) && { priority }),
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
-
 // What RDASH still holds for this domain: its nameservers and, while it is authoritative, its DNS records
 router.get('/:id/rdash-dns', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -803,110 +773,16 @@ router.post('/:id/cloudflare/enable', authenticateToken, requireRole(['ADMIN']),
       return res.status(404).json({ success: false, error: 'Domain not found' } as ApiResponse);
     }
 
-    const steps: string[] = [];
-    const warnings: string[] = [];
-
-    // 1. snapshot whatever the registrar serves today
-    let snapshot: any[] = [];
-    let rdashDomain = null;
-
-    if (domain.registrar === 'RDASH') {
-      rdashDomain = await findRdashDomain(domain.name);
-      if (rdashDomain) {
-        try {
-          snapshot = await getRdashDomainDns(rdashDomain.id);
-          steps.push(`Recorded ${snapshot.length} DNS record(s) from RDASH`);
-        } catch {
-          warnings.push('Could not read the existing DNS records from the registrar');
-        }
-      } else {
-        warnings.push('Domain is marked as registrar-managed but was not found at the registrar');
-      }
-    }
-
-    // 2. zone first, so there is somewhere to put them
-    let zone;
+    let result;
     try {
-      zone = await getOrCreateCloudflareZone(domain.name);
+      result = await moveDomainToCloudflare(domain);
     } catch (error: any) {
-      return res.status(502).json({
-        success: false,
-        error: `Cloudflare could not create the zone: ${error?.message || 'unknown error'}`,
-      } as ApiResponse);
+      return res.status(502).json({ success: false, error: error?.message || 'Cloudflare could not be enabled' } as ApiResponse);
     }
-
-    if (!zone) {
-      return res.status(502).json({
-        success: false,
-        error: 'Could not create the Cloudflare zone. Check the Cloudflare integration config.',
-      } as ApiResponse);
-    }
-    steps.push(`Cloudflare zone ready (${zone.id})`);
-
-    // 3. copy the records across
-    let importResult = { imported: 0, skipped: 0, failed: [] as string[] };
-    if (snapshot.length > 0) {
-      importResult = await importDnsRecords(zone.id, toImportableRecords(snapshot, domain.name));
-      steps.push(
-        `Copied ${importResult.imported} record(s) into Cloudflare (${importResult.skipped} already present)`,
-      );
-      if (importResult.failed.length > 0) {
-        warnings.push(`Cloudflare rejected: ${importResult.failed.join(', ')}`);
-      }
-    }
-
-    // 4. only now hand DNS over
-    let nameserversUpdated = false;
-    if (rdashDomain && zone.nameServers.length > 0) {
-      try {
-        await updateRdashDomainNameservers(domain.name, { nameservers: zone.nameServers });
-        nameserversUpdated = true;
-        steps.push(`Pointed the RDASH nameservers at ${zone.nameServers.join(', ')}`);
-      } catch (error: any) {
-        warnings.push(
-          `Could not update the nameservers at the registrar: ${error?.message || 'unknown error'}`,
-        );
-      }
-    } else if (!rdashDomain) {
-      warnings.push(
-        `Set these nameservers at your registrar manually: ${zone.nameServers.join(', ')}`,
-      );
-    }
-
-    const ssl = await getZoneSslState(zone.id);
-
-    const updated = await prisma.domain.update({
-      where: { id: domain.id },
-      data: {
-        cfZoneId: zone.id,
-        status: 'ACTIVE',
-        ...(ssl && { sslStatus: ssl.status, sslExpiry: ssl.expiry }),
-        customConfig: {
-          ...((domain.customConfig as any) || {}),
-          cloudflare: {
-            zoneId: zone.id,
-            zoneName: zone.name,
-            nameservers: zone.nameServers,
-            synced: true,
-          },
-          // kept so the pre-cutover DNS is recoverable if the migration goes wrong
-          ...(snapshot.length > 0 && {
-            rdashDnsSnapshot: { takenAt: new Date().toISOString(), records: snapshot },
-          }),
-        },
-      },
-    });
 
     return res.json({
       success: true,
-      data: {
-        domain: updated,
-        zone,
-        steps,
-        warnings,
-        nameserversUpdated,
-        recordsImported: importResult.imported,
-      },
+      data: result,
       message: 'Cloudflare enabled for this domain',
     } as ApiResponse);
   } catch (error) {

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,27 +10,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { type Application, checkHostname } from "@/lib/applications";
+import { DnsChangeNotice } from "@/components/DnsChangeNotice";
+import { type Application, checkHostname, dnsNeedsConsent } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 /**
- * "Point it here" overwrites the hostname's DNS record. When that record
- * points somewhere else it is often a live site — so say where, before.
+ * "Point it here" replaces the hostname's DNS records (and may move a
+ * registrar domain to Cloudflare). It says exactly what, before.
  */
 export function RepointDialog({
   application,
   onClose,
   onConfirm,
 }: {
-  application: Pick<Application, "id" | "domain">;
+  application: Pick<Application, "id" | "domain"> & { parentDomain?: { name: string } | null };
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const { data, isLoading } = useQuery({
     queryKey: ["hostname-check", application.domain, application.id],
-    queryFn: () => checkHostname(application.domain, application.id),
+    queryFn: () => checkHostname(application.domain, { excludeAppId: application.id }),
   });
-  const elsewhere = data?.record && !data.record.pointsHere ? data.record : null;
+  const consent = dnsNeedsConsent(data);
+  const domain = application.parentDomain?.name ?? application.domain;
 
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
@@ -43,23 +45,17 @@ export function RepointDialog({
         </AlertDialogHeader>
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : elsewhere ? (
-          <p className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            {t("It now points to {target} ({type}). If a site runs there, it goes offline for this hostname.", {
-              target: elsewhere.content,
-              type: elsewhere.type,
-            })}
-          </p>
+        ) : data ? (
+          <DnsChangeNotice host={application.domain} domain={domain} inspection={data} />
         ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
           <AlertDialogAction
             disabled={isLoading}
-            className={elsewhere ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
+            className={consent ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
             onClick={onConfirm}
           >
-            {elsewhere ? t("Overwrite and point here") : t("Point it here")}
+            {consent ? t("I agree — change DNS") : t("Point it here")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -6,7 +6,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { orgScope } from '../lib/scope';
-import { inspectHost, mayForceDns, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
+import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
@@ -532,8 +532,14 @@ router.get('/hostname-check', authenticateToken, async (req: AuthenticatedReques
   try {
     const host = normalizeHost(req.query.host);
     if (!host.includes('.')) return res.status(400).json({ success: false, error: 'host is required' } as ApiResponse);
-    const exclude = typeof req.query.exclude === 'string' ? req.query.exclude : undefined;
-    return res.json({ success: true, data: await inspectHost(req, host, exclude) } as ApiResponse);
+    const param = (name: string) => (typeof req.query[name] === 'string' && req.query[name]) || undefined;
+    const data = await inspectHost(req, host, {
+      excludeAppId: param('exclude') as string | undefined,
+      // the node the new app would get, so the preview shows its real address
+      serverId: param('serverId') as string | undefined,
+      organizationId: param('organizationId') as string | undefined,
+    });
+    return res.json({ success: true, data } as ApiResponse);
   } catch (error) {
     console.error('Error checking hostname:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -705,8 +711,10 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // Point the hostname at the platform now, so the app is reachable the
     // moment it deploys. A hostname already pointing somewhere else is left
     // alone and reported — the caller can retry with ?force=1.
-    const force = req.query.force === '1' && (await mayForceDns(req, application.domainId));
-    const dns = await ensureAppHostname(application, { force }).catch(
+    // dnsConsent: the user agreed on the form to replace what the name points at
+    // (and to move a registrar domain to Cloudflare) — the form showed exactly what
+    const consent = req.body.dnsConsent === true || req.query.force === '1';
+    const dns = await applyAppDns(req, application, consent).catch(
       (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
     );
 
@@ -1119,7 +1127,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       }
       await removeCaddySite(node, existingApp.domain).catch(() => {});
       await removeAppHostname(existingApp);
-      dns = await ensureAppHostname(updatedApp).catch(
+      dns = await applyAppDns(req, updatedApp, req.body?.dnsConsent === true).catch(
         (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
       );
     }
@@ -1691,8 +1699,8 @@ router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    const force = req.body?.force === true && (await mayForceDns(req, application.domainId));
-    const result = await ensureAppHostname(application, { force });
+    // force = the user confirmed the repoint dialog, which showed what is replaced
+    const result = await applyAppDns(req, application, req.body?.force === true);
 
     return res.json({
       success: result.state !== 'conflict' && result.state !== 'unavailable',

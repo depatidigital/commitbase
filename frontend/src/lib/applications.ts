@@ -93,6 +93,8 @@ export interface CreateApplicationData {
   serverId?: string;
   /** Whose app it is under a shared platform domain; an owned domain decides it itself. */
   organizationId?: string;
+  /** The user agreed to the DNS change the form showed (replace records / move to Cloudflare). */
+  dnsConsent?: boolean;
 }
 
 export interface UpdateApplicationData {
@@ -111,6 +113,8 @@ export interface UpdateApplicationData {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
+  /** with a new domain: the user agreed to the DNS change shown */
+  dnsConsent?: boolean;
 }
 
 // Get all applications
@@ -481,12 +485,35 @@ export const updateApplication = async (id: string, data: UpdateApplicationData)
 /** What a hostname is today, before an app takes it (GET /applications/hostname-check). */
 export interface HostInspection {
   usedBy: { id: string | null; name: string | null } | null;
-  record: { type: string; content: string; pointsHere: boolean } | null;
   apex: boolean;
+  /** who answers DNS for the domain: a Cloudflare zone we edit, RDASH (movable to Cloudflare), or someone else */
+  dns: "cloudflare" | "registrar" | "external" | "unknown";
+  /** records at the name pointing elsewhere — replaced only with consent */
+  replaces: { type: string; content: string }[];
+  pointsHere: boolean;
+  /** the record the app gets */
+  target: { type: "A" | "CNAME"; content: string } | null;
+  /** may this user move the domain to Cloudflare */
+  canMove: boolean;
 }
 
-export const checkHostname = async (host: string, excludeAppId?: string): Promise<HostInspection> => {
-  const query = new URLSearchParams({ host, ...(excludeAppId && { exclude: excludeAppId }) });
+/** DNS the app would change: records to replace, or a registrar domain to move. */
+export const dnsNeedsConsent = (inspection?: HostInspection | null) =>
+  !!inspection &&
+  !inspection.usedBy &&
+  ((inspection.dns === "cloudflare" && inspection.replaces.length > 0) ||
+    (inspection.dns === "registrar" && inspection.canMove));
+
+export const checkHostname = async (
+  host: string,
+  opts: { excludeAppId?: string; serverId?: string; organizationId?: string } = {},
+): Promise<HostInspection> => {
+  const query = new URLSearchParams({
+    host,
+    ...(opts.excludeAppId && { exclude: opts.excludeAppId }),
+    ...(opts.serverId && { serverId: opts.serverId }),
+    ...(opts.organizationId && { organizationId: opts.organizationId }),
+  });
   const response = await apiRequest<HostInspection>(`/applications/hostname-check?${query}`);
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t("Could not check the hostname"));

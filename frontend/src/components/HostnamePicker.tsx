@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronsUpDown, Globe, Loader2, XCircle } from "lucide-react";
-import { checkHostname } from "@/lib/applications";
+import { checkHostname, dnsNeedsConsent } from "@/lib/applications";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DnsChangeNotice } from "@/components/DnsChangeNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +38,10 @@ export function HostnamePicker({
   onSubdomain,
   onDomain,
   excludeAppId,
+  serverId,
+  organizationId,
   onBlockedChange,
+  onConsentChange,
 }: {
   choices: DomainChoice[];
   subdomain: string;
@@ -45,8 +50,13 @@ export function HostnamePicker({
   onDomain: (name: string) => void;
   /** the app being moved — its own current name is not "taken" */
   excludeAppId?: string;
-  /** true while the name belongs to another app: the caller keeps its button off */
+  /** where a new app would run, so the DNS preview shows its real address */
+  serverId?: string;
+  organizationId?: string;
+  /** true while the name is another app's, still being checked, or needs a DNS consent not given */
   onBlockedChange?: (blocked: boolean) => void;
+  /** true once the user agreed to the DNS change shown — sent with the save as dnsConsent */
+  onConsentChange?: (consent: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const picked = choices.find((choice) => choice.name === domain);
@@ -60,14 +70,20 @@ export function HostnamePicker({
     return () => clearTimeout(timer);
   }, [host]);
   const { data: inspection, isFetching: checking } = useQuery({
-    queryKey: ["hostname-check", settled, excludeAppId],
-    queryFn: () => checkHostname(settled, excludeAppId),
+    queryKey: ["hostname-check", settled, excludeAppId, serverId, organizationId],
+    queryFn: () => checkHostname(settled, { excludeAppId, serverId, organizationId }),
     enabled: !!settled && settled === host,
     staleTime: 30_000,
   });
   const current = settled === host ? inspection : undefined;
-  const blocked = !!host && (settled !== host || checking || !!current?.usedBy);
+
+  // consent is for one name: typing another one asks again
+  const [agreedFor, setAgreedFor] = useState("");
+  const needsConsent = dnsNeedsConsent(current);
+  const agreed = needsConsent && agreedFor === host;
+  const blocked = !!host && (settled !== host || checking || !!current?.usedBy || (needsConsent && !agreed));
   useEffect(() => onBlockedChange?.(blocked), [blocked, onBlockedChange]);
+  useEffect(() => onConsentChange?.(agreed), [agreed, onConsentChange]);
 
   return (
     <div className="space-y-2">
@@ -182,19 +198,19 @@ export function HostnamePicker({
           </span>
         </p>
       )}
-      {/* not a block: creating leaves DNS alone. A warning, so a live site elsewhere is not taken over by habit */}
-      {current && !current.usedBy && current.record && !current.record.pointsHere && (
-        <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-          <span>
-            {t(
-              "{host} already points to {target} ({type}) — likely a live site somewhere else. Its DNS record is left alone, so this app is not reachable there until someone repoints it on purpose.",
-              { host, target: current.record.content, type: current.record.type },
-            )}
-          </span>
-        </p>
+      {current && <DnsChangeNotice host={host} domain={domain} inspection={current} />}
+      {needsConsent && (
+        // the DNS change happens on save — only after this is ticked, for this very name
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            checked={agreed}
+            onCheckedChange={(checked) => setAgreedFor(checked === true ? host : "")}
+            className="mt-0.5"
+          />
+          <span>{t("I understand and agree that the DNS of {host} is changed as listed above.", { host })}</span>
+        </label>
       )}
-      {current && !current.usedBy && current.apex && !current.record && (
+      {current && !current.usedBy && current.apex && !needsConsent && !current.pointsHere && (
         <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <span>{t("This is the root domain — usually the main website. Add a subdomain unless you mean it.")}</span>

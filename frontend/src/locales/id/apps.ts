@@ -240,6 +240,24 @@ export default {
   "It now points to {target} ({type}). If a site runs there, it goes offline for this hostname.":
     "Saat ini mengarah ke {target} ({type}). Jika ada situs di sana, situs itu akan offline untuk hostname ini.",
   "Overwrite and point here": "Timpa dan arahkan ke sini",
+  "this platform's server": "server platform ini",
+  "The DNS of {domain} is not run here, so it cannot be changed automatically. Once the app exists, add this record where the domain's DNS is managed:":
+    "DNS {domain} tidak dikelola di sini, jadi tidak bisa diubah otomatis. Setelah aplikasi dibuat, tambahkan record ini di tempat DNS domain dikelola:",
+  "{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the organization has to move it to Cloudflare before {host} can reach this app.":
+    "{domain} masih memakai DNS registrar (RDASH), belum Cloudflare. Owner atau admin organisasi perlu memindahkannya ke Cloudflare agar {host} bisa mengakses aplikasi ini.",
+  "DNS: {host} {target} is added automatically.": "DNS: {host} {target} ditambahkan otomatis.",
+  "DNS for {host} will be changed automatically:": "DNS untuk {host} akan diubah otomatis:",
+  "{domain} moves to Cloudflare: its current DNS records are copied, then the nameservers at RDASH are switched to Cloudflare. That can take a few hours to spread.":
+    "{domain} dipindah ke Cloudflare: record DNS yang ada disalin, lalu nameserver di RDASH diganti ke Cloudflare. Propagasi bisa memakan beberapa jam.",
+  "Delete {type} → {content}": "Hapus {type} → {content}",
+  "Any record already at {host} is replaced": "Record yang sudah ada di {host} diganti",
+  "Add {target}": "Tambah {target}",
+  "Whatever is served at {host} today stops receiving visitors.": "Apa pun yang sekarang tampil di {host} tidak lagi menerima pengunjung.",
+  "I understand and agree that the DNS of {host} is changed as listed above.":
+    "Saya mengerti dan setuju DNS {host} diubah seperti di atas.",
+  "I agree — change DNS": "Saya setuju — ubah DNS",
+  "Your label for the app, taken from its source. It stays when the domain changes.":
+    "Label aplikasi Anda, diambil dari sumbernya. Tetap sama walau domain berubah.",
   "Redeploy Site": "Deploy Ulang Situs",
   'Build "{name}" from {branch} and publish the result to the site.':
     'Build "{name}" dari {branch} lalu terbitkan hasilnya ke situs.',

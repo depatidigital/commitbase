@@ -140,21 +140,18 @@ export async function getCloudflareAccountId(): Promise<string | null> {
   return null;
 }
 
-export async function getOrCreateCloudflareZone(domain: string): Promise<CloudflareZoneInfo | null> {
+/** The account's zone for this domain, if it has one — never creates it. */
+export async function findCloudflareZone(domain: string): Promise<CloudflareZoneInfo | null> {
   const shared = await getCloudflareFetchConfig();
   if (!shared) {
     return null;
   }
 
   const { fetchFn, config } = shared;
-  const apiBase = config.apiBase;
-
   const trimmedDomain = domain.trim().toLowerCase();
 
-  const searchUrl = `${apiBase}/zones?name=${encodeURIComponent(trimmedDomain)}`;
-
   try {
-    const searchResponse = await fetchFn(searchUrl, {
+    const searchResponse = await fetchFn(`${config.apiBase}/zones?name=${encodeURIComponent(trimmedDomain)}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiToken}`,
@@ -182,6 +179,21 @@ export async function getOrCreateCloudflareZone(domain: string): Promise<Cloudfl
     }
   } catch {
   }
+  return null;
+}
+
+export async function getOrCreateCloudflareZone(domain: string): Promise<CloudflareZoneInfo | null> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared) {
+    return null;
+  }
+
+  const existing = await findCloudflareZone(domain);
+  if (existing) return existing;
+
+  const { fetchFn, config } = shared;
+  const apiBase = config.apiBase;
+  const trimmedDomain = domain.trim().toLowerCase();
 
   const accountId = await getCloudflareAccountId();
   if (!accountId) {

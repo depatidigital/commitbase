@@ -100,40 +100,49 @@ export async function ensureAppHostname(
   const records = (await listCloudflareDnsRecords(zone.zoneId)) ?? [];
   const pointsAtUs = (record: any) => lower(record?.content) === lower(target.content);
 
+  // every address record at the name — an explicit one wins over the wildcard,
+  // so these decide first
+  const atHost = records.filter(
+    (record: any) =>
+      lower(record?.name) === host && ['A', 'AAAA', 'CNAME'].includes(String(record?.type).toUpperCase()),
+  );
+  const elsewhere = atHost.filter((record: any) => !pointsAtUs(record));
+
+  if (elsewhere.length && !force) {
+    // one of ours next to a stray AAAA still serves: leave it be unless asked
+    if (atHost.some(pointsAtUs)) return { state: 'exists', detail: `${host} already points here` };
+    return {
+      state: 'conflict',
+      detail: `${host} already points at ${elsewhere[0].content} — repoint it to deploy here`,
+    };
+  }
+
+  // forced: the user agreed to replace them — a CNAME cannot sit next to our A anyway
+  for (const record of elsewhere) await deleteDnsRecord(zone.zoneId, record.id);
+
+  if (atHost.some(pointsAtUs)) {
+    if (elsewhere.length) await refreshDomainSummary(zone.domain.id);
+    return { state: 'exists', detail: `${host} already points here` };
+  }
+
   // a wildcard on the zone already answers for every hostname under it
   const wildcard = records.find(
     (record: any) => lower(record?.name) === `*.${lower(zone.domain.name)}` && pointsAtUs(record),
   );
   if (wildcard && host !== lower(zone.domain.name)) {
+    if (elsewhere.length) await refreshDomainSummary(zone.domain.id);
     return { state: 'wildcard', detail: `Covered by the ${wildcard.name} record` };
   }
 
-  const existing = records.find(
-    (record: any) =>
-      lower(record?.name) === host && ['A', 'AAAA', 'CNAME'].includes(String(record?.type).toUpperCase()),
-  );
-
-  if (existing && pointsAtUs(existing)) {
-    return { state: 'exists', detail: `${host} already points here` };
-  }
-
-  if (existing && !force) {
-    return {
-      state: 'conflict',
-      detail: `${host} already points at ${existing.content} — repoint it to deploy here`,
-    };
-  }
-
-  const record = { type: target.type, name: host, content: target.content, ttl: 1, proxied: false };
-
-  if (existing) {
-    await updateDnsRecord(zone.zoneId, existing.id, record);
-  } else {
-    await createDnsRecord(zone.zoneId, record);
-  }
+  await createDnsRecord(zone.zoneId, { type: target.type, name: host, content: target.content, ttl: 1, proxied: false });
 
   await refreshDomainSummary(zone.domain.id);
-  return { state: 'created', detail: `${host} → ${target.content}` };
+  return {
+    state: 'created',
+    detail: elsewhere.length
+      ? `${host} → ${target.content} (replaced ${elsewhere.map((r: any) => `${r.type} ${r.content}`).join(', ')})`
+      : `${host} → ${target.content}`,
+  };
 }
 
 /** Drop the record the deploy created. A wildcard or a hand-made record stays. */
