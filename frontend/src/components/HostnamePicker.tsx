@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { Check, ChevronsUpDown, Globe } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Check, ChevronsUpDown, Globe, Loader2, XCircle } from "lucide-react";
+import { checkHostname } from "@/lib/applications";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,16 +35,39 @@ export function HostnamePicker({
   domain,
   onSubdomain,
   onDomain,
+  excludeAppId,
+  onBlockedChange,
 }: {
   choices: DomainChoice[];
   subdomain: string;
   domain: string;
   onSubdomain: (value: string) => void;
   onDomain: (name: string) => void;
+  /** the app being moved — its own current name is not "taken" */
+  excludeAppId?: string;
+  /** true while the name belongs to another app: the caller keeps its button off */
+  onBlockedChange?: (blocked: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const picked = choices.find((choice) => choice.name === domain);
   const problem = hostnameProblem(subdomain, picked);
+
+  // what the name is today, asked once typing pauses
+  const host = domain && !problem ? joinHost(subdomain, domain) : "";
+  const [settled, setSettled] = useState(host);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(host), 400);
+    return () => clearTimeout(timer);
+  }, [host]);
+  const { data: inspection, isFetching: checking } = useQuery({
+    queryKey: ["hostname-check", settled, excludeAppId],
+    queryFn: () => checkHostname(settled, excludeAppId),
+    enabled: !!settled && settled === host,
+    staleTime: 30_000,
+  });
+  const current = settled === host ? inspection : undefined;
+  const blocked = !!host && (settled !== host || checking || !!current?.usedBy);
+  useEffect(() => onBlockedChange?.(blocked), [blocked, onBlockedChange]);
 
   return (
     <div className="space-y-2">

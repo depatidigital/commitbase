@@ -478,6 +478,20 @@ export const updateApplication = async (id: string, data: UpdateApplicationData)
   throw new Error(response.error || t("Failed to update application"));
 };
 
+/** What a hostname is today, before an app takes it (GET /applications/hostname-check). */
+export interface HostInspection {
+  usedBy: { id: string | null; name: string | null } | null;
+  record: { type: string; content: string; pointsHere: boolean } | null;
+  apex: boolean;
+}
+
+export const checkHostname = async (host: string, excludeAppId?: string): Promise<HostInspection> => {
+  const query = new URLSearchParams({ host, ...(excludeAppId && { exclude: excludeAppId }) });
+  const response = await apiRequest<HostInspection>(`/applications/hostname-check?${query}`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not check the hostname"));
+};
+
 // Delete application
 export const deleteApplication = async (id: string): Promise<void> => {
   const response = await apiRequest(`/applications/${id}`, {

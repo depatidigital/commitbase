@@ -6,7 +6,7 @@ import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { orgScope } from '../lib/scope';
-import { mayForceDns, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
+import { inspectHost, mayForceDns, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
@@ -519,6 +519,23 @@ router.get('/health', authenticateToken, async (req: AuthenticatedRequest, res: 
     } as ApiResponse);
   } catch (error) {
     console.error('Error reading application health:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * What a hostname is today — taken by another app, already pointing somewhere,
+ * the bare domain — so the create and move forms can warn before anything is
+ * changed. Before GET /:id, or express reads "hostname-check" as an id.
+ */
+router.get('/hostname-check', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const host = normalizeHost(req.query.host);
+    if (!host.includes('.')) return res.status(400).json({ success: false, error: 'host is required' } as ApiResponse);
+    const exclude = typeof req.query.exclude === 'string' ? req.query.exclude : undefined;
+    return res.json({ success: true, data: await inspectHost(req, host, exclude) } as ApiResponse);
+  } catch (error) {
+    console.error('Error checking hostname:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

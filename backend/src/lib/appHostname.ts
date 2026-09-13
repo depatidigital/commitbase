@@ -2,7 +2,7 @@ import type { Domain } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from './prisma';
 import { candidateParents, getOrgIds, isPlatformAdmin, orgScope } from './scope';
-import { listCloudflareDnsRecords } from '../services/cloudflareService';
+import { getDefaultDnsTarget, listCloudflareDnsRecords } from '../services/cloudflareService';
 import { listCaddyRouteHosts } from '../services/caddyService';
 
 /**
@@ -90,6 +90,60 @@ export async function sharedHostTaken(
   if (records.some((record: any) => normalizeHost(record?.name) === host)) return taken;
   if (hosts.some((name) => normalizeHost(name) === host)) return taken;
   return null;
+}
+
+export type HostInspection = {
+  /** another app already has this hostname; name only when the caller may see that app */
+  usedBy: { id: string; name: string } | { id: null; name: null } | null;
+  /** its own A/AAAA/CNAME record in a zone we run, and whether that points at one of our nodes */
+  record: { type: string; content: string; pointsHere: boolean } | null;
+  /** the bare domain — usually the main website */
+  apex: boolean;
+};
+
+/**
+ * What a hostname means today, before an app takes it — for warning the user,
+ * not for deciding: create and rename still enforce their own rules.
+ * `excludeAppId`: the app being renamed, which may keep its own name.
+ */
+export async function inspectHost(
+  req: AuthenticatedRequest,
+  host: string,
+  excludeAppId?: string,
+): Promise<HostInspection> {
+  const app = await prisma.application.findUnique({
+    where: { domain: host },
+    select: { id: true, name: true, organizationId: true },
+  });
+  const visible = app && (isPlatformAdmin(req) || (app.organizationId && (await getOrgIds(req)).includes(app.organizationId)));
+  const usedBy = app && app.id !== excludeAppId ? (visible ? { id: app.id, name: app.name } : { id: null, name: null }) : null;
+
+  // only zones the caller could put an app under — public DNS, but no reason to widen it
+  const parent = (
+    await prisma.domain.findMany({
+      where: { name: { in: candidateParents(host) }, OR: [await orgScope(req), { shared: true }] },
+    })
+  ).sort((a, b) => b.name.length - a.name.length)[0];
+
+  let record: HostInspection['record'] = null;
+  if (parent?.cfZoneId) {
+    const found = ((await listCloudflareDnsRecords(parent.cfZoneId).catch(() => null)) ?? []).find(
+      (r: any) => normalizeHost(r?.name) === host && ['A', 'AAAA', 'CNAME'].includes(String(r?.type).toUpperCase()),
+    );
+    if (found) {
+      const ours = new Set(
+        [
+          ...(await prisma.server.findMany({ select: { publicIp: true } })).map((s) => s.publicIp),
+          (await getDefaultDnsTarget().catch(() => null))?.content,
+        ]
+          .filter(Boolean)
+          .map((value) => normalizeHost(value)),
+      );
+      record = { type: String(found.type), content: String(found.content), pointsHere: ours.has(normalizeHost(found.content)) };
+    }
+  }
+
+  return { usedBy, record, apex: !!parent && parent.name === host };
 }
 
 /** Overwriting a conflicting DNS record is an admin's call under a shared domain. */
