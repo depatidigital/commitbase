@@ -178,6 +178,9 @@ export interface HostnameHealth {
   error: string | null;
   /** its domain is a Cloudflare zone we run — only then can "point it here" write the record */
   dnsManaged?: boolean;
+  /** what the registry says is wrong with the domain itself (e.g. semata.id), if anything */
+  domainProblem?: 'unregistered' | 'expired' | 'suspended' | 'inactive' | null;
+  registeredDomain?: string | null;
 }
 
 export const getApplicationHostname = async (id: string): Promise<HostnameHealth> => {

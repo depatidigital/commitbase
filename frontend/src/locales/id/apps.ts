@@ -25,7 +25,8 @@ export default {
   "no data": "tidak ada data",
   reachable: "dapat dijangkau",
   "not serving yet": "belum melayani",
-  "no DNS": "tanpa DNS",
+  "no DNS": "DNS tidak ditemukan",
+  "not connected": "tidak terhubung",
   "Point it here": "Arahkan ke sini",
   "Successful checks in the last 24 hours": "Pengecekan berhasil dalam 24 jam terakhir",
 

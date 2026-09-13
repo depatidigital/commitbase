@@ -768,7 +768,20 @@ export default function ApplicationDetail() {
                     </Button>
                     {/* whether the hostname actually answers — RUNNING only ever
                         meant the process started */}
-                    {hostname?.live ? (
+                    {/* the registration first: an expired domain can still "answer" — with a parking page */}
+                    {hostname?.domainProblem ? (
+                      <Badge
+                        variant="outline"
+                        className="gap-1 border-destructive text-destructive"
+                        title={t("{domain} at the registry: {problem}", {
+                          domain: hostname.registeredDomain ?? application.domain,
+                          problem: DOMAIN_PROBLEM[hostname.domainProblem](),
+                        })}
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        {DOMAIN_PROBLEM[hostname.domainProblem]()}
+                      </Badge>
+                    ) : hostname?.live ? (
                       <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
                         <Wifi className="h-3 w-3" />
                         {t("reachable")}
@@ -787,7 +800,8 @@ export default function ApplicationDetail() {
                           }
                         >
                           <WifiOff className="h-3 w-3" />
-                          {hostname.resolves ? t("not serving yet") : t("no DNS")}
+                          {/* no record, and its domain is not a zone we run: not connected to the panel at all */}
+                          {hostname.resolves ? t("not serving yet") : hostname.dnsManaged ? t("no DNS") : t("not connected")}
                         </Badge>
                         {/* only a Cloudflare zone we run can take the record — anywhere else the button could only fail */}
                         {hostname.dnsManaged && (
@@ -839,13 +853,18 @@ export default function ApplicationDetail() {
                 <Field label={t("Source")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {application.repository ? (
-                      <>
-                        <span className="inline-flex min-w-0 items-center gap-1 font-mono text-xs">
-                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="break-all">{application.repository}</span>
-                          <span className="text-muted-foreground">· {application.branch || "main"}</span>
-                        </span>
-                      </>
+                      // a field, not wrapped text: a long URL stays on one line and copies whole
+                      <span className="flex w-full min-w-0 items-center gap-2">
+                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <Input
+                          readOnly
+                          value={application.repository}
+                          onFocus={(e) => e.currentTarget.select()}
+                          aria-label={t("Repository")}
+                          className="h-8 min-w-0 flex-1 font-mono text-xs"
+                        />
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{application.branch || "main"}</span>
+                      </span>
                     ) : application.runtime ? (
                       // imported and not a git checkout we could find: it just lives on the box
                       <span className="inline-flex items-center gap-1">

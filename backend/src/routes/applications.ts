@@ -37,6 +37,7 @@ import { syncServerApps, scanServerApps, controlPm2Process } from '../services/a
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
 import { folderExists, teardownApp, teardownPlan } from '../services/appTeardownService';
+import { hostnameRegistration } from '../services/rdapService';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
@@ -1736,8 +1737,16 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    const [health, managed] = await Promise.all([checkAppHostname(application.domain), dnsManaged(application)]);
-    return res.json({ success: true, data: { ...health, dnsManaged: managed } } as ApiResponse);
+    // the registration too: an expired domain often still resolves — to the registrar's parking page
+    const [health, managed, registration] = await Promise.all([
+      checkAppHostname(application.domain),
+      dnsManaged(application),
+      hostnameRegistration(application.domain).catch(() => null),
+    ]);
+    return res.json({
+      success: true,
+      data: { ...health, dnsManaged: managed, domainProblem: registration?.problem ?? null, registeredDomain: registration?.domain ?? null },
+    } as ApiResponse);
   } catch (error) {
     console.error('Error checking application hostname:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);

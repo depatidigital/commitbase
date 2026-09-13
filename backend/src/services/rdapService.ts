@@ -233,3 +233,54 @@ export async function getDomainAvailability(
 
   return { available: false, registration: toRegistration(name, lookup.data) };
 }
+
+/**
+ * Suffixes where a registration sits one label deeper (shop.co.id, not co.id).
+ * ponytail: the Indonesian ones plus a few common elsewhere, not the full Public
+ * Suffix List — a name under a missing one is looked up one label too high,
+ * reads as "unknown", and shows nothing. Swap in the PSL if that starts to bite.
+ */
+const SECOND_LEVEL = new Set([
+  'co.id', 'my.id', 'web.id', 'biz.id', 'ac.id', 'sch.id', 'go.id', 'or.id', 'net.id', 'mil.id', 'desa.id', 'ponpes.id',
+  'co.uk', 'org.uk', 'ac.uk', 'com.au', 'net.au', 'org.au', 'com.sg', 'com.my', 'co.jp', 'com.br',
+]);
+
+/** The name a registrar sold: depatinews.semata.id → semata.id, a.shop.co.id → shop.co.id. Pure. */
+export function registrableDomain(hostname: string): string | null {
+  const labels = String(hostname).trim().toLowerCase().replace(/\.$/, '').split('.').filter(Boolean);
+  if (labels.length < 2) return null;
+  const take = SECOND_LEVEL.has(labels.slice(-2).join('.')) ? 3 : 2;
+  return labels.length >= take ? labels.slice(-take).join('.') : null;
+}
+
+export type DomainProblem = 'unregistered' | 'expired' | 'suspended' | 'inactive';
+
+/**
+ * What is wrong with the registration itself, whatever the site does — or null
+ * when nothing is (or the registry did not say). From RDAP's EPP statuses:
+ * a hold takes the name out of DNS, redemption/pending delete is an expiry the
+ * registry is already winding up, "inactive" has no nameservers delegated. Pure.
+ */
+export function domainProblem(
+  available: boolean | null,
+  registration: Pick<DomainRegistration, 'status' | 'expiresAt'> | null,
+  now = new Date(),
+): DomainProblem | null {
+  if (available === true) return 'unregistered';
+  if (!registration) return null;
+
+  const status = registration.status.map((s) => s.toLowerCase().replace(/[\s_-]/g, ''));
+  if (status.some((s) => s === 'redemptionperiod' || s === 'pendingdelete')) return 'expired';
+  if (registration.expiresAt && new Date(registration.expiresAt) < now) return 'expired';
+  if (status.some((s) => s === 'clienthold' || s === 'serverhold')) return 'suspended';
+  if (status.includes('inactive')) return 'inactive';
+  return null;
+}
+
+/** The registration behind a hostname, and what (if anything) is wrong with it. */
+export async function hostnameRegistration(hostname: string) {
+  const domain = registrableDomain(hostname);
+  if (!domain) return null;
+  const { available, registration } = await getDomainAvailability(domain);
+  return { domain, problem: domainProblem(available, registration), expiresAt: registration?.expiresAt ?? null };
+}
