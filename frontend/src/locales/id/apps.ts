@@ -576,6 +576,21 @@ export default {
   "Remove the Caddy route": "Hapus route Caddy",
   "Remove the DNS record": "Hapus record DNS",
   "Delete the app folder": "Hapus folder aplikasi",
+  // teardown step details and reasons — sent by the API as English keys
+  "Whatever listens on port {port}": "Apa pun yang mendengarkan di port {port}",
+  "The process behind the proxy": "Proses di balik proxy",
+  "Caddy route for {domain}": "Route Caddy untuk {domain}",
+  "DNS record {domain} → this server (Cloudflare, only if it points here)":
+    "Record DNS {domain} → server ini (Cloudflare, hanya jika mengarah ke sini)",
+  "The app folder": "Folder aplikasi",
+  "Not started by pm2, so we do not know how to stop it — stop it on the server yourself":
+    "Tidak dijalankan oleh pm2, jadi kami tidak tahu cara menghentikannya — hentikan sendiri di server",
+  "Not linked to a server — sync the apps again first": "Belum terhubung ke server — sinkronkan aplikasi dulu",
+  "This is the panel itself": "Ini adalah panel itu sendiri",
+  "No folder was detected for this app": "Folder aplikasi ini tidak terdeteksi",
+  "{dir} is not a plain absolute path": "{dir} bukan path absolut yang wajar",
+  "{dir} is a system or home folder": "{dir} adalah folder sistem atau home",
+  "{dir} belongs to another app": "{dir} milik aplikasi lain",
   "Set up on the server": "Dipasang di server",
   "Checked out on the server from {branch}. Newest on the remote: {sha}.":
     "Di-checkout di server dari {branch}. Terbaru di remote: {sha}.",

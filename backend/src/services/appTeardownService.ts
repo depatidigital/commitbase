@@ -5,6 +5,8 @@ import { rm } from '../lib/remoteFs';
 import { removeCaddySite } from './caddyService';
 import { removeAppHostname } from './appDnsService';
 import { APPS_ROOT_DIR, PANEL_HOST, deletePm2Process } from './appSyncService';
+import { HOME_ROOT } from '../lib/appPaths';
+import { exec } from '../lib/runner';
 
 /**
  * Removing an imported app from its server — the pieces someone set up by
@@ -38,12 +40,17 @@ export type TeardownStep = {
   blocked?: Msg | undefined;
 };
 
-// never removed, whatever an app row says its folder is
-const PROTECTED_DIRS = new Set([
-  '/', '/root', '/home', '/var', '/var/www', '/srv', '/opt', '/usr', '/usr/local', '/etc',
-  '/tmp', '/bin', '/sbin', '/lib', '/boot', '/dev', '/proc', '/sys', '/run', '/mnt', '/media',
-  path.posix.normalize(APPS_ROOT_DIR).replace(/\/+$/, ''),
-]);
+const cleanPath = (dir: string) => path.posix.normalize(dir).replace(/\/+$/, '') || '/';
+
+/**
+ * Where an app folder may be deleted from: strictly inside one of these, never
+ * one of them itself. An allowlist, not a denylist — a denylist has to think of
+ * /etc/caddy, /var/lib/mysql and every other system folder, and missing one is
+ * an `rm -rf` of it (as root, when the node is logged into as root).
+ * Under the home root the app must be inside a user's home, not the home itself.
+ */
+const HOME = cleanPath(HOME_ROOT);
+const ALLOWED_ROOTS = [...new Set(['/root', '/var/www', '/srv', '/opt', cleanPath(APPS_ROOT_DIR)])];
 
 /**
  * Why `dir` must not be `rm -rf`ed, or null when it may. Pure.
@@ -52,12 +59,20 @@ const PROTECTED_DIRS = new Set([
  */
 export function folderRisk(dir: string | null | undefined, others: string[]): Msg | null {
   if (!dir) return msg('No folder was detected for this app');
-  if (!dir.startsWith('/') || dir.split('/').includes('..')) return msg('{dir} is not a plain absolute path', { dir });
-
-  const clean = path.posix.normalize(dir).replace(/\/+$/, '') || '/';
-  if (PROTECTED_DIRS.has(clean) || /^\/home\/[^/]+$/.test(clean) || clean.split('/').filter(Boolean).length < 2) {
-    return msg('{dir} is a system or home folder', { dir: clean });
+  if (!dir.startsWith('/') || /[\0\r\n]/.test(dir) || dir.split('/').includes('..')) {
+    return msg('{dir} is not a plain absolute path', { dir });
   }
+
+  const clean = cleanPath(dir);
+  const segments = clean.split('/').filter(Boolean);
+  // .ssh, .config, .pm2 … — never an app, often what keeps the box reachable
+  if (segments.some((segment) => segment.startsWith('.'))) return msg('{dir} is a hidden folder', { dir: clean });
+  // the panel's own org homes: those apps are torn down by the panel, not here
+  if (clean.startsWith(`${HOME}/cb-`)) return msg('{dir} is managed by the panel', { dir: clean });
+
+  const underHome = clean.startsWith(HOME + '/') && clean.split('/').length - HOME.split('/').length >= 2;
+  const underRoot = ALLOWED_ROOTS.some((root) => clean.startsWith(root + '/'));
+  if (!underHome && !underRoot) return msg('{dir} is a system or home folder', { dir: clean });
 
   const shared = others
     .map((other) => path.posix.normalize(other).replace(/\/+$/, ''))

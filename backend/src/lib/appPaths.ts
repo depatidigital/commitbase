@@ -17,7 +17,7 @@ import { prisma } from './prisma';
  * therefore read a directory that never existed.
  */
 
-const HOME_ROOT = process.env.CB_HOME_ROOT || '/home';
+export const HOME_ROOT = process.env.CB_HOME_ROOT || '/home';
 const LEGACY_APPS_DIR = process.env.APPS_DIR || path.join(process.cwd(), 'apps_dir');
 
 /** Must match the validation in runner/cb-provision-org.sh. */
