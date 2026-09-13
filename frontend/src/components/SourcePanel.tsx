@@ -100,8 +100,15 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
         ) : remote.error ? (
           <p className="break-words text-xs text-destructive">{(remote.error as Error).message}</p>
         ) : readOnly ? (
-          <p className="text-xs text-muted-foreground">
-            {t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })}
+          <p
+            className="text-xs text-muted-foreground"
+            title={`${t("Live now")}: ${live?.slice(0, 7) ?? "—"} · ${t("Newest on {branch}", { branch: current })}: ${head?.slice(0, 7) ?? "—"}`}
+          >
+            {!head || !live
+              ? t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })
+              : head === live
+                ? t("The server has the newest commit on {branch}.", { branch: current })
+                : t("The server is behind {branch} — pull on the server to update it.", { branch: current })}
           </p>
         ) : (
           <>

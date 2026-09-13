@@ -105,6 +105,14 @@ interface LogEntry {
 }
 
 /** Displayed word for an app status; the raw value stays for logic. */
+// functions, so t() reads the dictionary at render, not at import
+const DOMAIN_PROBLEM: Record<'unregistered' | 'expired' | 'suspended' | 'inactive', () => string> = {
+  unregistered: () => t("domain not registered"),
+  expired: () => t("domain expired"),
+  suspended: () => t("domain suspended"),
+  inactive: () => t("domain inactive"),
+};
+
 const STATUS_LABELS: Record<string, string> = {
   RUNNING: t("Running"),
   STOPPED: t("Stopped"),
@@ -853,18 +861,14 @@ export default function ApplicationDetail() {
                 <Field label={t("Source")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {application.repository ? (
-                      // a field, not wrapped text: a long URL stays on one line and copies whole
-                      <span className="flex w-full min-w-0 items-center gap-2">
-                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <Input
-                          readOnly
-                          value={application.repository}
-                          onFocus={(e) => e.currentTarget.select()}
-                          aria-label={t("Repository")}
-                          className="h-8 min-w-0 flex-1 font-mono text-xs"
-                        />
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{application.branch || "main"}</span>
-                      </span>
+                      // two lines: the URL alone (wraps anywhere, never overflows), then branch and type
+                      <>
+                        <span className="w-full break-all text-right font-mono text-xs">{application.repository}</span>
+                        <span className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground">
+                          <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                          {application.branch || "main"}
+                        </span>
+                      </>
                     ) : application.runtime ? (
                       // imported and not a git checkout we could find: it just lives on the box
                       <span className="inline-flex items-center gap-1">

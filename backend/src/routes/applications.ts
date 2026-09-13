@@ -30,7 +30,8 @@ import { healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor } from '../lib/appFs';
 import { queueOrgNode } from '../services/orgProvisionService';
-import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
@@ -303,11 +304,35 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
-      select: { repository: true, branch: true, gitAccountId: true, activeRelease: { select: { commitSha: true } } },
+      select: {
+        repository: true, branch: true, gitAccountId: true, runtime: true, rootPath: true, serverId: true,
+        activeRelease: { select: { commitSha: true } },
+      },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     if (!application.repository) {
       return res.status(400).json({ success: false, error: 'This app is not deployed from a repository' } as ApiResponse);
+    }
+
+    // An imported checkout is read on its own server, with that server's git
+    // credentials (usually an SSH deploy key) — the panel has none for it. And
+    // what is live is simply the checkout's HEAD.
+    if (application.runtime && application.rootPath && application.serverId) {
+      const server = await prisma.server.findUnique({ where: { id: application.serverId } });
+      if (server) {
+        // never wait on a prompt: no tty to answer a password or a new host key
+        const git = (args: string[]) =>
+          exec(
+            server,
+            ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', application.rootPath!, ...args],
+            { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
+          );
+        const [remote, head] = await Promise.all([git(['ls-remote', '--symref', 'origin']), git(['rev-parse', 'HEAD']).catch(() => null)]);
+        return res.json({
+          success: true,
+          data: { ...parseLsRemote(remote.stdout), branch: application.branch || 'main', liveCommit: head?.stdout.trim() || null },
+        } as ApiResponse);
+      }
     }
 
     const remote = await listRemoteBranches(

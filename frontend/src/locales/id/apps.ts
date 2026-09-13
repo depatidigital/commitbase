@@ -27,6 +27,14 @@ export default {
   "not serving yet": "belum melayani",
   "no DNS": "DNS tidak ditemukan",
   "not connected": "tidak terhubung",
+  "The server has the newest commit on {branch}.": "Server sudah memakai commit terbaru di {branch}.",
+  "The server is behind {branch} — pull on the server to update it.":
+    "Server tertinggal dari {branch} — lakukan pull di server untuk memperbaruinya.",
+  "domain not registered": "domain belum terdaftar",
+  "domain expired": "domain kedaluwarsa",
+  "domain suspended": "domain ditangguhkan",
+  "domain inactive": "domain tidak aktif",
+  "{domain} at the registry: {problem}": "{domain} di registri: {problem}",
   "Point it here": "Arahkan ke sini",
   "Successful checks in the last 24 hours": "Pengecekan berhasil dalam 24 jam terakhir",
 
