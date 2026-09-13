@@ -514,7 +514,6 @@ export default {
   "Empty uses the detected one.": "Kosong = memakai hasil deteksi.",
   "Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.":
     "Dijalankan sebelum build dengan environment aplikasi, agar build bisa memakai tabelnya. Jika gagal, rilis lama tetap melayani — pakai untuk migrasi database.",
-  Manual: "Manual",
   "Going live": "Menuju live",
   "Cancel deploy": "Batalkan deploy",
   "More actions": "Aksi lainnya",
@@ -562,6 +561,4 @@ export default {
   "Full log": "Log lengkap",
   "Unsaved changes — saved when you deploy.": "Perubahan belum disimpan — disimpan saat Anda deploy.",
   "The last deploy failed": "Deploy terakhir gagal",
-  "Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.":
-    "Dipasang manual di {runtime} — panel hanya memantaunya, tidak men-deploy atau memprovisinya.",
 } satisfies Record<string, string>;
