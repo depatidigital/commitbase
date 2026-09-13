@@ -77,6 +77,7 @@ import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { AppDomainsCard } from "@/components/AppDomainsCard";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
+import { RepointDialog } from "@/components/RepointDialog";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
 import {

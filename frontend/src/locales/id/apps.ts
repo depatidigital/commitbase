@@ -225,6 +225,21 @@ export default {
   "{name} registration {state} {date}": "Registrasi {name} {state} {date}",
   "expired on": "kedaluwarsa pada",
   "expires on": "habis pada",
+  "Could not check the hostname": "Tidak bisa memeriksa hostname",
+  "Checking {host}…": "Memeriksa {host}…",
+  "{host} is already used by": "{host} sudah dipakai oleh",
+  "{host} is already used by another app.": "{host} sudah dipakai aplikasi lain.",
+  "Pick another name.": "Pilih nama lain.",
+  "{host} already points to {target} ({type}) — likely a live site somewhere else. Its DNS record is left alone, so this app is not reachable there until someone repoints it on purpose.":
+    "{host} sudah mengarah ke {target} ({type}) — kemungkinan situs aktif di tempat lain. Record DNS-nya tidak diubah, jadi aplikasi ini belum bisa diakses di sana sampai seseorang sengaja mengarahkannya.",
+  "This is the root domain — usually the main website. Add a subdomain unless you mean it.":
+    "Ini domain utama (root) — biasanya situs utama. Tambahkan subdomain kecuali memang disengaja.",
+  "Point {host} at this app?": "Arahkan {host} ke aplikasi ini?",
+  "Its DNS record is set to this platform's server. Whatever it points at now stops receiving visitors.":
+    "Record DNS-nya diarahkan ke server platform ini. Apa pun yang dituju sekarang tidak lagi menerima pengunjung.",
+  "It now points to {target} ({type}). If a site runs there, it goes offline for this hostname.":
+    "Saat ini mengarah ke {target} ({type}). Jika ada situs di sana, situs itu akan offline untuk hostname ini.",
+  "Overwrite and point here": "Timpa dan arahkan ke sini",
   "Redeploy Site": "Deploy Ulang Situs",
   'Build "{name}" from {branch} and publish the result to the site.':
     'Build "{name}" dari {branch} lalu terbitkan hasilnya ke situs.',
@@ -379,9 +394,16 @@ export default {
   "Upload .env": "Unggah .env",
   "Paste .env": "Tempel .env",
   Import: "Impor",
-  "Every KEY=value line becomes a variable. Existing names get the pasted value; review before saving.":
-    "Setiap baris KEY=value jadi variabel. Nama yang sudah ada diganti nilainya; periksa dulu sebelum menyimpan.",
+  "Every KEY=value line becomes a variable. Nothing is removed; if a name already has a different value, you choose whether to overwrite it.":
+    "Setiap baris KEY=value jadi variabel. Tidak ada yang dihapus; jika nama sudah punya nilai berbeda, Anda memilih apakah ditimpa.",
   "{count} variables imported — review, then save.": "{count} variabel diimpor — periksa, lalu simpan.",
+  "{count} variables imported, {skipped} kept as they were — review, then save.":
+    "{count} variabel diimpor, {skipped} dibiarkan seperti semula — periksa, lalu simpan.",
+  "Some variables already have a value": "Beberapa variabel sudah punya nilai",
+  "The .env has a different value for {count} of them. Add only what is new, or overwrite these too?":
+    ".env berisi nilai berbeda untuk {count} variabel. Tambahkan yang baru saja, atau timpa juga yang ini?",
+  "Overwrite {count}": "Timpa {count}",
+  "Add new only": "Tambah yang baru saja",
   "No KEY=value lines found.": "Tidak ada baris KEY=value.",
   "The code expects this name": "Nama ini dipakai oleh kode aplikasi",
   "Local address, won't work on the server. Use Connect database.": "Alamat lokal, tidak jalan di server. Pakai Hubungkan database.",
