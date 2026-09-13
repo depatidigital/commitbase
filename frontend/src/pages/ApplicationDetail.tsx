@@ -156,6 +156,7 @@ export default function ApplicationDetail() {
   const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
   // only Stop asks first: a deploy replaces nothing until it works, and can be cancelled
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmRepoint, setConfirmRepoint] = useState(false);
 
   // API hooks
   const { application, isLoading, error } = useApplicationStatus(id!);
@@ -751,7 +752,8 @@ export default function ApplicationDetail() {
                           size="sm"
                           className="h-6"
                           disabled={setupDns.isPending}
-                          onClick={() => setupDns.mutate({ id: application.id, force: true })}
+                          // overwrites whatever the record points at — asked first, never one click
+                          onClick={() => setConfirmRepoint(true)}
                         >
                           {t("Point it here")}
                         </Button>
@@ -1104,6 +1106,17 @@ export default function ApplicationDetail() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {confirmRepoint && (
+          <RepointDialog
+            application={application}
+            onClose={() => setConfirmRepoint(false)}
+            onConfirm={() => {
+              setupDns.mutate({ id: application.id, force: true });
+              setConfirmRepoint(false);
+            }}
+          />
+        )}
       </div>
     </TooltipProvider>
   );

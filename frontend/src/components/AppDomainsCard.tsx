@@ -53,6 +53,7 @@ export function AppDomainsCard({ application }: { application: Application }) {
   const changed = !!domain && next !== application.domain;
   const problem = hostnameProblem(subdomain, picked);
   const [confirming, setConfirming] = useState(false);
+  const [hostBlocked, setHostBlocked] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // values that spell out the address — the app's own URL — do not follow a move
@@ -120,6 +121,8 @@ export function AppDomainsCard({ application }: { application: Application }) {
               domain={domain}
               onSubdomain={setSubdomain}
               onDomain={setDomain}
+              excludeAppId={application.id}
+              onBlockedChange={setHostBlocked}
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
               {isAdmin() && (
@@ -135,7 +138,7 @@ export function AppDomainsCard({ application }: { application: Application }) {
                   {t("Reset")}
                 </Button>
               )}
-              <Button onClick={() => setConfirming(true)} disabled={!changed || !!problem || saving}>
+              <Button onClick={() => setConfirming(true)} disabled={!changed || !!problem || hostBlocked || saving}>
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("Move app")}
               </Button>

@@ -156,6 +156,50 @@ export function HostnamePicker({
           t("Leave the subdomain empty to use the root domain.")
         )}
       </p>
+
+      {host && settled === host && checking && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {t("Checking {host}…", { host })}
+        </p>
+      )}
+      {current?.usedBy && (
+        <p className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2.5 text-sm text-destructive">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {current.usedBy.id ? (
+              <>
+                {t("{host} is already used by", { host })}{" "}
+                <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
+                  {current.usedBy.name}
+                </Link>
+                .
+              </>
+            ) : (
+              t("{host} is already used by another app.", { host })
+            )}{" "}
+            {t("Pick another name.")}
+          </span>
+        </p>
+      )}
+      {/* not a block: creating leaves DNS alone. A warning, so a live site elsewhere is not taken over by habit */}
+      {current && !current.usedBy && current.record && !current.record.pointsHere && (
+        <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>
+            {t(
+              "{host} already points to {target} ({type}) — likely a live site somewhere else. Its DNS record is left alone, so this app is not reachable there until someone repoints it on purpose.",
+              { host, target: current.record.content, type: current.record.type },
+            )}
+          </span>
+        </p>
+      )}
+      {current && !current.usedBy && current.apex && !current.record && (
+        <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>{t("This is the root domain — usually the main website. Add a subdomain unless you mean it.")}</span>
+        </p>
+      )}
     </div>
   );
 }

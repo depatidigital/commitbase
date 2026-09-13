@@ -83,6 +83,8 @@ export default function AddApp() {
     queryFn: () => getOrganizationsPage({ page: 1, limit: 2, search: "" }),
   });
   const [organizationId, setOrganizationId] = useState("");
+  // the hostname belongs to another app, or is still being checked
+  const [hostBlocked, setHostBlocked] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -409,6 +411,7 @@ export default function AddApp() {
     return (
       !!formData.name &&
       !hostnameProblem(formData.subdomain, pickedDomain) &&
+      !hostBlocked &&
       (!needsOrg || !!organizationId) &&
       !!formData.type
     );
@@ -850,6 +853,7 @@ export default function AddApp() {
                       domain={formData.selectedDomain}
                       onSubdomain={(value) => handleInputChange("subdomain", value)}
                       onDomain={(name) => handleInputChange("selectedDomain", name)}
+                      onBlockedChange={setHostBlocked}
                     />
                     {needsOrg && (
                       <OrganizationCombobox
