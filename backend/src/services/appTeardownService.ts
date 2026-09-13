@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { rm } from '../lib/remoteFs';
 import { removeCaddySite } from './caddyService';
 import { removeAppHostname } from './appDnsService';
-import { APPS_ROOT_DIR, PANEL_HOST, deletePm2Process, listListeningPorts } from './appSyncService';
+import { APPS_ROOT_DIR, PANEL_HOST, deletePm2Process, listListeningPorts, probeFolders } from './appSyncService';
 import { HOME_ROOT } from '../lib/appPaths';
 import { exec } from '../lib/runner';
 
@@ -86,6 +86,12 @@ export function folderRisk(dir: string | null | undefined, others: string[]): Ms
 
 async function serverOf(app: Application) {
   return app.serverId ? prisma.server.findUnique({ where: { id: app.serverId } }) : null;
+}
+
+/** Whether `dir` is a folder on the server; null when the server could not be asked. */
+export async function folderExists(server: Parameters<typeof probeFolders>[0], dir: string): Promise<boolean | null> {
+  const states = await probeFolders(server, [dir]);
+  return states ? states.get(dir)?.exists ?? false : null;
 }
 
 /** Every other app's folder on the server. */
@@ -174,10 +180,19 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
   if (app.runtime !== 'CADDY_PROXY' && app.rootPath) {
     const others = server ? await otherFolders(server.id, app.id) : [];
     const risk = folderRisk(app.rootPath, others);
+    const dir = cleanPath(app.rootPath);
+    // what the row says is not always on disk (an old sync guessed folders)
+    const exists = server ? (await folderExists(server, dir)) : null;
     steps.push({
       id: 'files',
-      ...(risk ? { detail: msg('The app folder') } : { command: `rm -rf ${cleanPath(app.rootPath)}` }),
-      blocked: isPanel ?? noServer ?? risk ?? undefined,
+      ...(risk ? { detail: msg('The app folder') } : { command: `rm -rf ${dir}` }),
+      ...(isPanel ?? noServer
+        ? { blocked: isPanel ?? noServer }
+        : exists === false
+          ? { satisfied: msg('{dir} is not on the server — nothing to delete', { dir }) }
+          : exists === null
+            ? { blocked: msg('Could not check whether {dir} is on the server', { dir }) }
+            : { blocked: risk ?? undefined }),
     });
   }
 

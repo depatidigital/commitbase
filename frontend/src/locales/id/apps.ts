@@ -572,6 +572,9 @@ export default {
   "Removes it from the panel and from the server. If anything cannot be removed, nothing is deleted.":
     "Menghapusnya dari panel dan dari server. Jika ada yang tidak bisa dihapus, tidak ada yang dihapus.",
   "Nothing listens on port {port} any more": "Tidak ada lagi yang mendengarkan di port {port}",
+  "Not on the server": "Tidak ada di server",
+  "{dir} is not on the server — nothing to delete": "{dir} tidak ada di server — tidak ada yang dihapus",
+  "Could not check whether {dir} is on the server": "Tidak bisa memeriksa apakah {dir} ada di server",
   "Could not check whether port {port} is in use": "Tidak bisa memeriksa apakah port {port} sedang dipakai",
   "Something still listens on port {port}. It was not started by pm2 — stop it on the server first":
     "Masih ada yang mendengarkan di port {port}. Tidak dijalankan oleh pm2 — hentikan dulu di server",

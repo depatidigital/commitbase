@@ -300,13 +300,16 @@ export function repositoryFromRemote(remote: string | undefined): string | null 
   return full ? `https://${full[1]}/${full[2]}` : null;
 }
 
+export type FolderState = { exists: boolean; repository?: string; branch?: string };
+
 /**
- * Remote and branch of each folder that is a git checkout, in one SSH round
- * trip. `safe.directory=*`: the folders usually belong to another user, and git
- * would otherwise refuse to read them. Folders that are not checkouts are left out.
+ * Whether each folder is there, and for a git checkout its remote and branch —
+ * one SSH round trip. `safe.directory=*`: the folders usually belong to another
+ * user, and git would otherwise refuse to read them. null when the node could
+ * not be asked, so a failed probe never reads as "every folder is gone".
  */
-export async function gitCheckouts(node: SshTarget, dirs: string[]): Promise<Map<string, { repository: string; branch?: string }>> {
-  const found = new Map<string, { repository: string; branch?: string }>();
+export async function probeFolders(node: SshTarget, dirs: string[]): Promise<Map<string, FolderState> | null> {
+  const found = new Map<string, FolderState>();
   if (!dirs.length) return found;
 
   try {
@@ -315,7 +318,7 @@ export async function gitCheckouts(node: SshTarget, dirs: string[]): Promise<Map
       [
         'sh',
         '-c',
-        'for d; do printf "%s\\t%s\\t%s\\n" "$d" "$(git -c safe.directory="*" -C "$d" config --get remote.origin.url 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done',
+        'for d; do printf "%s\\t%s\\t%s\\t%s\\n" "$d" "$([ -d "$d" ] && echo 1)" "$(git -c safe.directory="*" -C "$d" config --get remote.origin.url 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done',
         'sh',
         ...dirs,
       ],
@@ -323,16 +326,20 @@ export async function gitCheckouts(node: SshTarget, dirs: string[]): Promise<Map
     );
 
     for (const line of stdout.split(/\r?\n/)) {
-      const [dir, remote, branch] = line.split('\t');
-      const repository = repositoryFromRemote(remote);
-      // a detached checkout says "HEAD" — that is not a branch to deploy
-      if (dir && repository) found.set(dir, { repository, ...(branch && branch !== 'HEAD' && { branch }) });
+      const [dir, exists, remote, branch] = line.split('\t');
+      if (!dir) continue;
+      const repository = repositoryFromRemote(remote) ?? undefined;
+      found.set(dir, {
+        exists: exists === '1',
+        ...(repository && { repository }),
+        // a detached checkout says "HEAD" — that is not a branch to deploy
+        ...(repository && branch && branch !== 'HEAD' && { branch }),
+      });
     }
+    return found;
   } catch {
-    // no git on the node is not a failed scan
+    return null;
   }
-
-  return found;
 }
 
 /**
@@ -362,6 +369,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
   const apps: DiscoveredApp[] = [];
   const claimed = new Set<string>();
   const seen = new Set<string>();
+  const guessed = new Set<DiscoveredApp>();
 
   for (const route of routes) {
     const target = classifyRoute(route);
@@ -386,7 +394,12 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
           ? 'CADDY_PHP'
           : 'CADDY_STATIC';
 
-      apps.push({
+      const knownRoot = target.rootPath || process?.cwd || (pid ? cwds.get(pid) : undefined);
+      // a bucket-proxied site has no directory on the node; a PHP/static route
+      // that does not say gets the conventional folder — checked below, kept only if it is there
+      const guessedRoot = knownRoot || target.port || target.origin ? undefined : path.posix.join(APPS_ROOT_DIR, domain);
+
+      const app: DiscoveredApp = {
         name: process?.name || domain,
         domain,
         runtime,
@@ -403,16 +416,13 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
             : 'RUNNING',
         port: target.port,
         processName: process?.name,
-        rootPath:
-          target.rootPath ||
-          process?.cwd ||
-          (pid ? cwds.get(pid) : undefined) ||
-          // a bucket-proxied site has no directory on the node — do not guess one
-          (target.port || target.origin ? undefined : path.posix.join(APPS_ROOT_DIR, domain)),
+        rootPath: knownRoot || guessedRoot,
         memory: process?.memory,
         cpu: process?.cpu,
         uptime: process?.uptime,
-      });
+      };
+      apps.push(app);
+      if (guessedRoot) guessed.add(app);
     }
   }
 
@@ -438,11 +448,13 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     });
   }
 
-  // where the code came from, for folders that are a git checkout
-  const checkouts = await gitCheckouts(node, [...new Set(apps.map((app) => app.rootPath).filter((dir): dir is string => !!dir))]);
+  // is each folder really there, and where did its code come from
+  const folders = await probeFolders(node, [...new Set(apps.map((app) => app.rootPath).filter((dir): dir is string => !!dir))]);
   for (const app of apps) {
-    const checkout = app.rootPath ? checkouts.get(app.rootPath) : undefined;
-    if (checkout) Object.assign(app, checkout);
+    const state = app.rootPath ? folders?.get(app.rootPath) : undefined;
+    // a guess that is not on disk is no folder at all (a probe that failed proves nothing)
+    if (guessed.has(app) && state && !state.exists) app.rootPath = undefined;
+    if (state?.repository) Object.assign(app, { repository: state.repository, branch: state.branch });
   }
 
   return apps;

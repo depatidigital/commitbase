@@ -61,7 +61,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, hasBeenDeployed, runtimeLabel, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, hasBeenDeployed, runtimeLabel, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -195,8 +195,17 @@ export default function ApplicationDetail() {
   const detection = useQuery({
     queryKey: ['application', id, 'detect'],
     queryFn: () => getAppDetection(id!),
-    enabled: canDetect && (needsSetup || activeTab === 'environment' || activeTab === 'settings'),
+    enabled: canDetect && (needsSetup || activeTab === 'environment' || activeTab === 'build'),
     staleTime: 5 * 60_000,
+    retry: false,
+  });
+  // an imported app's folder is whatever the sync recorded — ask the server if it
+  // is really there. Not under ['application', id]: that is invalidated every 2s while deploying.
+  const folder = useQuery({
+    queryKey: ['app-folder', id],
+    queryFn: () => getAppFolder(id!),
+    enabled: !!application?.runtime && !!application?.rootPath,
+    staleTime: 60_000,
     retry: false,
   });
   // The deployment history polls itself while a deploy runs (the same query the
@@ -888,6 +897,9 @@ export default function ApplicationDetail() {
                 {(!isStatic || (!application.staticBucket && application.rootPath)) && (
                   <Field label={t("Directory")}>
                     <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
+                    {folder.data?.exists === false && (
+                      <span className="block text-xs text-warning">{t("Not on the server")}</span>
+                    )}
                   </Field>
                 )}
                 {application.repository && (

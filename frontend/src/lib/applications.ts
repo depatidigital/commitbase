@@ -549,6 +549,10 @@ export type TeardownStepId = 'process' | 'route' | 'dns' | 'files';
 export type ApiMsg = { text: string; params?: Record<string, string | number> };
 export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg; satisfied?: ApiMsg };
 
+/** Whether an imported app's recorded folder is on its server; exists null when it could not be asked. */
+export const getAppFolder = async (id: string): Promise<{ path: string | null; exists: boolean | null }> =>
+  (await apiRequest<{ path: string | null; exists: boolean | null }>(`/applications/${id}/folder`)).data!;
+
 /** What deleting an imported app could remove from its server (superadmin only). */
 export const getTeardownPlan = async (id: string): Promise<TeardownStep[]> =>
   (await apiRequest<TeardownStep[]>(`/applications/${id}/teardown`)).data ?? [];

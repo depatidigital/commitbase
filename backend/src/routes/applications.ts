@@ -36,7 +36,7 @@ import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
-import { teardownApp, teardownPlan } from '../services/appTeardownService';
+import { folderExists, teardownApp, teardownPlan } from '../services/appTeardownService';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
@@ -1161,6 +1161,24 @@ router.get('/:id/teardown', authenticateToken, requireRole([]), async (req: Auth
     return res.json({ success: true, data: await teardownPlan(application) } as ApiResponse);
   } catch (error) {
     console.error('Error building teardown plan:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// Is the imported app's folder really on its server — the row can say one that is not
+router.get('/:id/folder', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    }
+    const server = application.rootPath && application.serverId
+      ? await prisma.server.findUnique({ where: { id: application.serverId } })
+      : null;
+    const exists = server ? await folderExists(server, application.rootPath!) : null;
+    return res.json({ success: true, data: { path: application.rootPath, exists } } as ApiResponse);
+  } catch (error) {
+    console.error('Error checking app folder:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
