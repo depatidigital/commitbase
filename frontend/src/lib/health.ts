@@ -17,6 +17,8 @@ export interface Health {
   uptime24h: number | null;
   lastError: string | null;
   responseMs: number | null;
+  /** answers, but its DNS leads to this other server — not ours */
+  pointsElsewhere?: string;
 }
 
 export type Tone = "up" | "down" | "warn" | "deploying" | "muted";
@@ -34,6 +36,8 @@ export const appStatus = (status: string, health?: Health): { text: string; tone
   if (health?.state === "down") return { text: t("Down"), tone: "down", rank: 0 };
   // failing lately, not yet long enough to call it an outage
   if (health?.state === "pending") return { text: t("Unstable"), tone: "warn", rank: 0 };
+  // answering from another server: up for someone, but not connected to this app's server
+  if (health?.state === "up" && health.pointsElsewhere) return { text: t("Active, not connected"), tone: "warn", rank: 0 };
   if (health?.state === "up") return { text: t("Online"), tone: "up", rank: 2 };
   if (status === "ERROR") return { text: t("Error"), tone: "down", rank: 0 };
   return { text: t("Not monitored"), tone: "muted", rank: 4 };

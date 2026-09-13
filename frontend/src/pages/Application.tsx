@@ -304,6 +304,7 @@ export default function Application() {
           since ? `${text} · ${ago(since)}` : text,
           health?.uptime24h != null && t("{uptime}% up in the last 24 hours", { uptime: health.uptime24h }),
           health?.responseMs != null && `${health.responseMs}ms`,
+          health?.pointsElsewhere && t("DNS points to {ip}", { ip: health.pointsElsewhere }),
           health?.state !== "up" && health?.lastError,
         ].filter(Boolean).join(" · ");
         return (

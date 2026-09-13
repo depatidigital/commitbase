@@ -394,7 +394,14 @@ export default function ApplicationDetail() {
   const overall = appStatus(application.status, healthById?.[application.id]);
   // answering now, and either expected to (published) or the checks agree — a
   // sync's ERROR ("no listener on the port") must not call a site that answers dead
-  const siteLive = !!hostname?.live && (published || overall.tone === 'up');
+  // answers, but the name leads to another server: that is not this app serving.
+  // The live DNS check here, else what the last hostname check found.
+  const elsewhere = hostname?.live
+    ? hostname.pointing?.state === 'elsewhere'
+      ? hostname.pointing.origin ?? hostname.pointing.addresses.join(', ')
+      : healthById?.[application.id]?.pointsElsewhere
+    : undefined;
+  const siteLive = !!hostname?.live && !elsewhere && (published || overall.tone === 'up');
   // down by the checks (or an ERROR row) — the card must say so, not "Running"
   const down = !siteLive && !failureReason && overall.tone === 'down';
   // start/stop reach a process we deployed, or pm2's; anything else imported
@@ -462,14 +469,29 @@ export default function ApplicationDetail() {
           <CardContent className="space-y-4 p-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="mt-0.5 shrink-0">
-                {siteLive ? <CheckCircle className="h-5 w-5 text-green-500" /> : getStatusIcon(down ? 'ERROR' : application.status)}
+                {siteLive ? (
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                ) : elsewhere ? (
+                  <AlertTriangle className="h-5 w-5 text-warning" />
+                ) : (
+                  getStatusIcon(down ? 'ERROR' : application.status)
+                )}
               </div>
               <div className="min-w-0">
                 <h3 className="font-semibold">
-                  {siteLive ? t("Live and serving") : failureReason ? t("Deploy failed") : down ? t("Down") : STATUS_LABELS[application.status] ?? application.status}
+                  {siteLive
+                    ? t("Live and serving")
+                    : elsewhere
+                      ? t("Active, not connected")
+                      : failureReason
+                        ? t("Deploy failed")
+                        : down
+                          ? t("Down")
+                          : STATUS_LABELS[application.status] ?? application.status}
                 </h3>
                 <p className="break-words text-sm text-muted-foreground">
                   {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
+                   elsewhere ? t("{domain} is answered by another server ({ip}), not this one.", { domain: application.domain, ip: elsewhere }) :
                    down ? (hostname && !hostname.resolves
                      ? t("{domain} has no DNS record, so nobody can reach it.", { domain: application.domain })
                      : t("{domain} does not answer.", { domain: application.domain })) :
@@ -792,6 +814,12 @@ export default function ApplicationDetail() {
                       >
                         <AlertCircle className="h-3 w-3" />
                         {DOMAIN_PROBLEM[hostname.domainProblem]()}
+                      </Badge>
+                    ) : hostname?.live && elsewhere ? (
+                      // it answers — from someone else's server
+                      <Badge variant="outline" className="gap-1 border-warning text-warning" title={t("DNS points to {ip}", { ip: elsewhere })}>
+                        <Wifi className="h-3 w-3" />
+                        {t("reachable elsewhere")}
                       </Badge>
                     ) : hostname?.live ? (
                       <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
