@@ -378,8 +378,6 @@ export default function Application() {
         // what kind of app, as its icon — a column of badges said the same thing louder
         const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
         const TypeIcon = type.icon;
-        // the operator only: manual = synced from the box, and the loopback port
-        const manual = superAdmin && !!app.runtime;
 
         return (
           <div className="flex min-w-0 items-center gap-3">
@@ -413,23 +411,9 @@ export default function Application() {
                 </a>
               )}
             </span>
-            {(named || manual) && (
+            {named && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                {/* imported by the server sync: set up by hand, run under its own
-                    user — the panel watches it but never deploys or provisions it.
-                    On the second line so it never costs the name its width. */}
-                {manual && (
-                  <Badge
-                    variant="outline"
-                    className="shrink-0 border-warning/40 px-1.5 py-0 text-[10px] font-medium text-warning"
-                    title={t("Set up by hand on {runtime} — the panel monitors it but does not deploy it or provision for it.", {
-                      runtime: RUNTIME_LABEL[app.runtime!] ?? app.runtime,
-                    })}
-                  >
-                    {t("Manual")}
-                  </Badge>
-                )}
-                {named && <span className="truncate">{app.domain}</span>}
+                <span className="truncate">{app.domain}</span>
               </span>
             )}
           </div>

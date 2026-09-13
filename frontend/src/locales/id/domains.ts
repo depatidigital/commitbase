@@ -285,4 +285,31 @@ export default {
   "Availability check failed": "Pengecekan ketersediaan gagal",
   "Failed to register domain": "Gagal mendaftarkan domain",
   "Failed to create the wildcard record": "Gagal membuat record wildcard",
+
+  // Google Search Console
+  Open: "Buka",
+  "Add to Search Console": "Tambah ke Search Console",
+  "Add {name} to Google Search Console": "Tambah {name} ke Google Search Console",
+  "Added to Google Search Console": "Ditambahkan ke Google Search Console",
+  "Failed to add to Search Console": "Gagal menambahkan ke Search Console",
+  "The verification TXT record is added to Cloudflare for you.":
+    "Record TXT verifikasi ditambahkan ke Cloudflare secara otomatis.",
+  "This domain is not on Cloudflare, so you will add the verification TXT record at the registrar yourself.":
+    "Domain ini tidak di Cloudflare, jadi record TXT verifikasi perlu Anda tambahkan sendiri di registrar.",
+  "Google accounts to give owner access": "Akun Google yang diberi akses pemilik",
+  "Optional. Added on top of the defaults set under Integrations.":
+    "Opsional. Ditambahkan di samping pemilik bawaan di Integrasi.",
+  "Google has not seen the record yet. Add it (if it is not there), wait a minute, then verify again.":
+    "Google belum melihat record-nya. Tambahkan (jika belum ada), tunggu sebentar, lalu verifikasi lagi.",
+  "Verify again": "Verifikasi lagi",
+  "Service account": "Service account",
+  "Service account key": "Kunci service account",
+  "Default owners": "Pemilik bawaan",
+  "Saved, but Google refused the key": "Tersimpan, tetapi Google menolak kunci ini",
+  "Search Console settings saved": "Pengaturan Search Console tersimpan",
+  "Failed to save Search Console settings": "Gagal menyimpan pengaturan Search Console",
+  "A Google Cloud service account key (JSON) from a project with the Site Verification API and the Google Search Console API enabled. The key is stored encrypted.":
+    "Kunci service account Google Cloud (JSON) dari project yang mengaktifkan Site Verification API dan Google Search Console API. Kunci disimpan terenkripsi.",
+  "Google accounts given owner access to every domain added, so it shows in their Search Console.":
+    "Akun Google yang diberi akses pemilik untuk setiap domain yang ditambahkan, agar muncul di Search Console mereka.",
 } satisfies Record<string, string>;
