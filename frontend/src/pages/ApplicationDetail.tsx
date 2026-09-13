@@ -367,7 +367,10 @@ export default function ApplicationDetail() {
   // where the running deploy is, from its row's status (PENDING → BUILDING → DEPLOYING)
   const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
   const siteLive = published && !!hostname?.live;
-  const canStop = !isStatic && application.status === 'RUNNING';
+  // start/stop reach a process we deployed, or pm2's; anything else imported
+  // was started by someone we cannot ask
+  const controllable = !application.runtime || application.runtime === 'PM2';
+  const canStop = !isStatic && controllable && application.status === 'RUNNING';
   // an uploaded site redeploys by uploading, from its own button
   const canRedeploy = deployed && !uploadedSite;
   // newest first, so the next READY one after the serving one is the previous version
@@ -462,7 +465,7 @@ export default function ApplicationDetail() {
                 </a>
               </Button>
             )}
-            {!application.repository && (
+            {!application.repository && !application.runtime && (
               <Button
                 variant={uploadedSite ? "default" : "outline"}
                 className={uploadedSite ? "bg-gradient-primary" : undefined}
@@ -500,7 +503,7 @@ export default function ApplicationDetail() {
                 {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
                 {t("Deploy")}
               </Button>
-            ) : !isStatic && application.status !== 'RUNNING' ? (
+            ) : !isStatic && controllable && application.status !== 'RUNNING' ? (
               // stopped: bring the built release back — nothing is rebuilt
               <Button onClick={() => startExistingApp.mutate(application.id)} disabled={startExistingApp.isPending} className="bg-gradient-primary">
                 {startExistingApp.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
@@ -809,6 +812,12 @@ export default function ApplicationDetail() {
                           <span className="text-muted-foreground">· {application.branch || "main"}</span>
                         </span>
                       </>
+                    ) : application.runtime ? (
+                      // imported and not a git checkout we could find: it just lives on the box
+                      <span className="inline-flex items-center gap-1">
+                        <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                        {t("Set up on the server")}
+                      </span>
                     ) : (
                       <span className="inline-flex items-center gap-1">
                         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
