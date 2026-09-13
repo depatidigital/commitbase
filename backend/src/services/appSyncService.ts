@@ -25,6 +25,9 @@ export type DiscoveredApp = {
   memory?: string | undefined;
   cpu?: string | undefined;
   uptime?: string | undefined;
+  /** the git remote its folder was cloned from, when it is a checkout */
+  repository?: string | undefined;
+  branch?: string | undefined;
 };
 
 export type AppSyncResult = {
@@ -282,6 +285,57 @@ export async function processCwds(node: SshTarget, pids: number[]): Promise<Map<
 }
 
 /**
+ * A remote as the panel stores repositories: HTTPS, no credentials. A checkout
+ * made with a token often has it in the URL (`https://user:ghp_…@github.com/…`)
+ * — that must never reach the database. SSH remotes become their HTTPS form,
+ * the one a connected account's token works on. null for anything else
+ * (a local path, file://). Pure.
+ */
+export function repositoryFromRemote(remote: string | undefined): string | null {
+  const url = String(remote ?? '').trim();
+  const scp = url.match(/^[\w.-]+@([\w.-]+):(?!\/)(.+)$/); // git@github.com:owner/repo.git
+  if (scp) return `https://${scp[1]}/${scp[2]}`;
+
+  const full = url.match(/^(?:https?|ssh|git):\/\/(?:[^@/]+@)?([\w.-]+)(?::\d+)?\/(.+)$/i);
+  return full ? `https://${full[1]}/${full[2]}` : null;
+}
+
+/**
+ * Remote and branch of each folder that is a git checkout, in one SSH round
+ * trip. `safe.directory=*`: the folders usually belong to another user, and git
+ * would otherwise refuse to read them. Folders that are not checkouts are left out.
+ */
+export async function gitCheckouts(node: SshTarget, dirs: string[]): Promise<Map<string, { repository: string; branch?: string }>> {
+  const found = new Map<string, { repository: string; branch?: string }>();
+  if (!dirs.length) return found;
+
+  try {
+    const { stdout } = await exec(
+      node,
+      [
+        'sh',
+        '-c',
+        'for d; do printf "%s\\t%s\\t%s\\n" "$d" "$(git -c safe.directory="*" -C "$d" config --get remote.origin.url 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done',
+        'sh',
+        ...dirs,
+      ],
+      { timeout: 20_000 },
+    );
+
+    for (const line of stdout.split(/\r?\n/)) {
+      const [dir, remote, branch] = line.split('\t');
+      const repository = repositoryFromRemote(remote);
+      // a detached checkout says "HEAD" — that is not a branch to deploy
+      if (dir && repository) found.set(dir, { repository, ...(branch && branch !== 'HEAD' && { branch }) });
+    }
+  } catch {
+    // no git on the node is not a failed scan
+  }
+
+  return found;
+}
+
+/**
  * What one node is actually serving: its live Caddy routes joined with the pm2
  * process behind each proxied port. pm2 processes with no route are reported
  * too, under a `<name>.pm2.local` placeholder host.
@@ -384,6 +438,13 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     });
   }
 
+  // where the code came from, for folders that are a git checkout
+  const checkouts = await gitCheckouts(node, [...new Set(apps.map((app) => app.rootPath).filter((dir): dir is string => !!dir))]);
+  for (const app of apps) {
+    const checkout = app.rootPath ? checkouts.get(app.rootPath) : undefined;
+    if (checkout) Object.assign(app, checkout);
+  }
+
   return apps;
 }
 
@@ -473,15 +534,27 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       if (existing) {
         await prisma.application.update({
           where: { id: existing.id },
-          // fills rows synced before the link existed; never moves a set one
-          data: { ...fields, ...(!existing.domainId && domainId && { domainId }) },
+          // fills rows synced before the link / the repo existed; never moves a set one
+          data: {
+            ...fields,
+            ...(!existing.domainId && domainId && { domainId }),
+            ...(!existing.repository && app.repository && { repository: app.repository, branch: app.branch ?? 'main' }),
+          },
         });
         applicationId = existing.id;
         result.updated += 1;
         result.apps.push({ ...app, action: 'updated' });
       } else {
         const created = await prisma.application.create({
-          data: { name: app.name, domain: app.domain, type: app.type, userId, domainId, ...fields },
+          data: {
+            name: app.name,
+            domain: app.domain,
+            type: app.type,
+            userId,
+            domainId,
+            ...fields,
+            ...(app.repository && { repository: app.repository, branch: app.branch ?? 'main' }),
+          },
         });
         applicationId = created.id;
         result.created += 1;

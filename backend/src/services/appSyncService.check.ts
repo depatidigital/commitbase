@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf } from './appSyncService';
+import { classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
@@ -151,4 +151,12 @@ assert.strictEqual(parentDomainOf('api.staging.client.com', doms)?.id, 'b');
 assert.strictEqual(parentDomainOf('notclient.com', doms), null);
 assert.strictEqual(parentDomainOf('web.pm2.local', doms), null);
 
-console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf OK');
+// git remotes: stored as HTTPS, and a token in the URL never survives
+assert.strictEqual(repositoryFromRemote('git@github.com:acme/shop.git'), 'https://github.com/acme/shop.git');
+assert.strictEqual(repositoryFromRemote('https://github.com/acme/shop.git'), 'https://github.com/acme/shop.git');
+assert.strictEqual(repositoryFromRemote('https://deploy:ghp_secret@github.com/acme/shop'), 'https://github.com/acme/shop');
+assert.strictEqual(repositoryFromRemote('ssh://git@gitlab.example.com:2222/team/app.git'), 'https://gitlab.example.com/team/app.git');
+assert.strictEqual(repositoryFromRemote('/srv/git/shop.git'), null);
+assert.strictEqual(repositoryFromRemote(''), null);
+
+console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');
