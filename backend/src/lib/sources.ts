@@ -18,6 +18,9 @@ export async function backfillSources(): Promise<number> {
       ON CONFLICT ("id") DO NOTHING`,
     prisma.$executeRaw`UPDATE "applications" SET "sourceId" = "id" WHERE "sourceId" IS NULL`,
     prisma.$executeRaw`UPDATE "releases" SET "sourceId" = "applicationId" WHERE "sourceId" IS NULL AND "applicationId" IS NOT NULL`,
+    prisma.$executeRaw`
+      UPDATE "deployments" d SET "sourceId" = a."sourceId"
+      FROM "applications" a WHERE a."id" = d."applicationId" AND d."sourceId" IS NULL AND a."sourceId" IS NOT NULL`,
   ]);
   return created;
 }

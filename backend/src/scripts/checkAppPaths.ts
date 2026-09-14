@@ -4,7 +4,10 @@
  */
 import assert from 'assert';
 import * as path from 'path';
-import { appDirFor, orgHome, orgAppsDir, osUserFor, ORG_SLUG_RE } from '../lib/appPaths';
+import {
+  appDirFor, orgHome, orgAppsDir, osUserFor, ORG_SLUG_RE,
+  cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE, sourceDirOf,
+} from '../lib/appPaths';
 
 const APP = 'clx1234567890abcdef';
 
@@ -34,6 +37,23 @@ for (const bad of ['../../etc/passwd', 'a/b', '', 'x'.repeat(65), 'id;reboot']) 
 for (const good of ['acme', 'a-b', 'client-01', 'a'.repeat(40)]) {
   assert.ok(ORG_SLUG_RE.test(good), `slug should be accepted: ${good}`);
 }
+
+// Monorepo folders: cleaned, then only plain relative segments
+assert.strictEqual(cleanRootDirectory(' /apps/web/ '), 'apps/web');
+assert.strictEqual(cleanRootDirectory('/'), null);
+assert.strictEqual(cleanRootDirectory(undefined), null);
+for (const good of ['apps/web', 'api', 'packages/my.app', 'a_b/c-d', '.github-not/x', 'x..y']) {
+  assert.ok(ROOT_DIRECTORY_RE.test(good), `root directory should be accepted: ${good}`);
+}
+for (const bad of ['..', '.', 'apps/..', '../x', 'a/./b', 'a//b', 'a b', 'a;id', '$(id)', 'a/../../etc', '~/x']) {
+  assert.ok(!ROOT_DIRECTORY_RE.test(bad), `root directory should be rejected: ${JSON.stringify(bad)}`);
+}
+assert.strictEqual(inRootDirectory('/r/1', 'apps/web'), '/r/1/apps/web');
+assert.strictEqual(inRootDirectory('/r/1', null), '/r/1');
+// a source's tree is a sibling of the app's, or the app's own
+assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app2', 'src1'), '/home/cb-acme/apps/src1');
+assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app1', 'app1'), '/home/cb-acme/apps/app1');
+assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app1', null), '/home/cb-acme/apps/app1');
 
 // run.sh env escaping — a value with a quote must not break out of the export
 const shellQuote = (v: string) => `'${String(v).replace(/'/g, `'\''`)}'`;

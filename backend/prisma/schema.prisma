@@ -340,6 +340,9 @@ model Application {
   // backfillSources has run at startup (lib/sources.ts).
   sourceId    String?
   source      Source?  @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  /// The app's folder in the repository (monorepos): built, run and detected
+  /// there. Null = the repository root.
+  rootDirectory String?
 
   // Deprecated: moved to Source. Nothing reads or writes these any more; they
   // stay so `prisma db push` on an upgrade adds the new table instead of
@@ -469,13 +472,18 @@ model Deployment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
-  // Relations
+  // Relations — the app it was started from. A deploy builds the app's whole
+  // source, so it is in the history of every app of that source (sourceId).
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  // ponytail: plain id, no relation, like Release.deploymentId. Filled for
+  // older rows by backfillSources.
+  sourceId      String?
 
   userId String
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([sourceId])
   @@map("deployments")
 }
 

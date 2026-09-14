@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { ROOT_DIRECTORY_RE } from './appPaths';
 
 // execFile, never a shell: the repository URL is user input, and inside a
 // shell string `$(...)` or backticks in it would run
@@ -40,6 +41,11 @@ export interface DetectedProject {
   preDeployCommand: string | null;
   /** a step before the build — Prisma's client generation — or null */
   generateCommand: string | null;
+  /**
+   * An app in a monorepo folder whose lockfile is at the repository root (a
+   * pnpm/yarn/npm workspace): install there, build in the folder.
+   */
+  installAtRoot?: boolean;
 }
 
 export type DetectWarning =
@@ -420,8 +426,48 @@ export async function readDetectFiles(dir: string, read: ReadText = readLocal): 
   return out;
 }
 
-export async function detectProject(dir: string, read?: ReadText, prismaMigrations?: boolean): Promise<DetectedProject> {
-  return detectFromFiles(await readDetectFiles(dir, read), prismaMigrations);
+const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock'] as const;
+
+/**
+ * A monorepo folder's detection files, with what it takes from the repository
+ * root when it has none of its own: in a workspace the lockfile, the node
+ * version and `packageManager` live at the root only. Pure.
+ */
+export function withRootFiles(own: DetectInput, root: DetectInput): { files: DetectInput; installAtRoot: boolean } {
+  const installAtRoot = !LOCKFILES.some((name) => own[name] !== undefined) && LOCKFILES.some((name) => root[name] !== undefined);
+  const inherited = [...(installAtRoot ? LOCKFILES : []), '.nvmrc', '.node-version'] as const;
+  const files: DetectInput = { ...own };
+  for (const name of inherited) if (files[name] === undefined && root[name] !== undefined) files[name] = root[name];
+  try {
+    const declared = JSON.parse(root['package.json'] || '{}')?.packageManager;
+    const pkg = own['package.json'] ? JSON.parse(own['package.json']) : null;
+    if (declared && pkg && !pkg.packageManager) files['package.json'] = JSON.stringify({ ...pkg, packageManager: declared });
+  } catch {
+    // an unreadable package.json on either side: detect from the folder's own
+  }
+  return { files, installAtRoot };
+}
+
+// A workspace hoists `next` to the root node_modules (npm, yarn), so the path
+// NEXT_START hardcodes is not there. Node's own resolution finds it either way.
+// ponytail: assumes next keeps dist/bin/next resolvable (it has no exports map).
+export const NEXT_START_WORKSPACE = `node "$(node -p "require.resolve('next/dist/bin/next')")" start -H 127.0.0.1 -p $PORT`;
+
+/**
+ * Detect the project in `dir`. With `root` (the repository, when `dir` is an
+ * app's folder in it) the folder inherits the workspace's files — withRootFiles.
+ */
+export async function detectProject(dir: string, read?: ReadText, prismaMigrations?: boolean, root?: string): Promise<DetectedProject> {
+  const own = await readDetectFiles(dir, read);
+  if (!root || path.posix.normalize(root) === path.posix.normalize(dir)) return detectFromFiles(own, prismaMigrations);
+
+  const { files, installAtRoot } = withRootFiles(own, await readDetectFiles(root, read));
+  const detected = detectFromFiles(files, prismaMigrations);
+  return {
+    ...detected,
+    installAtRoot,
+    ...(installAtRoot && detected.startCommand === NEXT_START && { startCommand: NEXT_START_WORKSPACE }),
+  };
 }
 
 /**
@@ -444,9 +490,15 @@ const remoteGit = (auth: RemoteAuth, args: string[]) => ({
   env: { ...GIT_ENV, ...auth.env },
 });
 
-export async function detectFromRepo(repository: string, branch = 'main', auth: RemoteAuth = ANONYMOUS): Promise<DetectedProject> {
+export async function detectFromRepo(
+  repository: string,
+  branch = 'main',
+  auth: RemoteAuth = ANONYMOUS,
+  rootDirectory: string | null = null,
+): Promise<DetectedProject> {
   if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
   if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) throw new Error('Invalid branch name');
+  if (rootDirectory !== null && !ROOT_DIRECTORY_RE.test(rootDirectory)) throw new Error('Invalid root directory');
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-detect-'));
   try {
@@ -457,12 +509,23 @@ export async function detectFromRepo(repository: string, branch = 'main', auth: 
     // comes back without the blob, so detection never saw a package.json.
     const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', branch, repository, tmp]);
     await execFileAsync('git', clone.argv, { timeout: 60000, env: clone.env });
+    // an app's folder in a monorepo: that folder too, its blobs in one batch.
+    // ponytail: the whole folder, not just its detection files — fine for app
+    // code; a folder full of media would make this slow.
+    if (rootDirectory) {
+      const add = remoteGit(auth, ['-C', tmp, 'sparse-checkout', 'add', '--', rootDirectory]);
+      await execFileAsync('git', add.argv, { timeout: 60000, env: add.env });
+    }
     // the sparse checkout has the root only, but the trees are all there:
     // whether prisma/migrations exists costs one ls-tree, no download
-    const migrations = await execFileAsync('git', ['-C', tmp, 'ls-tree', '--name-only', 'HEAD', 'prisma/migrations/'], { timeout: 10000 })
+    const migrationsDir = path.posix.join(rootDirectory ?? '', 'prisma/migrations/');
+    const migrations = await execFileAsync('git', ['-C', tmp, 'ls-tree', '--name-only', 'HEAD', migrationsDir], { timeout: 10000 })
       .then(({ stdout }) => String(stdout).trim().length > 0)
       .catch(() => undefined);
-    return detectProject(tmp, undefined, migrations);
+    if (!rootDirectory) return detectProject(tmp, undefined, migrations);
+    const dir = path.join(tmp, rootDirectory);
+    if (!(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) throw new Error(`No folder ${rootDirectory} in the repository`);
+    return detectProject(dir, undefined, migrations, tmp);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }

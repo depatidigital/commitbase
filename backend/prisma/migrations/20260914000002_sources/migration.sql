@@ -8,7 +8,14 @@
 ALTER TABLE "releases" DROP CONSTRAINT "releases_applicationId_fkey";
 
 -- AlterTable
-ALTER TABLE "applications" ADD COLUMN     "sourceId" TEXT;
+ALTER TABLE "applications" ADD COLUMN     "rootDirectory" TEXT,
+ADD COLUMN     "sourceId" TEXT;
+
+-- AlterTable
+ALTER TABLE "deployments" ADD COLUMN     "sourceId" TEXT;
+
+-- CreateIndex
+CREATE INDEX "deployments_sourceId_idx" ON "deployments"("sourceId");
 
 -- AlterTable
 ALTER TABLE "releases" ADD COLUMN     "sourceId" TEXT,
@@ -61,3 +68,6 @@ ON CONFLICT ("id") DO NOTHING;
 UPDATE "applications" SET "sourceId" = "id" WHERE "sourceId" IS NULL;
 
 UPDATE "releases" SET "sourceId" = "applicationId" WHERE "sourceId" IS NULL AND "applicationId" IS NOT NULL;
+
+UPDATE "deployments" d SET "sourceId" = a."sourceId"
+FROM "applications" a WHERE a."id" = d."applicationId" AND d."sourceId" IS NULL AND a."sourceId" IS NOT NULL;

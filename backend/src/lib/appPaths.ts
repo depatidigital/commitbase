@@ -63,6 +63,27 @@ export const releasesDirFor = (appDir: string) => path.posix.join(appDir, 'relea
 export const currentDirFor = (appDir: string) => path.posix.join(appDir, 'current');
 export const sharedDirFor = (appDir: string) => path.posix.join(appDir, 'shared');
 
+/**
+ * The tree an app's code is in: its source's directory, a sibling of its own.
+ * sources/, releases/, current and build.sh are the source's; run.sh and the
+ * unit's logs are the app's. The same directory for an app whose source shares
+ * its id — every app but the extra apps of a monorepo.
+ */
+export const sourceDirOf = (appDir: string, sourceId: string | null | undefined) =>
+  sourceId ? path.posix.join(path.posix.dirname(appDir), sourceId) : appDir;
+
+/**
+ * An app's folder inside the repository (monorepos): plain relative segments,
+ * no `.` or `..` — it ends up in a `cd`. Checked on the cleaned value.
+ */
+export const ROOT_DIRECTORY_RE = /^(?!(?:.*\/)?\.\.?(?:\/|$))[\w.-]+(?:\/[\w.-]+)*$/;
+/** '' / '/' / '  apps/web/ ' → null / null / 'apps/web' */
+export const cleanRootDirectory = (raw: unknown): string | null =>
+  String(raw ?? '').trim().replace(/^\/+|\/+$/g, '') || null;
+/** `base` (a release, sources/) inside the app's folder */
+export const inRootDirectory = (base: string, rootDirectory: string | null | undefined) =>
+  rootDirectory ? path.posix.join(base, rootDirectory) : base;
+
 export async function orgSlugForApp(applicationId: string): Promise<string | null> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
