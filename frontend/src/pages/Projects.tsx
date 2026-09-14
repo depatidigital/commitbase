@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ExternalLink, FolderGit2, Layers, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
+import { AlertCircle, ExternalLink, GitBranch, HardDrive, Upload, Layers, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -119,68 +119,20 @@ export default function Projects() {
   const allSelected = projects.length > 0 && projects.every((project) => selectedIds.includes(project.id));
   const toggleOne = (id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  // One line of a project's row per app (per path of a split hostname): its
-  // uptime dot, type, address and open-link; how it runs, for the operator.
-  // Only the open-link does anything — the row itself is the project's.
-  const appLine = (app: ProjectApp, part: AppPart) => {
-    const type = APP_TYPES[part.type] ?? { label: part.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
-    const TypeIcon = type.icon;
-    // a sync placeholder like arusflow.pm2.local: nothing a browser can open
-    const internal = app.domain.endsWith(".local");
-    const health = healthById[app.id] as Health | undefined;
-    const { tone, text } = statusOf(app);
-    // what serves this part on the box: the app's own process, or Caddy
-    const runtime = part.owner
-      ? `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`
-      : part.proxyPort
-        ? runtimeLabel("CADDY_PROXY")
-        : runtimeLabel("CADDY_STATIC");
-    const target = !app.routing?.length ? null : part.proxyPort ? `:${part.proxyPort}` : part.root?.split("/").slice(-2).join("/") ?? null;
-    return (
-      <div key={part.key} className={`flex min-w-0 items-center gap-2 ${app.disabled ? "opacity-50" : ""}`}>
-        {/* the uptime check reaches the hostname, not its /api/*: the dot is the hostname line's */}
-        <span className="w-3 shrink-0">
-          {part.main && (
-            <Dot
-              tone={tone}
-              text={[text, health?.uptime24h != null && t("{uptime}% up in the last 24 hours", { uptime: health.uptime24h }), health?.state !== "up" && health?.lastError]
-                .filter(Boolean)
-                .join(" · ")}
-            />
-          )}
-        </span>
-        <span className="flex w-20 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-          <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
-          <span className="truncate">{type.label}</span>
-        </span>
-        <span className="truncate text-sm">{part.label}</span>
-        {!internal && part.main && (
-          <a
-            href={`https://${app.domain}`}
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0 text-muted-foreground hover:text-primary"
-            aria-label={t("Open {url}", { url: app.domain })}
-          >
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-        {superAdmin && (
-          <span className="flex min-w-0 shrink items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
-              {runtime}
-            </Badge>
-            {target && <span className="truncate font-mono">→ {target}</span>}
-          </span>
-        )}
-        {part.main && health?.uptime24h != null && (
-          <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground" title={t("Successful checks in the last 24 hours")}>
-            {t("{uptime}% / 24h", { uptime: health.uptime24h })}
-          </span>
-        )}
-      </div>
-    );
-  };
+  // An app's lines — one per path of a split hostname — in the Apps column and
+  // again, lined up (same height), in the Uptime column.
+  const LINE = "flex h-6 min-w-0 items-center gap-1.5";
+  const partsOf = (project: Project) => project.applications.flatMap((app) => appParts(app).map((part) => ({ app, part })));
+
+  // where the code comes from, said under the project's name
+  const originOf = (project: Project) =>
+    project.repository
+      ? `${repoName(project.repository)} · ${project.branch || "main"}`
+      : project.kind !== "IMPORTED"
+        ? t("Uploaded files")
+        : project.path
+          ? t("Server folder (not git)")
+          : t("On the server (folder not detected)");
 
   const columns: Column<Project>[] = [
     ...(superAdmin
@@ -207,41 +159,119 @@ export default function Projects() {
     {
       header: t("Project"),
       sortKey: "name",
-      className: "align-top",
-      // the project, and its apps under its name — one row, one way in
+      className: "w-[26%] align-top",
       cell: (project) => {
         const down = project.applications.filter((app) => statusOf(app).tone === "down").length;
         return (
-          <div className="min-w-0 space-y-1.5">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <span className="flex h-6 min-w-0 items-center gap-1.5">
               <span className="truncate font-medium">{project.name}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {t("{count} apps", { count: project.applications.reduce((sum, app) => sum + appParts(app).length, 0) })}
-              </span>
-              {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">· {t("{count} down", { count: down })}</span>}
+              {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">{t("{count} down", { count: down })}</span>}
             </span>
-            <div className="space-y-1 pl-1">
-              {project.applications.flatMap((app) => appParts(app).map((part) => appLine(app, part)))}
-            </div>
+            <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground" title={project.repository ?? undefined}>
+              {/* where it comes from, as a mark: a branch, an upload, or a folder on the server */}
+              {project.repository ? (
+                <GitBranch className="h-3 w-3 shrink-0" />
+              ) : project.kind === "IMPORTED" ? (
+                <HardDrive className="h-3 w-3 shrink-0" />
+              ) : (
+                <Upload className="h-3 w-3 shrink-0" />
+              )}
+              <span className="truncate">{originOf(project)}</span>
+            </span>
+            {/* a monorepo the panel builds: the folders its apps are built from */}
+            {project.kind === "MANAGED" && [...new Set(project.applications.map((app) => app.rootDirectory).filter(Boolean))].map((dir) => (
+              <span key={dir} className="block truncate font-mono text-xs text-muted-foreground">
+                {dir}
+              </span>
+            ))}
           </div>
         );
       },
     },
     {
-      header: t("Repository"),
-      className: "w-[18%] align-top",
-      // where the code comes from; for a monorepo, the folders of its apps
+      header: t("Apps"),
+      className: "align-top",
+      // listed, not links: the row is the project's; only the site opens from here
       cell: (project) => (
-        <div className="min-w-0 space-y-0.5 font-mono text-xs text-muted-foreground">
-          <span className="block truncate" title={project.repository ?? undefined}>
-            {project.repository ? `${repoName(project.repository)} · ${project.branch || "main"}` : t("Uploaded files")}
-          </span>
-          {[...new Set(project.applications.map((app) => app.rootDirectory).filter(Boolean))].map((dir) => (
-            <span key={dir} className="block truncate">
-              {dir}
-            </span>
-          ))}
+        <div className="min-w-0">
+          {partsOf(project).map(({ app, part }) => {
+            const type = APP_TYPES[part.type] ?? { label: part.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
+            const TypeIcon = type.icon;
+            const internal = app.domain.endsWith(".local");
+            // what serves this part on the box: the app's own process, or Caddy
+            const runtime = part.owner
+              ? `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`
+              : runtimeLabel(part.proxyPort ? "CADDY_PROXY" : "CADDY_STATIC");
+            const target = !app.routing?.length ? null : part.proxyPort ? `:${part.proxyPort}` : part.root?.split("/").slice(-2).join("/") ?? null;
+            return (
+              <div key={part.key} className={`${LINE} ${app.disabled ? "opacity-50" : ""}`}>
+                {part.main ? (
+                  <>
+                    <span title={type.label} className="shrink-0">
+                      <TypeIcon className={`h-3.5 w-3.5 ${type.className}`} />
+                    </span>
+                    <span className="truncate text-sm">{part.label}</span>
+                    {!internal && (
+                      <a
+                        href={`https://${app.domain}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-muted-foreground hover:text-primary"
+                        aria-label={t("Open {url}", { url: app.domain })}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  // a path of the hostname above it
+                  <>
+                    <span className="shrink-0 pl-1 text-muted-foreground">└</span>
+                    <span title={type.label} className="shrink-0">
+                      <TypeIcon className={`h-3.5 w-3.5 ${type.className}`} />
+                    </span>
+                    <span className="truncate font-mono text-xs">{part.label.slice(app.domain.length) || part.label}</span>
+                  </>
+                )}
+                {superAdmin && (
+                  <span className="flex min-w-0 shrink items-center gap-1.5 text-xs text-muted-foreground">
+                    <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
+                      {runtime}
+                    </Badge>
+                    {target && <span className="truncate font-mono">→ {target}</span>}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ),
+    },
+    {
+      header: t("Uptime 24h"),
+      className: "w-36 whitespace-nowrap align-top text-right text-xs",
+      // lined up with the apps' lines; a path has no check of its own
+      cell: (project) => (
+        <div>
+          {partsOf(project).map(({ app, part }) => {
+            const health = healthById[app.id] as Health | undefined;
+            const { tone, text } = statusOf(app);
+            const down = tone === "down";
+            return (
+              <div key={part.key} className="flex h-6 items-center justify-end gap-1.5">
+                {/* the state and the number behind it, together; a path has no check of its own */}
+                {part.main && (
+                  <>
+                    <Dot tone={tone} text={[text, health?.state !== "up" && health?.lastError].filter(Boolean).join(" · ")} />
+                    {health?.uptime24h != null && (
+                      <span className={down ? "font-medium text-destructive" : "text-muted-foreground"}>{health.uptime24h}%</span>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       ),
     },
@@ -250,16 +280,18 @@ export default function Projects() {
           {
             // where it lives on the server: the checkout a pull updates
             header: t("Folder"),
-            className: "w-[18%] align-top",
+            className: "w-[16%] align-top",
             cell: (project: Project) => (
-              <span className="block truncate font-mono text-xs text-muted-foreground" title={project.path ?? undefined}>
-                {project.path ?? "—"}
+              <span className="flex h-6 items-center">
+                <span className="truncate font-mono text-xs text-muted-foreground" title={project.path ?? undefined}>
+                  {project.path ?? "—"}
+                </span>
               </span>
             ),
           },
           {
             header: t("Organization"),
-            className: "w-[12%] align-top",
+            className: "w-[11%] align-top",
             sortKey: "organization",
             cell: (project: Project) => (
               <button
@@ -285,26 +317,37 @@ export default function Projects() {
             header: t("Server"),
             className: "w-28 align-top text-xs",
             sortKey: "server",
-            cell: (project: Project) =>
-              project.server ? (
-                <Link to={`/servers/${project.server.id}`} className="truncate hover:underline">
-                  {project.server.name}
-                </Link>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              ),
+            cell: (project: Project) => (
+              <span className="flex h-6 items-center">
+                {project.server ? (
+                  <Link to={`/servers/${project.server.id}`} className="truncate hover:underline">
+                    {project.server.name}
+                  </Link>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </span>
+            ),
           },
         ]
       : []),
     {
       header: t("Last deploy"),
-      className: "w-28 align-top text-xs",
+      className: "w-36 whitespace-nowrap align-top text-xs",
       cell: (project) => {
         const last = project.lastDeployment;
-        if (!last) return <span className="text-muted-foreground">—</span>;
         return (
-          <span title={`${new Date(last.createdAt).toLocaleString(locale)}${last.commitMessage ? ` · ${last.commitMessage}` : ""}`}>
-            <span className={last.status === "FAILED" ? "text-destructive" : ""}>{ago(last.createdAt)}</span>
+          <span className="flex h-6 items-center">
+            {last ? (
+              <span
+                className={last.status === "FAILED" ? "text-destructive" : ""}
+                title={`${new Date(last.createdAt).toLocaleString(locale)}${last.commitMessage ? ` · ${last.commitMessage}` : ""}`}
+              >
+                {ago(last.createdAt)}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
           </span>
         );
       },

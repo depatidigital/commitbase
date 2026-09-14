@@ -51,8 +51,13 @@ export function rollupStatus(apps: Array<Pick<Instance, 'status' | 'disabled'>>)
   return has('RUNNING') ? 'PARTIAL' : 'STOPPED';
 }
 
-/** Imported sources are pulled on their server; the panel's own are deployed. */
-const kindOf = (source: { path: string | null }) => (source.path ? 'IMPORTED' : 'MANAGED');
+/**
+ * Imported sources are pulled on their server; the panel's own are deployed.
+ * Imported = checked out on the server, or every app of it found there by the
+ * sync (a proxied site whose folder was never detected has no path).
+ */
+const kindOf = (source: { path: string | null; applications: Array<{ runtime: string | null }> }) =>
+  source.path || (source.applications.length > 0 && source.applications.every((app) => app.runtime)) ? 'IMPORTED' : 'MANAGED';
 
 /** git in a checkout on its server. Never waits on a prompt: there is no tty. */
 const checkoutGit = (server: Parameters<typeof exec>[0], dir: string, args: string[]) =>

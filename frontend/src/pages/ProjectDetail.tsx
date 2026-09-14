@@ -111,7 +111,9 @@ export default function ProjectDetail() {
               <CardTitle className="flex items-center gap-2 text-base">
                 <Layers className="h-4 w-4" />
                 {t("Apps")}
-                <span className="text-sm font-normal text-muted-foreground">{project.applications.length}</span>
+                <span className="text-sm font-normal text-muted-foreground">
+                  {project.applications.reduce((sum, app) => sum + appParts(app).length, 0)}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border/60 p-0">
@@ -146,7 +148,7 @@ export default function ProjectDetail() {
                       <span className="block truncate font-medium">{part.label}</span>
                       {/* what tells them apart: their folder, or what runs them */}
                       <span className="block truncate text-xs text-muted-foreground">
-                        {[part.main && app.rootDirectory, superAdmin && runtime, superAdmin && serves]
+                        {[part.main && managed && app.rootDirectory, superAdmin && runtime, superAdmin && serves]
                           .filter(Boolean)
                           .join(" · ") || t("Repository root")}
                       </span>
