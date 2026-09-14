@@ -77,7 +77,7 @@ export interface Application {
   rootPath?: string | null;
   configPath?: string | null;
   /** a hostname its server splits by path: `/api/*` → the app, the rest → static files */
-  routing?: Array<{ path: string | null; proxy?: string; root?: string }> | null;
+  routing?: Array<{ path: string | null; proxy?: string; root?: string; spa?: boolean }> | null;
   lastSyncedAt?: string | null;
   /** switched off in the panel: not monitored, listed last */
   disabled?: boolean;
@@ -262,6 +262,24 @@ export const startPm2Build = async (id: string, consent: boolean): Promise<strin
   });
   if (response.success && response.data) return response.data.deploymentId;
   throw new Error(response.error || t("Could not start the build"));
+};
+
+/** One part of a hostname split by path; the part with no path is everything else, last. */
+export interface RoutingPart {
+  path: string | null;
+  port?: number;
+  root?: string;
+  spa?: boolean;
+}
+
+/** Route an imported app's names by path. `consent`: the user ticked that visitors get it at once. */
+export const setAppRouting = async (id: string, parts: RoutingPart[], consent: boolean): Promise<{ caddyfile: string }> => {
+  const response = await apiRequest<{ caddyfile: string }>(`/applications/${id}/routing`, {
+    method: 'PUT',
+    body: JSON.stringify({ parts, consent }),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not update the routing"));
 };
 
 /** One more name for the app, routed as its others. `dnsConsent`: the user agreed to the DNS change shown. */
