@@ -181,9 +181,9 @@ assert.deepStrictEqual(classifyRoute(splitRoute), { type: 'NODEJS', port: 9200 }
 assert.strictEqual(routeParts(runtimeRoute), null);
 assert.strictEqual(routeParts(phpRoute), null);
 
-// --- one folder behind several hostnames is one app, the rest its aliases ---
+// --- one folder behind several hostnames is one app with all of them ---
 const site = (domain: string, extra: Partial<DiscoveredApp> = {}): DiscoveredApp =>
-  ({ name: domain, domain, runtime: 'CADDY_PHP', type: 'PHP', status: 'RUNNING', rootPath: '/var/www/cms/public', ...extra });
+  ({ name: domain, hosts: [domain], runtime: 'CADDY_PHP', type: 'PHP', status: 'RUNNING', rootPath: '/var/www/cms/public', ...extra });
 const merged = mergeSameSite([
   site('a.go.id'),
   site('b.go.id'),
@@ -196,13 +196,13 @@ const merged = mergeSameSite([
   site('y.go.id', { rootPath: undefined }),
   site('worker.pm2.local', { runtime: 'PM2', port: 9000 }),
 ]);
-assert.deepStrictEqual(merged.map((app) => [app.domain, app.aliases ?? []]), [
-  ['a.go.id', ['b.go.id', 'c.go.id']],
-  ['other.go.id', []],
-  ['api.go.id', []],
-  ['x.go.id', []],
-  ['y.go.id', []],
-  ['worker.pm2.local', []],
+assert.deepStrictEqual(merged.map((app) => app.hosts), [
+  ['a.go.id', 'b.go.id', 'c.go.id'],
+  ['other.go.id'],
+  ['api.go.id'],
+  ['x.go.id'],
+  ['y.go.id'],
+  ['worker.pm2.local'],
 ]);
 
 console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');

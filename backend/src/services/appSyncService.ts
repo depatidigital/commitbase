@@ -2,7 +2,7 @@ import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { createApplicationWithSource, dropOrphanSources, setSourceOrganization } from '../lib/sources';
-import { parentDomainOf } from '../lib/scope';
+import { setAppHosts, zonesFor } from '../lib/appDomains';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
@@ -16,7 +16,8 @@ export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
 
 export type DiscoveredApp = {
   name: string;
-  domain: string;
+  /** the hostnames it answers on — one per route host, merged by mergeSameSite */
+  hosts: string[];
   runtime: Runtime;
   type: 'NODEJS' | 'PHP' | 'STATIC';
   status: 'RUNNING' | 'STOPPED' | 'ERROR';
@@ -38,27 +39,25 @@ export type DiscoveredApp = {
   checkout?: string | undefined;
   /** a hostname split by path (routeParts), else undefined */
   routing?: RoutePart[] | undefined;
-  /** the other hostnames served exactly the same way (mergeSameSite) */
-  aliases?: string[] | undefined;
 };
 
 /**
  * Hostnames served the same way — same runtime, folder, port and path split —
  * are one app under several names: a multi-site CMS behind five domains, say.
- * The first one found keeps the row; the rest become its aliases.
+ * They become one app with all those names.
  */
 export function mergeSameSite(apps: DiscoveredApp[]): DiscoveredApp[] {
   const sites = new Map<string, DiscoveredApp>();
   const merged: DiscoveredApp[] = [];
   for (const app of apps) {
-    const placeholder = app.domain.endsWith('.pm2.local');
+    const placeholder = app.hosts.some((host) => host.endsWith('.pm2.local'));
     // nothing known about where it runs: nothing proves two hostnames are one app
     const key = placeholder || (!app.rootPath && !app.port)
       ? null
       : [app.runtime, app.rootPath ?? '', app.port ?? '', JSON.stringify(app.routing ?? null)].join('|');
     const site = key ? sites.get(key) : undefined;
     if (site) {
-      site.aliases = [...(site.aliases ?? []), app.domain];
+      site.hosts = [...site.hosts, ...app.hosts];
       continue;
     }
     if (key) sites.set(key, app);
@@ -486,7 +485,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
 
       const app: DiscoveredApp = {
         name: process?.name || domain,
-        domain,
+        hosts: [domain],
         runtime,
         type: target.type,
         // pm2 knows a process's state; the kernel knows whether the port is
@@ -521,7 +520,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
 
     apps.push({
       name: process.name,
-      domain: `${process.name}.pm2.local`,
+      hosts: [`${process.name}.pm2.local`],
       runtime: 'PM2',
       type: 'NODEJS',
       status: process.status === 'online' ? 'RUNNING' : 'STOPPED',
@@ -568,7 +567,7 @@ export async function scanServerApps(): Promise<DiscoveredApp[]> {
 }
 
 /**
- * Reconcile the scan into the applications table, keyed on the domain. Synced
+ * Reconcile the scan into the applications table, keyed on the hostnames. Synced
  * apps land unassigned (no organization) — a superadmin assigns them
  * afterwards, the same way domain sync works.
  */
@@ -600,10 +599,38 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   const discovered = await scanNode(node);
   const result: AppSyncResult = { discovered: discovered.length, created: 0, updated: 0, apps: [] };
   const errors: string[] = [];
-  // link each app to the Domain it sits under, so the domain knows its apps
-  const domains = await prisma.domain.findMany({ select: { id: true, name: true } });
 
-  for (const app of discovered) {
+  // Who holds each hostname found, and which found site each of those apps is
+  // "at home" in: the one it shares the most names with. A site that was split
+  // on the server keeps its row in one place, and hands the other names over.
+  const allHosts = discovered.flatMap((app) => app.hosts);
+  const holding = await prisma.appDomain.findMany({
+    where: { host: { in: allHosts } },
+    select: {
+      host: true,
+      application: { include: { _count: { select: { deployments: true } }, source: { select: { repository: true } } } },
+    },
+  });
+  type Row = (typeof holding)[number]['application'];
+  const siteOf = new Map(discovered.flatMap((app, i) => app.hosts.map((host) => [host, i] as const)));
+  const holders = new Map<string, Row>();
+  const overlap = new Map<string, Map<number, number>>();
+  for (const { host, application } of holding) {
+    holders.set(host, application);
+    const site = siteOf.get(host)!;
+    const counts = overlap.get(application.id) ?? new Map<number, number>();
+    counts.set(site, (counts.get(site) ?? 0) + 1);
+    overlap.set(application.id, counts);
+  }
+  const homeOf = new Map([...overlap].map(([id, counts]) => [id, [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]![0]]));
+
+  // The panel's own apps show up in the scan too — their route is on the box.
+  // Stamping a runtime on one turns it into an "imported" app the panel then
+  // refuses to deploy, and guesses a directory it never had. Created here (no
+  // runtime) or deployed from here (has deployments): not ours to touch.
+  const isPanels = (row: Row) => !row.runtime || row._count.deployments > 0;
+
+  for (const [i, app] of discovered.entries()) {
     const fields = {
       // where it was found, so the node's page can list it before anyone has
       // assigned it to an organization
@@ -614,8 +641,6 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       configPath: app.configPath ?? null,
       // written each sync: a split that was undone on the server goes too
       routing: app.routing ? (app.routing as Prisma.InputJsonValue) : Prisma.DbNull,
-      // set below, once it is known which row keeps which hostname
-      aliases: [] as string[],
       status: app.status,
       port: app.port ?? null,
       memory: app.memory ?? null,
@@ -623,54 +648,28 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       uptime: app.uptime ?? null,
       lastSyncedAt: new Date(),
     };
+    const label = app.hosts.join(', ');
 
     try {
-      // every row holding one of its hostnames — as its domain, or an alias
-      // from an earlier sync — oldest first
-      const hosts = [app.domain, ...(app.aliases ?? [])];
-      const found = await prisma.application.findMany({
-        where: { OR: [{ domain: { in: hosts } }, { aliases: { hasSome: hosts } }] },
-        include: { _count: { select: { deployments: true } }, source: { select: { repository: true } } },
-        orderBy: { createdAt: 'asc' },
-      });
-      // A row that only has one of these as an alias, while its own hostname is
-      // served some other way now, lost it: it gives the alias up rather than
-      // being merged. Only when none of them is anyone's main hostname does such
-      // a row carry on as this app (its main hostname went, its aliases did not).
-      const byDomain = found.filter((row) => hosts.includes(row.domain));
-      const rows = byDomain.length ? byDomain : found;
-      for (const row of found.filter((row) => !rows.includes(row))) {
-        await prisma.application.update({
-          where: { id: row.id },
-          data: { aliases: row.aliases.filter((host) => !hosts.includes(host)) },
-        });
-      }
+      const rows = [...new Map(app.hosts.flatMap((host) => (holders.has(host) ? [holders.get(host)!] : [])).map((row) => [row.id, row])).values()]
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-      // The panel's own apps show up in the scan too — their route is on the
-      // box. Stamping a runtime on one turns it into an "imported" app the panel
-      // then refuses to deploy, and guesses a directory it never had. Created
-      // here (no runtime) or deployed from here (has deployments): not ours.
-      const ours = rows.filter((row) => !row.runtime || row._count.deployments > 0);
-      const taken = new Set(ours.flatMap((row) => [row.domain, ...row.aliases]));
-      // the row that stays: one someone assigned, else the oldest
-      const imported = rows.filter((row) => !ours.includes(row));
+      // the row that stays: one someone assigned, else the oldest — of those at home here
+      const imported = rows.filter((row) => !isPanels(row) && homeOf.get(row.id) === i);
       const existing = imported.find((row) => row.organizationId) ?? imported[0] ?? null;
       // merged into it: rows of the same org (or none) — never another tenant's
-      const same = (row: (typeof rows)[number]) =>
-        !row.organizationId || !existing?.organizationId || row.organizationId === existing.organizationId;
-      const merging = imported.filter((row) => row !== existing && same(row));
-      for (const row of imported.filter((row) => row !== existing && !same(row))) {
-        errors.push(`${row.domain}: served from the same folder as ${existing!.domain}, but owned by another organization — kept apart`);
-        for (const host of [row.domain, ...row.aliases]) taken.add(host);
+      const same = (row: Row) => !row.organizationId || !existing?.organizationId || row.organizationId === existing.organizationId;
+      if (rows.some((row) => !isPanels(row) && row !== existing && !same(row))) {
+        errors.push(`${label}: served the same way as an app of another organization — kept apart`);
       }
-
-      const free = hosts.filter((host) => !taken.has(host));
+      // a name held by a panel app or another tenant's stays where it is
+      const free = app.hosts.filter((host) => {
+        const row = holders.get(host);
+        return !row || row === existing || (!isPanels(row) && same(row));
+      });
       if (free.length === 0) continue;
-      // the row keeps its name when it still answers on it
-      app.domain = existing && free.includes(existing.domain) ? existing.domain : free[0]!;
-      app.aliases = free.filter((host) => host !== app.domain);
-      fields.aliases = app.aliases;
 
+      const merging = imported.filter((row) => row !== existing && same(row));
       if (merging.length) {
         // one app now: its databases come along, its duplicate rows go (the
         // server is untouched — nothing is torn down)
@@ -678,9 +677,9 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         await prisma.database.updateMany({ where: { applicationId: { in: ids } }, data: { applicationId: existing!.id } });
         await prisma.application.deleteMany({ where: { id: { in: ids } } });
       }
-
-      const domainId = parentDomainOf(app.domain, domains)?.id ?? null;
-      let applicationId: string;
+      // names an app at home in another site held give way to this one
+      await prisma.appDomain.deleteMany({ where: { host: { in: free }, ...(existing && { applicationId: { not: existing.id } }) } });
+      const names = await zonesFor(free);
 
       // The source is the checkout: every app served from it shares one, and
       // pulling it updates them all. No folder known: a source of its own.
@@ -690,7 +689,7 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       const owner = existing?.organizationId ?? null;
       const joins = shared && (!owner || !shared.organizationId || shared.organizationId === owner);
       if (shared && !joins) {
-        errors.push(`${app.domain}: its folder ${app.checkout} is shared with another organization's app — kept apart`);
+        errors.push(`${label}: its folder ${app.checkout} is shared with another organization's app — kept apart`);
       }
       if (joins && owner && !shared!.organizationId) {
         await setSourceOrganization([shared!.id], owner);
@@ -699,61 +698,43 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       if (existing) {
         await prisma.application.update({
           where: { id: existing.id },
-          // fills rows synced before the link / the repo existed; never moves a set one
-          data: {
-            ...fields,
-            // its main hostname went, an alias carries on as it
-            ...(existing.domain !== app.domain
-              ? { domain: app.domain, domainId }
-              : !existing.domainId && domainId && { domainId }),
-            ...(joins && { sourceId: shared!.id }),
-          },
+          data: { ...fields, ...(joins && { sourceId: shared!.id }) },
         });
+        // exactly the names it is served on now
+        await setAppHosts(existing.id, names);
         if (!joins && existing.sourceId && !existing.source?.repository && app.repository) {
           await prisma.source.update({
             where: { id: existing.sourceId },
             data: { repository: app.repository, branch: app.branch ?? 'main' },
           });
         }
-        applicationId = existing.id;
         result.updated += 1;
-        result.apps.push({ ...app, action: 'updated' });
+        result.apps.push({ ...app, hosts: free, action: 'updated' });
       } else if (joins) {
         // a new hostname on a checkout that already has an owner is that owner's
-        const created = await prisma.application.create({
+        await prisma.application.create({
           data: {
             name: app.name,
-            domain: app.domain,
             type: app.type,
             userId,
-            domainId,
             ...fields,
+            domains: { create: names },
             sourceId: shared!.id,
             organizationId: shared!.organizationId,
           },
         });
-        applicationId = created.id;
         result.created += 1;
-        result.apps.push({ ...app, action: 'created' });
+        result.apps.push({ ...app, hosts: free, action: 'created' });
       } else {
-        const created = await createApplicationWithSource(
-          {
-            name: app.name,
-            domain: app.domain,
-            type: app.type,
-            userId,
-            domainId,
-            ...fields,
-          },
+        await createApplicationWithSource(
+          { name: app.name, type: app.type, userId, ...fields, domains: { create: names } },
           app.repository ? { repository: app.repository, branch: app.branch ?? 'main' } : {},
         );
-        applicationId = created.id;
         result.created += 1;
-        result.apps.push({ ...app, action: 'created' });
+        result.apps.push({ ...app, hosts: free, action: 'created' });
       }
-
     } catch (error: any) {
-      errors.push(`${app.domain}: ${error?.message || 'sync failed'}`);
+      errors.push(`${label}: ${error?.message || 'sync failed'}`);
     }
   }
 
@@ -763,12 +744,12 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   // Only when pm2 answered, so a failed `pm2 jlist` does not wipe them all.
   if (discovered.some((app) => app.processName)) {
     const routed = discovered
-      .filter((app) => app.processName && !app.domain.endsWith('.pm2.local'))
+      .filter((app) => app.processName && !app.hosts.some((host) => host.endsWith('.pm2.local')))
       .map((app) => app.processName!);
     await prisma.application.deleteMany({
       where: {
         serverId: node.id,
-        domain: { endsWith: '.pm2.local', notIn: discovered.map((app) => app.domain) },
+        domains: { some: {}, every: { host: { endsWith: '.pm2.local', notIn: allHosts } } },
         OR: [{ organizationId: null }, { processName: { in: routed } }],
       },
     });
