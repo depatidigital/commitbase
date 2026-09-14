@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageLayout } from "@/components/PageLayout";
 import { SourcePanel } from "@/components/SourcePanel";
+import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import DeploymentHistory from "@/components/DeploymentHistory";
 import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -75,7 +76,12 @@ export default function ProjectDetail() {
 
   return (
     <PageLayout
-      title={project.name}
+      title={
+        <span className="flex items-center gap-2">
+          {project.name}
+          <RenameProjectDialog project={project} />
+        </span>
+      }
       backTo="/"
       icon={FolderGit2}
       description={status.text}

@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { Fragment, ReactNode, useEffect, useState } from "react";
 import { t } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -129,6 +129,11 @@ interface DataTableProps<T> {
   toolbar?: ReactNode;
   /** The whole row opens it. Clicks on the row's own links, buttons and menus still go to them. */
   onRowClick?: (row: T) => void;
+  /**
+   * Rows of its own under a row — a group's members. Counted and paged with
+   * their row, never on their own.
+   */
+  renderAfter?: (row: T) => ReactNode;
 }
 
 // what a click inside a clickable row should leave alone — menu items too: a
@@ -147,6 +152,7 @@ export function DataTable<T>({
   empty = t("No results."),
   toolbar,
   onRowClick,
+  renderAfter,
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
     query;
@@ -262,22 +268,24 @@ export function DataTable<T>({
               </TableRow>
             ) : (
               visible.map((row) => (
-                <TableRow
-                  key={rowKey(row)}
-                  className={onRowClick ? "cursor-pointer" : undefined}
-                  onClick={
-                    onRowClick &&
-                    ((event) => {
-                      if (!(event.target as HTMLElement).closest(INTERACTIVE)) onRowClick(row);
-                    })
-                  }
-                >
-                  {columns.map((c, ci) => (
-                    <TableCell key={ci} className={c.className}>
-                      {c.cell(row)}
-                    </TableCell>
-                  ))}
-                </TableRow>
+                <Fragment key={rowKey(row)}>
+                  <TableRow
+                    className={onRowClick ? "cursor-pointer" : undefined}
+                    onClick={
+                      onRowClick &&
+                      ((event) => {
+                        if (!(event.target as HTMLElement).closest(INTERACTIVE)) onRowClick(row);
+                      })
+                    }
+                  >
+                    {columns.map((c, ci) => (
+                      <TableCell key={ci} className={c.className}>
+                        {c.cell(row)}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                  {renderAfter?.(row)}
+                </Fragment>
               ))
             )}
           </TableBody>

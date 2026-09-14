@@ -1068,6 +1068,20 @@ export default function ApplicationDetail() {
                     )}
                   </Field>
                 )}
+                {/* one hostname split by path on its server — an API under
+                    /api beside a static front end: both halves, as Caddy tries them */}
+                {!!application.routing?.length && (
+                  <Field label={t("Routing")}>
+                    <span className="flex flex-col items-end gap-0.5 font-mono text-xs">
+                      {application.routing.map((part, index) => (
+                        <span key={index} className="break-all">
+                          {part.path ?? t("everything else")} →{" "}
+                          {part.proxy ? part.proxy.replace(/^localhost:/, "127.0.0.1:") : part.root ?? t("static files")}
+                        </span>
+                      ))}
+                    </span>
+                  </Field>
+                )}
                 {application.repository && (
                   <Field label={t("Build Command")}>
                     <span className="font-mono text-xs">{application.buildCommand || t("Not configured")}</span>

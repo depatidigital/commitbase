@@ -59,6 +59,8 @@ export interface Application {
   processName?: string | null;
   rootPath?: string | null;
   configPath?: string | null;
+  /** a hostname its server splits by path: `/api/*` → the app, the rest → static files */
+  routing?: Array<{ path: string | null; proxy?: string; root?: string }> | null;
   lastSyncedAt?: string | null;
   /** switched off in the panel: not monitored, listed last */
   disabled?: boolean;

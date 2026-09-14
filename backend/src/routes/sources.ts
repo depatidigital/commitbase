@@ -30,6 +30,7 @@ const instanceSelect = {
   rootDirectory: true,
   rootPath: true,
   port: true,
+  routing: true,
   createdAt: true,
 } satisfies Prisma.ApplicationSelect;
 

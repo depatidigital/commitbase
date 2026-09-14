@@ -377,6 +377,10 @@ model Application {
   processName  String?   // pm2 process name, when the runtime is PM2
   rootPath     String?   // document root / working directory on the server
   configPath   String?   // /etc/caddy/sites/<name>.caddy
+  /// A hostname its server splits by path — [{ path, proxy?, root? }] in the
+  /// order Caddy tries them: `/api/*` to the app, the rest a static front end.
+  /// null = one thing serves all of it. From the sync (appSyncService routeParts).
+  routing      Json?
   lastSyncedAt DateTime?
 
   /// Switched off by an operator: kept, but not monitored and listed last.

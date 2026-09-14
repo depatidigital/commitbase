@@ -1,4 +1,5 @@
 import path from 'path';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { createApplicationWithSource, dropOrphanSources, setSourceOrganization } from '../lib/sources';
 import { parentDomainOf } from '../lib/scope';
@@ -35,6 +36,8 @@ export type DiscoveredApp = {
    * one on a node share a source.
    */
   checkout?: string | undefined;
+  /** a hostname split by path (routeParts), else undefined */
+  routing?: RoutePart[] | undefined;
 };
 
 export type AppSyncResult = {
@@ -472,6 +475,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
         port: target.port,
         processName: process?.name,
         rootPath: knownRoot || guessedRoot,
+        routing: routeParts(route) ?? undefined,
         memory: process?.memory,
         cpu: process?.cpu,
         uptime: process?.uptime,
@@ -581,6 +585,8 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       processName: app.processName ?? null,
       rootPath: app.rootPath ?? null,
       configPath: app.configPath ?? null,
+      // written each sync: a split that was undone on the server goes too
+      routing: app.routing ? (app.routing as Prisma.InputJsonValue) : Prisma.DbNull,
       status: app.status,
       port: app.port ?? null,
       memory: app.memory ?? null,

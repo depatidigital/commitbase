@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { repoName } from "@/lib/applications";
 import { getProject, getProjectBranches, pullProject, updateProject } from "@/lib/projects";
+import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { isSuperAdmin } from "@/lib/auth";
 import {
   AlertDialog,
@@ -113,13 +114,20 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
           </Button>
         </div>
 
-        {/* the project, when it is more than this page's app */}
-        {project && apps.length > 1 && (
-          <Link to={`/project/${project.id}`} className="flex min-w-0 items-center gap-1.5 text-sm font-medium hover:text-primary">
+        {/* the project, renameable here; its page only when it is more than this app */}
+        {project && (
+          <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
             <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{project.name}</span>
-            <span className="shrink-0 text-xs font-normal text-muted-foreground">{t("{count} apps", { count: apps.length })}</span>
-          </Link>
+            {apps.length > 1 ? (
+              <Link to={`/project/${project.id}`} className="flex min-w-0 items-center gap-1.5 hover:text-primary">
+                <span className="truncate">{project.name}</span>
+                <span className="shrink-0 text-xs font-normal text-muted-foreground">{t("{count} apps", { count: apps.length })}</span>
+              </Link>
+            ) : (
+              <span className="truncate">{project.name}</span>
+            )}
+            <RenameProjectDialog project={project} />
+          </div>
         )}
 
         <p className="flex min-w-0 items-center gap-1.5 text-sm" title={project?.repository ?? undefined}>
