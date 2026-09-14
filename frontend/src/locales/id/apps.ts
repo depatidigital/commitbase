@@ -41,6 +41,16 @@ export default {
   "Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
     "Menjalankan git checkout {branch} di {dir}, sampai commit terbaru di remote. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
   "Switch branch": "Ganti branch",
+  "Build & restart": "Build & mulai ulang",
+  "Install, build and pm2 restart {name} in its folder on the server.": "Install, build, lalu pm2 restart {name} di foldernya di server.",
+  "Build and restart {name} on the server?": "Build dan mulai ulang {name} di server?",
+  "Runs the install and the build in {dir}, then pm2 restart {name}. It builds in the folder that is serving: the site may show errors until the restart. If a step fails, the ones after it do not run.":
+    "Menjalankan install dan build di {dir}, lalu pm2 restart {name}. Build dilakukan di folder yang sedang melayani: situs bisa error sampai restart selesai. Jika satu langkah gagal, langkah berikutnya tidak dijalankan.",
+  "I understand the site may err until the build is done and pm2 has restarted it.":
+    "Saya mengerti situs bisa error sampai build selesai dan pm2 me-restart-nya.",
+  "Building on the server": "Build berjalan di server",
+  "Follow it on the Deployments tab.": "Pantau di tab Deployment.",
+  "Could not start the build": "Gagal memulai build",
   "What pm2 runs": "Yang dijalankan pm2",
   runs: "menjalankan",
   "Read from the .env on the server{dir} at the last sync. Change it there, then sync again.":

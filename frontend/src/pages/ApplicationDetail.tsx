@@ -62,7 +62,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -79,6 +79,7 @@ import { DnsFixCard } from "@/components/DnsFixCard";
 import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { AppDomainsCard } from "@/components/AppDomainsCard";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ServerEnv } from "@/components/ServerEnv";
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
@@ -186,6 +187,19 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
   // only Stop asks first: a deploy replaces nothing until it works, and can be cancelled
   const [confirmStop, setConfirmStop] = useState(false);
+  // the in-place build of an imported pm2 app: asked first, with a tick — the site can err while it builds
+  const [confirmPm2Build, setConfirmPm2Build] = useState(false);
+  const [pm2Consent, setPm2Consent] = useState(false);
+  const pm2Build = useMutation({
+    mutationFn: (consent: boolean) => startPm2Build(id!, consent),
+    onSuccess: () => {
+      toast({ title: t("Building on the server"), description: t("Follow it on the Deployments tab.") });
+      void queryClient.invalidateQueries({ queryKey: ['application', id] });
+      void queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      setActiveTab("deployments");
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the build"), description: error.message }),
+  });
   // which of its names "Point it here" was asked for
   const [repointHost, setRepointHost] = useState<string | null>(null);
 
@@ -449,6 +463,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   // an uploaded site redeploys by uploading, from its own button; an imported
   // one is not deployed by the panel at all (a pull or branch switch is not a deploy)
   const canRedeploy = deployed && !uploadedSite && !application.runtime;
+  // an imported pm2 app is built where it runs, then restarted by name (pm2DeployService)
+  const canPm2Build = application.runtime === 'PM2' && !!application.processName && !!application.rootPath;
   // newest first, so the next READY one after the serving one is the previous version
   const releases = releaseData?.releases ?? [];
   const servingAt = releases.findIndex((release) => release.id === releaseData?.activeReleaseId);
@@ -625,7 +641,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
             ) : null}
 
             {/* the actions that change what is live, one deliberate click further away */}
-            {!deploying && (canRedeploy || canStop || !!previousRelease || (uploadedSite && hasSiteFiles)) && (
+            {!deploying && (canRedeploy || canPm2Build || canStop || !!previousRelease || (uploadedSite && hasSiteFiles)) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline">
@@ -643,6 +659,17 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                           {published
                             ? t("Builds the latest code. The current release keeps serving until it answers.")
                             : t("Builds the latest code and starts it.")}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+                  {canPm2Build && (
+                    <DropdownMenuItem onClick={() => setConfirmPm2Build(true)} className="items-start">
+                      <Rocket className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        {t("Build & restart")}
+                        <span className="block text-xs text-muted-foreground">
+                          {t("Install, build and pm2 restart {name} in its folder on the server.", { name: application.processName ?? "" })}
                         </span>
                       </span>
                     </DropdownMenuItem>
@@ -1355,6 +1382,36 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 onClick={() => stopApp.mutate(application.id)}
               >
                 {t("Stop App")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={confirmPm2Build}
+          onOpenChange={(open) => {
+            setConfirmPm2Build(open);
+            setPm2Consent(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Build and restart {name} on the server?", { name: application.processName ?? "" })}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("Runs the install and the build in {dir}, then pm2 restart {name}. It builds in the folder that is serving: the site may show errors until the restart. If a step fails, the ones after it do not run.", {
+                  dir: application.rootPath ?? "",
+                  name: application.processName ?? "",
+                })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={pm2Consent} onCheckedChange={(checked) => setPm2Consent(checked === true)} className="mt-0.5" />
+              <span>{t("I understand the site may err until the build is done and pm2 has restarted it.")}</span>
+            </label>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+              <AlertDialogAction disabled={!pm2Consent || pm2Build.isPending} onClick={() => pm2Build.mutate(pm2Consent)}>
+                {t("Build & restart")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

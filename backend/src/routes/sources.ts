@@ -10,6 +10,7 @@ import { gitAuthFor } from '../lib/gitCredentials';
 import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
 import { isBranchName, setSourceOrganization, sourceName } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
+import { notOwner } from '../services/pm2DeployService';
 
 /**
  * Sources — what the UI lists as "Proyek": a repository checkout or an upload,
@@ -67,19 +68,6 @@ const checkoutGit = (server: Parameters<typeof exec>[0], dir: string, args: stri
     ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', dir, ...args],
     { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
   );
-
-/**
- * Why the panel must not run git in this checkout, or null when it may: only
- * as the folder's owner — git as another user (root, typically) leaves files
- * the apps cannot write.
- */
-async function notOwner(server: Parameters<typeof exec>[0], dir: string): Promise<string | null> {
-  const { stdout: who } = await exec(server, ['sh', '-c', 'stat -c %U -- "$1" && id -un', 'sh', dir], { timeout: 15_000 });
-  const [owner, user] = who.trim().split('\n');
-  return !owner || owner !== user
-    ? `${dir} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Run git on the server as ${owner}.`
-    : null;
-}
 
 /** Its organization's owner or admin (and the platform's admins) — the client decides which branch their site runs. */
 const maySwitchBranch = async (req: AuthenticatedRequest, source: { organizationId: string | null }) =>

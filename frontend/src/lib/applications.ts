@@ -254,6 +254,16 @@ export const setupApplicationDns = async (
   throw new Error(response.error || t("Failed to set up DNS"));
 };
 
+/** Build and restart an imported pm2 app in its folder on its server. `consent`: the user ticked that the site may err meanwhile. */
+export const startPm2Build = async (id: string, consent: boolean): Promise<string> => {
+  const response = await apiRequest<{ deploymentId: string }>(`/applications/${id}/pm2-deploy`, {
+    method: 'POST',
+    body: JSON.stringify({ consent }),
+  });
+  if (response.success && response.data) return response.data.deploymentId;
+  throw new Error(response.error || t("Could not start the build"));
+};
+
 /** One more name for the app, routed as its others. `dnsConsent`: the user agreed to the DNS change shown. */
 export const addAppDomain = async (id: string, host: string, dnsConsent?: boolean): Promise<{ host: string; dns: DnsOutcome; message?: string }> => {
   const response = await apiRequest<{ host: string; dns: DnsOutcome }>(`/applications/${id}/domains`, {

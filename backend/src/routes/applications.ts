@@ -5,7 +5,7 @@ import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Applicat
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
-import { orgScope } from '../lib/scope';
+import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { appHosts, appIdAt, atEach, hostList, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
@@ -23,6 +23,7 @@ import {
   siteRootOrigin,
   siteStorage,
 } from '../services/staticReleaseService';
+import { Pm2DeployError, startPm2Deploy } from '../services/pm2DeployService';
 import { addCaddyHost, configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whereHostnamePoints } from '../services/appDnsService';
@@ -1220,6 +1221,36 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
   } catch (error: any) {
     console.error('Error removing a hostname:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not remove the hostname' } as ApiResponse);
+  }
+});
+
+/**
+ * Build and restart an imported pm2 app in its folder on its server: install,
+ * build, `pm2 restart` (pm2DeployService). The site can err while it builds —
+ * there is no release folder beside it — so only on an explicit yes, and only
+ * by its organization's owner or admin. Answers with the deployment row; the
+ * steps carry on in the background and write their log onto it.
+ */
+router.post('/:id/pm2-deploy', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      select: { id: true, organizationId: true },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const allowed = isPlatformAdmin(req) || (!!application.organizationId && (await canManageOrg(req, application.organizationId)));
+    if (!allowed) {
+      return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can build and restart it" } as ApiResponse);
+    }
+    if (req.body?.consent !== true) {
+      return res.status(400).json({ success: false, error: 'Confirm that the site may err while it builds' } as ApiResponse);
+    }
+    const deploymentId = await startPm2Deploy(application.id, req.user!.userId);
+    return res.status(202).json({ success: true, data: { deploymentId }, message: 'Building' } as ApiResponse);
+  } catch (error: any) {
+    if (error instanceof Pm2DeployError) return res.status(409).json({ success: false, error: error.message } as ApiResponse);
+    console.error('Error starting a pm2 build:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not start the build' } as ApiResponse);
   }
 });
 
