@@ -128,7 +128,6 @@ export const CreateApplicationSchema = z.object({
 
 export const UpdateApplicationSchema = z.object({
   name: z.string().min(1, 'Application name is required').optional(),
-  domain: z.string().min(1, 'Domain is required').optional(),
   type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA']).optional(),
   repository: z.string().optional(),
   gitAccountId: z.string().nullable().optional(),
@@ -212,7 +211,8 @@ export interface Domain {
 export interface Application {
   id: string;
   name: string;
-  domain: string;
+  /** its hostnames, all alike */
+  domains: Array<{ host: string; domainId: string | null }>;
   type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA';
   status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'DEPLOYING' | 'BUILDING';
   port?: number;

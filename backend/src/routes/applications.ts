@@ -763,12 +763,12 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
 
     return res.status(201).json({
       success: true,
-      data: { ...application, domains: [{ ...at, parentDomain }], dns },
+      data: { ...application, domains: [{ ...at, parentDomain: { id: parentDomain.id, name: parentDomain.name, expiresAt: parentDomain.expiresAt, shared: parentDomain.shared } }], dns },
       message:
         dns.state === 'conflict' || dns.state === 'unavailable'
           ? `Application created, but DNS was not set up: ${dns.detail}`
           : 'Application created successfully',
-    } as ApiResponse<Application>);
+    } as ApiResponse);
   } catch (error) {
     console.error('Error creating application:', error);
     return res.status(500).json({
