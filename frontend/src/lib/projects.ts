@@ -104,3 +104,17 @@ export const assignProjects = async (ids: string[], organizationId: string | nul
   if (response.success && response.data) return response.data.count;
   throw new Error(response.error || t('Failed to assign applications'));
 };
+
+export const PROJECT_STATUS: Record<ProjectStatus, { dot: string; text: string }> = {
+  RUNNING: { dot: "bg-success", text: t("All running") },
+  PARTIAL: { dot: "bg-warning", text: t("Some stopped") },
+  STOPPED: { dot: "bg-muted-foreground/40", text: t("Stopped") },
+  ERROR: { dot: "bg-destructive ring-4 ring-destructive/15", text: t("Needs attention") },
+  DEPLOYING: { dot: "", text: t("Deploying") },
+  DISABLED: { dot: "bg-muted-foreground/20", text: t("Disabled") },
+  EMPTY: { dot: "bg-muted-foreground/20", text: t("No apps") },
+};
+
+/** Where a project row goes: its one app's page, or the project's when it has several. */
+export const projectPath = (project: Pick<Project, "id" | "applications">) =>
+  project.applications.length === 1 ? `/application/${project.applications[0].id}` : `/project/${project.id}`;

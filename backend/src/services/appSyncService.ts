@@ -179,6 +179,47 @@ export function classifyRoute(route: any): {
   return null;
 }
 
+/** One path of a hostname split by path: what serves it. `path` null = everything else. */
+export type RoutePart = { path: string | null; proxy?: string; root?: string };
+
+/**
+ * How a site split by path is served, in the order Caddy tries it — an API
+ * behind `/api/*` beside a static front end in `web/dist`, say: one hostname,
+ * two parts, and classifyRoute can only name one. null when one thing serves
+ * all of it; a PHP site (its file_server and its FastCGI are one app) too.
+ * Pure — the self-check drives it with config JSON.
+ */
+export function routeParts(route: any): RoutePart[] | null {
+  const parts: RoutePart[] = [];
+  let php = false;
+  const realPath = (value: unknown) => (typeof value === 'string' && value.startsWith('/') ? value : undefined);
+  // `root` is set by a vars handler earlier in the same subroute, and holds for
+  // what follows it there and below
+  const visit = (handlers: any[], path: string | null, scope: { root?: string | undefined }) => {
+    for (const handler of Array.isArray(handlers) ? handlers : []) {
+      if (handler?.handler === 'vars' && realPath(handler.root)) scope.root = handler.root;
+      if (handler?.handler === 'reverse_proxy') {
+        if (handler?.transport?.protocol === 'fastcgi') php = true;
+        const dial = String(handler?.upstreams?.[0]?.dial ?? '');
+        if (dial) parts.push({ path, proxy: dial });
+      }
+      if (handler?.handler === 'file_server') {
+        const root = realPath(handler.root) ?? scope.root;
+        parts.push({ path, ...(root && { root }) });
+      }
+      if (handler?.handler === 'subroute') {
+        const inner = { ...scope };
+        for (const nested of Array.isArray(handler.routes) ? handler.routes : []) {
+          const paths = (Array.isArray(nested?.match) ? nested.match : []).flatMap((m: any) => (Array.isArray(m?.path) ? m.path : []));
+          visit(nested?.handle, paths.length ? paths.join(', ') : path, inner);
+        }
+      }
+    }
+  };
+  visit(route?.handle, null, {});
+  return !php && parts.length > 1 ? parts : null;
+}
+
 /** Hostnames a route matches. */
 export function routeHosts(route: any): string[] {
   return (Array.isArray(route?.match) ? route.match : []).flatMap((matcher: any) =>

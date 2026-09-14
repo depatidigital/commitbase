@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { AuthGuard } from "./components/AuthGuard";
 import Application from "./pages/Application";
+import Projects from "./pages/Projects";
+import ProjectDetail from "./pages/ProjectDetail";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import AddApp from "./pages/AddApp";
 import Database from "./pages/Database";
@@ -100,7 +102,10 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route index element={<Application />} />
+            {/* the app list is the projects; the flat list of every hostname stays one click away */}
+            <Route index element={<Projects />} />
+            <Route path="applications" element={<Application />} />
+            <Route path="project/:id" element={<ProjectDetail />} />
             <Route path="application/:id" element={<ApplicationDetail />} />
             <Route path="add-app" element={<AddApp />} />
             <Route path="database" element={<Database />} />

@@ -1,0 +1,43 @@
+// Projects ("Proyek"): a repository checkout or an upload, and the apps
+// ("Aplikasi") served from it — the app list, the project page, and adding an
+// app to a project.
+export default {
+  Projects: "Proyek",
+  Project: "Proyek",
+  "Your code and the apps served from it.": "Kode Anda dan aplikasi yang berjalan darinya.",
+  "Add project": "Tambah Proyek",
+  "Add app": "Tambah Aplikasi",
+  "All apps": "Semua aplikasi",
+  "All running": "Semua berjalan",
+  "Some stopped": "Sebagian berhenti",
+  "Needs attention": "Perlu perhatian",
+  "No apps": "Tanpa aplikasi",
+  "+{count} more": "+{count} lainnya",
+  "Select all projects on this page": "Pilih semua proyek di halaman ini",
+  "Search project, repository or domain…": "Cari proyek, repositori, atau domain…",
+  "No projects yet — add your first one.": "Belum ada proyek — tambahkan yang pertama.",
+  "Choose which organization owns {name}. Every app of the project goes with it.":
+    "Pilih organisasi pemilik {name}. Semua aplikasi di proyek ini ikut pindah.",
+  "Deploy all": "Deploy semua",
+  "Deployment started": "Deployment dimulai",
+  "Every app of the project is built from the same commit.": "Semua aplikasi di proyek dibangun dari commit yang sama.",
+  "Could not start the deployment": "Gagal memulai deployment",
+  "Project not found": "Proyek tidak ditemukan",
+  "Could not load the projects": "Gagal memuat proyek",
+  "Could not load the project": "Gagal memuat proyek",
+  "Could not update the project": "Gagal memperbarui proyek",
+  "Pull failed": "Pull gagal",
+  "Repository root": "Root repositori",
+  "Folder on the server": "Folder di server",
+  "It changes all {count} apps of this project: {apps}.": "Ini mengubah ke-{count} aplikasi di proyek ini: {apps}.",
+  "Add an app to {name}": "Tambah aplikasi ke {name}",
+  "It is built from the project's repository with its other apps, and deployed with them.":
+    "Dibangun dari repositori proyek bersama aplikasi lainnya, dan di-deploy bersamaan.",
+  "Only a project from a git repository can have several apps.": "Hanya proyek dari repositori git yang bisa punya beberapa aplikasi.",
+  "Folder in the repository": "Folder di repositori",
+  "Where this app's code is, e.g. apps/api. Empty = the repository root.":
+    "Lokasi kode aplikasi ini, mis. apps/api. Kosong = root repositori.",
+  "(repository root)": "(root repositori)",
+  "Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.":
+    "Hanya untuk monorepo: folder aplikasi ini, mis. apps/web. Aplikasi lain dari repositori yang sama ditambahkan di halaman proyek.",
+};

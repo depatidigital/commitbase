@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
@@ -167,5 +167,18 @@ assert.strictEqual(repositoryFromRemote('https://deploy:ghp_secret@github.com/ac
 assert.strictEqual(repositoryFromRemote('ssh://git@gitlab.example.com:2222/team/app.git'), 'https://gitlab.example.com/team/app.git');
 assert.strictEqual(repositoryFromRemote('/srv/git/shop.git'), null);
 assert.strictEqual(repositoryFromRemote(''), null);
+
+// --- a hostname split by path: /api/* to the app, the rest a static front end
+// (app.arusflow.id, as the Caddyfile adapter writes it) ---
+const splitRoute = {"match":[{"host":["app.arusflow.id"]}],"handle":[{"routes":[{"group":"group81","match":[{"path":["/api/*"]}],"handle":[{"routes":[{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"localhost:9200"}]}]}],"handler":"subroute"}]},{"group":"group81","handle":[{"routes":[{"handle":[{"root":"/var/www/html/arusflow_9200/web/dist","handler":"vars"}]},{"match":[{"file":{"try_files":["{http.request.uri.path}","/index.html"]}}],"handle":[{"uri":"{http.matchers.file.relative}","handler":"rewrite"}]},{"handle":[{"hide":["/etc/caddy/sites/arusflow.id.caddy"],"handler":"file_server"}]}],"handler":"subroute"}]}],"handler":"subroute"}],"terminal":true};
+assert.deepStrictEqual(routeParts(splitRoute), [
+  { path: '/api/*', proxy: 'localhost:9200' },
+  { path: null, root: '/var/www/html/arusflow_9200/web/dist' },
+]);
+// the hostname is still the app behind the proxy
+assert.deepStrictEqual(classifyRoute(splitRoute), { type: 'NODEJS', port: 9200 });
+// one thing serving it all is not a split; nor is PHP (file_server + FastCGI are one app)
+assert.strictEqual(routeParts(runtimeRoute), null);
+assert.strictEqual(routeParts(phpRoute), null);
 
 console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');

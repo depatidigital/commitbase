@@ -78,8 +78,10 @@ export async function setSourceOrganization(sourceIds: string[], organizationId:
 const lastSegment = (value: string) => value.replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || null;
 
 /**
- * What a source is called when nobody named it: its repository, else the
- * folder it is checked out in, else its first app's hostname. Pure.
+ * What a source is called when nobody named it: the folder it is checked out
+ * in — one repository is often checked out several times on a server, once
+ * per site, and the folder is what tells those apart — else its repository,
+ * else its first app's hostname. Pure.
  */
 export function sourceName(
   source: { name: string | null; repository: string | null; path: string | null },
@@ -87,8 +89,8 @@ export function sourceName(
 ): string {
   return (
     source.name?.trim() ||
-    (source.repository && lastSegment(source.repository)) ||
     (source.path && lastSegment(source.path)) ||
+    (source.repository && lastSegment(source.repository)) ||
     firstDomain ||
     'Proyek'
   );

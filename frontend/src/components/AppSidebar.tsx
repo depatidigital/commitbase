@@ -19,7 +19,7 @@ import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
 import { t } from "@/lib/i18n";
 
 const items = [
-  { title: t("Apps"), url: "/", icon: Server },
+  { title: t("Projects"), url: "/", icon: Server },
   { title: t("Databases"), url: "/database", icon: Database },
   { title: t("Domains"), url: "/domains", icon: Globe },
   { title: t("Logs"), url: "/logs", icon: Terminal },
@@ -35,7 +35,8 @@ export function AppSidebar() {
   const superadmin = isSuperAdmin();
 
   const isActive = (path: string) => {
-    if (path === "/") return location.pathname === "/";
+    // projects, the apps in them and the flat app list are one section
+    if (path === "/") return location.pathname === "/" || /^\/(project|application|applications)(\/|$)/.test(location.pathname);
     // whole segments: /database must not light up on /database-servers
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };

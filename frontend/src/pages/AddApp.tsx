@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { getProject } from "@/lib/projects";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ import {
   ChevronDown,
   ChevronRight,
   Rocket,
+  FolderGit2,
 } from "lucide-react";
 import { EnvEditor } from "@/components/EnvEditor";
 import { expectedRows, generateSecret, mergeRows, requiredKeys, rowsToEnv, suggestAppUrl, type EnvRow } from "@/lib/env";
@@ -80,6 +82,17 @@ const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
 
 export default function AddApp() {
   const navigate = useNavigate();
+  // ?project=<id>: a new app in an existing project — its code is the
+  // project's, so there is no source to pick, only the app's folder in it
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get("project");
+  const { data: joining, error: joiningError } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => getProject(projectId!),
+    enabled: !!projectId,
+  });
+  // the app's folder in the repository (monorepos); empty = the root
+  const [rootDirectory, setRootDirectory] = useState("");
   const { toast } = useToast();
   const createApp = useCreateApplication();
   // the org's own domains and the shared platform ones (shared first)
@@ -191,13 +204,15 @@ export default function AddApp() {
   const sourceLabel = useMemo(
     () =>
       slugify(
-        sourceMode === "git"
-          ? formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
+        projectId
+          ? rootDirectory.split("/").filter(Boolean).pop() || joining?.name
+          : sourceMode === "git"
+          ? rootDirectory.split("/").filter(Boolean).pop() || formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
           : uploadFiles[0]?.path.includes("/")
             ? uploadFiles[0].path.split("/")[0]
             : undefined,
       ),
-    [sourceMode, formData.repository, uploadFiles],
+    [sourceMode, formData.repository, uploadFiles, projectId, rootDirectory, joining?.name],
   );
 
   // The name is the app's own label, not its address (as on Vercel, Netlify,
@@ -280,9 +295,9 @@ export default function AddApp() {
   useEffect(() => {
     const isGit = sourceMode === "git";
     // wait for the branch lookup — detecting "main" on a "master" repo just fails
-    if (isGit && branchesLoading) return;
+    if (isGit && !projectId && branchesLoading) return;
     // a repository nobody could read yet would only fail detection too
-    const canDetect = isGit ? !!remoteBranches?.length : uploadFiles.length > 0;
+    const canDetect = projectId ? !!joining?.repository : isGit ? !!remoteBranches?.length : uploadFiles.length > 0;
     if (!canDetect) {
       setDetected(null);
       setDetectError("");
@@ -294,11 +309,15 @@ export default function AddApp() {
       setDetecting(true);
       setDetectError("");
       try {
-        const result = isGit
+        const folder = rootDirectory.trim() || undefined;
+        const result = projectId
+          ? await detectProject({ sourceId: projectId, rootDirectory: folder })
+          : isGit
           ? await detectProject({
               repository: formData.repository.trim(),
               branch: formData.branch || "main",
               gitAccountId: (gitSource && manualAccountId) || undefined,
+              rootDirectory: folder,
             })
           : await detectProject({ files: await readDetectFiles(uploadFiles) });
         if (cancelled) return;
@@ -325,14 +344,14 @@ export default function AddApp() {
       } finally {
         if (!cancelled) setDetecting(false);
       }
-    }, isGit ? 800 : 0);
+    }, isGit || projectId ? 800 : 0);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading, manualAccountId, remoteBranches]);
+  }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading, manualAccountId, remoteBranches, projectId, joining?.repository, rootDirectory]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -346,13 +365,16 @@ export default function AddApp() {
       name: formData.name,
       domain: fullDomain,
       type: formData.type as CreateApplicationData["type"],
+      rootDirectory: rootDirectory.trim() || undefined,
+      sourceId: projectId || undefined,
       repository:
-        sourceMode === "git" ? formData.repository || undefined : undefined,
+        !projectId && sourceMode === "git" ? formData.repository || undefined : undefined,
       // Which connected account clones it: the one the branch lookup found
       // can read this repo. None for a public repo or an upload.
-      gitAccountId: (sourceMode === "git" && manualAccountId) || undefined,
-      branch: formData.branch,
-      serverId: serverId || undefined,
+      gitAccountId: (!projectId && sourceMode === "git" && manualAccountId) || undefined,
+      branch: projectId ? undefined : formData.branch,
+      // an app of a project runs on the project's server
+      serverId: (!projectId && serverId) || undefined,
       // with one org there is nothing to pick — but say which, for an admin who is not its member
       organizationId: pickedDomain?.shared ? organizationId || myOrgs?.data[0]?.id : undefined,
       dnsConsent: dnsConsent || undefined,
@@ -432,6 +454,7 @@ export default function AddApp() {
   const deployNow = !wantsEnv || missingEnv.length === 0;
 
   const stepComplete = (value: number) => {
+    if (value === 1 && projectId) return !!joining?.repository;
     if (value === 1)
       return sourceMode === "upload"
         ? uploadFiles.length > 0
@@ -556,13 +579,52 @@ export default function AddApp() {
 
   return (
     <PageLayout
-      backTo="/"
-      title={t("Add App")}
-      description={t("Point at the code, then name it — the type is detected.")}
+      backTo={projectId ? `/project/${projectId}` : "/"}
+      title={joining ? t("Add an app to {name}", { name: joining.name }) : t("Add App")}
+      description={
+        projectId
+          ? t("It is built from the project's repository with its other apps, and deployed with them.")
+          : t("Point at the code, then name it — the type is detected.")
+      }
     >
       <form onSubmit={handleSubmit} className="space-y-8">
+        {/* an app of an existing project: its code is known, only the folder is asked */}
+        {projectId && (
+          <Card className="bg-gradient-card border-border/50 shadow-elegant">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <FolderGit2 className="h-5 w-5 text-primary" />
+                <span>{joining?.name ?? t("Project")}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {joiningError ? (
+                <p className="text-sm text-destructive">{(joiningError as Error).message}</p>
+              ) : joining && !joining.repository ? (
+                <p className="text-sm text-destructive">{t("Only a project from a git repository can have several apps.")}</p>
+              ) : (
+                <p className="font-mono text-xs text-muted-foreground">
+                  {joining?.repository} · {joining?.branch || "main"}
+                </p>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="rootDirectory">{t("Folder in the repository")}</Label>
+                <Input
+                  id="rootDirectory"
+                  placeholder="apps/api"
+                  value={rootDirectory}
+                  onChange={(e) => setRootDirectory(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("Where this app's code is, e.g. apps/api. Empty = the repository root.")}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* where the code comes from — the rest of the form opens once it is read */}
-        {sourceMode && (
+        {!projectId && sourceMode && (
           <>
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardHeader>
@@ -827,6 +889,22 @@ export default function AddApp() {
                         </p>
                       )}
                     </div>
+                    )}
+
+                    {/* a monorepo: the app is one folder of it */}
+                    {remoteBranches && remoteBranches.length > 0 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="rootDirectory">{t("Folder in the repository")}</Label>
+                        <Input
+                          id="rootDirectory"
+                          placeholder={t("(repository root)")}
+                          value={rootDirectory}
+                          onChange={(e) => setRootDirectory(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}
+                        </p>
+                      </div>
                     )}
                   </>
                 )}

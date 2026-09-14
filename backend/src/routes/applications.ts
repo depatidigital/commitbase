@@ -241,6 +241,22 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
       return res.status(400).json({ success: false, error: 'Root directory is a folder in the repository, like apps/web' } as ApiResponse);
     }
 
+    // an app added to a project: its repository, read through the project's
+    // clone account — which may be a teammate's; whoever sees the project may read it
+    if (req.body?.sourceId) {
+      const source = await prisma.source.findFirst({ where: { id: String(req.body.sourceId), ...(await orgScope(req)) } });
+      if (!source?.repository) {
+        return res.status(404).json({ success: false, error: 'Project not found, or not from a repository' } as ApiResponse);
+      }
+      const detected = await detectFromRepo(
+        source.repository,
+        source.branch || 'main',
+        source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined,
+        rootDirectory,
+      );
+      return res.json({ success: true, data: detected } as ApiResponse);
+    }
+
     if (files && typeof files === 'object') {
       const input: DetectInput = {};
       for (const name of DETECT_FILES) {

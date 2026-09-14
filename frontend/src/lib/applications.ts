@@ -117,6 +117,10 @@ export interface CreateApplicationData {
   organizationId?: string;
   /** The user agreed to the DNS change the form showed (replace records / move to Cloudflare). */
   dnsConsent?: boolean;
+  /** its folder in the repository (monorepos) */
+  rootDirectory?: string;
+  /** add it to this project instead of starting a new one */
+  sourceId?: string;
 }
 
 export interface UpdateApplicationData {
@@ -279,7 +283,11 @@ const PRESENCE_ONLY = /lock|^\.env(\.local)?$/;
 
 /** Detect from a git URL, or from the files the browser already holds. */
 export const detectProject = async (
-  input: { repository: string; branch?: string; gitAccountId?: string } | { files: Record<string, string> }
+  input:
+    | { repository: string; branch?: string; gitAccountId?: string; rootDirectory?: string }
+    // an app added to a project: its repository, read through the project
+    | { sourceId: string; rootDirectory?: string }
+    | { files: Record<string, string> }
 ): Promise<DetectedProject> => {
   const response = await apiRequest<DetectedProject>('/applications/detect', {
     method: 'POST',
