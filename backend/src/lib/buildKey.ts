@@ -12,7 +12,13 @@ import { createHash } from 'crypto';
 const SALT = 'v1';
 
 export function buildKeyOf(
-  application: { type: string; installCommand?: string | null; buildCommand?: string | null; preDeployCommand?: string | null },
+  application: {
+    type: string;
+    installCommand?: string | null;
+    buildCommand?: string | null;
+    preDeployCommand?: string | null;
+    rootDirectory?: string | null;
+  },
   commitSha: string,
   envVars: Record<string, string>,
 ): string {
@@ -27,7 +33,13 @@ export function buildKeyOf(
         application.buildCommand ?? '',
         application.preDeployCommand ?? '',
         env,
+        // only when set, so the keys of apps at the repository root stay as they were
+        ...(application.rootDirectory ? [application.rootDirectory] : []),
       ]),
     )
     .digest('hex');
 }
+
+/** The key of one build of several apps (a monorepo's). A lone app keeps its own key. */
+export const groupBuildKey = (keys: string[]): string =>
+  keys.length === 1 ? keys[0]! : createHash('sha256').update(JSON.stringify([SALT, ...keys])).digest('hex');

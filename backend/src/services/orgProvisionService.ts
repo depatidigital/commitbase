@@ -151,31 +151,55 @@ export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' 
 const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
 const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
 
-/** Manage an app's unit on the node the app runs on. */
-export async function appUnit(action: AppUnitAction, slug: string, applicationId: string): Promise<string> {
+/**
+ * Manage an app's unit on the node the app runs on. `sourceId`: install only —
+ * the source tree the app runs from, when it is not the app's own directory.
+ */
+export async function appUnit(action: AppUnitAction, slug: string, applicationId: string, sourceId?: string | null): Promise<string> {
   assertSlug(slug);
   if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
+  const shared = action === 'install' && !!sourceId && sourceId !== applicationId;
+  if (shared && !APP_ID_RE.test(sourceId!)) throw new Error(`Invalid source id: ${sourceId}`);
   // install/chown walk the app's whole tree (every kept release) — seconds on a
   // warm node, but not something to fail a deploy over at 60s
   const timeout = action === 'install' || action === 'chown' ? 5 * 60_000 : 60_000;
-  return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, applicationId], timeout);
+  return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, applicationId, ...(shared ? [sourceId!] : [])], timeout);
 }
 
 /**
- * Run <app-dir>/build.sh inside the build cgroup (memory-capped, low CPU/IO
- * weight) on the app's node. Resolves with the combined output; rejects with it
- * attached when the script fails. Fifteen minutes.
- * `onOutput` gets the output as it prints, for the live build log.
+ * chown / cancel-build on a source's tree. The runner only knows directories
+ * under the org's apps/, so the source id stands in for the app id; the tree
+ * may be no app's own any more, so `applicationId` (any app of the source)
+ * says which node it is on.
  */
-export async function appBuild(slug: string, applicationId: string, onOutput?: (text: string) => void): Promise<string> {
+export async function sourceTreeUnit(action: 'chown' | 'cancel-build', slug: string, sourceId: string, applicationId: string): Promise<string> {
   assertSlug(slug);
-  if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
+  if (!APP_ID_RE.test(sourceId)) throw new Error(`Invalid source id: ${sourceId}`);
+  const timeout = action === 'chown' ? 5 * 60_000 : 60_000;
+  return sudo(await serverForApplication(applicationId), 'cb-app-unit', [action, slug, sourceId], timeout);
+}
+
+/**
+ * Run <source-dir>/build.sh inside the build cgroup (memory-capped, low CPU/IO
+ * weight) on the node of `applicationId` (an app of the source). Resolves with
+ * the combined output; rejects with it attached when the script fails.
+ * Fifteen minutes per app built. `onOutput` gets the output as it prints, for the live build log.
+ */
+export async function appBuild(
+  slug: string,
+  sourceId: string,
+  applicationId: string,
+  onOutput?: (text: string) => void,
+  apps = 1,
+): Promise<string> {
+  assertSlug(slug);
+  if (!APP_ID_RE.test(sourceId)) throw new Error(`Invalid source id: ${sourceId}`);
 
   const { stdout, stderr } = await runScript(
     await serverForApplication(applicationId),
     'cb-app-unit',
-    ['build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
-    { timeout: 900_000, maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
+    ['build', slug, sourceId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
+    { timeout: 900_000 * Math.max(1, apps), maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
   );
   return stdout + (stderr ? '\n' + stderr : '');
 }

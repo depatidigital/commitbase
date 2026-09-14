@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { Application } from '@prisma/client';
-import { sourcesDirFor, logsDirFor, currentDirFor } from '../lib/appPaths';
+import { sourcesDirFor, logsDirFor, currentDirFor, inRootDirectory, sourceDirOf } from '../lib/appPaths';
 import { appFsFor, remoteCommand, type AppFs } from '../lib/appFs';
 import { exec, type SshTarget } from '../lib/runner';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
@@ -59,16 +59,17 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
   const port = application.port || defaultPort(application.type);
 
   // Run from the built release when there is one; apps deployed before the
-  // releases layout existed still run from sources/.
-  const currentDir = currentDirFor(appDir);
-  const runDir = (await afs.isDirectory(currentDir))
-    ? currentDir
-    : sourcesDirFor(appDir);
+  // releases layout existed still run from sources/. Both are the source's,
+  // and a monorepo app runs from its own folder in them.
+  const sourceDir = sourceDirOf(appDir, application.sourceId);
+  const currentDir = currentDirFor(sourceDir);
+  const treeDir = (await afs.isDirectory(currentDir)) ? currentDir : sourcesDirFor(sourceDir);
+  const runDir = inRootDirectory(treeDir, application.rootDirectory);
 
   let startCommand: string | null = application.startCommand;
   let nodeVersion: string | null = null;
   if (application.type === 'NODEJS') {
-    const detected = await detectProject(runDir, afs.readText);
+    const detected = await detectProject(runDir, afs.readText, undefined, treeDir);
     nodeVersion = detected.nodeVersion;
     if (!startCommand) startCommand = detected.startCommand;
   }
@@ -124,7 +125,8 @@ export async function startApplication(application: AppWithOrg): Promise<boolean
   const slug = slugOf(application);
 
   await writeRunScript(application, await appFsFor(application.id));
-  await appUnit('install', slug, application.id); // also hands the tree to the tenant user
+  // also hands the tree (and the source's, when it is another) to the tenant user
+  await appUnit('install', slug, application.id, application.sourceId);
   // restart, not start: `start` is a no-op on a running unit, so a redeploy kept
   // the old process serving from its old release — until cleanup deleted that tree
   await appUnit('restart', slug, application.id);

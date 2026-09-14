@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as net from 'net';
 import { execFile } from 'child_process';
 import { prisma } from './prisma';
-import { appDirFor } from './appPaths';
+import { appDirFor, sourceDirOf } from './appPaths';
 import { serverForApplication } from './servers';
 import { exec, forwardTcp, type SshTarget, type ExecResult } from './runner';
 import * as rfs from './remoteFs';
@@ -174,6 +174,19 @@ export async function appFsFor(applicationId: string): Promise<AppFs> {
   if (!slug) throw new Error('Assign the app to an organization first — apps run on its node');
   // the app's own node — organizations span nodes (lib/servers.ts)
   return remoteAppFs(await serverForApplication(applicationId), appDirFor(applicationId, slug));
+}
+
+/**
+ * The same node, at the app's source tree — sources/, releases/, current and
+ * build.sh (lib/appPaths sourceDirOf). The app's own directory unless it is an
+ * extra app of a monorepo.
+ */
+export async function sourceFsFor(applicationId: string): Promise<AppFs> {
+  const [afs, app] = await Promise.all([
+    appFsFor(applicationId),
+    prisma.application.findUnique({ where: { id: applicationId }, select: { sourceId: true } }),
+  ]);
+  return { ...afs, appDir: sourceDirOf(afs.appDir, app?.sourceId) };
 }
 
 /** Same, by hostname — for the log endpoints that only carry a domain. */

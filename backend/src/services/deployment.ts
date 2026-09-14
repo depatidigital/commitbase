@@ -311,118 +311,156 @@ export class DeploymentService {
    * Build a fresh release: copy sources/ into releases/<stamp>, install and
    * build there. The tree that is serving is never touched, and rollback is a
    * symlink away. The tree is handed to the tenant user by cb-app-unit install.
+   *
+   * `afs` is the source's tree; `group` every app built from it (a monorepo's
+   * apps, else the one app). One release for all of them: each app is detected
+   * and built in its own folder with its own env; an install several share (a
+   * workspace's, at the repository root) runs once.
    */
   async runBuild(
     afs: AppFs,
-    application: Application,
+    group: AppWithOrg[],
     deployment: Deployment,
-    envVars: Record<string, string> = {}
+    envs: Map<string, Record<string, string>>,
   ): Promise<BuildResult> {
     const { appDir } = afs;
+    const first = group[0]!;
     const sourcesDir = sourcesDirFor(appDir);
     const logsDir = logsDirFor(appDir);
     await afs.mkdir(logsDir);
     const buildLogPath = join(logsDir, 'build.log');
     const log = (line: string) => afs.appendFile(buildLogPath, line + NL);
     const uploadLog = () =>
-      afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, application.id, deployment.id)).catch(() => {});
+      afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, deployment.applicationId, deployment.id)).catch(() => {});
     // the release this build is making — removed again if it fails
     let madeRelease: string | null = null;
+    const q = (v: string) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+    // log lines say which app when there are several
+    const named = (app: Application) => (group.length > 1 ? `${app.domain}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}: ` : '');
 
     try {
-      if (systemd.needsUnit(application.type)) await this.allocatePort(application, afs);
-      await this.removeOrphanReleases(afs, application.id);
+      for (const app of group) if (systemd.needsUnit(app.type)) await this.allocatePort(app, afs);
+      await this.removeOrphanReleases(afs, first.id);
 
       await afs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
-
-      const detected = await detectProject(sourcesDir, afs.readText);
-      await log(`Detected: ${detected.label} (${detected.packageManager})`);
 
       const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
       const releaseDir = join(releasesDirFor(appDir), stamp);
       await afs.mkdir(releaseDir);
       madeRelease = releaseDir;
       // ponytail: full copy per release, tar excludes the junk. Hardlink node_modules from the previous release if installs get slow.
+      // node_modules unanchored: a monorepo's packages each have their own
       await afs.run(
-        ['sh', '-c', 'tar -C "$1" --exclude=./node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "$2" -xf -', 'sh', sourcesDir, releaseDir],
+        ['sh', '-c', 'tar -C "$1" --exclude=node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "$2" -xf -', 'sh', sourcesDir, releaseDir],
         { timeout: 300_000 },
       );
 
-      if (detected.framework === 'nextjs') {
-        // Next's build cache survives across releases — big win on rebuilds.
-        const cache = join(sharedDirFor(appDir), 'next-cache');
-        await afs.mkdir(cache);
-        await afs.mkdir(join(releaseDir, '.next'));
-        await afs.symlink(cache, join(releaseDir, '.next', 'cache'));
-      }
+      const docroots: Record<string, string> = {};
+      const installed = new Set<string>();
+      // one block of build.sh per app, in a subshell: its env and Node stay its own
+      const blocks: string[][] = [];
 
-      const has = (f: string) => afs.exists(join(releaseDir, f));
-      const steps: string[] = [];
+      for (const app of group) {
+        const envVars = envs.get(app.id) ?? {};
+        const workDir = inRootDirectory(releaseDir, app.rootDirectory);
+        if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${app.rootDirectory} in the repository (${app.domain})`);
 
-      // the app's own install command when set, else the detected one
-      const installCommand = application.installCommand || detected.installCommand;
+        const detected = await detectProject(workDir, afs.readText, undefined, releaseDir);
+        // a workspace installs at the root; composer.lock is always the folder's own
+        const installDir = detected.installAtRoot && detected.type !== 'PHP' ? releaseDir : workDir;
+        await log(`${named(app)}Detected: ${detected.label} (${detected.packageManager})${installDir !== workDir ? ', installing at the repository root' : ''}`);
+        docroots[app.id] = join(app.rootDirectory ?? '', detected.outputDir || '.');
 
-      if (detected.type === 'PHP') {
-        if (installCommand) {
-          if (await this.reuseInstalled(afs, releaseDir, 'composer.lock', 'vendor')) {
-            await log('vendor: composer.lock unchanged, hardlinked from the previous release');
-          } else {
-            steps.push(installCommand);
+        if (detected.framework === 'nextjs') {
+          // Next's build cache survives across releases — big win on rebuilds.
+          // ponytail: a monorepo app's is shared/next-cache-<app id>; the disk card only counts next-cache.
+          const cache = join(sharedDirFor(appDir), app.rootDirectory ? `next-cache-${app.id}` : 'next-cache');
+          await afs.mkdir(cache);
+          await afs.mkdir(join(workDir, '.next'));
+          await afs.symlink(cache, join(workDir, '.next', 'cache'));
+        }
+
+        const has = (f: string) => afs.exists(join(workDir, f));
+        // a path of the app's folder, relative to the release
+        const inFolder = (f: string) => join(app.rootDirectory ?? '', f);
+        const installs: string[] = [];
+        const steps: string[] = [];
+
+        // the app's own install command when set, else the detected one
+        const installCommand = app.installCommand || detected.installCommand;
+        // once per folder and command: a workspace's apps share one install
+        const firstInstall = (command: string) => {
+          const key = `${installDir}\n${command}`;
+          if (installed.has(key)) return false;
+          installed.add(key);
+          return true;
+        };
+
+        if (detected.type === 'PHP') {
+          if (installCommand && firstInstall(installCommand)) {
+            if (await this.reuseInstalled(afs, releaseDir, inFolder('composer.lock'), inFolder('vendor'))) {
+              await log(`${named(app)}vendor: composer.lock unchanged, hardlinked from the previous release`);
+            } else {
+              installs.push(installCommand);
+            }
+          }
+          // Laravel and friends read .env from the app root. The platform's env
+          // vars win over whatever the repository shipped.
+          if (detected.framework === 'laravel' && !envVars.APP_KEY) {
+            // Laravel refuses to boot without one. Generate once and keep it on
+            // the app so sessions survive the next deploy.
+            envVars.APP_KEY = 'base64:' + require('crypto').randomBytes(32).toString('base64');
+            await prisma.application.update({ where: { id: app.id }, data: { envVars: sealEnv(envVars) } });
+            await log(`${named(app)}Generated APP_KEY and saved it to the app env`);
+          }
+          const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+          if (entries.length > 0) {
+            const shipped = await afs.readText(join(workDir, '.env')).catch(() => '');
+            const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([k]) => line.startsWith(k + '=')));
+            const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
+            await afs.writeFile(join(workDir, '.env'), [...kept, ...own].join(NL) + NL);
+          }
+        } else if (await has('package.json')) {
+          // The env is exported to the build, but some tools read the file
+          // itself: Prisma 7's prisma.config.ts loads '.env' and fails on
+          // ENOENT without it, and so does anything calling loadEnvFile().
+          // The platform's values win over a .env the repository shipped.
+          const envEntries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+          if (envEntries.length > 0) {
+            const shipped = await afs.readText(join(workDir, '.env')).catch(() => '');
+            const kept = shipped.split(/\r?\n/).filter((line) => line.trim() && !envEntries.some(([k]) => line.startsWith(k + '=')));
+            // as readable as build.sh, which already carries the same values
+            await afs.writeFile(join(workDir, '.env'), [...kept, ...envEntries.map(([k, v]) => dotenvLine(k, String(v)))].join(NL) + NL, { mode: 0o660 });
+          }
+
+          if (firstInstall(installCommand)) {
+            const lock = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock', bun: 'bun.lock' }[detected.packageManager];
+            // ponytail: node_modules is reused only for a folder with its own
+            // lockfile — a workspace install also fills every package's node_modules.
+            const reusable = installDir === workDir;
+            if (reusable && lock && (await this.reuseInstalled(afs, releaseDir, inFolder(lock), inFolder('node_modules')))) {
+              await log(`${named(app)}node_modules: lockfile unchanged, hardlinked from the previous release`);
+            } else {
+              installs.push(installCommand);
+            }
           }
         }
-        // Laravel and friends read .env from the app root. The platform's env
-        // vars win over whatever the repository shipped.
-        if (detected.framework === 'laravel' && !envVars.APP_KEY) {
-          // Laravel refuses to boot without one. Generate once and keep it on
-          // the app so sessions survive the next deploy.
-          envVars.APP_KEY = 'base64:' + require('crypto').randomBytes(32).toString('base64');
-          await prisma.application.update({ where: { id: application.id }, data: { envVars: sealEnv(envVars) } });
-          await log('Generated APP_KEY and saved it to the app env');
-        }
-        const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
-        if (entries.length > 0) {
-          const shipped = await afs.readText(join(releaseDir, '.env')).catch(() => '');
-          const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([k]) => line.startsWith(k + '=')));
-          const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
-          await afs.writeFile(join(releaseDir, '.env'), [...kept, ...own].join(NL) + NL);
-        }
-      } else if (await has('package.json')) {
-        // The env is exported to the build, but some tools read the file
-        // itself: Prisma 7's prisma.config.ts loads '.env' and fails on
-        // ENOENT without it, and so does anything calling loadEnvFile().
-        // The platform's values win over a .env the repository shipped.
-        const envEntries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
-        if (envEntries.length > 0) {
-          const shipped = await afs.readText(join(releaseDir, '.env')).catch(() => '');
-          const kept = shipped.split(/\r?\n/).filter((line) => line.trim() && !envEntries.some(([k]) => line.startsWith(k + '=')));
-          // as readable as build.sh, which already carries the same values
-          await afs.writeFile(join(releaseDir, '.env'), [...kept, ...envEntries.map(([k, v]) => dotenvLine(k, String(v)))].join(NL) + NL, { mode: 0o660 });
-        }
+        if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
+        // every build, even with node_modules reused: the client lands in the release tree
+        if (detected.generateCommand) steps.push(detected.generateCommand);
+        // Migrations and the like: before the build, which may query the tables
+        // (Next prerendering), in the same script and env. A failure leaves the
+        // old release live — but a migration that ran and a build that then
+        // failed leave the old release on the new schema.
+        if (app.preDeployCommand) steps.push(app.preDeployCommand);
+        const buildCommand = app.buildCommand || detected.buildCommand;
+        if (buildCommand) steps.push(buildCommand);
 
-        const lock = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock', bun: 'bun.lock' }[detected.packageManager];
-        if (lock && (await this.reuseInstalled(afs, releaseDir, lock, 'node_modules'))) {
-          await log('node_modules: lockfile unchanged, hardlinked from the previous release');
-        } else {
-          steps.push(installCommand);
-        }
-      }
-      if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
-      // every build, even with node_modules reused: the client lands in the release tree
-      if (detected.generateCommand) steps.push(detected.generateCommand);
-      // Migrations and the like: before the build, which may query the tables
-      // (Next prerendering), in the same script and env. A failure leaves the
-      // old release live — but a migration that ran and a build that then
-      // failed leave the old release on the new schema.
-      if (application.preDeployCommand) steps.push(application.preDeployCommand);
-      const buildCommand = application.buildCommand || detected.buildCommand;
-      if (buildCommand) steps.push(buildCommand);
+        if (installs.length === 0 && steps.length === 0) continue;
 
-      if (steps.length > 0) {
-        // One script for the whole build, so it can run under systemd-run in
-        // its own cgroup. NEXT_PUBLIC_* and friends are baked in at build time,
-        // so the app's env is exported here. NODE_ENV stays unset: production
-        // would skip the devDependencies most build tools live in.
-        const q = (v: string) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+        // NEXT_PUBLIC_* and friends are baked in at build time, so the app's
+        // env is exported here. NODE_ENV stays unset: production would skip
+        // the devDependencies most build tools live in.
         // CI=1: no prompt can ever wait for an answer. pnpm 10 blocks
         // dependencies' build scripts (prisma engines, esbuild, sharp) until
         // `pnpm approve-builds` is answered — interactively — and in CI just
@@ -431,36 +469,37 @@ export class DeploymentService {
         // dependencies' scripts are no less trusted than that.
         const exports = Object.entries({
           ...envVars,
-          PORT: String(application.port || ''),
+          PORT: String(app.port || ''),
           CI: '1',
           NEXT_TELEMETRY_DISABLED: '1',
           npm_config_dangerously_allow_all_builds: 'true',
         })
           .filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
-          .map(([k, v]) => `export ${k}=${q(v)}`);
-        const script = [
-          '#!/bin/bash',
-          '# Generated by Larika for one deploy. Overwritten on the next.',
-          'set -euo pipefail',
-          'unset NODE_ENV',
-          ...nvmPreamble(detected.nodeVersion, true),
-          'echo "node $(node -v 2>/dev/null || echo missing) at $(command -v node || true)"',
+          .map(([k, v]) => `  export ${k}=${q(v)}`);
+        const run = (step: string) => ['  echo', `  echo ${q('$ ' + step)}`, `  ${step}`];
+        blocks.push([
+          ...(group.length > 1 ? ['', `echo ${q(`==> ${app.domain}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}`)}`] : []),
+          '(',
+          ...nvmPreamble(detected.nodeVersion, true).map((line) => '  ' + line),
+          '  echo "node $(node -v 2>/dev/null || echo missing) at $(command -v node || true)"',
           ...exports,
-          `cd ${q(releaseDir)}`,
-          ...steps.flatMap((step) => [`echo`, `echo ${q('$ ' + step)}`, step]),
-          '',
-        ].join(NL);
+          ...(installs.length > 0 ? [`  cd ${q(installDir)}`, ...installs.flatMap(run)] : []),
+          `  cd ${q(workDir)}`,
+          ...steps.flatMap(run),
+          ')',
+        ]);
+      }
+
+      if (blocks.length > 0) {
+        // One script for the whole build, so it can run under systemd-run in its own cgroup.
+        const script = ['#!/bin/bash', '# Generated by Larika for one deploy. Overwritten on the next.', 'set -euo pipefail', 'unset NODE_ENV', ...blocks.flat(), ''].join(NL);
         const buildScript = join(appDir, 'build.sh');
         await afs.rm(buildScript, { force: true }); // may be owned by the tenant after chown
         await afs.writeFile(buildScript, script, { mode: 0o660 });
 
-        const slug = (await prisma.application.findUnique({
-          where: { id: application.id },
-          select: { organization: { select: { slug: true } } },
-        }))?.organization?.slug;
-
+        const slug = first.organization?.slug;
         // there is no building on the panel: appFsFor only hands out a node for tenant apps
-        if (!afs.node || !slug) throw new Error('This app has no organization node to build on');
+        if (!afs.node || !slug || !first.sourceId) throw new Error('This app has no organization node to build on');
         {
           // On the node, in the build cgroup, as the unprivileged build user.
           // Output is appended to build.log as it prints — serially, so chunks
@@ -470,7 +509,7 @@ export class DeploymentService {
             appending = appending.then(() => afs.appendFile(buildLogPath, text)).catch(() => {});
           };
           try {
-            await appBuild(slug, application.id, onOutput);
+            await appBuild(slug, first.sourceId, first.id, onOutput, blocks.length);
           } finally {
             await appending;
           }
@@ -479,7 +518,7 @@ export class DeploymentService {
 
       await log(NL + `[${new Date().toISOString()}] BUILD COMPLETED`);
       await uploadLog();
-      return { success: true, releaseDir, docroot: detected.outputDir || '.' };
+      return { success: true, releaseDir, docroots };
     } catch (error: any) {
       const message = error.stderr || error.message || String(error);
       await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message).catch(() => {});

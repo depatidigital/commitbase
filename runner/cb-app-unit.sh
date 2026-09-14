@@ -64,8 +64,9 @@ UNIT_PATH="/etc/systemd/system/$UNIT"
 id -u "$OS_USER" >/dev/null 2>&1 || { echo "cb-app-unit: org not provisioned: $OS_USER" >&2; exit 3; }
 
 hand_to_tenant() {
-  [ -d "$APP_DIR" ] || { echo "cb-app-unit: app directory missing: $APP_DIR" >&2; exit 3; }
-  mkdir -p "$APP_DIR/logs"
+  local dir="$1"
+  [ -d "$dir" ] || { echo "cb-app-unit: app directory missing: $dir" >&2; exit 3; }
+  mkdir -p "$dir/logs"
   # The backend builds into this tree as its own user; hand it to the tenant
   # so the app can write at runtime, keeping the backend's group access.
   # Re-run after every deploy — new files land owned by the backend.
@@ -73,14 +74,14 @@ hand_to_tenant() {
   # every file of every kept release (node_modules, .next) on each deploy and
   # outgrew its timeout once a few releases piled up. -h: the `current`
   # symlink itself, never through it.
-  find "$APP_DIR" \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
-  find "$APP_DIR" -type f ! -perm -0060 -exec chmod g+rwX {} +
-  find "$APP_DIR" -type d ! -perm -2070 -exec chmod g+rwxs {} +
+  find "$dir" \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
+  find "$dir" -type f ! -perm -0060 -exec chmod g+rwX {} +
+  find "$dir" -type d ! -perm -2070 -exec chmod g+rwxs {} +
 }
 
 case "$ACTION" in
   chown)
-    hand_to_tenant
+    hand_to_tenant "$APP_DIR"
     echo "chowned $APP_DIR"
     ;;
 
@@ -105,7 +106,12 @@ case "$ACTION" in
 
   install)
     [ -f "$APP_DIR/run.sh" ] || { echo "cb-app-unit: $APP_DIR/run.sh missing — the backend writes it" >&2; exit 3; }
-    hand_to_tenant
+    hand_to_tenant "$APP_DIR"
+    WRITABLE="$APP_DIR"
+    if [ "$SOURCE_DIR" != "$APP_DIR" ]; then
+      hand_to_tenant "$SOURCE_DIR"
+      WRITABLE="$APP_DIR $SOURCE_DIR"
+    fi
 
     cat > "$UNIT_PATH" <<UNIT_EOF
 [Unit]
@@ -117,7 +123,7 @@ Type=simple
 User=$OS_USER
 Group=$OS_USER
 Slice=cb-$SLUG.slice
-# run.sh cd's into current/ (or sources/ for pre-release apps).
+# run.sh cd's into current/ (or sources/ for pre-release apps) — its source's.
 WorkingDirectory=$APP_DIR
 EnvironmentFile=-$APP_DIR/.env.runtime
 ExecStart=/bin/bash $APP_DIR/run.sh
@@ -133,7 +139,7 @@ PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$APP_DIR
+ReadWritePaths=$WRITABLE
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
