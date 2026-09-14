@@ -36,7 +36,7 @@ import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
 import { readEnv, sealEnv } from '../lib/appEnv';
-import { createApplicationWithSource, dropOrphanSources, withSourceFields } from '../lib/sources';
+import { createApplicationWithSource, dropOrphanSources, setSourceOrganization, withSourceFields } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
@@ -308,110 +308,7 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
   }
 });
 
-/**
- * An app's repository as it is now, for its Source panel: the branches, each
- * one's newest commit, and the commit that is live — so "is there something
- * newer to deploy" is answered without a clone. Read through the app's own git
- * account, which may be a teammate's: whoever can see the app can read this.
- */
-/**
- * git in an imported app's checkout, on its server, with that server's
- * credentials. Never waits on a prompt: there is no tty to answer a password
- * or a new host key.
- */
-const checkoutGit = (server: Parameters<typeof exec>[0], rootPath: string, args: string[]) =>
-  exec(
-    server,
-    ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', rootPath, ...args],
-    { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
-  );
-
-/**
- * Pull an imported app's checkout on its server — code only: no install, no
- * build, no restart. Fast-forward only, so local edits or a diverged history
- * make it refuse instead of merging. And only as the folder's owner: pulling as
- * another user (root, typically) leaves files the app then cannot write.
- */
-router.post('/:id/pull', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
-      include: { source: { select: { repository: true, branch: true } } },
-    });
-    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    if (!application.runtime || !application.source?.repository || !application.rootPath || !application.serverId) {
-      return res.status(400).json({ success: false, error: 'Only an app set up on the server from a git checkout can be pulled here' } as ApiResponse);
-    }
-    const server = await prisma.server.findUnique({ where: { id: application.serverId } });
-    if (!server) return res.status(409).json({ success: false, error: 'This app is not linked to a server — sync the apps again' } as ApiResponse);
-
-    const { stdout: who } = await exec(server, ['sh', '-c', 'stat -c %U -- "$1" && id -un', 'sh', application.rootPath], { timeout: 15_000 });
-    const [owner, user] = who.trim().split('\n');
-    if (!owner || owner !== user) {
-      return res.status(409).json({
-        success: false,
-        error: `${application.rootPath} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Pull it on the server as ${owner}.`,
-      } as ApiResponse);
-    }
-
-    const branch = application.source.branch || 'main';
-    try {
-      const { stdout, stderr } = await checkoutGit(server, application.rootPath, ['pull', '--ff-only', 'origin', branch]);
-      return res.json({ success: true, data: { output: `${stdout}${stderr}`.trim() }, message: `Pulled ${branch}` } as ApiResponse);
-    } catch (error: any) {
-      return res.status(502).json({ success: false, error: String(error?.stderr || error?.message || error).trim().slice(0, 500) } as ApiResponse);
-    }
-  } catch (error) {
-    console.error('Error pulling application:', error);
-    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
-  }
-});
-
-router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
-      select: {
-        runtime: true, rootPath: true, serverId: true,
-        source: { select: { repository: true, branch: true, gitAccountId: true, activeRelease: { select: { commitSha: true } } } },
-      },
-    });
-    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    const source = application.source;
-    if (!source?.repository) {
-      return res.status(400).json({ success: false, error: 'This app is not deployed from a repository' } as ApiResponse);
-    }
-
-    // An imported checkout is read on its own server, with that server's git
-    // credentials (usually an SSH deploy key) — the panel has none for it. And
-    // what is live is simply the checkout's HEAD.
-    if (application.runtime && application.rootPath && application.serverId) {
-      const server = await prisma.server.findUnique({ where: { id: application.serverId } });
-      if (server) {
-        const git = (args: string[]) => checkoutGit(server, application.rootPath!, args);
-        const [remote, head] = await Promise.all([git(['ls-remote', '--symref', 'origin']), git(['rev-parse', 'HEAD']).catch(() => null)]);
-        return res.json({
-          success: true,
-          data: { ...parseLsRemote(remote.stdout), branch: source.branch || 'main', liveCommit: head?.stdout.trim() || null },
-        } as ApiResponse);
-      }
-    }
-
-    const remote = await listRemoteBranches(
-      source.repository,
-      source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined,
-    );
-    return res.json({
-      success: true,
-      data: { ...remote, branch: source.branch || 'main', liveCommit: source.activeRelease?.commitSha ?? null },
-    } as ApiResponse);
-  } catch (error: any) {
-    return res.status(400).json({
-      success: false,
-      error: `Could not read the repository: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
-    } as ApiResponse);
-  }
-});
+// Pulling and reading branches are the project's: routes/sources.ts
 
 /**
  * Branches and the default branch of a pasted repository URL, for the add-app
@@ -564,10 +461,14 @@ router.patch('/bulk-assign', authenticateToken, requireRole(['SUPERADMIN']), asy
       }
     }
 
-    const { count } = await prisma.application.updateMany({
-      where: { id: { in: ids as string[] } },
-      data: { organizationId: (organizationId as string) || null },
-    });
+    // an org is its source's, and every app of that source goes with it
+    // (req.body.sources: the ids are project ids, from the project list)
+    const sourceIds = req.body?.sources === true
+      ? (ids as string[])
+      : (
+          await prisma.application.findMany({ where: { id: { in: ids as string[] }, sourceId: { not: null } }, select: { sourceId: true } })
+        ).map((app) => app.sourceId!);
+    const count = await setSourceOrganization([...new Set(sourceIds)], (organizationId as string) || null);
 
     return res.json({
       success: true,

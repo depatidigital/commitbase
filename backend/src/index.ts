@@ -35,6 +35,7 @@ async function ensureCaddyReady(): Promise<void> {
 // Import routes
 import authRoutes from './routes/auth';
 import applicationsRoutes from './routes/applications';
+import sourcesRoutes from './routes/sources';
 import databasesRoutes from './routes/databases';
 import deploymentsRoutes from './routes/deployments';
 import logsRoutes from './routes/logs';
@@ -114,6 +115,7 @@ app.get('/health/apps', (req, res) => {
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/applications', applicationsRoutes);
+app.use('/api/sources', sourcesRoutes);
 app.use('/api/databases', databasesRoutes);
 app.use('/api/deployments', deploymentsRoutes);
 app.use('/api/logs', logsRoutes);

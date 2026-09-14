@@ -1,0 +1,358 @@
+import { Router, Response } from 'express';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../lib/prisma';
+import { ApiResponse } from '../types';
+import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
+import { orgScope, isPlatformAdmin } from '../lib/scope';
+import { paging, contains } from '../lib/paging';
+import { exec } from '../lib/runner';
+import { gitAuthFor } from '../lib/gitCredentials';
+import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
+import { setSourceOrganization, sourceName } from '../lib/sources';
+import { launchDeploy } from '../services/deployLaunch';
+
+/**
+ * Sources — what the UI lists as "Proyek": a repository checkout or an upload,
+ * and the apps ("Aplikasi") served from it. Pull and deploy happen here, once
+ * for all of them; everything per hostname stays on /api/applications.
+ */
+const router = Router();
+
+const instanceSelect = {
+  id: true,
+  name: true,
+  domain: true,
+  type: true,
+  status: true,
+  runtime: true,
+  disabled: true,
+  processName: true,
+  rootDirectory: true,
+  rootPath: true,
+  port: true,
+  createdAt: true,
+} satisfies Prisma.ApplicationSelect;
+
+type Instance = Prisma.ApplicationGetPayload<{ select: typeof instanceSelect }>;
+
+/**
+ * One status for the row, worst first: work in flight, then anything broken,
+ * then stopped. Switched-off apps do not count unless all of them are. Pure.
+ */
+export function rollupStatus(apps: Array<Pick<Instance, 'status' | 'disabled'>>): string {
+  const live = apps.filter((app) => !app.disabled);
+  if (apps.length === 0) return 'EMPTY';
+  if (live.length === 0) return 'DISABLED';
+  const has = (status: string) => live.some((app) => app.status === status);
+  if (has('DEPLOYING') || has('BUILDING')) return 'DEPLOYING';
+  if (has('ERROR')) return 'ERROR';
+  if (live.every((app) => app.status === 'RUNNING')) return 'RUNNING';
+  return has('RUNNING') ? 'PARTIAL' : 'STOPPED';
+}
+
+/** Imported sources are pulled on their server; the panel's own are deployed. */
+const kindOf = (source: { path: string | null }) => (source.path ? 'IMPORTED' : 'MANAGED');
+
+/** git in a checkout on its server. Never waits on a prompt: there is no tty. */
+const checkoutGit = (server: Parameters<typeof exec>[0], dir: string, args: string[]) =>
+  exec(
+    server,
+    ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', dir, ...args],
+    { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
+  );
+
+async function findSource(req: AuthenticatedRequest, res: Response) {
+  const source = await prisma.source.findFirst({
+    where: { id: req.params.id as string, ...(await orgScope(req)) },
+    include: {
+      organization: { select: { id: true, name: true, slug: true } },
+      server: { select: { id: true, name: true, hostname: true, publicIp: true } },
+      applications: { select: instanceSelect, orderBy: { createdAt: 'asc' } },
+      activeRelease: { select: { id: true, commitSha: true, createdAt: true } },
+    },
+  });
+  if (!source) res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
+  return source;
+}
+
+const present = <T extends { name: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
+  ...source,
+  name: sourceName(source, source.applications[0]?.domain),
+  customName: source.name,
+  kind: kindOf(source),
+  status: rollupStatus(source.applications),
+});
+
+/**
+ * Every source in scope, with its apps and last deploy or pull. Searching a
+ * hostname finds the source it is served from.
+ *
+ * ponytail: sorted and paged in memory — names are derived and the status is a
+ * rollup, neither is a column. Fine for hundreds of sources; a stored name and
+ * status if it ever gets to thousands.
+ */
+router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { page, limit, skip, search, organizationId } = paging(req);
+    const serverId = String(req.query.serverId ?? '').trim();
+    const where: Prisma.SourceWhereInput = {
+      ...(await orgScope(req)),
+      // ?organizationId=unassigned: what the sync found that nobody has claimed yet
+      ...(organizationId && { organizationId: organizationId === 'unassigned' ? null : organizationId }),
+      ...(serverId && { serverId }),
+      ...(search && {
+        OR: [
+          { name: contains(search) },
+          { repository: contains(search) },
+          { path: contains(search) },
+          { applications: { some: { OR: [{ domain: contains(search) }, { name: contains(search) }] } } },
+        ],
+      }),
+      // a source is its apps; one without any is on its way out
+      applications: { some: {} },
+    };
+
+    const sources = await prisma.source.findMany({
+      where,
+      include: {
+        organization: { select: { id: true, name: true, slug: true } },
+        server: { select: { id: true, name: true } },
+        applications: { select: instanceSelect, orderBy: { createdAt: 'asc' } },
+      },
+    });
+    const last = await prisma.deployment.findMany({
+      where: { sourceId: { in: sources.map((source) => source.id) } },
+      orderBy: { createdAt: 'desc' },
+      distinct: ['sourceId'],
+      select: { sourceId: true, status: true, createdAt: true, commitHash: true, commitMessage: true },
+    });
+    const lastBySource = new Map(last.map((deployment) => [deployment.sourceId, deployment]));
+
+    const rows = sources.map((source) => ({ ...present(source), lastDeployment: lastBySource.get(source.id) ?? null }));
+    const direction = req.query.order === 'desc' ? -1 : 1;
+    const SEVERITY: Record<string, number> = { DEPLOYING: 0, ERROR: 1, PARTIAL: 2, STOPPED: 3, RUNNING: 4, EMPTY: 5, DISABLED: 6 };
+    const byName = (a: (typeof rows)[number], b: (typeof rows)[number]) => a.name.localeCompare(b.name);
+    rows.sort((a, b) => {
+      switch (req.query.sort) {
+        case 'name':
+          return direction * byName(a, b);
+        case 'organization':
+          return direction * (a.organization?.name ?? '').localeCompare(b.organization?.name ?? '') || byName(a, b);
+        case 'server':
+          return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || byName(a, b);
+        case 'apps':
+          return direction * (a.applications.length - b.applications.length) || byName(a, b);
+        default:
+          // what needs attention leads
+          return (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byName(a, b);
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        data: rows.slice(skip, skip + limit),
+        pagination: { page, limit, total: rows.length, totalPages: Math.ceil(rows.length / limit) },
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error listing projects:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    return res.json({ success: true, data: present(source) } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Rename, point at another repository or branch, change its clone account, or
+ * (platform admin) give it to another organization — its apps go with it. An
+ * imported checkout's repository and branch are what is on the server: the
+ * sync reads them, nothing here writes them.
+ */
+router.patch('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    const { name, repository, branch, gitAccountId, organizationId } = req.body ?? {};
+
+    const code = repository !== undefined || branch !== undefined || gitAccountId !== undefined;
+    if (code && source.path) {
+      return res.status(400).json({
+        success: false,
+        error: 'The repository and branch of a project imported from its server are what is checked out there',
+      } as ApiResponse);
+    }
+    // the clone account may only be one the caller connected themselves —
+    // otherwise a source could be pointed at somebody else's token
+    if (gitAccountId && !(await prisma.gitAccount.findFirst({ where: { id: String(gitAccountId), userId: req.user!.userId } }))) {
+      return res.status(403).json({ success: false, error: 'Unknown git account' } as ApiResponse);
+    }
+
+    if (organizationId !== undefined) {
+      if (!isPlatformAdmin(req)) {
+        return res.status(403).json({ success: false, error: 'Only a platform admin can move a project to another organization' } as ApiResponse);
+      }
+      if (organizationId && !(await prisma.organization.findUnique({ where: { id: String(organizationId) } }))) {
+        return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+      }
+      await setSourceOrganization([source.id], organizationId ? String(organizationId) : null);
+    }
+
+    await prisma.source.update({
+      where: { id: source.id },
+      data: {
+        // '' goes back to the derived name
+        ...(name !== undefined && { name: String(name ?? '').trim() || null }),
+        ...(repository !== undefined && { repository: String(repository ?? '').trim() || null }),
+        ...(branch !== undefined && { branch: String(branch ?? '').trim() || 'main' }),
+        ...(gitAccountId !== undefined && { gitAccountId: gitAccountId || null }),
+      },
+    });
+
+    const updated = await findSource(req, res);
+    if (!updated) return;
+    return res.json({ success: true, data: present(updated), message: 'Project updated' } as ApiResponse);
+  } catch (error) {
+    console.error('Error updating project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * The repository's branches, each one's newest commit, and the commit that is
+ * live — "is there something newer" without a clone. An imported checkout is
+ * read on its own server with that server's git credentials (usually an SSH
+ * deploy key), and what is live is its HEAD.
+ */
+router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!source.repository) {
+      return res.status(400).json({ success: false, error: 'This project is not from a repository' } as ApiResponse);
+    }
+    const branch = source.branch || 'main';
+
+    if (source.path && source.serverId) {
+      const server = await prisma.server.findUnique({ where: { id: source.serverId } });
+      if (!server) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);
+      const git = (args: string[]) => checkoutGit(server, source.path!, args);
+      const [remote, head] = await Promise.all([git(['ls-remote', '--symref', 'origin']), git(['rev-parse', 'HEAD']).catch(() => null)]);
+      return res.json({
+        success: true,
+        data: { ...parseLsRemote(remote.stdout), branch, liveCommit: head?.stdout.trim() || null },
+      } as ApiResponse);
+    }
+
+    const remote = await listRemoteBranches(source.repository, source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined);
+    return res.json({
+      success: true,
+      data: { ...remote, branch, liveCommit: source.activeRelease?.commitSha ?? null },
+    } as ApiResponse);
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      error: `Could not read the repository: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    } as ApiResponse);
+  }
+});
+
+/**
+ * Pull an imported checkout on its server — once, for every app served from
+ * it. Code only: no install, no build, no restart (PHP picks it up at once; a
+ * pm2 app needs a restart). Fast-forward only, so local edits or a diverged
+ * history make it refuse instead of merging. Only as the folder's owner:
+ * pulling as another user (root, typically) leaves files the apps cannot write.
+ * It lands in the project's history like a deploy.
+ */
+router.post('/:id/pull', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!source.path || !source.serverId || !source.repository) {
+      return res.status(400).json({ success: false, error: 'Only a project checked out on its server from git can be pulled' } as ApiResponse);
+    }
+    const server = await prisma.server.findUnique({ where: { id: source.serverId } });
+    if (!server) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);
+
+    const { stdout: who } = await exec(server, ['sh', '-c', 'stat -c %U -- "$1" && id -un', 'sh', source.path], { timeout: 15_000 });
+    const [owner, user] = who.trim().split('\n');
+    if (!owner || owner !== user) {
+      return res.status(409).json({
+        success: false,
+        error: `${source.path} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Pull it on the server as ${owner}.`,
+      } as ApiResponse);
+    }
+
+    const branch = source.branch || 'main';
+    const first = source.applications[0];
+    const record = (status: 'SUCCESS' | 'FAILED', log: string, commit?: { hash?: string | undefined; message?: string | undefined }) =>
+      first
+        ? prisma.deployment.create({
+            data: {
+              applicationId: first.id,
+              sourceId: source.id,
+              userId: req.user!.userId,
+              status,
+              deployLogs: `git pull --ff-only origin ${branch} in ${source.path}\n\n${log}`,
+              commitHash: commit?.hash ?? null,
+              commitMessage: commit?.message ?? null,
+            },
+          })
+        : null;
+
+    try {
+      const { stdout, stderr } = await checkoutGit(server, source.path, ['pull', '--ff-only', 'origin', branch]);
+      const output = `${stdout}${stderr}`.trim();
+      const head = await checkoutGit(server, source.path, ['log', '-1', '--format=%H%n%s']).catch(() => null);
+      const [hash, message] = (head?.stdout ?? '').trim().split('\n');
+      await record('SUCCESS', output, { hash, message });
+      return res.json({
+        success: true,
+        data: { output, apps: source.applications.map((app) => app.domain) },
+        message: `Pulled ${branch}`,
+      } as ApiResponse);
+    } catch (error: any) {
+      const message = String(error?.stderr || error?.message || error).trim().slice(0, 2000);
+      await record('FAILED', message);
+      return res.status(502).json({ success: false, error: message.slice(0, 500) } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error pulling project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** Build and release every app of a panel-managed project, from one commit. */
+router.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    const managed = source.applications.find((app) => !app.runtime);
+    if (source.path || !managed) {
+      return res.status(409).json({
+        success: false,
+        error: 'This project was imported from its server and is managed there — pull it instead',
+      } as ApiResponse);
+    }
+
+    const application = await prisma.application.findUniqueOrThrow({ where: { id: managed.id } });
+    const launched = await launchDeploy(application, req.user!.userId);
+    if (!launched) return res.status(409).json({ success: false, error: 'A deployment is already in progress' } as ApiResponse);
+    return res.json({ success: true, data: { deploymentId: launched.deploymentId }, message: 'Deployment started' } as ApiResponse);
+  } catch (error) {
+    console.error('Error deploying project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+export default router;
