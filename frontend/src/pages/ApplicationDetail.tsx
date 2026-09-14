@@ -446,8 +446,9 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   // was started by someone we cannot ask
   const controllable = !application.runtime || application.runtime === 'PM2';
   const canStop = !isStatic && controllable && application.status === 'RUNNING';
-  // an uploaded site redeploys by uploading, from its own button
-  const canRedeploy = deployed && !uploadedSite;
+  // an uploaded site redeploys by uploading, from its own button; an imported
+  // one is not deployed by the panel at all (a pull or branch switch is not a deploy)
+  const canRedeploy = deployed && !uploadedSite && !application.runtime;
   // newest first, so the next READY one after the serving one is the previous version
   const releases = releaseData?.releases ?? [];
   const servingAt = releases.findIndex((release) => release.id === releaseData?.activeReleaseId);

@@ -95,8 +95,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const checkout = useMutation({
     // taken at the click: closing the dialog clears the tick before the request goes out
     mutationFn: (vars: { branch: string; consent: boolean }) => checkoutProject(projectId, vars.branch, vars.consent),
-    onSuccess: () => {
-      toast({ title: t("Switched to {branch} on the server", { branch }) });
+    onSuccess: (_, vars) => {
+      toast({ title: t("Switched to {branch} on the server", { branch: vars.branch }) });
       void queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["application"] });
