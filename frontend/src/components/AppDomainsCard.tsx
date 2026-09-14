@@ -18,7 +18,7 @@ import {
 import { HostnamePicker, hostnameProblem, joinHost } from "@/components/HostnamePicker";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, updateApplication } from "@/lib/applications";
+import { type Application, hostsOf, updateApplication } from "@/lib/applications";
 import { isAdmin } from "@/lib/auth";
 import { getDomainChoices } from "@/lib/domains";
 import { t } from "@/lib/i18n";
@@ -99,41 +99,29 @@ export function AppDomainsCard({ application }: { application: Application }) {
         <p className="text-sm text-muted-foreground">{t("Where visitors reach this app")}</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={`https://${application.domain}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 font-mono hover:text-primary"
-          >
-            {application.domain}
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-          {current?.shared && <Badge variant="secondary">{t("free")}</Badge>}
-          <DomainExpiryBadge domain={application.parentDomain} />
-        </div>
-
-        {/* the same app under other names — checked together with the main one */}
-        {!!application.aliases?.length && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium">{t("Also answers on")}</p>
-            <ul className="space-y-1">
-              {application.aliases.map((alias) => (
-                <li key={alias}>
-                  <a
-                    href={`https://${alias}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary"
-                  >
-                    {alias}
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {/* every name it answers on, all alike — checked together */}
+        <ul className="space-y-1.5">
+          {hostsOf(application).map((host) => (
+            <li key={host} className="flex flex-wrap items-center gap-2">
+              <a
+                href={`https://${host}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 font-mono hover:text-primary"
+              >
+                {host}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              {/* what is known about its registration is known for this one name */}
+              {host === application.domain && (
+                <>
+                  {current?.shared && <Badge variant="secondary">{t("free")}</Badge>}
+                  <DomainExpiryBadge domain={application.parentDomain} />
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
 
         {application.runtime ? (
           <p className="text-sm text-muted-foreground">{t("An imported app keeps its hostname.")}</p>

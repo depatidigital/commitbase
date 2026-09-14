@@ -225,9 +225,7 @@ export default {
   "There is no domain to put an app under yet. An administrator can share a platform domain (every organization gets free addresses under it) or assign one to your organization.":
     "Belum ada domain untuk aplikasi. Administrator bisa membagikan domain platform (setiap organisasi mendapat alamat gratis di bawahnya) atau menetapkan domain ke organisasi Anda.",
   "Where visitors reach this app": "Tempat pengunjung mengakses aplikasi ini",
-  "An imported app keeps its hostname.": "Aplikasi impor tetap memakai hostname-nya.",
-  "Also answers on": "Juga melayani di",
-  "Change address": "Ganti alamat",
+  "An imported app keeps its hostname.": "Aplikasi impor tetap memakai hostname-nya.",  "Change address": "Ganti alamat",
   "Buy a domain": "Beli domain",
   "Move app": "Pindahkan aplikasi",
   "Moved to {host}": "Dipindahkan ke {host}",

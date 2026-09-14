@@ -62,7 +62,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostsOf, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -532,13 +532,19 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                   {application.disabled ? t("Not monitored — switched off in the panel. Nothing on the server changed.") :
                    uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
                    elsewhere ? t("{domain} is answered by another server ({ip}), not this one.", { domain: application.domain, ip: elsewhere }) :
+                   // several names: the check says which one failed
+                   down && application.aliases?.length && healthById?.[application.id]?.lastError ? healthById[application.id]!.lastError :
                    down ? (hostname && !hostname.resolves
                      ? t("{domain} has no DNS record, so nobody can reach it.", { domain: application.domain })
                      : t("{domain} does not answer.", { domain: application.domain })) :
                    siteLive ? (
-                     <a href={`https://${application.domain}`} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline">
-                       https://{application.domain}
-                     </a>
+                     <span className="flex flex-col">
+                       {hostsOf(application).map((host) => (
+                         <a key={host} href={`https://${host}`} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline">
+                           https://{host}
+                         </a>
+                       ))}
+                     </span>
                    ) :
                    published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: application.domain }) :
                    application.status === 'STOPPED' ? t("Stopped — nothing is serving.") :
@@ -558,7 +564,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 {t("Enable")}
               </Button>
             )}
-            {siteLive && (
+            {/* several names are each a link above; one button could only pick one */}
+            {siteLive && !application.aliases?.length && (
               <Button asChild variant="outline">
                 <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
                   <ExternalLink className="h-4 w-4 mr-2" />
@@ -847,7 +854,16 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
               <CardContent className="pt-2 pb-2">
                 <Field label={t("Domain")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <span className="font-mono">{application.domain}</span>
+                    {application.aliases?.length ? (
+                      // several names, all alike: listed, the rest of the row speaks for them together
+                      <span className="flex basis-full flex-col items-end font-mono">
+                        {hostsOf(application).map((host) => (
+                          <span key={host}>{host}</span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="font-mono">{application.domain}</span>
+                    )}
                     <DomainExpiryBadge domain={application.parentDomain} />
                     <Button
                       variant="ghost"

@@ -68,7 +68,7 @@ import {
 } from "@/hooks/useApplications";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { useDomains } from "@/hooks/useDomains";
-import { bulkAssignApplications, hasBeenDeployed, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
+import { bulkAssignApplications, hasBeenDeployed, hostsOf, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
   Tooltip,
@@ -344,7 +344,9 @@ export default function Application() {
         // a sync placeholder like arusflow.pm2.local: nothing a browser can open,
         // and nothing a client should have to read
         const internal = app.domain.endsWith(".local");
-        const named = !internal && app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
+        const aliased = !!app.aliases?.length;
+        // several names are all listed already
+        const named = !internal && !aliased && app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
         // what kind of app, as its icon — a column of badges said the same thing louder
         const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
         const TypeIcon = type.icon;
@@ -360,6 +362,26 @@ export default function Application() {
             <span className="truncate">{type.label}</span>
           </span>
           <div className="min-w-0">
+            {aliased ? (
+              // one site under several names, all alike: each name, none leading
+              hostsOf(app).map((host) => (
+                <span key={host} className="flex min-w-0 items-center gap-1.5">
+                  <Link to={`/application/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
+                    {host}
+                  </Link>
+                  <a
+                    href={`https://${host}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={t("Open {url}", { url: `https://${host}` })}
+                    aria-label={t("Open {url}", { url: host })}
+                    className="shrink-0 text-muted-foreground hover:text-primary"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </span>
+              ))
+            ) : (
             <span className="flex min-w-0 items-center gap-1.5">
               <Link
                 to={`/application/${app.id}`}
@@ -381,6 +403,7 @@ export default function Application() {
                 </a>
               )}
             </span>
+            )}
             {/* what runs it on the box — how it is stopped and removed depends on it */}
             {(named || superAdmin) && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
