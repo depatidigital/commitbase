@@ -52,8 +52,9 @@ async function sizes(afs: AppFs, paths: string[]): Promise<Map<string, number>> 
 async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
   const dir = releasesDirFor(afs.appDir);
   const current = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
+  // the app's source's releases — the tree they are in is the app's (source.id = app.id)
   const ready = await prisma.release.findMany({
-    where: { applicationId, status: 'READY', path: { not: null } },
+    where: { source: { applications: { some: { id: applicationId } } }, status: 'READY', path: { not: null } },
     orderBy: { createdAt: 'desc' },
     select: { id: true, path: true },
   });

@@ -272,17 +272,17 @@ export class DeploymentService {
   }
 
   /** A kept build with this key whose tree is still on disk, newest first — or null. */
-  private async reusableRelease(afs: AppFs, applicationId: string, buildKey: string): Promise<Release | null> {
+  private async reusableRelease(afs: AppFs, sourceId: string, buildKey: string): Promise<Release | null> {
     // an optimisation: whatever goes wrong looking (a schema not migrated yet,
     // an unreachable node) means build as usual, never a failed deploy
     try {
       const release = await prisma.release.findFirst({
-        where: { applicationId, buildKey, status: 'READY', path: { not: null } },
+        where: { sourceId, buildKey, status: 'READY', path: { not: null } },
         orderBy: { createdAt: 'desc' },
       });
       return release && (await afs.isDirectory(release.path!)) ? release : null;
     } catch (error: any) {
-      console.error(`Build cache lookup for ${applicationId} failed, building instead:`, error?.message ?? error);
+      console.error(`Build cache lookup for source ${sourceId} failed, building instead:`, error?.message ?? error);
       return null;
     }
   }
@@ -798,9 +798,10 @@ export class DeploymentService {
       await afs.writeFile(buildLogPath, '');
       await afs.writeFile(deployLogPath, '');
 
-      if (application.repository) {
-        const branch = application.branch || 'main';
-        await this.syncRepository(afs, application.repository, branch, application.gitAccountId);
+      const source = application.sourceId ? await prisma.source.findUnique({ where: { id: application.sourceId } }) : null;
+      if (source?.repository) {
+        const branch = source.branch || 'main';
+        await this.syncRepository(afs, source.repository, branch, source.gitAccountId);
         commitSha = await gitIn(afs, sourcesDir, ['rev-parse', 'HEAD'])
           .then(({ stdout }) => stdout.trim())
           .catch(() => undefined);
@@ -821,7 +822,7 @@ export class DeploymentService {
         // Uploaded static sites already live in object storage — a redeploy has
         // nothing to build, so keep the deployment green instead of running a
         // build command against an empty sources tree.
-        const prebuilt = !application.repository && !application.buildCommand;
+        const prebuilt = !source?.repository && !application.buildCommand;
 
         if (prebuilt) {
           await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] UPLOADED SOURCES — no build step` + NL);
@@ -936,9 +937,9 @@ export class DeploymentService {
           }
 
           const release = await prisma.release.create({
-            data: { applicationId: application.id, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
+            data: { sourceId: application.sourceId, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
           });
-          const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
+          const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), source: { update: { activeReleaseId: release.id } } };
 
           await uploadLog();
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
@@ -997,7 +998,10 @@ export class DeploymentService {
       // Same commit, build settings and env as a build still on disk: that tree
       // is this deploy's build — nothing to install or compile again.
       const buildKey = commitSha ? buildKeyOf(application, commitSha, envVars) : null;
-      const reused = buildKey && application.type !== 'PHP' ? await this.reusableRelease(afs, application.id, buildKey) : null;
+      const reused =
+        buildKey && application.sourceId && application.type !== 'PHP'
+          ? await this.reusableRelease(afs, application.sourceId, buildKey)
+          : null;
       if (reused) {
         await afs.appendFile(
           buildLogPath,
@@ -1091,7 +1095,7 @@ export class DeploymentService {
         reused ??
         (await prisma.release.create({
           data: {
-            applicationId: application.id,
+            sourceId: application.sourceId,
             commitSha: commitSha ?? null,
             status: 'READY',
             ports: { port },
@@ -1108,7 +1112,7 @@ export class DeploymentService {
 
       await prisma.application.update({
         where: { id: application.id },
-        data: { activeReleaseId: release.id },
+        data: { source: { update: { activeReleaseId: release.id } } },
       });
 
       // The app is up; without its route the hostname is not. Said first in the

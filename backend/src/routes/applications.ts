@@ -1375,6 +1375,8 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     await prisma.application.delete({
       where: { id },
     });
+    // its source goes with its last app, and the releases with the source
+    await dropOrphanSources();
     await prisma.heartbeat.deleteMany({ where: { targetType: 'APPLICATION', targetId: id } });
 
     return res.json({
@@ -1914,7 +1916,7 @@ router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest,
         ...(await orgScope(req)),
       },
       include: {
-        activeRelease: true,
+        source: { select: { activeReleaseId: true } },
       },
     });
 
@@ -1925,20 +1927,22 @@ router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest,
       } as ApiResponse);
     }
 
-    const releases = await prisma.release.findMany({
-      where: {
-        applicationId: application.id,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    const releases = application.sourceId
+      ? await prisma.release.findMany({
+          where: {
+            sourceId: application.sourceId,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        })
+      : [];
 
     return res.json({
       success: true,
       data: {
         applicationId: application.id,
-        activeReleaseId: application.activeReleaseId,
+        activeReleaseId: application.source?.activeReleaseId ?? null,
         releases,
       },
       message: 'Releases retrieved successfully',
@@ -1981,12 +1985,14 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
     const imported = refuseImported(application, res);
     if (imported) return imported;
 
-    const release = await prisma.release.findFirst({
-      where: {
-        id: releaseId,
-        applicationId: application.id,
-      },
-    });
+    const release = application.sourceId
+      ? await prisma.release.findFirst({
+          where: {
+            id: releaseId,
+            sourceId: application.sourceId,
+          },
+        })
+      : null;
 
     if (!release) {
       return res.status(404).json({
@@ -2023,7 +2029,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
 
       await prisma.application.update({
         where: { id: application.id },
-        data: { staticOrigin, activeReleaseId: release.id, status: 'RUNNING', lastDeployment: new Date() },
+        data: { staticOrigin, source: { update: { activeReleaseId: release.id } }, status: 'RUNNING', lastDeployment: new Date() },
       });
       // in the history too: "what changed at 14:02" should find the rollback
       await prisma.deployment.create({
@@ -2043,8 +2049,8 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       } as ApiResponse);
     }
 
-    await prisma.application.update({
-      where: { id: application.id },
+    await prisma.source.update({
+      where: { id: release.sourceId! },
       data: { activeReleaseId: release.id },
     });
 

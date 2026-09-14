@@ -540,7 +540,7 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
     try {
       const existing = await prisma.application.findUnique({
         where: { domain: app.domain },
-        include: { _count: { select: { deployments: true } } },
+        include: { _count: { select: { deployments: true } }, source: { select: { repository: true } } },
       });
       const domainId = parentDomainOf(app.domain, domains)?.id ?? null;
       let applicationId: string;
@@ -558,24 +558,29 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           data: {
             ...fields,
             ...(!existing.domainId && domainId && { domainId }),
-            ...(!existing.repository && app.repository && { repository: app.repository, branch: app.branch ?? 'main' }),
           },
         });
+        if (existing.sourceId && !existing.source?.repository && app.repository) {
+          await prisma.source.update({
+            where: { id: existing.sourceId },
+            data: { repository: app.repository, branch: app.branch ?? 'main' },
+          });
+        }
         applicationId = existing.id;
         result.updated += 1;
         result.apps.push({ ...app, action: 'updated' });
       } else {
-        const created = await prisma.application.create({
-          data: {
+        const created = await createApplicationWithSource(
+          {
             name: app.name,
             domain: app.domain,
             type: app.type,
             userId,
             domainId,
             ...fields,
-            ...(app.repository && { repository: app.repository, branch: app.branch ?? 'main' }),
           },
-        });
+          app.repository ? { repository: app.repository, branch: app.branch ?? 'main' } : {},
+        );
         applicationId = created.id;
         result.created += 1;
         result.apps.push({ ...app, action: 'created' });
