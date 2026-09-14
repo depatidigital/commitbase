@@ -2,7 +2,6 @@ import path from 'path';
 import { prisma } from '../lib/prisma';
 import { createApplicationWithSource, dropOrphanSources } from '../lib/sources';
 import { parentDomainOf } from '../lib/scope';
-import { ROOT_DIRECTORY_RE } from '../lib/appPaths';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
@@ -30,10 +29,6 @@ export type DiscoveredApp = {
   /** the git remote its folder was cloned from, when it is a checkout */
   repository?: string | undefined;
   branch?: string | undefined;
-  /** that checkout's root: apps sharing one are a monorepo and share a source */
-  checkout?: string | undefined;
-  /** the app's folder in the checkout; undefined at its root */
-  rootDirectory?: string | undefined;
 };
 
 export type AppSyncResult = {
@@ -311,91 +306,43 @@ export function repositoryFromRemote(remote: string | undefined): string | null 
   return full ? `https://${full[1]}/${full[2]}` : null;
 }
 
-export type FolderState = {
-  exists: boolean;
-  repository?: string;
-  branch?: string;
-  /** the checkout's own root — apps whose folders share one are one monorepo */
-  checkout?: string;
-  /** the app's folder in that checkout (see PROBE_SCRIPT); undefined at its root */
-  rootDirectory?: string;
-};
+export type FolderState = { exists: boolean; repository?: string; branch?: string };
 
 /**
- * Per folder, one tab-separated line: the folder, 1 when it exists, the git
- * remote, the branch, the checkout's root, and the project folder — the nearest
- * one up to that root with a package.json, composer.json or requirements.txt,
- * so a site served from apps/web/dist or public/ is the project in apps/web or
- * at the root. Resolved (`pwd -P`) like git's own root, so a symlinked folder
- * still lands inside it. `safe.directory=*`: the folders usually belong to
- * another user, and git would otherwise refuse to read them. Exported for the self-check.
- */
-export const PROBE_SCRIPT = [
-  'for d; do',
-  '  g() { git -c safe.directory="*" -C "$d" "$@" 2>/dev/null; }',
-  // the root resolved the same way as the folder, so the two always compare
-  '  top=$(g rev-parse --show-toplevel); [ -n "$top" ] && top=$(cd "$top" 2>/dev/null && pwd -P); project=""',
-  '  real=$(cd "$d" 2>/dev/null && pwd -P)',
-  '  if [ -n "$top" ] && [ -n "$real" ]; then',
-  '    q="$real"',
-  '    while [ -z "$project" ]; do',
-  '      for f in package.json composer.json requirements.txt; do [ -e "$q/$f" ] && project="$q"; done',
-  '      { [ "$q" = "$top" ] || [ "$q" = / ]; } && break',
-  '      q=$(dirname "$q")',
-  '    done',
-  '    [ -n "$project" ] || project="$real"',
-  '  fi',
-  '  printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$d" "$([ -d "$d" ] && echo 1)" "$(g config --get remote.origin.url)" "$(g rev-parse --abbrev-ref HEAD)" "$top" "$project"',
-  'done',
-].join('\n');
-
-/**
- * An app's folder in its checkout, as a rootDirectory: undefined at the
- * checkout's root, or for anything outside it or not a plain folder path. Pure.
- */
-export function rootDirectoryIn(checkout: string, project: string): string | undefined {
-  const relative = path.posix.relative(checkout, project);
-  return relative && ROOT_DIRECTORY_RE.test(relative) ? relative : undefined;
-}
-
-/** Checkouts more than one of these apps is in — monorepos. Pure. */
-export function monorepoCheckouts(apps: Array<{ checkout?: string | undefined }>): string[] {
-  const count = new Map<string, number>();
-  for (const app of apps) if (app.checkout) count.set(app.checkout, (count.get(app.checkout) ?? 0) + 1);
-  return [...count].filter(([, n]) => n > 1).map(([checkout]) => checkout);
-}
-
-/** PROBE_SCRIPT's output → folder states. Pure. */
-export function parseProbe(stdout: string): Map<string, FolderState> {
-  const found = new Map<string, FolderState>();
-  for (const line of stdout.split(/\r?\n/)) {
-    const [dir, exists, remote, branch, checkout, project] = line.split('\t');
-    if (!dir) continue;
-    const repository = repositoryFromRemote(remote) ?? undefined;
-    const rootDirectory = checkout && project ? rootDirectoryIn(checkout, project) : undefined;
-    found.set(dir, {
-      exists: exists === '1',
-      ...(repository && { repository }),
-      // a detached checkout says "HEAD" — that is not a branch to deploy
-      ...(repository && branch && branch !== 'HEAD' && { branch }),
-      ...(checkout && { checkout }),
-      ...(rootDirectory && { rootDirectory }),
-    });
-  }
-  return found;
-}
-
-/**
- * Whether each folder is there, and for a git checkout its remote, branch, and
- * where in the checkout it is — one SSH round trip. null when the node could
+ * Whether each folder is there, and for a git checkout its remote and branch —
+ * one SSH round trip. `safe.directory=*`: the folders usually belong to another
+ * user, and git would otherwise refuse to read them. null when the node could
  * not be asked, so a failed probe never reads as "every folder is gone".
  */
 export async function probeFolders(node: SshTarget, dirs: string[]): Promise<Map<string, FolderState> | null> {
-  if (!dirs.length) return new Map();
+  const found = new Map<string, FolderState>();
+  if (!dirs.length) return found;
 
   try {
-    const { stdout } = await exec(node, ['sh', '-c', PROBE_SCRIPT, 'sh', ...dirs], { timeout: 20_000 });
-    return parseProbe(stdout);
+    const { stdout } = await exec(
+      node,
+      [
+        'sh',
+        '-c',
+        'for d; do printf "%s\\t%s\\t%s\\t%s\\n" "$d" "$([ -d "$d" ] && echo 1)" "$(git -c safe.directory="*" -C "$d" config --get remote.origin.url 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done',
+        'sh',
+        ...dirs,
+      ],
+      { timeout: 20_000 },
+    );
+
+    for (const line of stdout.split(/\r?\n/)) {
+      const [dir, exists, remote, branch] = line.split('\t');
+      if (!dir) continue;
+      const repository = repositoryFromRemote(remote) ?? undefined;
+      found.set(dir, {
+        exists: exists === '1',
+        ...(repository && { repository }),
+        // a detached checkout says "HEAD" — that is not a branch to deploy
+        ...(repository && branch && branch !== 'HEAD' && { branch }),
+      });
+    }
+    return found;
   } catch {
     return null;
   }
@@ -516,9 +463,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     if (state && !state.exists && !app.port) app.status = 'ERROR';
     // a guess that is not on disk is no folder at all
     if (guessed.has(app) && state && !state.exists) app.rootPath = undefined;
-    if (state?.repository) {
-      Object.assign(app, { repository: state.repository, branch: state.branch, checkout: state.checkout, rootDirectory: state.rootDirectory });
-    }
+    if (state?.repository) Object.assign(app, { repository: state.repository, branch: state.branch });
   }
 
   return apps;
@@ -576,32 +521,6 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   // link each app to the Domain it sits under, so the domain knows its apps
   const domains = await prisma.domain.findMany({ select: { id: true, name: true } });
 
-  // Checkouts holding more than one app → the source they share (null until
-  // decided). The one an imported app of it already has, oldest first, so a
-  // re-sync never shuffles them; else the first app's, as it is created.
-  // ponytail: an app that leaves its monorepo keeps the shared source — it only says where the code came from.
-  const monorepos = new Map<string, string | null>();
-  for (const checkout of monorepoCheckouts(discovered)) monorepos.set(checkout, null);
-  const monorepoSource = async (app: DiscoveredApp): Promise<string | null> => {
-    if (!app.checkout || !monorepos.has(app.checkout)) return null;
-    const known = monorepos.get(app.checkout);
-    if (known) return known;
-    const oldest = await prisma.application.findFirst({
-      where: {
-        serverId: node.id,
-        domain: { in: discovered.filter((other) => other.checkout === app.checkout).map((other) => other.domain) },
-        // imported and never deployed from the panel — the panel's own apps keep theirs
-        runtime: { not: null },
-        deployments: { none: {} },
-        sourceId: { not: null },
-      },
-      orderBy: { createdAt: 'asc' },
-      select: { sourceId: true },
-    });
-    if (oldest?.sourceId) monorepos.set(app.checkout, oldest.sourceId);
-    return oldest?.sourceId ?? null;
-  };
-
   for (const app of discovered) {
     const fields = {
       // where it was found, so the node's page can list it before anyone has
@@ -616,14 +535,10 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       memory: app.memory ?? null,
       cpu: app.cpu ?? null,
       uptime: app.uptime ?? null,
-      // where in its checkout the app is; the checkout's root when not in a monorepo folder
-      rootDirectory: app.rootDirectory ?? null,
       lastSyncedAt: new Date(),
     };
 
     try {
-      // one checkout with several apps in it is a monorepo: they share a source
-      const shared = await monorepoSource(app);
       const existing = await prisma.application.findUnique({
         where: { domain: app.domain },
         include: { _count: { select: { deployments: true } }, source: { select: { repository: true } } },
@@ -637,7 +552,6 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       // here (no runtime) or deployed from here (has deployments): not ours.
       if (existing && (!existing.runtime || existing._count.deployments > 0)) continue;
 
-      let sourceId: string | null;
       if (existing) {
         await prisma.application.update({
           where: { id: existing.id },
@@ -645,16 +559,11 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           data: {
             ...fields,
             ...(!existing.domainId && domainId && { domainId }),
-            // joins its monorepo's source; its own is swept below once nothing uses it
-            ...(shared && shared !== existing.sourceId && { sourceId: shared }),
           },
         });
-        sourceId = shared ?? existing.sourceId;
-        const repositoryKnown = shared && shared !== existing.sourceId ? false : !!existing.source?.repository;
-        if (sourceId && !repositoryKnown && app.repository) {
-          // never over one already set: a shared source keeps what its first app said
-          await prisma.source.updateMany({
-            where: { id: sourceId, repository: null },
+        if (existing.sourceId && !existing.source?.repository && app.repository) {
+          await prisma.source.update({
+            where: { id: existing.sourceId },
             data: { repository: app.repository, branch: app.branch ?? 'main' },
           });
         }
@@ -662,18 +571,20 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         result.updated += 1;
         result.apps.push({ ...app, action: 'updated' });
       } else {
-        const data = { name: app.name, domain: app.domain, type: app.type, userId, domainId, ...fields };
-        const created = shared
-          ? await prisma.application.create({ data: { ...data, sourceId: shared } })
-          : await createApplicationWithSource(data, app.repository ? { repository: app.repository, branch: app.branch ?? 'main' } : {});
-        sourceId = created.sourceId;
+        const created = await createApplicationWithSource(
+          {
+            name: app.name,
+            domain: app.domain,
+            type: app.type,
+            userId,
+            domainId,
+            ...fields,
+          },
+          app.repository ? { repository: app.repository, branch: app.branch ?? 'main' } : {},
+        );
         applicationId = created.id;
         result.created += 1;
         result.apps.push({ ...app, action: 'created' });
-      }
-      // the first app of a monorepo seen: its source is the one the others join
-      if (app.checkout && sourceId && monorepos.has(app.checkout) && !monorepos.get(app.checkout)) {
-        monorepos.set(app.checkout, sourceId);
       }
 
     } catch (error: any) {
@@ -692,9 +603,8 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         domain: { endsWith: '.pm2.local', notIn: discovered.map((app) => app.domain) },
       },
     });
+    await dropOrphanSources();
   }
-  // sources left without an app: the placeholders' above, and those of apps that joined a monorepo's
-  await dropOrphanSources();
 
   if (errors.length) result.errors = errors;
   return result;
