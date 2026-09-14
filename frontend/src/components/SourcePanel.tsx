@@ -93,7 +93,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   // ticked in the dialog: the switch goes live on the sites at once, nobody reviews it after
   const [consent, setConsent] = useState(false);
   const checkout = useMutation({
-    mutationFn: () => checkoutProject(projectId, branch, consent),
+    // taken at the click: closing the dialog clears the tick before the request goes out
+    mutationFn: (vars: { branch: string; consent: boolean }) => checkoutProject(projectId, vars.branch, vars.consent),
     onSuccess: () => {
       toast({ title: t("Switched to {branch} on the server", { branch }) });
       void queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
@@ -208,7 +209,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 </label>
                 <AlertDialogFooter>
                   <AlertDialogCancel onClick={() => setBranch(current)}>{t("Cancel")}</AlertDialogCancel>
-                  <AlertDialogAction disabled={!consent} onClick={() => checkout.mutate()}>
+                  <AlertDialogAction disabled={!consent} onClick={() => checkout.mutate({ branch, consent })}>
                     {t("Switch branch")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
