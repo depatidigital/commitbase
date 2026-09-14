@@ -18,7 +18,8 @@ import {
 import { HostnamePicker, hostnameProblem, joinHost } from "@/components/HostnamePicker";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, addAppDomain, removeAppDomain } from "@/lib/applications";
+import { type Application, type HostnameHealth, addAppDomain, removeAppDomain } from "@/lib/applications";
+import { HostBadge, HostPointing } from "@/components/HostCheck";
 import { isAdmin } from "@/lib/auth";
 import { getDomainChoices } from "@/lib/domains";
 import { t } from "@/lib/i18n";
@@ -29,7 +30,18 @@ import { t } from "@/lib/i18n";
  * domains), or take one off. A new name is routed as the others before it is
  * kept; the last name stays, an app with none is nothing anyone can reach.
  */
-export function AppDomainsCard({ application }: { application: Application }) {
+export function AppDomainsCard({
+  application,
+  checks,
+  pending,
+  onRepoint,
+}: {
+  application: Application;
+  /** the live check of each name, when the page has it */
+  checks?: HostnameHealth[];
+  pending?: boolean;
+  onRepoint?: (host: string) => void;
+}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: allChoices = [], isLoading } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
@@ -125,10 +137,20 @@ export function AppDomainsCard({ application }: { application: Application }) {
               </a>
               {name.parentDomain?.shared && <Badge variant="secondary">{t("free")}</Badge>}
               <DomainExpiryBadge domain={name.parentDomain} />
+              {/* how it is doing, and where its DNS leads — the one place every name is listed */}
+              <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <HostBadge
+                  host={name.host}
+                  check={checks?.find((check) => check.host === name.host)}
+                  pending={pending}
+                  onRepoint={onRepoint && (() => onRepoint(name.host))}
+                />
+                <HostPointing check={checks?.find((check) => check.host === name.host)} />
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
-                className="ml-auto h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                 disabled={only || !!removing}
                 title={only ? t("An app needs at least one hostname — add another first") : t("Remove {host}", { host: name.host })}
                 aria-label={t("Remove {host}", { host: name.host })}

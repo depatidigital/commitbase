@@ -649,4 +649,22 @@ export default {
   "Managed by {appName}": "Dikelola {appName}",
   "Caddy (static files)": "Caddy (file statis)",
   "Caddy (reverse proxy)": "Caddy (reverse proxy)",
+  // an app's hostnames (AppDomainsCard)
+  "Add a domain": "Tambah domain",
+  "Add domain": "Tambah domain",
+  "{host} added": "{host} ditambahkan",
+  "It serves this app, like its other names.": "Domain ini melayani aplikasi ini, sama seperti domain lainnya.",
+  "Could not add the domain": "Gagal menambahkan domain",
+  "{host} removed": "{host} dihapus",
+  "It no longer serves this app.": "Domain ini tidak lagi melayani aplikasi ini.",
+  "Could not remove the domain": "Gagal menghapus domain",
+  "An app needs at least one hostname — add another first": "Aplikasi perlu minimal satu domain — tambahkan domain lain dulu",
+  "Remove {host}": "Hapus {host}",
+  "Remove {host}?": "Hapus {host}?",
+  "Other domains": "Domain lain",
+  "all reachable": "semua dapat dijangkau",
+  "{host} stops serving this app, and its DNS record pointing here is removed. Links and bookmarks to it break.":
+    "{host} berhenti melayani aplikasi ini, dan record DNS-nya yang mengarah ke sini dihapus. Tautan dan bookmark ke domain itu tidak berfungsi lagi.",
+  "{keys} still hold this address — update them in Environment and redeploy.":
+    "{keys} masih berisi alamat ini — ubah di Environment lalu deploy ulang.",
 } satisfies Record<string, string>;

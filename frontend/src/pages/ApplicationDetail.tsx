@@ -79,6 +79,7 @@ import { DnsFixCard } from "@/components/DnsFixCard";
 import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { AppDomainsCard } from "@/components/AppDomainsCard";
+import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { RepointDialog } from "@/components/RepointDialog";
 import { parseDatabaseUrl } from "@/lib/env";
@@ -108,13 +109,6 @@ interface LogEntry {
 
 /** Displayed word for an app status; the raw value stays for logic. */
 // functions, so t() reads the dictionary at render, not at import
-const DOMAIN_PROBLEM: Record<'unregistered' | 'expired' | 'suspended' | 'inactive', () => string> = {
-  unregistered: () => t("domain not registered"),
-  expired: () => t("domain expired"),
-  suspended: () => t("domain suspended"),
-  inactive: () => t("domain inactive"),
-};
-
 const STATUS_LABELS: Record<string, string> = {
   RUNNING: t("Running"),
   STOPPED: t("Stopped"),
@@ -546,13 +540,16 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                      ? t("{domain} has no DNS record, so nobody can reach it.", { domain: failing.host })
                      : t("{domain} does not answer.", { domain: failing?.host ?? hostList(application) })) :
                    siteLive ? (
-                     <span className="flex flex-col">
-                       {hostsOf(application).map((host) => (
-                         <a key={host} href={`https://${host}`} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline">
-                           https://{host}
-                         </a>
-                       ))}
-                     </span>
+                     hosts.length === 1 ? (
+                       <a href={`https://${hosts[0]}`} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline">
+                         https://{hosts[0]}
+                       </a>
+                     ) : (
+                       // several names, at a glance; each one's state is on the Domains tab
+                       <button type="button" className="break-words text-left font-mono text-xs text-foreground hover:text-primary hover:underline" onClick={() => setActiveTab("domains")}>
+                         {hosts.join(", ")}
+                       </button>
+                     )
                    ) :
                    published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: failing?.host ?? hostList(application) }) :
                    application.status === 'STOPPED' ? t("Stopped — nothing is serving.") :
@@ -861,122 +858,56 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 <p className="text-xs text-muted-foreground">{t("What visitors get")}</p>
               </CardHeader>
               <CardContent className="pt-2 pb-2">
-                {/* each of its names on its own — all alike, one can answer while another does not */}
-                {application.domains.map((name) => {
+                {/* One name: it, in full. Several: how many and how they are, the
+                    ones that need attention in full — the list is the Domains tab */}
+                {(application.domains.length === 1 ? application.domains : application.domains.filter((name) => !hostOk(checkOf(name.host)))).map((name) => {
                   const check = checkOf(name.host);
-                  const stray = check?.live && check.pointing?.state === "elsewhere";
                   return (
                     <div key={name.host}>
-                <Field label={t("Domain")}>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <span className="font-mono">{name.host}</span>
-                    <DomainExpiryBadge domain={name.parentDomain} />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => copyToClipboard(name.host)}
-                      aria-label={t("Copy")}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                    {/* whether the hostname actually answers — RUNNING only ever
-                        meant the process started */}
-                    {/* the registration first: an expired domain can still "answer" — with a parking page */}
-                    {check?.domainProblem ? (
-                      <Badge
-                        variant="outline"
-                        className="gap-1 border-destructive text-destructive"
-                        title={t("{domain} at the registry: {problem}", {
-                          domain: check.registeredDomain ?? name.host,
-                          problem: DOMAIN_PROBLEM[check.domainProblem](),
-                        })}
-                      >
-                        <AlertCircle className="h-3 w-3" />
-                        {DOMAIN_PROBLEM[check.domainProblem]()}
-                      </Badge>
-                    ) : stray ? (
-                      // it answers — from someone else's server
-                      <Badge
-                        variant="outline"
-                        className="gap-1 border-warning text-warning"
-                        title={t("DNS points to {ip}", { ip: check.pointing!.origin ?? check.pointing!.addresses.join(", ") })}
-                      >
-                        <Wifi className="h-3 w-3" />
-                        {t("reachable elsewhere")}
-                      </Badge>
-                    ) : check?.live ? (
-                      <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
-                        <Wifi className="h-3 w-3" />
-                        {t("reachable")}
-                      </Badge>
-                    ) : check ? (
-                      <>
-                        <Badge
-                          variant="outline"
-                          className="gap-1 border-warning text-warning"
-                          title={
-                            check.resolves
-                              ? check.error ?? undefined
-                              : check.dnsManaged
-                                ? t("{domain} has no DNS record, so browsers cannot find this server. Point it here to fix it.", { domain: name.host })
-                                : t("{domain} has no DNS record, and its domain is not on Cloudflare here — add the record wherever its DNS is hosted.", { domain: name.host })
-                          }
-                        >
-                          <WifiOff className="h-3 w-3" />
-                          {/* no record, and its domain is not a zone we run: not connected to the panel at all */}
-                          {check.resolves ? t("not serving yet") : check.dnsManaged ? t("no DNS") : t("not connected")}
-                        </Badge>
-                        {/* only a Cloudflare zone we run can take the record — anywhere else the button could only fail.
-                            Already pointing here: DNS is not the problem, the app not answering is */}
-                        {check.dnsManaged && check.pointing?.state !== "here" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6"
-                          disabled={setupDns.isPending}
-                          // overwrites whatever the record points at — asked first, never one click
-                          onClick={() => setRepointHost(name.host)}
-                        >
-                          {t("Point it here")}
-                        </Button>
-                        )}
-                      </>
-                    ) : null}
-                  </div>
-                </Field>
-                {/* answering is not enough: it has to answer from this app's server */}
-                {check?.pointing && check.pointing.state !== "none" && (
-                  <Field label={t("DNS points to")}>
-                    {check.pointing.state === "here" ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-success">
-                        <CheckCircle className="h-3.5 w-3.5 shrink-0" />
-                        {t("This server")}
-                        <span className="font-mono text-muted-foreground">{check.pointing.expected}</span>
-                      </span>
-                    ) : check.pointing.state === "elsewhere" ? (
-                      <>
-                        <span className="break-all font-mono text-xs">
-                          {check.pointing.origin ?? check.pointing.addresses.join(", ")}
-                        </span>
-                        <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive">
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                          {t("Not this server ({ip})", { ip: check.pointing.expected ?? "—" })}
-                        </span>
-                      </>
-                    ) : (
-                      <span
-                        className="text-xs text-muted-foreground"
-                        title={t("Cloudflare's proxy hides the real server, and this domain is not on Cloudflare here, so the record cannot be read.")}
-                      >
-                        {t("Cloudflare proxy — origin unknown")}
-                      </span>
-                    )}
-                  </Field>
-                )}
+                      <Field label={t("Domain")}>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <span className="font-mono">{name.host}</span>
+                          <DomainExpiryBadge domain={name.parentDomain} />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={() => copyToClipboard(name.host)}
+                            aria-label={t("Copy")}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                          {/* whether the hostname actually answers — RUNNING only ever meant the process started */}
+                          <HostBadge host={name.host} check={check} pending={setupDns.isPending} onRepoint={() => setRepointHost(name.host)} />
+                        </div>
+                      </Field>
+                      {/* answering is not enough: it has to answer from this app's server */}
+                      {check?.pointing && check.pointing.state !== "none" && (
+                        <Field label={t("DNS points to")}>
+                          <HostPointing check={check} />
+                        </Field>
+                      )}
                     </div>
                   );
                 })}
+                {application.domains.length > 1 && application.domains.some((name) => hostOk(checkOf(name.host))) && (
+                  <Field label={application.domains.every((name) => hostOk(checkOf(name.host))) ? t("Domain") : t("Other domains")}>
+                    <button
+                      type="button"
+                      className="inline-flex flex-wrap items-center justify-end gap-x-1.5 text-right hover:text-primary"
+                      onClick={() => setActiveTab("domains")}
+                    >
+                      {/* the healthy names, at a glance; the ones in trouble are listed above */}
+                      <span className="font-mono">
+                        {application.domains.filter((name) => hostOk(checkOf(name.host))).map((name) => name.host).join(", ")}
+                      </span>
+                      <span className="text-xs text-success">
+                        {application.domains.every((name) => hostOk(checkOf(name.host))) ? t("all reachable") : t("reachable")}
+                      </span>
+                      <span className="text-xs text-primary">{t("Manage")} →</span>
+                    </button>
+                  </Field>
+                )}
                 {/* the version visitors are getting */}
                 <Field label={t("Last Deployment")}>
                   {lastDeployment ? (
@@ -1162,7 +1093,12 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
           </TabsContent>
 
           <TabsContent value="domains">
-            <AppDomainsCard application={application} />
+            <AppDomainsCard
+              application={application}
+              checks={checks}
+              pending={setupDns.isPending}
+              onRepoint={(host) => setRepointHost(host)}
+            />
           </TabsContent>
 
           {!isStatic && (
