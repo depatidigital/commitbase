@@ -10,8 +10,6 @@ import { useLocation } from 'react-router-dom';
 import { APP_NAME } from '@/lib/branding';
 import { t } from '@/lib/i18n';
 import { R2SettingsCard } from '@/components/R2SettingsCard';
-import { SearchConsoleSettingsCard } from '@/components/SearchConsoleSettingsCard';
-import { GitOAuthSettingsCard } from '@/components/GitOAuthSettingsCard';
 
 // RDash /domains returns status as an int enum plus status_label/status_badge (swagger v1).
 const RDASH_STATUS_LABEL: Record<number, string> = {
@@ -449,10 +447,6 @@ const RdashOverview = () => {
       </Card>
 
       <R2SettingsCard />
-
-      <SearchConsoleSettingsCard />
-
-      <GitOAuthSettingsCard />
 
       {isCloudflareConfigured && (
         <Card className="bg-gradient-card border-border/50">

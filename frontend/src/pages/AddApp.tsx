@@ -465,7 +465,7 @@ export default function AddApp() {
     } catch (error) {
       const message =
         error instanceof Error && error.message === "GitHub OAuth is not configured"
-          ? t("GitHub OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.")
+          ? t("GitHub OAuth is not configured. A superadmin can set it up under Integrations → GitHub & GitLab.")
           : t("Could not start GitHub OAuth flow.");
       toast({
         variant: "destructive",
@@ -483,7 +483,7 @@ export default function AddApp() {
     } catch (error) {
       const message =
         error instanceof Error && error.message === "GitLab OAuth is not configured"
-          ? t("GitLab OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.")
+          ? t("GitLab OAuth is not configured. A superadmin can set it up under Integrations → GitHub & GitLab.")
           : t("Could not start GitLab OAuth flow.");
       toast({
         variant: "destructive",

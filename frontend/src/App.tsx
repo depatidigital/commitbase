@@ -14,6 +14,10 @@ import DomainRegister from "./pages/DomainRegister";
 import Logs from "./pages/Logs";
 import Settings from "./pages/Settings";
 import RdashOverview from "./pages/RdashOverview";
+import IntegrationCardPage from "./pages/IntegrationCardPage";
+import { t } from "./lib/i18n";
+import { SearchConsoleSettingsCard } from "./components/SearchConsoleSettingsCard";
+import { GitOAuthSettingsCard } from "./components/GitOAuthSettingsCard";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import Team from "./pages/Team";
@@ -194,6 +198,26 @@ const App = () => (
               element={
                 <SuperAdminRoute>
                   <RdashOverview />
+                </SuperAdminRoute>
+              }
+            />
+            <Route
+              path="integrations/google"
+              element={
+                <SuperAdminRoute>
+                  <IntegrationCardPage title="Google Search Console" description={t("The service account that verifies domains and adds them to Search Console.")}>
+                    <SearchConsoleSettingsCard />
+                  </IntegrationCardPage>
+                </SuperAdminRoute>
+              }
+            />
+            <Route
+              path="integrations/git"
+              element={
+                <SuperAdminRoute>
+                  <IntegrationCardPage title="GitHub & GitLab" description={t("The OAuth apps users connect their GitHub and GitLab accounts through.")}>
+                    <GitOAuthSettingsCard />
+                  </IntegrationCardPage>
                 </SuperAdminRoute>
               }
             />

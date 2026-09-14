@@ -12,12 +12,12 @@ export default {
   "App type": "Tipe aplikasi",
   Source: "Sumber",
   Configure: "Konfigurasi",
-  "GitHub OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.":
-    "OAuth GitHub belum dikonfigurasi. Superadmin dapat mengaturnya di Integrasi → Aplikasi OAuth Git.",
+  "GitHub OAuth is not configured. A superadmin can set it up under Integrations → GitHub & GitLab.":
+    "OAuth GitHub belum dikonfigurasi. Superadmin dapat mengaturnya di Integrasi → GitHub & GitLab.",
   "Could not start GitHub OAuth flow.": "Tidak dapat memulai alur OAuth GitHub.",
   "GitHub connection failed": "Koneksi GitHub gagal",
-  "GitLab OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.":
-    "OAuth GitLab belum dikonfigurasi. Superadmin dapat mengaturnya di Integrasi → Aplikasi OAuth Git.",
+  "GitLab OAuth is not configured. A superadmin can set it up under Integrations → GitHub & GitLab.":
+    "OAuth GitLab belum dikonfigurasi. Superadmin dapat mengaturnya di Integrasi → GitHub & GitLab.",
   "Could not start GitLab OAuth flow.": "Tidak dapat memulai alur OAuth GitLab.",
   "GitLab connection failed": "Koneksi GitLab gagal",
   "{domain} is being set up.": "{domain} sedang disiapkan.",

@@ -181,6 +181,26 @@ export function AppSidebar() {
                       </NavLink>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={location.pathname.startsWith("/integrations/google")}
+                    >
+                      <NavLink to="/integrations/google">
+                        <span>Google Search Console</span>
+                      </NavLink>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={location.pathname.startsWith("/integrations/git")}
+                    >
+                      <NavLink to="/integrations/git">
+                        <span>GitHub & GitLab</span>
+                      </NavLink>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
                 </SidebarMenuSub>
               </SidebarMenuItem>
               )}

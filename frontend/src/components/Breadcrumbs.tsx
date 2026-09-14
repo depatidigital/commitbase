@@ -27,6 +27,8 @@ const LABELS: Record<string, string> = {
   integrations: t("Integrations"),
   rdash: "Rdash",
   cloudflare: "Cloudflare",
+  google: "Google Search Console",
+  git: "GitHub & GitLab",
 };
 
 // cuid/uuid route params get a generic label — the page itself shows the real name

@@ -167,6 +167,10 @@ export default {
   "Back to applications": "Kembali ke aplikasi",
   // Git OAuth apps (superadmin)
   "Git OAuth apps": "Aplikasi OAuth Git",
+  "The OAuth apps users connect their GitHub and GitLab accounts through.":
+    "Aplikasi OAuth yang dipakai pengguna untuk menghubungkan akun GitHub dan GitLab.",
+  "The service account that verifies domains and adds them to Search Console.":
+    "Service account yang memverifikasi domain dan menambahkannya ke Search Console.",
   "Git OAuth settings saved": "Pengaturan OAuth Git disimpan",
   "Failed to save Git OAuth settings": "Gagal menyimpan pengaturan OAuth Git",
   "Client ID": "Client ID",
