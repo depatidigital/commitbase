@@ -89,7 +89,8 @@ export function AppDatabasesTab({
           </div>
         ) : (
           sorted.map((db) => {
-            const restorable = !db.discovered && db.status === "RUNNING";
+            // one found on its server is reached as the login this app's .env names — so only once it is this app's
+            const restorable = db.status === "RUNNING" && (!db.discovered || db.applicationId === applicationId);
             return (
               <div key={db.id} className="rounded-md border p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
