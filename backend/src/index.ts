@@ -207,11 +207,11 @@ async function onListening() {
 backfillSources()
   .then((created) => created && console.log(`📦 Sources created for ${created} existing app(s)`))
   .catch((err) => console.error('Source backfill failed — apps without a source show no repository:', err))
-  // before the first request too: every app reads its hostnames from app_domains
   // a pm2 build cut off by this restart: said so, and the app no longer "deploying"
   .then(() => recoverPm2Deploys())
   .then((recovered) => recovered && console.log(`🧹 ${recovered} interrupted pm2 build(s) marked failed`))
   .catch((err) => console.error('Could not recover interrupted pm2 builds:', err))
+  // before the first request too: every app reads its hostnames from app_domains
   .then(() => backfillAppDomains())
   .then((moved) => moved && console.log(`🌐 Hostnames moved for ${moved} existing app(s)`))
   .catch((err) => console.error('Hostname backfill failed — apps without one show no address:', err))
