@@ -68,7 +68,7 @@ import {
 } from "@/hooks/useApplications";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { useDomains } from "@/hooks/useDomains";
-import { bulkAssignApplications, hasBeenDeployed, hostsOf, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
+import { bulkAssignApplications, hasBeenDeployed, hostList, hostsOf, isPublicHost, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
   Tooltip,
@@ -343,10 +343,10 @@ export default function Application() {
         // place when the app was given a name of its own
         // a sync placeholder like arusflow.pm2.local: nothing a browser can open,
         // and nothing a client should have to read
-        const internal = app.domain.endsWith(".local");
-        const aliased = !!app.aliases?.length;
-        // several names are all listed already
-        const named = !internal && !aliased && app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
+        const hosts = hostsOf(app);
+        const internal = hosts.every((host) => !isPublicHost(host));
+        // a name of its own, not one of its hostnames: it leads, the hostnames sit under it
+        const named = !internal && !hosts.includes(app.name.trim().toLowerCase());
         // what kind of app, as its icon — a column of badges said the same thing louder
         const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
         const TypeIcon = type.icon;
@@ -362,47 +362,32 @@ export default function Application() {
             <span className="truncate">{type.label}</span>
           </span>
           <div className="min-w-0">
-            {aliased ? (
-              // one site under several names, all alike: each name, none leading
-              hostsOf(app).map((host) => (
-                <span key={host} className="flex min-w-0 items-center gap-1.5">
+            {named || internal ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Link to={`/application/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
+                  {app.name}
+                </Link>
+              </span>
+            ) : (
+              // named after its hostnames: those are the name — each one, none leading
+              app.domains.map((d) => (
+                <span key={d.host} className="flex min-w-0 items-center gap-1.5">
                   <Link to={`/application/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
-                    {host}
+                    {d.host}
                   </Link>
+                  <DomainExpiryBadge domain={d.parentDomain} />
                   <a
-                    href={`https://${host}`}
+                    href={`https://${d.host}`}
                     target="_blank"
                     rel="noreferrer"
-                    title={t("Open {url}", { url: `https://${host}` })}
-                    aria-label={t("Open {url}", { url: host })}
+                    title={t("Open {url}", { url: `https://${d.host}` })}
+                    aria-label={t("Open {url}", { url: d.host })}
                     className="shrink-0 text-muted-foreground hover:text-primary"
                   >
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 </span>
               ))
-            ) : (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <Link
-                to={`/application/${app.id}`}
-                className="truncate font-medium transition-colors hover:text-primary"
-              >
-                {app.name}
-              </Link>
-              <DomainExpiryBadge domain={app.parentDomain} />
-              {!internal && (
-                <a
-                  href={`https://${app.domain}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={t("Open {url}", { url: `https://${app.domain}` })}
-                  aria-label={t("Open {url}", { url: app.domain })}
-                  className="shrink-0 text-muted-foreground hover:text-primary"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </span>
             )}
             {/* what runs it on the box — how it is stopped and removed depends on it */}
             {(named || superAdmin) && (
@@ -417,7 +402,7 @@ export default function Application() {
                   </Badge>
                 )}
                 {superAdmin && named && <span>·</span>}
-                {named && <span className="truncate">{app.domain}</span>}
+                {named && <span className="truncate">{hostList(app)}</span>}
               </span>
             )}
           </div>
