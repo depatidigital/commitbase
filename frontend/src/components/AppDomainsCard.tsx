@@ -125,7 +125,7 @@ export function AppDomainsCard({
         {/* every name it answers on, all alike — checked together */}
         <ul className="divide-y divide-border/60 rounded-md border border-border/60">
           {application.domains.map((name) => (
-            <li key={name.host} className="flex flex-wrap items-center gap-2 px-3 py-2">
+            <li key={`${name.host}${name.path ?? ""}`} className="flex flex-wrap items-center gap-2 px-3 py-2">
               <a
                 href={`https://${name.host}`}
                 target="_blank"
@@ -133,6 +133,7 @@ export function AppDomainsCard({
                 className="inline-flex min-w-0 items-center gap-1.5 break-all font-mono text-sm hover:text-primary"
               >
                 {name.host}
+                {name.path && <span className="text-muted-foreground">{name.path}</span>}
                 <ExternalLink className="h-3.5 w-3.5 shrink-0" />
               </a>
               {name.parentDomain?.shared && <Badge variant="secondary">{t("free")}</Badge>}

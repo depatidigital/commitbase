@@ -467,7 +467,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   // one is not deployed by the panel at all (a pull or branch switch is not a deploy)
   const canRedeploy = deployed && !uploadedSite && !application.runtime;
   // an imported pm2 app is built where it runs, then restarted by name (pm2DeployService)
-  const canPm2Build = application.runtime === 'PM2' && !!application.processName && !!application.rootPath;
+  const canPm2Build =
+    ((application.runtime === 'PM2' && !!application.processName) || application.runtime === 'CADDY_STATIC') && !!application.rootPath;
   // newest first, so the next READY one after the serving one is the previous version
   const releases = releaseData?.releases ?? [];
   const servingAt = releases.findIndex((release) => release.id === releaseData?.activeReleaseId);
@@ -675,7 +676,9 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                       <span>
                         {t("Build & restart")}
                         <span className="block text-xs text-muted-foreground">
-                          {t("Install, build and pm2 restart {name} in its folder on the server.", { name: application.processName ?? "" })}
+                          {application.runtime === "PM2"
+                            ? t("Install, build and pm2 restart {name} in its folder on the server.", { name: application.processName ?? "" })
+                            : t("Install and build in its project folder on the server — the files it serves.")}
                         </span>
                       </span>
                     </DropdownMenuItem>

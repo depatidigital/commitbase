@@ -63,6 +63,7 @@ export default {
     "Caddy langsung melayani seperti ini begitu disimpan. Port atau folder yang salah membuat path itu menjawab dengan error.",
   "I understand visitors get the new routing at once.": "Saya mengerti routing baru langsung berlaku untuk pengunjung.",
   "Build & restart": "Build & mulai ulang",
+  "Install and build in its project folder on the server — the files it serves.": "Install dan build di folder proyeknya di server — file yang dilayaninya.",
   "Install, build and pm2 restart {name} in its folder on the server.": "Install, build, lalu pm2 restart {name} di foldernya di server.",
   "Build and restart {name} on the server?": "Build dan mulai ulang {name} di server?",
   "Runs the install and the build in {dir}, then pm2 restart {name}. It builds in the folder that is serving: the site may show errors until the restart. If a step fails, the ones after it do not run.":

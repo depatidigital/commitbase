@@ -761,7 +761,7 @@ export interface AppSyncResult {
   updated: number;
   apps: Array<{
     name: string;
-    hosts: string[];
+    bindings: Array<{ host: string; path: string }>;
     runtime: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
     status: 'RUNNING' | 'STOPPED' | 'ERROR';
     port?: number;
