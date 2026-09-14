@@ -526,10 +526,11 @@ export async function detectFromRepo(
     const migrations = await execFileAsync('git', ['-C', tmp, 'ls-tree', '--name-only', 'HEAD', migrationsDir], { timeout: 10000 })
       .then(({ stdout }) => String(stdout).trim().length > 0)
       .catch(() => undefined);
-    if (!rootDirectory) return detectProject(tmp, undefined, migrations);
+    // `return await`: a bare return lets `finally` delete the clone while it is still being read
+    if (!rootDirectory) return await detectProject(tmp, undefined, migrations);
     const dir = path.join(tmp, rootDirectory);
     if (!(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) throw new Error(`No folder ${rootDirectory} in the repository`);
-    return detectProject(dir, undefined, migrations, tmp);
+    return await detectProject(dir, undefined, migrations, tmp);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
