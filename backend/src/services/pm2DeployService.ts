@@ -1,3 +1,4 @@
+import path from 'path';
 import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
@@ -27,7 +28,7 @@ export function packageManager(files: string[]): PackageManager {
  * anywhere becomes a command. Install is skipped without a package.json;
  * build without a `build` script. Pure.
  */
-export function pm2DeploySteps(files: string[], packageJson: string | null, processName: string): Array<{ label: string; argv: string[] }> {
+export function pm2DeploySteps(files: string[], packageJson: string | null, processName: string | null): Array<{ label: string; argv: string[] }> {
   const steps: Array<{ label: string; argv: string[] }> = [];
   if (packageJson !== null) {
     const manager = packageManager(files);
@@ -49,7 +50,8 @@ export function pm2DeploySteps(files: string[], packageJson: string | null, proc
       steps.push({ label: 'build', argv: manager === 'yarn' ? ['yarn', 'build'] : [manager, 'run', 'build'] });
     }
   }
-  steps.push({ label: 'restart', argv: ['pm2', 'restart', processName] });
+  // a static site is its files: built is live, nothing to restart
+  if (processName) steps.push({ label: 'restart', argv: ['pm2', 'restart', processName] });
   return steps;
 }
 
@@ -102,16 +104,21 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
       source: { select: { path: true } },
     },
   });
-  if (!app || app.runtime !== 'PM2' || !app.processName || !app.rootPath) {
-    throw new Pm2DeployError('Only an app pm2 runs from a known folder can be built here');
+  const pm2 = app?.runtime === 'PM2' && !!app.processName;
+  // an imported site served from disk builds where it is too: its output is what Caddy serves
+  const onDisk = app?.runtime === 'CADDY_STATIC';
+  if (!app || !app.rootPath || !(pm2 || onDisk)) {
+    throw new Pm2DeployError('Only an app pm2 runs, or a site served from its folder, can be built here');
   }
   const server = app.serverId ? await prisma.server.findUnique({ where: { id: app.serverId } }) : null;
   if (!server) throw new Pm2DeployError('This pm2 app is not linked to a server — sync the apps again');
-  // The git checkout the process's folder sits in (the sync's `git rev-parse
-  // --show-toplevel`): the lockfile and a monorepo's workspace live at its
-  // root, so install and build run there. No package.json there: the
-  // process's own folder, as before.
-  const candidates = [...new Set([app.source?.path, app.rootPath].filter((d): d is string => !!d))];
+  // Where install and build run: a process — the root of the git checkout its
+  // folder sits in (the sync's `git rev-parse --show-toplevel`: a monorepo's
+  // lockfile and workspace), then its own folder; a static site — the project
+  // its output sits in (web/ for web/dist), then the checkout.
+  const candidates = [
+    ...new Set((pm2 ? [app.source?.path, app.rootPath] : [path.posix.dirname(app.rootPath), app.source?.path]).filter((d): d is string => !!d)),
+  ];
   const { stdout } = await exec(
     server,
     // the first with a package.json; none: the last (the process's folder) with nothing to install
@@ -125,10 +132,10 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
   if (running.has(`${server.id}:${dir}`)) throw new Pm2DeployError(`A build is already running in ${dir}`);
   const refused = await notOwner(server, dir);
   if (refused) throw new Pm2DeployError(refused);
-  const files = listing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const steps = pm2DeploySteps(files, files.includes('package.json') ? json.trim() : null, app.processName);
+  const listed = listing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const steps = pm2DeploySteps(listed, listed.includes('package.json') ? json.trim() : null, pm2 ? app.processName : null);
   // the node the running process uses — builds and native modules must match it
-  const nodeVersion = (await listPm2Processes(server)).find((process) => process.name === app.processName)?.nodeVersion;
+  const nodeVersion = pm2 ? (await listPm2Processes(server)).find((process) => process.name === app.processName)?.nodeVersion : undefined;
 
   const deployment = await prisma.deployment.create({
     data: { applicationId: app.id, sourceId: app.sourceId, userId, status: 'BUILDING', deployLogs: `Build and restart in ${dir}\n` },

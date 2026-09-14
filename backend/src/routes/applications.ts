@@ -7,7 +7,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
-import { appHosts, appIdAt, atEach, hostList, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
+import { appHosts, appIdAt, atEach, hostList, hostRefused, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
@@ -24,9 +24,10 @@ import {
   siteStorage,
 } from '../services/staticReleaseService';
 import { Pm2DeployError, startPm2Deploy } from '../services/pm2DeployService';
-import { addCaddyHost, caddyfileFor, configureCaddyForSplit, configureCaddyForStaticApplication, removeCaddySite, routingProblem, staticRouteError } from '../services/caddyService';
+import { addCaddyHost, caddyfileFor, configureCaddyForSplit, routingProblem, staticRouteError } from '../services/caddyService';
+import { hostsOnlyOf, readServe, recomposeHosts, serveStatic } from '../services/hostRouteService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
-import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whereHostnamePoints } from '../services/appDnsService';
+import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, healthPath, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
 import { forgetPointing, healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
@@ -683,6 +684,9 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
     }
     const { parent: parentDomain, organizationId } = resolved;
+    // a name another organization's app already answers on (at a path) is theirs
+    const otherOrg = await hostRefused(domain, organizationId);
+    if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
     if (joining?.organizationId && organizationId !== joining.organizationId) {
       return res.status(403).json({
         success: false,
@@ -893,12 +897,7 @@ router.post(
         const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), source: { update: { activeReleaseId: release.id } } };
 
         try {
-          await configureCaddyForStaticApplication(
-            await serverForApplication(application.id),
-            application.id,
-            await appHosts(application.id),
-            pointer.staticOrigin,
-          );
+          await serveStatic(await serverForApplication(application.id), application.id, pointer.staticOrigin);
         } catch (error: any) {
           // nothing served before: point at the new release anyway, so a
           // republish retries just the route. Otherwise the old one keeps
@@ -1143,6 +1142,9 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     const host = normalizeHost(req.body?.host);
     if (!host) return res.status(400).json({ success: false, error: 'Hostname is required' } as ApiResponse);
     if (await appIdAt(host)) return res.status(400).json({ success: false, error: 'Domain already in use' } as ApiResponse);
+    // a name and its paths belong to one organization
+    const otherOrg = await hostRefused(host, application.organizationId);
+    if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
 
     // same ownership boundary as create — and a name never moves the app to
     // another org: that is an admin's reassignment, not a hostname
@@ -1160,7 +1162,10 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
 
     await prisma.appDomain.create({ data: { host, applicationId: application.id, domainId: resolved.parent.id } });
     try {
-      if (application.runtime) {
+      if (readServe(application.serve)) {
+        // known: the name's route composed with it, beside whatever else it serves
+        await recomposeHosts(node, [host]);
+      } else if (application.runtime) {
         // someone else's route: served as its other names are, one more host on it
         const beside = hostsOf(application).find((name) => !name.endsWith('.pm2.local'));
         if (beside) await addCaddyHost(node, beside, host);
@@ -1211,9 +1216,19 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
     }
 
     const node = await serverForApplication(application.id).catch(() => null);
-    if (node) await removeCaddySite(node, host);
-    await removeAppHostname({ id: application.id, domain: host, domainId: name.domainId });
-    await prisma.appDomain.delete({ where: { host_path: { host, path: '' } } });
+    const removed = await prisma.appDomain.delete({ where: { host_path: { host, path: '' } } });
+    // the name's route without this app: gone if nothing else is on it, the others' otherwise
+    try {
+      if (node) await recomposeHosts(node, [host]);
+    } catch (error: any) {
+      // not routed as it should be: the name stays the app's, nothing half-done
+      await prisma.appDomain.create({ data: removed });
+      return res.status(502).json({ success: false, error: `${host} could not be taken off: ${error?.message ?? error}` } as ApiResponse);
+    }
+    // its DNS record only when no other app answers on the name
+    if ((await hostsOnlyOf(application.id, [host])).length) {
+      await removeAppHostname({ id: application.id, domain: host, domainId: name.domainId });
+    }
     await prisma.log.create({
       data: { level: 'INFO', message: `${host} removed from ${application.name}`, userId: req.user!.userId, applicationId: application.id },
     });
@@ -1456,8 +1471,10 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       await systemd.removeApplication(application).catch((error) => {
         console.error(`Failed to remove unit for ${application.name}:`, error);
       });
-      await removeCaddySite(await serverForApplication(application.id), ...hostsOf(application)).catch(() => {});
-      for (const at of atEach(application)) await removeAppHostname(at);
+      // its names' routes without it — the other apps on a shared name keep theirs
+      await recomposeHosts(await serverForApplication(application.id), hostsOf(application), { without: application.id }).catch(() => {});
+      const alone = await hostsOnlyOf(application.id, hostsOf(application));
+      for (const at of atEach(application)) if (alone.includes(at.domain)) await removeAppHostname(at);
       // every release of a static site — the bucket is public, and nothing
       // would ever clean these up once the row is gone
       if (application.type === 'STATIC' && application.staticBucket) {
@@ -1864,12 +1881,13 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    // each of its names on its own: one can answer while another does not
+    // each of its bindings on its own, at its own path: one can answer while another does not
     const data = await Promise.all(
-      atEach(application).map(async (at) => {
+      application.domains.map(async (binding) => {
+        const at = { id: application.id, domain: binding.host, domainId: binding.domainId };
         // the registration too: an expired domain often still resolves — to the registrar's parking page
         const [health, managed, registration, pointing] = await Promise.all([
-          checkAppHostname(at.domain),
+          checkAppHostname(at.domain, 5000, healthPath(binding.path)),
           dnsManaged(at),
           hostnameRegistration(at.domain).catch(() => null),
           // does the name lead to the server this app runs on — or somewhere else that happens to answer
@@ -1877,6 +1895,7 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
         ]);
         return {
           ...health,
+          path: binding.path,
           dnsManaged: managed,
           domainProblem: registration?.problem ?? null,
           registeredDomain: registration?.domain ?? null,
@@ -2045,12 +2064,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       }
       const staticOrigin = inFolder(siteRootOrigin(application.staticOrigin), release.path ?? '');
       try {
-        await configureCaddyForStaticApplication(
-          await serverForApplication(application.id),
-          application.id,
-          await appHosts(application.id),
-          staticOrigin,
-        );
+        await serveStatic(await serverForApplication(application.id), application.id, staticOrigin);
       } catch (error: any) {
         // the route did not move, so the previous release is still what serves
         return res.status(502).json({ success: false, error: staticRouteError(error) } as ApiResponse);

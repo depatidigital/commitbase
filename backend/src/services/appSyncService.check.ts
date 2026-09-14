@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, type DiscoveredApp } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, bindingLabel, identityKeys, type DiscoveredApp } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute, caddyfileFor, routingProblem } from './caddyService';
 
@@ -184,7 +184,7 @@ assert.strictEqual(routeParts(phpRoute), null);
 
 // --- one folder behind several hostnames is one app with all of them ---
 const site = (domain: string, extra: Partial<DiscoveredApp> = {}): DiscoveredApp =>
-  ({ name: domain, hosts: [domain], runtime: 'CADDY_PHP', type: 'PHP', status: 'RUNNING', rootPath: '/var/www/cms/public', ...extra });
+  ({ name: domain, bindings: [{ host: domain, path: '' }], runtime: 'CADDY_PHP', type: 'PHP', status: 'RUNNING', rootPath: '/var/www/cms/public', ...extra });
 const merged = mergeSameSite([
   site('a.go.id'),
   site('b.go.id'),
@@ -197,7 +197,7 @@ const merged = mergeSameSite([
   site('y.go.id', { rootPath: undefined }),
   site('worker.pm2.local', { runtime: 'PM2', port: 9000 }),
 ]);
-assert.deepStrictEqual(merged.map((app) => app.hosts), [
+assert.deepStrictEqual(merged.map((app) => app.bindings.map(bindingLabel)), [
   ['a.go.id', 'b.go.id', 'c.go.id'],
   ['other.go.id'],
   ['api.go.id'],
@@ -205,6 +205,22 @@ assert.deepStrictEqual(merged.map((app) => app.hosts), [
   ['y.go.id'],
   ['worker.pm2.local'],
 ]);
+
+// --- apps by what serves them: the same port on two names/paths is one app; a folder is another ---
+{
+  const part = (host: string, at: string, extra: Partial<DiscoveredApp>): DiscoveredApp =>
+    ({ name: `${host}${at}`, bindings: [{ host, path: at }], status: 'RUNNING', ...extra }) as DiscoveredApp;
+  const apps = mergeSameSite([
+    part('app.arusflow.id', '/api/*', { runtime: 'PM2', type: 'NODEJS', port: 9200, processName: 'arusflow', serve: { kind: 'proxy', port: 9200 } }),
+    part('app.arusflow.id', '', { runtime: 'CADDY_STATIC', type: 'STATIC', rootPath: '/w/web/dist', serve: { kind: 'files', root: '/w/web/dist', spa: true } }),
+    part('arusflow.id', '/api/*', { runtime: 'PM2', type: 'NODEJS', port: 9200, processName: 'arusflow', serve: { kind: 'proxy', port: 9200 } }),
+  ]);
+  assert.deepStrictEqual(apps.map((app) => app.bindings.map(bindingLabel)), [['app.arusflow.id/api/*', 'arusflow.id/api/*'], ['app.arusflow.id']]);
+  // the row that runs the process keeps being the process's app, whatever names it held
+  assert.deepStrictEqual(identityKeys({ processName: 'arusflow', runtime: 'PM2', rootPath: '/w/server' }), ['pm2 arusflow', 'dir PM2 /w/server']);
+  assert.ok(identityKeys(apps[0]!).includes('pm2 arusflow'));
+  assert.ok(identityKeys(apps[1]!).includes('serve files /w/web/dist'));
+}
 
 // --- routing set in the panel reads back the same on the next sync ---
 {

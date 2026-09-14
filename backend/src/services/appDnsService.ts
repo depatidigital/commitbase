@@ -249,7 +249,17 @@ export function answersLive(status: number | null, contentLength?: string): bool
  * Is the site actually reachable? "RUNNING" only ever meant "the unit started",
  * which is not what anyone reads it as — this asks the hostname itself.
  */
-export async function checkAppHostname(host: string, timeoutMs = 5000): Promise<HostnameHealth> {
+/**
+ * The URL an app bound at a path answers on: `/api/*` → `/api/`, `/ws*` →
+ * `/ws`, the whole name → `/`. Pure.
+ */
+export const healthPath = (bindingPath: string | null | undefined): string => {
+  if (!bindingPath) return '/';
+  const prefix = bindingPath.replace(/\*+$/, '');
+  return prefix.startsWith('/') ? prefix : `/${prefix}`;
+};
+
+export async function checkAppHostname(host: string, timeoutMs = 5000, path = '/'): Promise<HostnameHealth> {
   const name = lower(host);
   const base: HostnameHealth = {
     host: name,
@@ -262,7 +272,7 @@ export async function checkAppHostname(host: string, timeoutMs = 5000): Promise<
 
   return new Promise<HostnameHealth>((resolve) => {
     const request = https.request(
-      { host: name, port: 443, path: '/', method: 'GET', timeout: timeoutMs, servername: name },
+      { host: name, port: 443, path, method: 'GET', timeout: timeoutMs, servername: name },
       (response) => {
         response.resume();
         const status = response.statusCode ?? null;

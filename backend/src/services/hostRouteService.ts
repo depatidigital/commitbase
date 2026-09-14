@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import type { SshTarget } from '../lib/runner';
 import { buildRoute, removeCaddySite, setHostRoute, type Target } from './caddyService';
+import { getStaticSiteBaseUrl } from './s3Service';
 
 /**
  * One Caddy route per hostname, composed from every app bound to it
@@ -92,10 +93,11 @@ export class HostRouteError extends Error {}
  * serve is not known (an imported site nobody changed) is left exactly as it
  * is on the server — its hand-written route is never rebuilt for nothing.
  */
-export async function recomposeHosts(node: SshTarget, hosts: string[]): Promise<void> {
+export async function recomposeHosts(node: SshTarget, hosts: string[], { without }: { without?: string } = {}): Promise<void> {
   for (const host of [...new Set(hosts)]) {
     const rows = await prisma.appDomain.findMany({
-      where: { host },
+      // `without`: as if that app were gone already — its delete removes the rows after
+      where: { host, ...(without && { applicationId: { not: without } }) },
       select: { path: true, stripPrefix: true, application: { select: { name: true, serve: true } } },
     });
     if (rows.length === 0) {
@@ -122,4 +124,25 @@ export async function serveApp(node: SshTarget, applicationId: string, serve: Se
   await prisma.application.update({ where: { id: applicationId }, data: { serve } });
   const rows = await prisma.appDomain.findMany({ where: { applicationId }, select: { host: true }, distinct: ['host'] });
   await recomposeHosts(node, rows.map((row) => row.host));
+}
+
+/**
+ * A static site's serve: its R2 bucket origin, else (sites from before R2)
+ * a redirect to its old S3 prefix. Neither: nothing to route yet, a no-op.
+ */
+export async function serveStatic(node: SshTarget, applicationId: string, origin: string | null | undefined): Promise<void> {
+  const url = origin ? null : getStaticSiteBaseUrl(applicationId);
+  if (!origin && !url) return;
+  await serveApp(node, applicationId, origin ? { kind: 'bucket', origin } : { kind: 'redirect', url: url! });
+}
+
+/** Hostnames no app but `applicationId` is bound to — the ones whose DNS record may go with it. */
+export async function hostsOnlyOf(applicationId: string, hosts: string[]): Promise<string[]> {
+  const shared = await prisma.appDomain.findMany({
+    where: { host: { in: hosts }, applicationId: { not: applicationId } },
+    select: { host: true },
+    distinct: ['host'],
+  });
+  const taken = new Set(shared.map((row) => row.host));
+  return hosts.filter((host) => !taken.has(host));
 }

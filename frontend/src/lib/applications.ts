@@ -21,6 +21,10 @@ export const repoName = (url: string) => url.replace(/\.git$/, '').split(/[/:]/)
 /** One hostname of an app, with the Domain (zone) it sits under. */
 export interface AppDomain {
   host: string;
+  /** a Caddy path pattern (`/api/*`), or "" for the whole hostname */
+  path?: string;
+  /** the app gets the path without its prefix */
+  stripPrefix?: boolean;
   domainId: string | null;
   /** list and detail endpoints: that domain, for its registration expiry */
   parentDomain?: { id: string; name: string; expiresAt?: string | null; shared?: boolean } | null;
@@ -30,7 +34,10 @@ export interface AppDomain {
  * Every hostname an app answers on — one or more, all alike, none first. The
  * API sends them sorted; that is the one order they are ever listed in.
  */
-export const hostsOf = (app: { domains: Array<{ host: string }> }): string[] => app.domains.map((d) => d.host);
+export const hostsOf = (app: { domains: Array<{ host: string }> }): string[] => [...new Set(app.domains.map((d) => d.host))];
+
+/** `app.example.com` or `app.example.com/api/*` — a binding as a person reads it. */
+export const bindingLabel = (d: { host: string; path?: string | null }) => `${d.host}${d.path ?? ""}`;
 
 /** The names of an app for a sentence or a toast: `a.com, b.com`. */
 export const hostList = (app: { domains: Array<{ host: string }> }): string => hostsOf(app).join(', ');

@@ -4,7 +4,8 @@ import * as path from 'path';
 import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
-import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication, staticRouteError } from './caddyService';
+import { staticRouteError } from './caddyService';
+import { serveApp, serveStatic } from './hostRouteService';
 import { appBuild, ensureOrgOnNode, sourceTreeUnit } from './orgProvisionService';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
@@ -12,7 +13,6 @@ import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
-import { appHosts } from '../lib/appDomains';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
@@ -623,7 +623,7 @@ export class DeploymentService {
     const socket = join(socketDir, sockets.sort().reverse()[0] as string);
     const root = join(currentDirFor(afs.appDir), docroot);
 
-    await configureCaddyForPhpApplication(node, await appHosts(application.id), root, socket);
+    await serveApp(node, application.id, { kind: 'php', root, socket });
     await afs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
     return true;
   }
@@ -668,14 +668,14 @@ export class DeploymentService {
   async applyCaddyRoute(app: AppWithOrg): Promise<boolean> {
     const node = await serverForApplication(app.id);
     if (app.type === 'STATIC') {
-      await configureCaddyForStaticApplication(node, app.id, await appHosts(app.id), app.staticOrigin);
+      await serveStatic(node, app.id, app.staticOrigin);
     } else if (app.type === 'PHP') {
       const afs = await sourceFsFor(app.id);
       const current = currentDirFor(afs.appDir);
       const detected = await detectProject(inRootDirectory(current, app.rootDirectory), afs.readText, undefined, current);
       if (!(await this.publishPhp(app, afs, join(app.rootDirectory ?? '', detected.outputDir || '.')))) throw new Error('no FPM socket');
     } else if (app.port) {
-      await configureCaddyForRuntimeApplication(node, await appHosts(app.id), app.port);
+      await serveApp(node, app.id, { kind: 'proxy', port: app.port });
     } else {
       return false;
     }
@@ -951,12 +951,7 @@ export class DeploymentService {
           // the files are fine, but without its route the site is down — say
           // so instead of reporting green. Redeploying retries just this step.
           try {
-            await configureCaddyForStaticApplication(
-              await serverForApplication(application.id),
-              application.id,
-              await appHosts(application.id),
-              (application as any).staticOrigin
-            );
+            await serveStatic(await serverForApplication(application.id), application.id, (application as any).staticOrigin);
           } catch (error: any) {
             const message = staticRouteError(error);
             return { success: false, error: message, buildLogs, deployLogs: message };
@@ -1061,12 +1056,7 @@ export class DeploymentService {
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           try {
-            await configureCaddyForStaticApplication(
-              await serverForApplication(application.id),
-              application.id,
-              await appHosts(application.id),
-              pointer.staticOrigin
-            );
+            await serveStatic(await serverForApplication(application.id), application.id, pointer.staticOrigin);
           } catch (error: any) {
             const message = staticRouteError(error);
             // nothing served before: point at the build anyway so a republish
@@ -1271,7 +1261,7 @@ export class DeploymentService {
       for (const app of group) {
         if (app.type === 'PHP') continue;
         try {
-          await configureCaddyForRuntimeApplication(await serverForApplication(app.id), await appHosts(app.id), portOf(app));
+          await serveApp(await serverForApplication(app.id), app.id, { kind: 'proxy', port: portOf(app) });
         } catch (error: any) {
           routeWarning +=
             `The app is running, but its Caddy route could not be set — ${app.name} is not served yet: ` +

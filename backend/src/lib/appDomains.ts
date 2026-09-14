@@ -124,3 +124,28 @@ export async function backfillAppDomains(): Promise<number> {
   ]);
   return created;
 }
+
+/**
+ * Make these exactly an app's bindings — hostnames and paths (the sync's view
+ * of an imported app): the ones it no longer has go, new ones come with their
+ * zone, a zone learned since is filled in. A binding another app holds is not
+ * taken from it here — the caller moves it first; here it fails on (host, path).
+ */
+export async function setAppBindings(
+  applicationId: string,
+  bindings: Array<{ host: string; path: string; domainId: string | null }>,
+  tx: Prisma.TransactionClient = prisma,
+): Promise<void> {
+  const key = (b: { host: string; path: string }) => `${b.host} ${b.path}`;
+  const wanted = new Set(bindings.map(key));
+  const have = await tx.appDomain.findMany({ where: { applicationId }, select: { id: true, host: true, path: true, domainId: true } });
+  const gone = have.filter((b) => !wanted.has(key(b)));
+  if (gone.length) await tx.appDomain.deleteMany({ where: { id: { in: gone.map((b) => b.id) } } });
+  const kept = new Map(have.filter((b) => wanted.has(key(b))).map((b) => [key(b), b]));
+  const fresh = bindings.filter((b) => !kept.has(key(b)));
+  if (fresh.length) await tx.appDomain.createMany({ data: fresh.map((b) => ({ applicationId, host: b.host, path: b.path, domainId: b.domainId })) });
+  for (const b of bindings) {
+    const row = kept.get(key(b));
+    if (row && !row.domainId && b.domainId) await tx.appDomain.update({ where: { id: row.id }, data: { domainId: b.domainId } });
+  }
+}

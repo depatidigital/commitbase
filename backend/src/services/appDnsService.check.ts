@@ -1,5 +1,10 @@
 import assert from 'assert';
-import { answersLive, isCloudflareIp } from './appDnsService';
+import { answersLive, healthPath, isCloudflareIp } from './appDnsService';
+
+// an app bound at a path is checked there
+assert.strictEqual(healthPath(''), '/');
+assert.strictEqual(healthPath('/api/*'), '/api/');
+assert.strictEqual(healthPath('/ws*'), '/ws');
 
 // an empty 404 at / is the web server with nothing to serve; an app's own 404 has a body
 assert.ok(answersLive(200, '1234'));

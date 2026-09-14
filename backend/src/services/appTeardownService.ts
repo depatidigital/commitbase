@@ -6,7 +6,7 @@ import { atEach, hostList, hostsOf } from '../lib/appDomains';
 export type TeardownTarget = Application & { domains: Array<{ host: string; domainId: string | null }> };
 import { prisma } from '../lib/prisma';
 import { rm } from '../lib/remoteFs';
-import { removeCaddySite } from './caddyService';
+import { hostsOnlyOf, recomposeHosts } from './hostRouteService';
 import { removeAppHostname } from './appDnsService';
 import { APPS_ROOT_DIR, PANEL_HOST, deletePm2Process, listListeningPorts, probeFolders } from './appSyncService';
 import { HOME_ROOT } from '../lib/appPaths';
@@ -259,10 +259,13 @@ export async function teardownApp(app: TeardownTarget): Promise<TeardownResult> 
     try {
       if (id === 'process') await deletePm2Process(server!, app.processName!);
       if (id === 'route') {
-        for (const host of hostsOf(app)) await removeCaddySite(server!, host);
+        // its names' routes without it — the other apps on a shared name keep theirs
+        await recomposeHosts(server!, hostsOf(app), { without: app.id });
       }
       if (id === 'dns') {
-        for (const at of atEach(app)) await removeAppHostname(at, { strict: true });
+        // a name another app still answers on keeps its record
+        const alone = await hostsOnlyOf(app.id, hostsOf(app));
+        for (const at of atEach(app)) if (alone.includes(at.domain)) await removeAppHostname(at, { strict: true });
       }
       if (id === 'files') await removeFolder(server!, app);
       done.push(id);

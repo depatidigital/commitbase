@@ -2,7 +2,8 @@ import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { createApplicationWithSource, dropOrphanSources, setSourceOrganization } from '../lib/sources';
-import { setAppHosts, zonesFor } from '../lib/appDomains';
+import { setAppBindings, zonesFor } from '../lib/appDomains';
+import { readServe, type Serve } from './hostRouteService';
 import { exec, type SshTarget } from '../lib/runner';
 import { parseEnvFile } from '../lib/projectDetect';
 import { sealEnv } from '../lib/appEnv';
@@ -18,8 +19,10 @@ export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
 
 export type DiscoveredApp = {
   name: string;
-  /** the hostnames it answers on — one per route host, merged by mergeSameSite */
-  hosts: string[];
+  /** where it answers — hostnames, or a hostname and a path; merged by mergeSameSite */
+  bindings: SyncBinding[];
+  /** what Caddy sends its requests to, as the route says — undefined when it cannot be told (a bucket) */
+  serve?: Serve | undefined;
   runtime: Runtime;
   type: 'NODEJS' | 'PHP' | 'STATIC';
   status: 'RUNNING' | 'STOPPED' | 'ERROR';
@@ -45,23 +48,42 @@ export type DiscoveredApp = {
   routing?: RoutePart[] | undefined;
 };
 
+/** A hostname and a path under it ("" = the whole name). */
+export type SyncBinding = { host: string; path: string };
+export const bindingKey = (b: SyncBinding) => `${b.host} ${b.path}`;
+export const bindingLabel = (b: SyncBinding) => `${b.host}${b.path}`;
+
+/** What a found app runs, to know it by: its pm2 process, its target, else its folder. Pure. */
+export function identityKeys(app: { processName?: string | null | undefined; serve?: unknown; runtime?: string | null; rootPath?: string | null | undefined }): string[] {
+  const serve = readServe(app.serve);
+  return [
+    ...(app.processName ? [`pm2 ${app.processName}`] : []),
+    ...(serve ? [`serve ${serve.kind} ${'port' in serve ? serve.port : 'root' in serve ? serve.root : ''}`] : []),
+    ...(app.runtime && app.rootPath ? [`dir ${app.runtime} ${app.rootPath}`] : []),
+  ];
+}
+
 /**
- * Hostnames served the same way — same runtime, folder, port and path split —
- * are one app under several names: a multi-site CMS behind five domains, say.
- * They become one app with all those names.
+ * Bindings served by the same thing — the same process port, the same folder
+ * — are one app on several names and paths: a multi-site CMS behind five
+ * domains, say. They become one app with all of them. Pure.
  */
 export function mergeSameSite(apps: DiscoveredApp[]): DiscoveredApp[] {
   const sites = new Map<string, DiscoveredApp>();
   const merged: DiscoveredApp[] = [];
   for (const app of apps) {
-    const placeholder = app.hosts.some((host) => host.endsWith('.pm2.local'));
-    // nothing known about where it runs: nothing proves two hostnames are one app
-    const key = placeholder || (!app.rootPath && !app.port)
+    const placeholder = app.bindings.some((b) => b.host.endsWith('.pm2.local'));
+    // nothing known about what serves it: nothing proves two names are one app
+    const key = placeholder
       ? null
-      : [app.runtime, app.rootPath ?? '', app.port ?? '', JSON.stringify(app.routing ?? null)].join('|');
+      : app.serve
+        ? [app.runtime, JSON.stringify(app.serve)].join('|')
+        : app.rootPath || app.port
+          ? [app.runtime, app.rootPath ?? '', app.port ?? ''].join('|')
+          : null;
     const site = key ? sites.get(key) : undefined;
     if (site) {
-      site.hosts = [...site.hosts, ...app.hosts];
+      site.bindings = [...site.bindings, ...app.bindings];
       continue;
     }
     if (key) sites.set(key, app);
@@ -69,6 +91,9 @@ export function mergeSameSite(apps: DiscoveredApp[]): DiscoveredApp[] {
   }
   return merged;
 }
+
+/** A single-target route that answers unknown paths with index.html (Caddyfile `try_files {path} /index.html`). Pure. */
+export const routeSpa = (route: any): boolean => /"try_files":\[[^\]]*index\.html/.test(JSON.stringify(route ?? null));
 
 export type AppSyncResult = {
   /** databases their .env files named, attached to them this sync */
@@ -495,57 +520,73 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
   for (const route of routes) {
     const target = classifyRoute(route);
     if (!target) continue;
+    // a hostname split by path is one app per part: `/api/*` → the process, the rest → files
+    const parts = routeParts(route);
 
     for (const host of routeHosts(route)) {
       const domain = host.trim().toLowerCase();
       if (isNotAnApp(domain) || seen.has(domain)) continue;
       seen.add(domain);
 
-      // pm2 rarely has the PORT in its env, so the kernel's listener pid is how
-      // a proxied port is traced back to its process and directory
-      const pid = target.port ? listening.get(target.port) : undefined;
-      const process = target.port ? byPort.get(target.port) ?? (pid ? pm2OwnerOf(pid, byPid, parents) : undefined) : undefined;
-      if (process) claimed.add(process.name);
+      type Spec = { path: string; port?: number | undefined; type: DiscoveredApp['type']; rootPath?: string | undefined; socket?: string | undefined; origin?: string | undefined; spa?: boolean | undefined };
+      const specs: Spec[] = parts
+        ? parts.flatMap((part): Spec[] => {
+            const local = part.proxy?.match(/^(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)$/);
+            if (local) return [{ path: part.path ?? '', port: Number(local[1]), type: 'NODEJS' }];
+            // proxied off the box (a bucket): not an app of this node
+            if (part.proxy) return [];
+            return part.root ? [{ path: part.path ?? '', type: 'STATIC', rootPath: part.root, spa: part.spa }] : [];
+          })
+        : [{ path: '', ...target, spa: routeSpa(route) }];
 
-      const runtime: Runtime = target.port
-        ? process
-          ? 'PM2'
-          : 'CADDY_PROXY'
-        : target.type === 'PHP'
-          ? 'CADDY_PHP'
-          : 'CADDY_STATIC';
+      for (const spec of specs) {
+        // pm2 rarely has the PORT in its env, so the kernel's listener pid is how
+        // a proxied port is traced back to its process and directory
+        const pid = spec.port ? listening.get(spec.port) : undefined;
+        const process = spec.port ? byPort.get(spec.port) ?? (pid ? pm2OwnerOf(pid, byPid, parents) : undefined) : undefined;
+        if (process) claimed.add(process.name);
 
-      const knownRoot = target.rootPath || process?.cwd || (pid ? cwds.get(pid) : undefined);
-      // a bucket-proxied site has no directory on the node; a PHP/static route
-      // that does not say gets the conventional folder — checked below, kept only if it is there
-      const guessedRoot = knownRoot || target.port || target.origin ? undefined : path.posix.join(APPS_ROOT_DIR, domain);
+        const runtime: Runtime = spec.port ? (process ? 'PM2' : 'CADDY_PROXY') : spec.type === 'PHP' ? 'CADDY_PHP' : 'CADDY_STATIC';
+        const knownRoot = spec.rootPath || process?.cwd || (pid ? cwds.get(pid) : undefined);
+        // a bucket-proxied site has no directory on the node; a PHP/static route
+        // that does not say gets the conventional folder — checked below, kept only if it is there
+        const guessedRoot = knownRoot || spec.port || spec.origin ? undefined : path.posix.join(APPS_ROOT_DIR, domain);
+        // what Caddy sends it to — the route composer rebuilds a shared name's route from these
+        const serve: Serve | undefined = spec.port
+          ? { kind: 'proxy', port: spec.port }
+          : spec.type === 'PHP' && knownRoot && spec.socket
+            ? { kind: 'php', root: knownRoot, socket: spec.socket }
+            : spec.type === 'STATIC' && spec.rootPath
+              ? { kind: 'files', root: spec.rootPath, spa: !!spec.spa }
+              : undefined;
 
-      const app: DiscoveredApp = {
-        name: process?.name || domain,
-        hosts: [domain],
-        runtime,
-        type: target.type,
-        // pm2 knows a process's state; the kernel knows whether the port is
-        // actually served. Only a port with no listener is an error — a process
-        // pm2 cannot match to a port is not evidence of anything.
-        status: process
-          ? process.status === 'online'
-            ? 'RUNNING'
-            : 'STOPPED'
-          : target.port && listening.size > 0 && !listening.has(target.port)
-            ? 'ERROR'
-            : 'RUNNING',
-        port: target.port,
-        processName: process?.name,
-        startCommand: process?.startCommand,
-        rootPath: knownRoot || guessedRoot,
-        routing: routeParts(route) ?? undefined,
-        memory: process?.memory,
-        cpu: process?.cpu,
-        uptime: process?.uptime,
-      };
-      apps.push(app);
-      if (guessedRoot) guessed.add(app);
+        const app: DiscoveredApp = {
+          name: process?.name || `${domain}${spec.path}`,
+          bindings: [{ host: domain, path: spec.path }],
+          runtime,
+          type: spec.type,
+          // pm2 knows a process's state; the kernel knows whether the port is
+          // actually served. Only a port with no listener is an error — a process
+          // pm2 cannot match to a port is not evidence of anything.
+          status: process
+            ? process.status === 'online'
+              ? 'RUNNING'
+              : 'STOPPED'
+            : spec.port && listening.size > 0 && !listening.has(spec.port)
+              ? 'ERROR'
+              : 'RUNNING',
+          port: spec.port,
+          processName: process?.name,
+          startCommand: process?.startCommand,
+          rootPath: knownRoot || guessedRoot,
+          serve,
+          memory: process?.memory,
+          cpu: process?.cpu,
+          uptime: process?.uptime,
+        };
+        apps.push(app);
+        if (guessedRoot) guessed.add(app);
+      }
     }
   }
 
@@ -558,7 +599,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
 
     apps.push({
       name: process.name,
-      hosts: [`${process.name}.pm2.local`],
+      bindings: [{ host: `${process.name}.pm2.local`, path: '' }],
       runtime: 'PM2',
       type: 'NODEJS',
       status: process.status === 'online' ? 'RUNNING' : 'STOPPED',
@@ -640,35 +681,50 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   const result: AppSyncResult = { discovered: discovered.length, created: 0, updated: 0, apps: [] };
   const errors: string[] = [];
 
-  // Who holds each hostname found, and which found site each of those apps is
-  // "at home" in: the one it shares the most names with. A site that was split
-  // on the server keeps its row in one place, and hands the other names over.
-  const allHosts = discovered.flatMap((app) => app.hosts);
+  const include = { _count: { select: { deployments: true } }, source: { select: { repository: true } } } as const;
+  // Who holds each (hostname, path) found, and which found app each of those
+  // rows is "at home" in: the one it shares the most bindings with.
+  const allKeys = discovered.flatMap((app) => app.bindings.map(bindingKey));
   const holding = await prisma.appDomain.findMany({
-    where: { host: { in: allHosts } },
-    select: {
-      host: true,
-      application: { include: { _count: { select: { deployments: true } }, source: { select: { repository: true } } } },
-    },
+    where: { OR: discovered.flatMap((app) => app.bindings.map((b) => ({ host: b.host, path: b.path }))) },
+    select: { host: true, path: true, application: { include } },
   });
   type Row = (typeof holding)[number]['application'];
-  const siteOf = new Map(discovered.flatMap((app, i) => app.hosts.map((host) => [host, i] as const)));
+  const siteOf = new Map(discovered.flatMap((app, i) => app.bindings.map((b) => [bindingKey(b), i] as const)));
   const holders = new Map<string, Row>();
-  const overlap = new Map<string, Map<number, number>>();
-  for (const { host, application } of holding) {
-    holders.set(host, application);
-    const site = siteOf.get(host)!;
-    const counts = overlap.get(application.id) ?? new Map<number, number>();
-    counts.set(site, (counts.get(site) ?? 0) + 1);
-    overlap.set(application.id, counts);
-  }
-  const homeOf = new Map([...overlap].map(([id, counts]) => [id, [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]![0]]));
+  for (const { host, path: at, application } of holding) holders.set(bindingKey({ host, path: at }), application);
 
   // The panel's own apps show up in the scan too — their route is on the box.
   // Stamping a runtime on one turns it into an "imported" app the panel then
   // refuses to deploy, and guesses a directory it never had. Created here (no
   // runtime) or deployed from here (has deployments): not ours to touch.
   const isPanels = (row: Row) => !row.runtime || row._count.deployments > 0;
+
+  // A row is recognized by what it runs before the names it holds: the pm2
+  // process, or the same target. A site split into apps keeps its row where the
+  // process (with its env and databases) is — the front end gets a new one,
+  // however the names were held before.
+  const nodeRows = await prisma.application.findMany({ where: { serverId: node.id, runtime: { not: null } }, include });
+  const identity = new Map<number, Row>();
+  const claimedRow = new Set<string>();
+  for (const [i, app] of discovered.entries()) {
+    const keys = new Set(identityKeys(app));
+    const row = nodeRows.find((candidate) => !isPanels(candidate) && !claimedRow.has(candidate.id) && identityKeys(candidate).some((key) => keys.has(key)));
+    if (row) {
+      identity.set(i, row);
+      claimedRow.add(row.id);
+    }
+  }
+  // otherwise, the found app a holding row shares the most bindings with
+  const overlap = new Map<string, Map<number, number>>();
+  for (const [key, row] of holders) {
+    if (claimedRow.has(row.id)) continue;
+    const site = siteOf.get(key)!;
+    const counts = overlap.get(row.id) ?? new Map<number, number>();
+    counts.set(site, (counts.get(site) ?? 0) + 1);
+    overlap.set(row.id, counts);
+  }
+  const homeOf = new Map([...overlap].map(([id, counts]) => [id, [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]![0]]));
 
   for (const [i, app] of discovered.entries()) {
     const fields = {
@@ -681,8 +737,10 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       ...(app.startCommand && { startCommand: app.startCommand }),
       rootPath: app.rootPath ?? null,
       configPath: app.configPath ?? null,
-      // written each sync: a split that was undone on the server goes too
-      routing: app.routing ? (app.routing as Prisma.InputJsonValue) : Prisma.DbNull,
+      // a split is apps now, each with its own bindings: nothing left to keep here
+      routing: Prisma.DbNull,
+      // what Caddy sends it to; not read from the route (a bucket's): kept as it was
+      ...(app.serve && { serve: app.serve as Prisma.InputJsonValue }),
       status: app.status,
       port: app.port ?? null,
       memory: app.memory ?? null,
@@ -690,23 +748,25 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       uptime: app.uptime ?? null,
       lastSyncedAt: new Date(),
     };
-    const label = app.hosts.join(', ');
+    const label = app.bindings.map(bindingLabel).join(', ');
 
     try {
-      const rows = [...new Map(app.hosts.flatMap((host) => (holders.has(host) ? [holders.get(host)!] : [])).map((row) => [row.id, row])).values()]
+      const held = [...new Map(app.bindings.flatMap((b) => (holders.has(bindingKey(b)) ? [holders.get(bindingKey(b))!] : [])).map((row) => [row.id, row])).values()]
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-      // the row that stays: one someone assigned, else the oldest — of those at home here
-      const imported = rows.filter((row) => !isPanels(row) && homeOf.get(row.id) === i);
-      const existing = imported.find((row) => row.organizationId) ?? imported[0] ?? null;
+      // the row that stays: the one that runs the same thing, else one someone
+      // assigned, else the oldest — of the holders at home here
+      const imported = held.filter((row) => !isPanels(row) && !claimedRow.has(row.id) && homeOf.get(row.id) === i);
+      const existing = identity.get(i) ?? imported.find((row) => row.organizationId) ?? imported[0] ?? null;
       // merged into it: rows of the same org (or none) — never another tenant's
       const same = (row: Row) => !row.organizationId || !existing?.organizationId || row.organizationId === existing.organizationId;
-      if (rows.some((row) => !isPanels(row) && row !== existing && !same(row))) {
+      if (held.some((row) => !isPanels(row) && row !== existing && !claimedRow.has(row.id) && !same(row))) {
         errors.push(`${label}: served the same way as an app of another organization — kept apart`);
       }
-      // a name held by a panel app or another tenant's stays where it is
-      const free = app.hosts.filter((host) => {
-        const row = holders.get(host);
+      // a binding held by a panel app or another tenant's stays where it is;
+      // one held by an app recognized elsewhere moves here (it is this app's route now)
+      const free = app.bindings.filter((b) => {
+        const row = holders.get(bindingKey(b));
         return !row || row === existing || (!isPanels(row) && same(row));
       });
       if (free.length === 0) continue;
@@ -719,9 +779,12 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         await prisma.database.updateMany({ where: { applicationId: { in: ids } }, data: { applicationId: existing!.id } });
         await prisma.application.deleteMany({ where: { id: { in: ids } } });
       }
-      // names an app at home in another site held give way to this one
-      await prisma.appDomain.deleteMany({ where: { host: { in: free }, ...(existing && { applicationId: { not: existing.id } }) } });
-      const names = await zonesFor(free);
+      // bindings another app held give way to this one
+      await prisma.appDomain.deleteMany({
+        where: { OR: free.map((b) => ({ host: b.host, path: b.path })), ...(existing && { applicationId: { not: existing.id } }) },
+      });
+      const zones = await zonesFor(free.map((b) => b.host));
+      const names = free.map((b, n) => ({ host: b.host, path: b.path, domainId: zones[n]!.domainId }));
 
       // The source is the checkout: every app served from it shares one, and
       // pulling it updates them all. No folder known: a source of its own.
@@ -742,8 +805,8 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           where: { id: existing.id },
           data: { ...fields, ...(joins && { sourceId: shared!.id }) },
         });
-        // exactly the names it is served on now
-        await setAppHosts(existing.id, names);
+        // exactly the bindings it is served on now
+        await setAppBindings(existing.id, names);
         if (!joins && existing.sourceId && !existing.source?.repository && app.repository) {
           await prisma.source.update({
             where: { id: existing.sourceId },
@@ -751,9 +814,9 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           });
         }
         result.updated += 1;
-        result.apps.push({ ...app, hosts: free, action: 'updated' });
+        result.apps.push({ ...app, bindings: free, action: 'updated' });
       } else if (joins) {
-        // a new hostname on a checkout that already has an owner is that owner's
+        // a new app on a checkout that already has an owner is that owner's
         await prisma.application.create({
           data: {
             name: app.name,
@@ -766,14 +829,14 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           },
         });
         result.created += 1;
-        result.apps.push({ ...app, hosts: free, action: 'created' });
+        result.apps.push({ ...app, bindings: free, action: 'created' });
       } else {
         await createApplicationWithSource(
           { name: app.name, type: app.type, userId, ...fields, domains: { create: names } },
           app.repository ? { repository: app.repository, branch: app.branch ?? 'main' } : {},
         );
         result.created += 1;
-        result.apps.push({ ...app, hosts: free, action: 'created' });
+        result.apps.push({ ...app, bindings: free, action: 'created' });
       }
     } catch (error: any) {
       errors.push(`${label}: ${error?.message || 'sync failed'}`);
@@ -786,12 +849,13 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   // Only when pm2 answered, so a failed `pm2 jlist` does not wipe them all.
   if (discovered.some((app) => app.processName)) {
     const routed = discovered
-      .filter((app) => app.processName && !app.hosts.some((host) => host.endsWith('.pm2.local')))
+      .filter((app) => app.processName && !app.bindings.some((b) => b.host.endsWith('.pm2.local')))
       .map((app) => app.processName!);
+    const placeholderHosts = allKeys.map((key) => key.split(' ')[0]!).filter((host) => host.endsWith('.pm2.local'));
     await prisma.application.deleteMany({
       where: {
         serverId: node.id,
-        domains: { some: {}, every: { host: { endsWith: '.pm2.local', notIn: allHosts } } },
+        domains: { some: {}, every: { host: { endsWith: '.pm2.local', notIn: placeholderHosts } } },
         OR: [{ organizationId: null }, { processName: { in: routed } }],
       },
     });
@@ -897,10 +961,12 @@ async function readAppEnvs(node: SshTarget): Promise<number> {
     ).catch(() => ({ stdout: '' }));
 
     // a Node app's build: its own folder's package.json, else the checkout's
-    if (app.type === 'NODEJS') {
+    // a static site's project is the folder its output sits in (web/ for web/dist)
+    if (app.type === 'NODEJS' || app.type === 'STATIC') {
+      const project = app.type === 'STATIC' ? path.posix.dirname(app.rootPath!) : app.rootPath!;
       const pkg = await exec(
         node,
-        ['sh', '-c', 'for d; do if [ -r "$d/package.json" ]; then ls -- "$d"; echo "---"; cat -- "$d/package.json"; exit 0; fi; done; true', 'sh', app.rootPath!, ...(app.source?.path ? [app.source.path] : [])],
+        ['sh', '-c', 'for d; do if [ -r "$d/package.json" ]; then ls -- "$d"; echo "---"; cat -- "$d/package.json"; exit 0; fi; done; true', 'sh', project, ...(app.source?.path ? [app.source.path] : [])],
         { timeout: 15_000, maxBuffer: 1024 * 1024 },
       ).catch(() => ({ stdout: '' }));
       const [listing = '', json = ''] = pkg.stdout.split(/^---$/m);

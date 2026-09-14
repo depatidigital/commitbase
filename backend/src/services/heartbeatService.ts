@@ -226,13 +226,13 @@ export async function pruneHeartbeats(): Promise<number> {
  * the bars mean something: a minute of resolution instead of ten.
  */
 export async function checkApplicationHostnames(): Promise<string> {
-  const { checkAppHostname, whereHostnamePoints } = await import('./appDnsService');
+  const { checkAppHostname, healthPath, whereHostnamePoints } = await import('./appDnsService');
 
   const apps = (
     await prisma.application.findMany({
       // a switched-off app is off on purpose
       where: { disabled: false },
-      select: { id: true, domains: { select: { host: true, domainId: true }, orderBy: { host: 'asc' } } },
+      select: { id: true, domains: { select: { host: true, path: true, domainId: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] } },
     })
   )
     // a hostname that only exists inside the platform has nothing to check
@@ -252,13 +252,13 @@ export async function checkApplicationHostnames(): Promise<string> {
       slice.map(async (app) => {
         const names = atEach(app);
         const startedAt = Date.now();
-        // every name it answers on: one of them down is the app down, said by name
+        // every binding it answers on, each at its own path: one down is the app down, said by name
         const checks = [];
-        for (const at of names) checks.push({ at, health: await checkAppHostname(at.domain) });
-        const ms = Math.round((Date.now() - startedAt) / names.length);
+        for (const d of app.domains) checks.push({ label: `${d.host}${d.path}`, health: await checkAppHostname(d.host, 5000, healthPath(d.path)) });
+        const ms = Math.round((Date.now() - startedAt) / checks.length);
         const failed = checks.find((check) => !check.health.live);
         const health = failed
-          ? { ...failed.health, error: names.length > 1 ? `${failed.at.domain}: ${failed.health.error ?? 'not answering'}` : failed.health.error }
+          ? { ...failed.health, error: checks.length > 1 ? `${failed.label}: ${failed.health.error ?? 'not answering'}` : failed.health.error }
           : checks[0]!.health;
 
         // only an answer can come from the wrong place; a stale entry is refreshed

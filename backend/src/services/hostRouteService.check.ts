@@ -29,7 +29,8 @@ const arusflow: Binding[] = [
 const handle = composeHostHandle(arusflow);
 // the sync reads it back as the same split — nothing changes on the next sync
 assert.deepStrictEqual(routeParts({ match: [{ host: ['app.arusflow.id'] }], handle }), [
-  { path: '/api/*', proxy: '127.0.0.1:9200' },
+  // a proxy dials localhost, as every panel route always has
+  { path: '/api/*', proxy: 'localhost:9200' },
   { path: null, root: '/var/www/html/arusflow_9200/web/dist', spa: true },
 ]);
 // kept prefix: no rewrite; the API gets /api/... as asked
