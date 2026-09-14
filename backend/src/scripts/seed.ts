@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { createApplicationWithSource } from '../lib/sources';
 
 const prisma = new PrismaClient();
 
@@ -36,8 +37,8 @@ async function main() {
 
   // Create sample applications for the user
   const applications = await Promise.all([
-    prisma.application.create({
-      data: {
+    createApplicationWithSource(
+      {
         name: 'Portfolio Website',
         domain: 'portfolio.yourdomain.com',
         type: 'STATIC',
@@ -46,15 +47,14 @@ async function main() {
         memory: '45MB',
         cpu: '2%',
         uptime: '2d 14h',
-        repository: 'https://github.com/user/portfolio.git',
-        branch: 'main',
         buildCommand: 'npm run build',
         envVars: { NODE_ENV: 'production' },
         userId: user.id,
       },
-    }),
-    prisma.application.create({
-      data: {
+      { repository: 'https://github.com/user/portfolio.git', branch: 'main' },
+    ),
+    createApplicationWithSource(
+      {
         name: 'API Server',
         domain: 'api.yourdomain.com',
         type: 'NODEJS',
@@ -63,20 +63,19 @@ async function main() {
         memory: '120MB',
         cpu: '5%',
         uptime: '5d 8h',
-        repository: 'https://github.com/user/api-server.git',
-        branch: 'main',
         buildCommand: 'npm install',
         startCommand: 'npm start',
         envVars: { 
           NODE_ENV: 'production',
           PORT: '3000',
           DATABASE_URL: 'postgresql://user:pass@localhost:5432/api_db'
-        },
-        userId: user.id,
       },
-    }),
-    prisma.application.create({
-      data: {
+      userId: user.id,
+      },
+      { repository: 'https://github.com/user/api-server.git', branch: 'main' },
+    ),
+    createApplicationWithSource(
+      {
         name: 'Blog',
         domain: 'blog.yourdomain.com',
         type: 'NODEJS',
@@ -84,14 +83,13 @@ async function main() {
         port: 3001,
         memory: '0MB',
         cpu: '0%',
-        repository: 'https://github.com/user/blog.git',
-        branch: 'main',
         buildCommand: 'npm install',
         startCommand: 'npm start',
         envVars: { NODE_ENV: 'production' },
         userId: user.id,
       },
-    }),
+      { repository: 'https://github.com/user/blog.git', branch: 'main' },
+    ),
   ]);
 
   console.log('✅ Applications created:', applications.length);

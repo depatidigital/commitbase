@@ -1,5 +1,6 @@
 import path from 'path';
 import { prisma } from '../lib/prisma';
+import { createApplicationWithSource, dropOrphanSources } from '../lib/sources';
 import { parentDomainOf } from '../lib/scope';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
@@ -602,6 +603,7 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         domain: { endsWith: '.pm2.local', notIn: discovered.map((app) => app.domain) },
       },
     });
+    await dropOrphanSources();
   }
 
   if (errors.length) result.errors = errors;
