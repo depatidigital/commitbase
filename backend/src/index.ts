@@ -10,6 +10,7 @@ import { snapshotCaddyConfig } from './services/caddySnapshotService';
 import { DeploymentService } from './services/deployment';
 import { allServers } from './lib/servers';
 import { getCaddyConfig } from './services/caddyService';
+import { backfillSources } from './lib/sources';
 
 config();
 
@@ -175,7 +176,7 @@ app.use('*', (req, res) => {
   });
 });
 
-app.listen(PORT, async () => {
+async function onListening() {
   await ensureCaddyReady();
   // Caddy keeps tenant routes in memory; a reload from the Caddyfile loses them.
   new DeploymentService()
@@ -196,4 +197,10 @@ app.listen(PORT, async () => {
   console.log('🔍 Application status watcher started');
 
   startCronJobs();
-}); 
+}
+
+// before the first request: every app reads its repository from its source
+backfillSources()
+  .then((created) => created && console.log(`📦 Sources created for ${created} existing app(s)`))
+  .catch((err) => console.error('Source backfill failed — apps without a source show no repository:', err))
+  .then(() => app.listen(PORT, onListening));

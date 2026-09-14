@@ -35,6 +35,7 @@ import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
 import { readEnv, sealEnv } from '../lib/appEnv';
+import { createApplicationWithSource, dropOrphanSources, withSourceFields } from '../lib/sources';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
@@ -272,15 +273,16 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
-      select: { id: true, repository: true, branch: true, gitAccountId: true },
+      select: { id: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
-    const detected = application.repository
+    const source = application.source;
+    const detected = source?.repository
       ? await detectFromRepo(
-          application.repository,
-          application.branch || 'main',
-          application.gitAccountId ? await gitAuthFor(application.gitAccountId) : undefined,
+          source.repository,
+          source.branch || 'main',
+          source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined,
         )
       : await (async () => {
           const afs = await appFsFor(application.id);
@@ -322,9 +324,12 @@ const checkoutGit = (server: Parameters<typeof exec>[0], rootPath: string, args:
  */
 router.post('/:id/pull', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      include: { source: { select: { repository: true, branch: true } } },
+    });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    if (!application.runtime || !application.repository || !application.rootPath || !application.serverId) {
+    if (!application.runtime || !application.source?.repository || !application.rootPath || !application.serverId) {
       return res.status(400).json({ success: false, error: 'Only an app set up on the server from a git checkout can be pulled here' } as ApiResponse);
     }
     const server = await prisma.server.findUnique({ where: { id: application.serverId } });
@@ -339,7 +344,7 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
       } as ApiResponse);
     }
 
-    const branch = application.branch || 'main';
+    const branch = application.source.branch || 'main';
     try {
       const { stdout, stderr } = await checkoutGit(server, application.rootPath, ['pull', '--ff-only', 'origin', branch]);
       return res.json({ success: true, data: { output: `${stdout}${stderr}`.trim() }, message: `Pulled ${branch}` } as ApiResponse);
@@ -357,12 +362,13 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
       select: {
-        repository: true, branch: true, gitAccountId: true, runtime: true, rootPath: true, serverId: true,
-        activeRelease: { select: { commitSha: true } },
+        runtime: true, rootPath: true, serverId: true,
+        source: { select: { repository: true, branch: true, gitAccountId: true, activeRelease: { select: { commitSha: true } } } },
       },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    if (!application.repository) {
+    const source = application.source;
+    if (!source?.repository) {
       return res.status(400).json({ success: false, error: 'This app is not deployed from a repository' } as ApiResponse);
     }
 
@@ -376,18 +382,18 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
         const [remote, head] = await Promise.all([git(['ls-remote', '--symref', 'origin']), git(['rev-parse', 'HEAD']).catch(() => null)]);
         return res.json({
           success: true,
-          data: { ...parseLsRemote(remote.stdout), branch: application.branch || 'main', liveCommit: head?.stdout.trim() || null },
+          data: { ...parseLsRemote(remote.stdout), branch: source.branch || 'main', liveCommit: head?.stdout.trim() || null },
         } as ApiResponse);
       }
     }
 
     const remote = await listRemoteBranches(
-      application.repository,
-      application.gitAccountId ? await gitAuthFor(application.gitAccountId) : undefined,
+      source.repository,
+      source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined,
     );
     return res.json({
       success: true,
-      data: { ...remote, branch: application.branch || 'main', liveCommit: application.activeRelease?.commitSha ?? null },
+      data: { ...remote, branch: source.branch || 'main', liveCommit: source.activeRelease?.commitSha ?? null },
     } as ApiResponse);
   } catch (error: any) {
     return res.status(400).json({
@@ -477,6 +483,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           server: { select: { id: true, name: true } },
           // registration expiry of the domain it sits under — flagged on the row when close
           parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
+          source: true,
           deployments: {
             orderBy: {
               createdAt: 'desc',
@@ -496,7 +503,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     res.json({
       success: true,
       data: {
-        data: applications,
+        data: applications.map(withSourceFields),
         pagination: {
           page,
           limit,
@@ -654,6 +661,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
           select: { defaultServer: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
         },
         parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
+        source: true,
       },
     });
 
@@ -679,7 +687,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     return res.json({
       success: true,
       data: {
-        ...application,
+        ...withSourceFields(application),
         // the detail page edits them; everywhere else only the sealed blob goes out
         envVars: readEnv(application.envVars),
         staticSiteUrl,
@@ -751,26 +759,26 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(409).json({ success: false, error: taken } as ApiResponse);
     }
 
-    const application = await prisma.application.create({
-      data: {
-        name,
-        domain,
-        type,
-        repository,
-        gitAccountId,
-        branch,
-        installCommand,
-        buildCommand,
-        preDeployCommand,
-        startCommand,
-        port,
-        ...(envVars && { envVars: sealEnv(envVars) }),
-        userId: req.user!.userId,
-        domainId: parentDomain.id,
-        organizationId,
-        serverId,
-      },
-    });
+    const application = withSourceFields(
+      await createApplicationWithSource(
+        {
+          name,
+          domain,
+          type,
+          installCommand,
+          buildCommand,
+          preDeployCommand,
+          startCommand,
+          port,
+          ...(envVars && { envVars: sealEnv(envVars) }),
+          userId: req.user!.userId,
+          domainId: parentDomain.id,
+          organizationId,
+          serverId,
+        },
+        { repository, gitAccountId, branch },
+      ),
+    );
 
     // Provision the org on that node now, so the first deploy does not wait
     // for it (the deploy still checks, and waits if this has not finished).

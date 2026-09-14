@@ -334,11 +334,19 @@ model Application {
   memory      String?
   cpu         String?
   uptime      String?
-  
-  // Repository info
+
+  // Where the code comes from — repository, branch, clone account, releases.
+  // Several apps of one monorepo share a source. Null only until
+  // backfillSources has run at startup (lib/sources.ts).
+  sourceId    String?
+  source      Source?  @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+
+  // Deprecated: moved to Source. Nothing reads or writes these any more; they
+  // stay so `prisma db push` on an upgrade adds the new table instead of
+  // dropping data before it is copied. Drop once every install has started once.
   repository  String?
   branch      String? @default("main")
-  
+
   // Build & runtime config
   /// null = the detected one (pnpm install --frozen-lockfile, npm ci, …)
   installCommand   String?
@@ -381,16 +389,14 @@ model Application {
   userId String?
   user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  // Which connected git account clones this app's repository. Null for public
-  // repos and uploads. SetNull on delete: disconnecting an account must not
-  // take the applications with it, it only makes the next deploy ask for a
-  // reconnect.
+  // Deprecated: moved to Source (see repository above)
   gitAccountId String?
   gitAccount   GitAccount? @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
 
   deployments Deployment[]
   logs        Log[]
   databases   Database[]
+  // Deprecated: releases and the active one belong to the Source now
   releases    Release[] @relation("ApplicationReleases")
   activeReleaseId String?
   activeRelease   Release? @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
@@ -410,7 +416,39 @@ model Application {
   @@index([domainId])
   @@index([gitAccountId])
   @@index([organizationId])
+  @@index([sourceId])
   @@map("applications")
+}
+
+/// Where an application's code comes from, and what was built from it: a git
+/// repository or an upload, cloned once into apps/<id>/sources and built into
+/// apps/<id>/releases. One source can feed several applications — the apps of
+/// a monorepo, each from its own folder — built together from one commit.
+///
+/// Created with its first app, sharing that app's id, so the source's tree is
+/// the app's own directory; removed with its last app (dropOrphanSources).
+model Source {
+  id              String      @id @default(cuid())
+  /// null for uploaded sources
+  repository      String?
+  branch          String?     @default("main")
+  /// Which connected git account clones the repository. Null for public repos
+  /// and uploads. SetNull: disconnecting an account only makes the next deploy
+  /// ask for a reconnect.
+  gitAccountId    String?
+  gitAccount      GitAccount? @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
+  /// What is live: the release `current` points at, or the R2 folder a static site serves
+  activeReleaseId String?
+  activeRelease   Release?    @relation("SourceActiveRelease", fields: [activeReleaseId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  applications    Application[]
+  releases        Release[]   @relation("SourceReleases")
+
+  @@index([gitAccountId])
+  @@map("sources")
 }
 
 model Deployment {
@@ -443,8 +481,12 @@ model Deployment {
 
 model Release {
   id            String        @id @default(cuid())
-  applicationId String
-  application   Application   @relation("ApplicationReleases", fields: [applicationId], references: [id], onDelete: Cascade)
+  sourceId      String?
+  source        Source?       @relation("SourceReleases", fields: [sourceId], references: [id], onDelete: Cascade)
+  // Deprecated: releases belong to the Source. Optional and SetNull so deleting
+  // one app of a shared source never takes the source's releases with it.
+  applicationId String?
+  application   Application?  @relation("ApplicationReleases", fields: [applicationId], references: [id], onDelete: SetNull)
   imageTag      String?  // legacy: image reference from the removed Docker runtime
   commitSha     String?
   createdAt     DateTime      @default(now())
@@ -461,9 +503,11 @@ model Release {
   // with the same key reuses this tree instead of installing and building again
   buildKey      String?
 
+  @@index([sourceId])
   @@map("releases")
 
   activeForApplications Application[] @relation("ActiveRelease")
+  activeForSources      Source[]      @relation("SourceActiveRelease")
 }
 
 model Database {
@@ -643,6 +687,7 @@ model GitAccount {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   applications Application[]
+  sources      Source[]
 
   @@unique([userId, provider, externalId])
   @@map("git_accounts")
