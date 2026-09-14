@@ -2,11 +2,12 @@ import { Copy, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import type { Application, HostnameHealth } from "@/lib/applications";
+import type { HostnameHealth } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 type Props = {
-  application: Application;
+  /** the name that answers from another server */
+  host: string;
   pointing: NonNullable<HostnameHealth["pointing"]> | null;
   dnsManaged: boolean;
   /** a proxy whose port had nothing listening at the last sync */
@@ -22,10 +23,10 @@ type Props = {
  * this server — one click in a Cloudflare zone we run, the record to set
  * anywhere else — with a heads-up when nothing listens here yet.
  */
-export function DnsFixCard({ application, pointing, dnsManaged, portDead, canManage, pending, onRepoint }: Props) {
+export function DnsFixCard({ host, pointing, dnsManaged, portDead, canManage, pending, onRepoint }: Props) {
   const { toast } = useToast();
   const expected = pointing?.expected ?? "";
-  const record = `${application.domain}  A  ${expected}`;
+  const record = `${host}  A  ${expected}`;
 
   return (
     <Card className="border-warning/50 bg-gradient-card">

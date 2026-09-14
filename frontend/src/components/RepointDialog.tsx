@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DnsChangeNotice } from "@/components/DnsChangeNotice";
-import { type Application, checkHostname, dnsNeedsConsent } from "@/lib/applications";
+import { type AppDomain, checkHostname, dnsNeedsConsent } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 /**
@@ -19,26 +19,30 @@ import { t } from "@/lib/i18n";
  * registrar domain to Cloudflare). It says exactly what, before.
  */
 export function RepointDialog({
-  application,
+  applicationId,
+  name,
   onClose,
   onConfirm,
 }: {
-  application: Pick<Application, "id" | "domain"> & { parentDomain?: { name: string } | null };
+  applicationId: string;
+  /** which of the app's names, and the domain it sits under */
+  name: Pick<AppDomain, "host" | "parentDomain">;
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const host = name.host;
   const { data, isLoading } = useQuery({
-    queryKey: ["hostname-check", application.domain, application.id],
-    queryFn: () => checkHostname(application.domain, { excludeAppId: application.id }),
+    queryKey: ["hostname-check", host, applicationId],
+    queryFn: () => checkHostname(host, { excludeAppId: applicationId }),
   });
   const consent = dnsNeedsConsent(data);
-  const domain = application.parentDomain?.name ?? application.domain;
+  const domain = name.parentDomain?.name ?? host;
 
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("Point {host} at this app?", { host: application.domain })}</AlertDialogTitle>
+          <AlertDialogTitle>{t("Point {host} at this app?", { host })}</AlertDialogTitle>
           <AlertDialogDescription>
             {t("Its DNS record is set to this platform's server. Whatever it points at now stops receiving visitors.")}
           </AlertDialogDescription>
@@ -46,7 +50,7 @@ export function RepointDialog({
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         ) : data ? (
-          <DnsChangeNotice host={application.domain} domain={domain} inspection={data} />
+          <DnsChangeNotice host={host} domain={domain} inspection={data} />
         ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
