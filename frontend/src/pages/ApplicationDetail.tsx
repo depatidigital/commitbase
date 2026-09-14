@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +62,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, hasBeenDeployed, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -152,8 +152,31 @@ interface ApplicationLogs {
   error?: string;
 }
 
+/**
+ * /application/:id — an app lives on its project's page now: go there with the
+ * app picked. An app without a project (none should be left once the startup
+ * backfill ran) keeps a page of its own.
+ */
 export default function ApplicationDetail() {
   const { id } = useParams<{ id: string }>();
+  const { data: app, isLoading } = useQuery({ queryKey: ['application', id], queryFn: () => getApplication(id!) });
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+  if (app?.sourceId) return <Navigate to={`/project/${app.sourceId}?app=${app.id}`} replace />;
+  return <AppWorkspace appId={id!} />;
+}
+
+/**
+ * One app: its state and actions beside its tabs. On its project's page
+ * (`embedded`) the project's header stands above it instead of its own.
+ */
+export function AppWorkspace({ appId, embedded = false }: { appId: string; embedded?: boolean }) {
+  const id = appId;
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -428,7 +451,8 @@ export default function ApplicationDetail() {
   return (
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
-        {/* Header */}
+        {/* Header — on the project's page, the project's header is it */}
+        {!embedded && (
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
             <Button
@@ -470,6 +494,7 @@ export default function ApplicationDetail() {
             </div>
           </div>
         </div>
+        )}
 
         {/* the tabs, with a control panel beside them: what the app is doing
             and what can be done to it, always in view instead of stacked on top */}
