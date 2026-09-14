@@ -41,6 +41,22 @@ export default {
   "Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
     "Menjalankan git checkout {branch} di {dir}, sampai commit terbaru di remote. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
   "Switch branch": "Ganti branch",
+  "How {hosts} is served, by path — tried top to bottom.": "Cara {hosts} dilayani per path — dicoba dari atas ke bawah.",
+  "everything else": "selain itu",
+  "Unknown paths get index.html — for a front end with its own router.": "Path yang tidak ada dijawab index.html — untuk front end dengan router sendiri.",
+  "Move up": "Naikkan",
+  "Move down": "Turunkan",
+  "Add path": "Tambah path",
+  "Save routing": "Simpan routing",
+  "Routing updated": "Routing diperbarui",
+  "Visitors get it now.": "Langsung berlaku untuk pengunjung.",
+  "Could not update the routing": "Gagal memperbarui routing",
+  "Copy this into the server's Caddyfile too, or a caddy reload from it brings the old routing back:":
+    "Salin ini juga ke Caddyfile di server — kalau tidak, caddy reload dari file itu mengembalikan routing lama:",
+  "Change the routing of {hosts}?": "Ubah routing {hosts}?",
+  "Caddy serves it this way as soon as it is saved. A wrong port or folder makes those paths answer with errors.":
+    "Caddy langsung melayani seperti ini begitu disimpan. Port atau folder yang salah membuat path itu menjawab dengan error.",
+  "I understand visitors get the new routing at once.": "Saya mengerti routing baru langsung berlaku untuk pengunjung.",
   "Build & restart": "Build & mulai ulang",
   "Install, build and pm2 restart {name} in its folder on the server.": "Install, build, lalu pm2 restart {name} di foldernya di server.",
   "Build and restart {name} on the server?": "Build dan mulai ulang {name} di server?",

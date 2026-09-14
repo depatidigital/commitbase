@@ -81,6 +81,7 @@ import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { AppDomainsCard } from "@/components/AppDomainsCard";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ServerEnv } from "@/components/ServerEnv";
+import { RoutingCard } from "@/components/RoutingCard";
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { RepointDialog } from "@/components/RepointDialog";
@@ -1169,6 +1170,12 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
               pending={setupDns.isPending}
               onRepoint={(host) => setRepointHost(host)}
             />
+            {/* an imported site's paths: a panel-managed app's route is its deploy's; PHP keeps its FastCGI route */}
+            {application.runtime && application.runtime !== "CADDY_PHP" && (
+              <div className="mt-6">
+                <RoutingCard key={JSON.stringify(application.routing ?? null)} application={application} />
+              </div>
+            )}
           </TabsContent>
 
           {!isStatic && (
