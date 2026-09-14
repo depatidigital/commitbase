@@ -110,7 +110,13 @@ type SplitTarget = {
   parts: SplitPart[];
 };
 
-type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget;
+// A hostname's route already composed from every app bound to it (hostRouteService).
+type ComposedTarget = {
+  type: 'composed';
+  handle: any[];
+};
+
+export type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget | ComposedTarget;
 
 /**
  * The routing someone asked for, checked: paths like `/api/*`, each part to a
@@ -372,6 +378,7 @@ export function buildRoute(names: string | string[], target: Target): any {
   const hosts = [names].flat();
   if (target.type === 'php') return buildPhpRoute(hosts, target);
   if (target.type === 'split') return { match: [{ host: hosts }], handle: buildSplitHandle(target.parts), terminal: true };
+  if (target.type === 'composed') return { match: [{ host: hosts }], handle: target.handle, terminal: true };
 
   if (target.type === 'files') {
     return {
@@ -638,6 +645,11 @@ export async function configureCaddyForPhpApplication(
  */
 export async function configureCaddyForSplit(node: SshTarget, hosts: string[], parts: SplitPart[]): Promise<void> {
   await setRoute(node, hosts, { type: 'split', parts });
+}
+
+/** One hostname's route, composed from all the apps bound to it (hostRouteService). */
+export async function setHostRoute(node: SshTarget, host: string, handle: any[]): Promise<void> {
+  await setRoute(node, [host], { type: 'composed', handle });
 }
 
 /** Stop serving these names — the rest of a route that also serves others stays. */

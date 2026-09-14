@@ -329,8 +329,14 @@ model Invite {
 model Application {
   id          String   @id @default(cuid())
   name        String
-  /// The hostnames it answers on — one or more, all alike (AppDomain).
+  /// The hostnames (and paths) it answers on — one or more, all alike (AppDomain).
   domains     AppDomain[]
+  /// What Caddy sends its requests to — `{ kind: 'proxy', port }`, `{ kind:
+  /// 'files', root, spa }`, `{ kind: 'php', root, socket }`, `{ kind: 'bucket',
+  /// origin }`, `{ kind: 'redirect', url }` (hostRouteService). Written by the
+  /// deploy for the panel's apps and by the sync for imported ones; a hostname's
+  /// route is composed from the serve of every app bound to it.
+  serve       Json?
   type        AppType
   status      AppStatus @default(STOPPED)
   port        Int?
@@ -432,11 +438,20 @@ model Application {
   @@map("applications")
 }
 
-/// A hostname an application answers on. An app has one or more, all alike —
-/// none is its "main" one. Unique across the platform: one name, one app.
+/// Where an application answers: a hostname, or a hostname and a path under
+/// it. An app has one or more, all alike — none is its "main" one. A hostname
+/// can be shared by several apps, one per path (an API under /api/*, the front
+/// end for everything else); all of them belong to one organization.
 model AppDomain {
   id            String      @id @default(cuid())
-  host          String      @unique
+  host          String
+  /// A Caddy path pattern (`/api/*`, `/ws*`), or "" for the whole hostname —
+  /// everything its other paths do not take. An empty string, not NULL: two
+  /// NULLs never collide in a unique index, so two apps could both claim it.
+  path          String      @default("")
+  /// The app is handed the path without its prefix (`/api/users` arrives as
+  /// `/users`) — Caddy's handle_path. Off: it gets the path as asked (handle).
+  stripPrefix   Boolean     @default(false)
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   /// The Domain (zone) the name sits under — the ownership boundary, where
@@ -445,6 +460,7 @@ model AppDomain {
   parentDomain  Domain?     @relation(fields: [domainId], references: [id], onDelete: SetNull)
   createdAt     DateTime    @default(now())
 
+  @@unique([host, path])
   @@index([applicationId])
   @@index([domainId])
   @@map("app_domains")

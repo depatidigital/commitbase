@@ -163,8 +163,9 @@ export async function inspectHost(
   opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined } = {},
 ): Promise<HostInspection> {
   const app = (
+    // the whole name: a path under it is the path's own question
     await prisma.appDomain.findUnique({
-      where: { host },
+      where: { host_path: { host, path: '' } },
       select: { application: { select: { id: true, name: true, organizationId: true } } },
     })
   )?.application;

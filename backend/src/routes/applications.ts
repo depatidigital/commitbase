@@ -1168,7 +1168,7 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
         await deploymentService.applyCaddyRoute(application);
       }
     } catch (error: any) {
-      await prisma.appDomain.delete({ where: { host } });
+      await prisma.appDomain.delete({ where: { host_path: { host, path: '' } } });
       return res.status(502).json({ success: false, error: `${host} could not be routed: ${error?.message ?? error}` } as ApiResponse);
     }
 
@@ -1213,7 +1213,7 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
     const node = await serverForApplication(application.id).catch(() => null);
     if (node) await removeCaddySite(node, host);
     await removeAppHostname({ id: application.id, domain: host, domainId: name.domainId });
-    await prisma.appDomain.delete({ where: { host } });
+    await prisma.appDomain.delete({ where: { host_path: { host, path: '' } } });
     await prisma.log.create({
       data: { level: 'INFO', message: `${host} removed from ${application.name}`, userId: req.user!.userId, applicationId: application.id },
     });
