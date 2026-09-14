@@ -23,7 +23,7 @@ import {
   siteRootOrigin,
   siteStorage,
 } from '../services/staticReleaseService';
-import { configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
+import { addCaddyHost, configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
@@ -1051,7 +1051,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
   try {
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
-    const { name, domain, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId, rootDirectory } =
+    // hostnames are not edited here: POST/DELETE /:id/domains
+    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId, rootDirectory } =
       req.body || {};
     if (!id) {
       return res.status(400).json({
@@ -1077,49 +1078,6 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
 
-    // Check if new domain conflicts with existing application
-    let domainId: string | undefined;
-    let organizationId: string | null | undefined;
-    const normalizedDomain = domain ? normalizeHost(domain) : undefined;
-    const renamed = !!normalizedDomain && normalizedDomain !== existingApp.domain;
-
-    if (renamed) {
-      // an imported app's route and files are someone else's config
-      if (existingApp.runtime) {
-        return res.status(400).json({ success: false, error: 'An imported app keeps its hostname' } as ApiResponse);
-      }
-
-      const domainConflict = await prisma.application.findFirst({
-        where: { OR: [{ domain: normalizedDomain }, { aliases: { has: normalizedDomain } }] },
-      });
-
-      if (domainConflict) {
-        return res.status(400).json({
-          success: false,
-          error: 'Domain already in use',
-        } as ApiResponse);
-      }
-
-      // Same ownership boundary as create — and a rename never moves the app
-      // to another org: that is an admin's reassignment, not a hostname change
-      const resolved = await resolveAppHost(req, normalizedDomain, existingApp.organizationId);
-      if ('error' in resolved) {
-        return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
-      }
-      if (existingApp.organizationId && resolved.organizationId !== existingApp.organizationId) {
-        return res.status(403).json({
-          success: false,
-          error: "That domain belongs to another organization — pick one of this app's organization",
-        } as ApiResponse);
-      }
-      const taken = await sharedHostTaken(resolved.parent, normalizedDomain, await serverForApplication(existingApp.id));
-      if (taken) {
-        return res.status(409).json({ success: false, error: taken } as ApiResponse);
-      }
-      domainId = resolved.parent.id;
-      organizationId = resolved.organizationId;
-    }
-
     // where the code comes from is the source's, shared with its other apps
     if (existingApp.sourceId && (repository !== undefined || branch !== undefined || gitAccountId !== undefined)) {
       await prisma.source.update({
@@ -1132,12 +1090,9 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // Update application
     const updatedApp = await prisma.application.update({
       where: { id },
-      include: { source: true },
+      include: { source: true, ...withDomains },
       data: {
         name,
-        ...(normalizedDomain && { domain: normalizedDomain }),
-        ...(domainId && { domainId }),
-        ...(organizationId !== undefined && { organizationId }),
         type,
         // '' / null: back to the repository root
         ...(rootDirectory !== undefined && { rootDirectory: cleanRootDirectory(rootDirectory) }),
@@ -1151,44 +1106,10 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       },
     });
 
-    // A new hostname is served before the old one stops: route the new name,
-    // and only once that worked drop the old route and its DNS record. A
-    // failed route puts the old name back, so the app is never unreachable.
-    let dns: Awaited<ReturnType<typeof ensureAppHostname>> | undefined;
-    if (renamed) {
-      const node = await serverForApplication(existingApp.id);
-      try {
-        if (existingApp.status === 'RUNNING') {
-          const withOrg = await prisma.application.findUniqueOrThrow({
-            where: { id },
-            include: { organization: { select: { slug: true } } },
-          });
-          await deploymentService.applyCaddyRoute(withOrg);
-        }
-      } catch (error: any) {
-        await prisma.application.update({
-          where: { id },
-          data: { domain: existingApp.domain, domainId: existingApp.domainId, organizationId: existingApp.organizationId },
-        });
-        return res.status(502).json({
-          success: false,
-          error: `${normalizedDomain} could not be routed, so the app stays on ${existingApp.domain}: ${error?.message ?? error}`,
-        } as ApiResponse);
-      }
-      await removeCaddySite(node, existingApp.domain).catch(() => {});
-      await removeAppHostname(existingApp);
-      dns = await applyAppDns(req, updatedApp, req.body?.dnsConsent === true).catch(
-        (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-      );
-    }
-
     return res.json({
       success: true,
-      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars), ...(dns && { dns }) },
-      message:
-        dns && (dns.state === 'conflict' || dns.state === 'unavailable')
-          ? `Application updated, but DNS was not set up: ${dns.detail}`
-          : 'Application updated successfully',
+      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars) },
+      message: 'Application updated successfully',
     } as ApiResponse<Application>);
   } catch (error) {
     // not the body or headers: they carry the env vars and the bearer token
@@ -1200,10 +1121,108 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
   }
 });
 
+/**
+ * Give an app one more hostname. All its names are alike: the new one is
+ * routed exactly as the others (an imported app's own route gets the name
+ * added to its host matcher, as written), then pointed at the app's node.
+ * A route that cannot be set takes the name back off — no half-added name.
+ */
+router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      include: { organization: { select: { slug: true } }, ...withDomains },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+
+    const host = normalizeHost(req.body?.host);
+    if (!host) return res.status(400).json({ success: false, error: 'Hostname is required' } as ApiResponse);
+    if (await appIdAt(host)) return res.status(400).json({ success: false, error: 'Domain already in use' } as ApiResponse);
+
+    // same ownership boundary as create — and a name never moves the app to
+    // another org: that is an admin's reassignment, not a hostname
+    const resolved = await resolveAppHost(req, host, application.organizationId);
+    if ('error' in resolved) return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
+    if (application.organizationId && resolved.organizationId !== application.organizationId) {
+      return res.status(403).json({
+        success: false,
+        error: "That domain belongs to another organization — pick one of this app's organization",
+      } as ApiResponse);
+    }
+    const node = await serverForApplication(application.id);
+    const taken = await sharedHostTaken(resolved.parent, host, node);
+    if (taken) return res.status(409).json({ success: false, error: taken } as ApiResponse);
+
+    await prisma.appDomain.create({ data: { host, applicationId: application.id, domainId: resolved.parent.id } });
+    try {
+      if (application.runtime) {
+        // someone else's route: served as its other names are, one more host on it
+        const beside = hostsOf(application).find((name) => !name.endsWith('.pm2.local'));
+        if (beside) await addCaddyHost(node, beside, host);
+      } else if (application.status === 'RUNNING') {
+        await deploymentService.applyCaddyRoute(application);
+      }
+    } catch (error: any) {
+      await prisma.appDomain.delete({ where: { host } });
+      return res.status(502).json({ success: false, error: `${host} could not be routed: ${error?.message ?? error}` } as ApiResponse);
+    }
+
+    const dns = await applyAppDns(req, { id: application.id, domain: host, domainId: resolved.parent.id }, req.body?.dnsConsent === true).catch(
+      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+    );
+    await prisma.log.create({
+      data: { level: 'INFO', message: `${host} added to ${application.name}`, userId: req.user!.userId, applicationId: application.id },
+    });
+    return res.status(201).json({
+      success: true,
+      data: { host, dns },
+      message:
+        dns.state === 'conflict' || dns.state === 'unavailable' ? `${host} added, but DNS was not set up: ${dns.detail}` : `${host} added`,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error adding a hostname:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Take a hostname off an app: it stops being routed (the app's other names in
+ * the same route stay), its record pointing here goes, and it is free again.
+ * The last one stays — an app with no name is nothing anyone can reach.
+ */
+router.delete('/:id/domains/:host', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      include: withDomains,
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+
+    const host = normalizeHost(req.params.host);
+    const name = application.domains.find((d) => d.host === host);
+    if (!name) return res.status(404).json({ success: false, error: `${host} is not one of this app's names` } as ApiResponse);
+    if (application.domains.length === 1) {
+      return res.status(400).json({ success: false, error: 'An app needs at least one hostname — add another first' } as ApiResponse);
+    }
+
+    const node = await serverForApplication(application.id).catch(() => null);
+    if (node) await removeCaddySite(node, host);
+    await removeAppHostname({ id: application.id, domain: host, domainId: name.domainId });
+    await prisma.appDomain.delete({ where: { host } });
+    await prisma.log.create({
+      data: { level: 'INFO', message: `${host} removed from ${application.name}`, userId: req.user!.userId, applicationId: application.id },
+    });
+    return res.json({ success: true, data: { host }, message: `${host} removed` } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error removing a hostname:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not remove the hostname' } as ApiResponse);
+  }
+});
+
 // What deleting an imported app could remove from its server — for the delete dialog
 router.get('/:id/teardown', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) }, include: withDomains });
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
@@ -1300,7 +1319,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
         id,
         ...(await orgScope(req)),
       },
-      include: { organization: { select: { slug: true } } },
+      include: { organization: { select: { slug: true } }, ...withDomains },
     });
 
     if (!application) {
@@ -1335,15 +1354,15 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     // Tear down what the deploy created: the unit, the site config, the files.
     if (!application.runtime) {
       await systemd.removeApplication(application).catch((error) => {
-        console.error(`Failed to remove unit for ${application.domain}:`, error);
+        console.error(`Failed to remove unit for ${application.name}:`, error);
       });
-      await removeCaddySite(await serverForApplication(application.id), application.domain).catch(() => {});
-      await removeAppHostname(application);
+      await removeCaddySite(await serverForApplication(application.id), ...hostsOf(application)).catch(() => {});
+      for (const at of atEach(application)) await removeAppHostname(at);
       // every release of a static site — the bucket is public, and nothing
       // would ever clean these up once the row is gone
       if (application.type === 'STATIC' && application.staticBucket) {
         await deleteAllSiteFiles(application.staticBucket).catch((error: any) =>
-          console.error(`Could not delete the site files of ${application.domain}:`, error?.message),
+          console.error(`Could not delete the site files of ${application.name}:`, error?.message),
         );
       }
       await removeAppFiles(application);
@@ -1428,7 +1447,7 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
     });
 
     // Start the existing unit without redeploying
-    const started = await deploymentService.startApplication(application.domain);
+    const started = await deploymentService.startApplication(application.id);
 
     if (started) {
       await prisma.application.update({
@@ -1557,7 +1576,7 @@ router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest,
     await prisma.log.create({
       data: {
         level: 'INFO',
-        message: `Cleaned up ${application.domain}: ${result.removed.join(', ') || 'nothing to remove'}`,
+        message: `Cleaned up ${application.name}: ${result.removed.join(', ') || 'nothing to remove'}`,
         userId: req.user!.userId,
         applicationId: application.id,
       },
@@ -1587,7 +1606,7 @@ router.post('/:id/deploy/cancel', authenticateToken, async (req: AuthenticatedRe
       return res.status(409).json({ success: false, error: 'No deployment is running for this app' } as ApiResponse);
     }
     await prisma.log.create({
-      data: { level: 'INFO', message: `Deployment of ${application.domain} cancelled`, userId: req.user!.userId, applicationId: application.id },
+      data: { level: 'INFO', message: `Deployment of ${application.name} cancelled`, userId: req.user!.userId, applicationId: application.id },
     });
     return res.json({ success: true, message: 'Cancelling the deployment' } as ApiResponse);
   } catch (error) {
@@ -1632,7 +1651,7 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
       } as ApiResponse);
     }
 
-    const stopped = await deploymentService.stopApplication(application.domain);
+    const stopped = await deploymentService.stopApplication(application.id);
 
     if (stopped) {
       await prisma.application.update({
@@ -1689,7 +1708,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
     const pm2Handled = await handlePm2Action(application, 'restart', res);
     if (pm2Handled) return pm2Handled;
     // check if application is running
-    const status = await deploymentService.getApplicationStatus(application.domain);
+    const status = await deploymentService.getApplicationStatus(application.id);
     if (status === 'STOPPED') {
       //update application status to running
       await prisma.application.update({
@@ -1701,7 +1720,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
         error: 'Application is not running',
       } as ApiResponse);
     }
-    const restarted = await deploymentService.restartApplication(application.domain);
+    const restarted = await deploymentService.restartApplication(application.id);
 
     if (restarted) {
       await prisma.application.update({
@@ -1920,7 +1939,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
         await configureCaddyForStaticApplication(
           await serverForApplication(application.id),
           application.id,
-          application.domain,
+          await appHosts(application.id),
           staticOrigin,
         );
       } catch (error: any) {
@@ -1956,7 +1975,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       data: { activeReleaseId: release.id },
     });
 
-    await deploymentService.stopApplication(application.domain);
+    await deploymentService.stopApplication(application.id);
 
     // every app of the source runs from the release just switched to
     const started = await deploymentService.startRelease(application, release);
