@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { deleteSiteObjects, ensureSiteBucket, listSiteObjects } from './r2Service';
+import { appHosts } from '../lib/appDomains';
 
 /**
  * Atomic deploys for static sites. Every deploy writes a fresh folder,
@@ -29,15 +30,16 @@ export const inFolder = (base: string, folder: string) => (folder ? `${base}/${f
 export const siteRootOrigin = (origin: string) => origin.replace(RELEASE_SUFFIX, '');
 
 /**
- * Where a site's files go. Named after the hostname at the first upload and
+ * Where a site's files go. Named after a hostname at the first upload and
  * fixed from then on: a renamed app must keep deploying into the location that
  * holds its releases, not start an empty one (the carry-over reads from it).
  */
-export async function siteStorage(app: { domain: string; staticBucket: string | null; staticOrigin: string | null }) {
+export async function siteStorage(app: { id: string; staticBucket: string | null; staticOrigin: string | null }) {
   if (app.staticBucket && app.staticOrigin) {
     return { bucket: app.staticBucket, origin: siteRootOrigin(app.staticOrigin) };
   }
-  return ensureSiteBucket(app.domain);
+  // any of its names does — it is only a label, fixed from here on
+  return ensureSiteBucket((await appHosts(app.id))[0] ?? app.id);
 }
 
 /** The release folder a site's pointer is on ('' = the root). */

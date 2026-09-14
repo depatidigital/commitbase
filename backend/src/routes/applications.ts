@@ -7,6 +7,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
 import { orgScope } from '../lib/scope';
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
+import { appHosts, appIdAt, atEach, hostList, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
 import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
@@ -665,13 +666,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       }
     }
 
-    // Check if domain already exists
-    // an alias of another app is taken as much as its main hostname
-    const existingApp = await prisma.application.findFirst({
-      where: { OR: [{ domain }, { aliases: { has: domain } }] },
-    });
-
-    if (existingApp) {
+    // one name, one app — whichever of its names it is
+    if (await appIdAt(domain)) {
       return res.status(400).json({
         success: false,
         error: 'Domain already in use',
@@ -723,9 +719,11 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(409).json({ success: false, error: taken } as ApiResponse);
     }
 
+    // its first name; more are added from its Domains tab
+    const at = { host: domain, domainId: parentDomain.id };
     const fields = {
       name,
-      domain,
+      domains: { create: [at] },
       type,
       rootDirectory,
       installCommand,
@@ -735,7 +733,6 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       port,
       ...(envVars && { envVars: sealEnv(envVars) }),
       userId: req.user!.userId,
-      domainId: parentDomain.id,
       organizationId,
       serverId,
     };
@@ -760,13 +757,13 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // dnsConsent: the user agreed on the form to replace what the name points at
     // (and to move a registrar domain to Cloudflare) — the form showed exactly what
     const consent = req.body.dnsConsent === true || req.query.force === '1';
-    const dns = await applyAppDns(req, application, consent).catch(
+    const dns = await applyAppDns(req, { id: application.id, domain, domainId: parentDomain.id }, consent).catch(
       (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
     );
 
     return res.status(201).json({
       success: true,
-      data: { ...application, dns },
+      data: { ...application, domains: [{ ...at, parentDomain }], dns },
       message:
         dns.state === 'conflict' || dns.state === 'unavailable'
           ? `Application created, but DNS was not set up: ${dns.detail}`
@@ -898,7 +895,7 @@ router.post(
           await configureCaddyForStaticApplication(
             await serverForApplication(application.id),
             application.id,
-            application.domain,
+            await appHosts(application.id),
             pointer.staticOrigin,
           );
         } catch (error: any) {
@@ -913,11 +910,13 @@ router.post(
 
         // DNS is a warning, not a failure: the hostname may live in a zone
         // someone else runs, and the site itself is up
-        const dns = await ensureAppHostname(application).catch(
-          (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-        );
-        const dnsWarning =
-          dns.state === 'conflict' || dns.state === 'unavailable' ? `\nDNS was not set up: ${dns.detail}` : '';
+        let dnsWarning = '';
+        for (const at of atEach({ id: application.id, domains: await prisma.appDomain.findMany({ where: { applicationId: application.id }, orderBy: { host: 'asc' } }) })) {
+          const dns = await ensureAppHostname(at).catch(
+            (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+          );
+          if (dns.state === 'conflict' || dns.state === 'unavailable') dnsWarning += `\nDNS was not set up for ${at.domain}: ${dns.detail}`;
+        }
 
         await prisma.deployment.update({
           where: { id: deployment.id },
@@ -937,11 +936,8 @@ router.post(
 
         return res.json({
           success: true,
-          data: { files: uploaded, dns },
-          message:
-            dns.state === 'conflict' || dns.state === 'unavailable'
-              ? `Static files uploaded, but DNS was not set up: ${dns.detail}`
-              : 'Static files uploaded to Cloudflare R2',
+          data: { files: uploaded },
+          message: dnsWarning ? `Static files uploaded, but${dnsWarning}` : 'Static files uploaded to Cloudflare R2',
         } as ApiResponse);
       }
 
