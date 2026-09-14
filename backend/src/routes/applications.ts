@@ -392,7 +392,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       ...(organizationId && { organizationId: organizationId === 'unassigned' ? null : organizationId }),
       ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
       ...(serverId && { serverId }),
-      ...(domainId && { domainId }),
+      ...(domainId && { domains: { some: { domainId } } }),
       ...(search && { OR: [{ name: contains(search) }, { domains: { some: { host: contains(search) } } }] }),
     };
 
@@ -404,8 +404,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           // which box it runs on — with more than one node, the row is
           // ambiguous without it
           server: { select: { id: true, name: true } },
-          // registration expiry of the domain it sits under — flagged on the row when close
-          parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
+          // its names, each with the domain it sits under (registration expiry flagged on the row)
+          ...withDomains,
           source: true,
           deployments: {
             orderBy: {
@@ -587,7 +587,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
         organization: {
           select: { defaultServer: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
         },
-        parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
+        ...withDomains,
         source: true,
       },
     });
@@ -605,7 +605,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     const staticSiteUrl =
       application.type === 'STATIC'
         ? (application as any).staticOrigin
-          ? `https://${application.domain}`
+          ? `https://${application.domains[0]?.host}`
           : application.lastDeployment
             ? getStaticSiteBaseUrl(application.id)
             : null
