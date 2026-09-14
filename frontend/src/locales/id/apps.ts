@@ -41,6 +41,11 @@ export default {
   "Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
     "Menjalankan git checkout {branch} di {dir}, sampai commit terbaru di remote. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
   "Switch branch": "Ganti branch",
+  "Read from the .env on the server{dir} at the last sync. Change it there, then sync again.":
+    "Dibaca dari .env di server{dir} saat sinkronisasi terakhir. Ubah di server, lalu sinkronkan lagi.",
+  "Show values": "Tampilkan nilai",
+  "Hide values": "Sembunyikan nilai",
+  "No .env found in the app's folder.": "Tidak ada .env di folder aplikasi.",
   "{count} database(s) attached from their .env.": "{count} database ditautkan dari .env aplikasinya.",
   "I understand the site runs the code of {branch} as soon as it is switched.":
     "Saya mengerti situs langsung menjalankan kode dari {branch} begitu branch diganti.",

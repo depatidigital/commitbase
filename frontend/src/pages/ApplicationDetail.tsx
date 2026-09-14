@@ -79,6 +79,7 @@ import { DnsFixCard } from "@/components/DnsFixCard";
 import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { AppDomainsCard } from "@/components/AppDomainsCard";
+import { ServerEnv } from "@/components/ServerEnv";
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { RepointDialog } from "@/components/RepointDialog";
@@ -1145,7 +1146,12 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
+                  {/* imported: its .env on the server is the truth — shown, not edited */}
+                  {application.runtime ? (
+                    <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
+                  ) : (
+                    <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

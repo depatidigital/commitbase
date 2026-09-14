@@ -1077,6 +1077,10 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     }
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
+    // an imported app's env is its .env on the server, mirrored by the sync — an edit here would reach nothing
+    if (envVars !== undefined && existingApp.runtime) {
+      return res.status(400).json({ success: false, error: "An imported app's environment is its .env on the server — change it there, then sync" } as ApiResponse);
+    }
 
     // where the code comes from is the source's, shared with its other apps
     if (existingApp.sourceId && (repository !== undefined || branch !== undefined || gitAccountId !== undefined)) {
