@@ -641,6 +641,7 @@ export default {
   "{dir} is a system or home folder": "{dir} adalah folder sistem atau home",
   "{dir} belongs to another app": "{dir} milik aplikasi lain",
   "{dir} belongs to another app — kept": "{dir} milik aplikasi lain — tidak dihapus",
+  "pm2 process {name} also runs {domain} — kept": "Proses pm2 {name} juga menjalankan {domain} — tidak dihapus",
   "{dir} is a hidden folder": "{dir} adalah folder tersembunyi",
   "{dir} is managed by the panel": "{dir} dikelola oleh panel",
   "Set up on the server": "Dipasang di server",

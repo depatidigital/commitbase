@@ -15,6 +15,9 @@ export const runtimeLabel = (runtime?: string | null): string =>
     CADDY_PROXY: t('Caddy (reverse proxy)'),
   })[runtime ?? ''] ?? (runtime || t('Managed by {appName}', { appName: APP_NAME }));
 
+/** `https://github.com/acme/shop.git` → `acme/shop` */
+export const repoName = (url: string) => url.replace(/\.git$/, '').split(/[/:]/).slice(-2).join('/');
+
 export interface Application {
   /** The node it was discovered on, when it came from a server sync. */
   server?: { id: string; name: string } | null;

@@ -156,7 +156,21 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
   const steps: TeardownStep[] = [];
 
   if (app.runtime === 'PM2' && app.processName) {
-    steps.push({ id: 'process', command: `pm2 delete ${app.processName} && pm2 save`, blocked: isPanel ?? noServer });
+    // another app's process — a stale `.pm2.local` row of a process that is now
+    // found behind its route, say: the app can go, the process keeps serving
+    const sharer = app.serverId
+      ? await prisma.application.findFirst({
+          where: { serverId: app.serverId, id: { not: app.id }, processName: app.processName },
+          select: { domain: true },
+        })
+      : null;
+    steps.push({
+      id: 'process',
+      command: `pm2 delete ${app.processName} && pm2 save`,
+      ...(sharer
+        ? { kept: msg('pm2 process {name} also runs {domain} — kept', { name: app.processName, domain: sharer.domain }) }
+        : { blocked: isPanel ?? noServer }),
+    });
   } else if (app.runtime === 'CADDY_PROXY' && app.port) {
     // not pm2's, so we cannot stop it — but we can see whether it is already gone
     const listening = server ? await listListeningPorts(server) : new Map();
