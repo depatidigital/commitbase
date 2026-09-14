@@ -188,15 +188,3 @@ export async function sourceFsFor(applicationId: string): Promise<AppFs> {
   ]);
   return { ...afs, appDir: sourceDirOf(afs.appDir, app?.sourceId) };
 }
-
-/** Same, by hostname — for the log endpoints that only carry a domain. */
-export async function appFsForDomain(domain: string): Promise<AppFs | null> {
-  const app = await prisma.application.findFirst({ where: { domain }, select: { id: true } });
-  return app ? appFsFor(app.id) : null;
-}
-
-/** The source tree by hostname — where the build log is. */
-export async function sourceFsForDomain(domain: string): Promise<AppFs | null> {
-  const app = await prisma.application.findFirst({ where: { domain }, select: { id: true } });
-  return app ? sourceFsFor(app.id) : null;
-}

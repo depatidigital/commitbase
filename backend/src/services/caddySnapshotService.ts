@@ -78,14 +78,14 @@ export async function saveSnapshot(
  * the one being changed. A write onto such a config yields the next checkpoint;
  * a write onto one a reload emptied does not.
  */
-export async function coversCheckpoint(serverId: string, config: any, except: string): Promise<boolean> {
+export async function coversCheckpoint(serverId: string, config: any, except: string[]): Promise<boolean> {
   const latest = await prisma.caddySnapshot.findFirst({
     where: { serverId, checkpoint: true },
     orderBy: { createdAt: 'desc' },
     select: { hosts: true },
   });
   const live = new Set(routeHostsOf(config));
-  return (latest?.hosts ?? []).every((host) => host === except || live.has(host));
+  return (latest?.hosts ?? []).every((host) => except.includes(host) || live.has(host));
 }
 
 /** Store one node's live config as a checkpoint, if there is anything worth storing. */

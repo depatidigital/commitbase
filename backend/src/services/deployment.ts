@@ -11,7 +11,8 @@ import type { AppWithOrg } from './systemdService';
 import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
-import { appFsFor, appFsForDomain, sourceFsFor, sourceFsForDomain, type AppFs } from '../lib/appFs';
+import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
+import { appHosts } from '../lib/appDomains';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
@@ -191,9 +192,9 @@ export interface StartResult {
  */
 export class DeploymentService {
   /** Load an application with the organization the runtime needs. */
-  private async appWithOrg(domain: string) {
-    return prisma.application.findFirst({
-      where: { domain },
+  private async appWithOrg(id: string) {
+    return prisma.application.findUnique({
+      where: { id },
       include: { organization: { select: { slug: true } } },
     });
   }
@@ -376,7 +377,7 @@ export class DeploymentService {
     // the release this build is making — removed again if it fails
     let madeRelease: string | null = null;
     // log lines say which app when there are several
-    const named = (app: Application) => (group.length > 1 ? `${app.domain}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}: ` : '');
+    const named = (app: Application) => (group.length > 1 ? `${app.name}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}: ` : '');
 
     try {
       for (const app of group) if (systemd.needsUnit(app.type)) await this.allocatePort(app, afs);
@@ -403,7 +404,7 @@ export class DeploymentService {
       for (const app of group) {
         const envVars = envs.get(app.id) ?? {};
         const workDir = inRootDirectory(releaseDir, app.rootDirectory);
-        if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${app.rootDirectory} in the repository (${app.domain})`);
+        if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${app.rootDirectory} in the repository (${app.name})`);
 
         const detected = await detectProject(workDir, afs.readText, undefined, releaseDir);
         // a workspace installs at the root; composer.lock is always the folder's own
@@ -509,7 +510,7 @@ export class DeploymentService {
         // dependencies' scripts are no less trusted than that.
         blocks.push(
           buildBlock({
-            heading: group.length > 1 ? `${app.domain}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}` : null,
+            heading: group.length > 1 ? `${app.name}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}` : null,
             nodeVersion: detected.nodeVersion,
             env: {
               ...envVars,
@@ -622,7 +623,7 @@ export class DeploymentService {
     const socket = join(socketDir, sockets.sort().reverse()[0] as string);
     const root = join(currentDirFor(afs.appDir), docroot);
 
-    await configureCaddyForPhpApplication(node, application.domain, root, socket);
+    await configureCaddyForPhpApplication(node, await appHosts(application.id), root, socket);
     await afs.appendFile(deployLogPath, `PHP: ${root} via ${socket}` + NL);
     return true;
   }
@@ -635,9 +636,9 @@ export class DeploymentService {
         runtime: null,
         ...(serverId && appsOnServer(serverId)),
       },
-      select: { domain: true },
+      select: { domains: { select: { host: true } } },
     });
-    return apps.map((app) => app.domain);
+    return apps.flatMap((app) => app.domains.map((d) => d.host));
   }
 
   /**
@@ -657,7 +658,7 @@ export class DeploymentService {
         if (await this.applyCaddyRoute(app)) applied += 1;
       } catch (error: any) {
         failed += 1;
-        console.error(`Caddy route for ${app.domain} not re-applied: ${error?.message || error}`);
+        console.error(`Caddy route for ${app.name} not re-applied: ${error?.message || error}`);
       }
     }
     return { applied, failed };
@@ -667,14 +668,14 @@ export class DeploymentService {
   async applyCaddyRoute(app: AppWithOrg): Promise<boolean> {
     const node = await serverForApplication(app.id);
     if (app.type === 'STATIC') {
-      await configureCaddyForStaticApplication(node, app.id, app.domain, app.staticOrigin);
+      await configureCaddyForStaticApplication(node, app.id, await appHosts(app.id), app.staticOrigin);
     } else if (app.type === 'PHP') {
       const afs = await sourceFsFor(app.id);
       const current = currentDirFor(afs.appDir);
       const detected = await detectProject(inRootDirectory(current, app.rootDirectory), afs.readText, undefined, current);
       if (!(await this.publishPhp(app, afs, join(app.rootDirectory ?? '', detected.outputDir || '.')))) throw new Error('no FPM socket');
     } else if (app.port) {
-      await configureCaddyForRuntimeApplication(node, app.domain, app.port);
+      await configureCaddyForRuntimeApplication(node, await appHosts(app.id), app.port);
     } else {
       return false;
     }
@@ -682,17 +683,17 @@ export class DeploymentService {
   }
 
   /**
-   * (Re)install and start the unit for an application, by hostname.
+   * (Re)install and start the unit for an application.
    */
-  async startApplication(domain: string): Promise<boolean> {
+  async startApplication(applicationId: string): Promise<boolean> {
     let afs: AppFs | null = null;
     const deployLog = (line: string) =>
       afs ? afs.appendFile(join(logsDirFor(afs.appDir), 'deploy.log'), line + NL).catch(() => {}) : Promise.resolve();
 
     try {
-      const application = await this.appWithOrg(domain);
+      const application = await this.appWithOrg(applicationId);
       if (!application) {
-        throw new Error('Application not found for domain');
+        throw new Error('Application not found');
       }
 
       afs = await appFsFor(application.id);
@@ -747,10 +748,6 @@ export class DeploymentService {
    * they all run from its `current`. True when all of them came up.
    */
   async startRelease(application: Application, release: Release): Promise<boolean> {
-    if (!application.domain) {
-      throw new Error('Application domain is required for release start');
-    }
-
     const afs = await sourceFsFor(application.id);
     await afs.mkdir(logsDirFor(afs.appDir));
     await afs.appendFile(join(logsDirFor(afs.appDir), 'deploy.log'), `[${new Date().toISOString()}] RELEASE STARTED: ${release.id}` + NL);
@@ -763,7 +760,7 @@ export class DeploymentService {
     let started = true;
     for (const app of await this.groupOf(application)) {
       // PHP serves straight from `current`: the switch above is all it needs
-      if (systemd.needsUnit(app.type)) started = (await this.startApplication(app.domain)) && started;
+      if (systemd.needsUnit(app.type)) started = (await this.startApplication(app.id)) && started;
     }
     return started;
   }
@@ -784,10 +781,9 @@ export class DeploymentService {
     });
   }
 
-  async stopApplication(domain?: string): Promise<boolean> {
+  async stopApplication(applicationId: string): Promise<boolean> {
     try {
-      if (!domain) return false;
-      const application = await this.appWithOrg(domain);
+      const application = await this.appWithOrg(applicationId);
       if (!application) return false;
       await systemd.stopApplication(application);
       return true;
@@ -797,10 +793,9 @@ export class DeploymentService {
     }
   }
 
-  async restartApplication(domain?: string): Promise<boolean> {
+  async restartApplication(applicationId: string): Promise<boolean> {
     try {
-      if (!domain) return false;
-      const application = await this.appWithOrg(domain);
+      const application = await this.appWithOrg(applicationId);
       if (!application) return false;
       await systemd.restartApplication(application);
       return true;
@@ -813,8 +808,8 @@ export class DeploymentService {
   /**
    * Application stdout, tailed from the unit's log file.
    */
-  async getApplicationLogs(domain: string, lines: number = 100): Promise<string> {
-    return this.getApplicationLogsFromFiles(domain, 'out', lines);
+  async getApplicationLogs(applicationId: string, lines: number = 100): Promise<string> {
+    return this.getApplicationLogsFromFiles(applicationId, 'out', lines);
   }
 
   /** True while a deploy for this application — for any app of its source — is in flight. */
@@ -959,7 +954,7 @@ export class DeploymentService {
             await configureCaddyForStaticApplication(
               await serverForApplication(application.id),
               application.id,
-              application.domain,
+              await appHosts(application.id),
               (application as any).staticOrigin
             );
           } catch (error: any) {
@@ -1069,7 +1064,7 @@ export class DeploymentService {
             await configureCaddyForStaticApplication(
               await serverForApplication(application.id),
               application.id,
-              application.domain,
+              await appHosts(application.id),
               pointer.staticOrigin
             );
           } catch (error: any) {
@@ -1173,8 +1168,8 @@ export class DeploymentService {
         const ok =
           app.type === 'PHP'
             ? await this.publishPhp(app, afs, buildResult.docroots?.[app.id] ?? join(app.rootDirectory ?? '', '.'))
-            : await this.startApplication(app.domain);
-        if (!ok) failed.push(app.domain);
+            : await this.startApplication(app.id);
+        if (!ok) failed.push(app.name);
       }
       const startResult = failed.length === 0;
 
@@ -1189,7 +1184,7 @@ export class DeploymentService {
         rolledBack = true;
         for (const app of group) {
           // PHP serves straight from `current`: switching it back is the rollback
-          if (systemd.needsUnit(app.type)) rolledBack = (await this.startApplication(app.domain).catch(() => false)) && rolledBack;
+          if (systemd.needsUnit(app.type)) rolledBack = (await this.startApplication(app.id).catch(() => false)) && rolledBack;
         }
         // a reused tree is a kept release — never this deploy's to delete
         if (!reused) await afs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
@@ -1203,7 +1198,7 @@ export class DeploymentService {
             .filter((app) => ownDeployLogs.has(app.id))
             .map(async (app) => {
               const { afs: appAfs, path: file } = ownDeployLogs.get(app.id)!;
-              return `==> ${app.domain} <==` + NL + ((await appAfs.readText(file).catch(() => '')).trim() || '(nothing logged)');
+              return `==> ${app.name} <==` + NL + ((await appAfs.readText(file).catch(() => '')).trim() || '(nothing logged)');
             }),
         );
         return [base, ...own].join(NL + NL);
@@ -1251,7 +1246,7 @@ export class DeploymentService {
             sourceId: application.sourceId,
             commitSha: commitSha ?? null,
             status: 'READY',
-            ports: Object.fromEntries(group.map((app) => [app.domain, portOf(app)])),
+            ports: Object.fromEntries(group.map((app) => [app.name, portOf(app)])),
             health: 'HEALTHY',
             logsRef: logsDir,
             path: buildResult.releaseDir ?? null,
@@ -1276,12 +1271,12 @@ export class DeploymentService {
       for (const app of group) {
         if (app.type === 'PHP') continue;
         try {
-          await configureCaddyForRuntimeApplication(await serverForApplication(app.id), app.domain, portOf(app));
+          await configureCaddyForRuntimeApplication(await serverForApplication(app.id), await appHosts(app.id), portOf(app));
         } catch (error: any) {
           routeWarning +=
-            `The app is running, but its Caddy route could not be set — ${app.domain} is not served yet: ` +
+            `The app is running, but its Caddy route could not be set — ${app.name} is not served yet: ` +
             `${error?.message ?? String(error)}. The watchdog retries it; redeploy to try now.` + NL;
-          console.error(`Caddy route for ${app.domain} not set:`, error?.message ?? error);
+          console.error(`Caddy route for ${app.name} not set:`, error?.message ?? error);
         }
       }
       if (routeWarning) {
@@ -1325,13 +1320,9 @@ export class DeploymentService {
   /**
    * Get application status from its systemd unit
    */
-  async getApplicationStatus(domain: string): Promise<'RUNNING' | 'STOPPED' | 'UNKNOWN' | 'ERROR'> {
+  async getApplicationStatus(applicationId: string): Promise<'RUNNING' | 'STOPPED' | 'UNKNOWN' | 'ERROR'> {
     try {
-      if (!domain) {
-        return 'ERROR';
-      }
-
-      const application = await this.appWithOrg(domain);
+      const application = await this.appWithOrg(applicationId);
       if (!application) return 'ERROR';
       return systemd.getStatus(application);
     } catch (error) {
@@ -1413,15 +1404,10 @@ export class DeploymentService {
   /**
    * Get application logs from files
    */
-  async getApplicationLogsFromFiles(domain: string, logType: string = 'combined', lines: number = 100): Promise<string> {
+  async getApplicationLogsFromFiles(applicationId: string, logType: string = 'combined', lines: number = 100): Promise<string> {
     try {
-      if (!domain) {
-        return 'No domain provided';
-      }
-
       // the build log is the source's; the unit's logs are the app's own
-      const afs = logType === 'build' ? await sourceFsForDomain(domain) : await appFsForDomain(domain);
-      if (!afs) return `No application found for domain ${domain}`;
+      const afs = logType === 'build' ? await sourceFsFor(applicationId) : await appFsFor(applicationId);
 
       const logsDir = logsDirFor(afs.appDir);
       if (logType === 'combined') {
@@ -1437,16 +1423,11 @@ export class DeploymentService {
   }
 
   /**
-   * Check if build log exists for a domain
+   * Check if build log exists for an app
    */
-  async checkBuildLogExists(domain: string): Promise<{ exists: boolean; path: string; size?: number }> {
+  async checkBuildLogExists(applicationId: string): Promise<{ exists: boolean; path: string; size?: number }> {
     try {
-      if (!domain) {
-        return { exists: false, path: '' };
-      }
-
-      const afs = await sourceFsForDomain(domain);
-      if (!afs) return { exists: false, path: '' };
+      const afs = await sourceFsFor(applicationId);
 
       const buildLogPath = join(logsDirFor(afs.appDir), 'build.log');
       const size = await afs.size(buildLogPath);
@@ -1462,14 +1443,9 @@ export class DeploymentService {
   /**
    * Create a test build log entry for debugging
    */
-  async createTestBuildLog(domain: string, message: string = 'Test build log entry'): Promise<boolean> {
+  async createTestBuildLog(applicationId: string, message: string = 'Test build log entry'): Promise<boolean> {
     try {
-      if (!domain) {
-        return false;
-      }
-
-      const afs = await sourceFsForDomain(domain);
-      if (!afs) return false;
+      const afs = await sourceFsFor(applicationId);
 
       const logsDir = logsDirFor(afs.appDir);
       await afs.mkdir(logsDir);

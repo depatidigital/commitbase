@@ -1,5 +1,9 @@
 import path from 'path';
 import type { Application } from '@prisma/client';
+import { atEach, hostList, hostsOf } from '../lib/appDomains';
+
+/** An app with its hostnames — what the teardown works on. */
+export type TeardownTarget = Application & { domains: Array<{ host: string; domainId: string | null }> };
 import { prisma } from '../lib/prisma';
 import { rm } from '../lib/remoteFs';
 import { removeCaddySite } from './caddyService';
@@ -145,14 +149,14 @@ async function removeFolder(server: NonNullable<Awaited<ReturnType<typeof server
 }
 
 /** What can be removed for this app, and what cannot and why. Empty for panel-deployed apps. */
-export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
+export async function teardownPlan(app: TeardownTarget): Promise<TeardownStep[]> {
   if (!app.runtime) return [];
 
   const server = await serverOf(app);
   const noServer = server ? undefined : msg('Not linked to a server — sync the apps again first');
   // the panel's own site shows up in scans; removing it would take this panel down
-  const isPanel = PANEL_HOST !== '' && app.domain.toLowerCase() === PANEL_HOST ? msg('This is the panel itself') : undefined;
-  const placeholder = app.domain.endsWith('.pm2.local');
+  const isPanel = PANEL_HOST !== '' && hostsOf(app).includes(PANEL_HOST) ? msg('This is the panel itself') : undefined;
+  const placeholder = hostsOf(app).every((host) => host.endsWith('.pm2.local'));
   const steps: TeardownStep[] = [];
 
   if (app.runtime === 'PM2' && app.processName) {
@@ -161,14 +165,14 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
     const sharer = app.serverId
       ? await prisma.application.findFirst({
           where: { serverId: app.serverId, id: { not: app.id }, processName: app.processName },
-          select: { domain: true },
+          select: { domains: { select: { host: true }, orderBy: { host: 'asc' } } },
         })
       : null;
     steps.push({
       id: 'process',
       command: `pm2 delete ${app.processName} && pm2 save`,
       ...(sharer
-        ? { kept: msg('pm2 process {name} also runs {domain} — kept', { name: app.processName, domain: sharer.domain }) }
+        ? { kept: msg('pm2 process {name} also runs {domain} — kept', { name: app.processName, domain: hostList(sharer) }) }
         : { blocked: isPanel ?? noServer }),
     });
   } else if (app.runtime === 'CADDY_PROXY' && app.port) {
@@ -190,9 +194,9 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
 
   if (!placeholder) {
     // every name it answers on
-    const hosts = [app.domain, ...app.aliases].join(', ');
+    const hosts = hostList(app);
     steps.push({ id: 'route', detail: msg('Caddy route for {domain}', { domain: hosts }), blocked: isPanel ?? noServer });
-    if (app.domainId || app.aliases.length) {
+    if (app.domains.length) {
       steps.push({
         id: 'dns',
         detail: msg('DNS record {domain} → this server (Cloudflare, only if it points here)', { domain: hosts }),
@@ -242,7 +246,7 @@ export type TeardownResult = { done: TeardownStepId[]; failed?: { step: Teardown
  * refuses the whole thing before anything runs; after that the first failure
  * stops the rest, and the caller keeps the row so the user sees what is left.
  */
-export async function teardownApp(app: Application): Promise<TeardownResult> {
+export async function teardownApp(app: TeardownTarget): Promise<TeardownResult> {
   const plan = await teardownPlan(app);
   const blocked = blockedBy(plan);
   if (blocked) throw new Error(blocked);
@@ -255,12 +259,10 @@ export async function teardownApp(app: Application): Promise<TeardownResult> {
     try {
       if (id === 'process') await deletePm2Process(server!, app.processName!);
       if (id === 'route') {
-        for (const host of [app.domain, ...app.aliases]) await removeCaddySite(server!, host);
+        for (const host of hostsOf(app)) await removeCaddySite(server!, host);
       }
       if (id === 'dns') {
-        await removeAppHostname(app, { strict: true });
-        // an alias can sit under another zone: found by its name
-        for (const alias of app.aliases) await removeAppHostname({ ...app, domain: alias, domainId: null }, { strict: true });
+        for (const at of atEach(app)) await removeAppHostname(at, { strict: true });
       }
       if (id === 'files') await removeFolder(server!, app);
       done.push(id);

@@ -232,9 +232,9 @@ function ensureHttpServer(config: any): any {
 }
 
 // JSON form of the Caddyfile `php_fastcgi` directive plus `file_server`.
-function buildPhpRoute(domain: string, target: PhpTarget): any {
+function buildPhpRoute(hosts: string[], target: PhpTarget): any {
   return {
-    match: [{ host: [domain] }],
+    match: [{ host: hosts }],
     handle: [
       {
         handler: 'subroute',
@@ -269,12 +269,14 @@ function buildPhpRoute(domain: string, target: PhpTarget): any {
   };
 }
 
-export function buildRoute(domain: string, target: Target): any {
-  if (target.type === 'php') return buildPhpRoute(domain, target);
+/** One route for all of an app's names — they are one site. */
+export function buildRoute(names: string | string[], target: Target): any {
+  const hosts = [names].flat();
+  if (target.type === 'php') return buildPhpRoute(hosts, target);
 
   if (target.type === 'files') {
     return {
-      match: [{ host: [domain] }],
+      match: [{ host: hosts }],
       handle: [
         {
           handler: 'subroute',
@@ -291,7 +293,7 @@ export function buildRoute(domain: string, target: Target): any {
   const route: any = {
     match: [
       {
-        host: [domain],
+        host: hosts,
       },
     ],
     handle: [],
@@ -374,30 +376,70 @@ const isCatchAll = (route: any): boolean =>
   (route?.terminal === true ||
     /"handler":"(reverse_proxy|file_server|static_response)"/.test(JSON.stringify(route?.handle ?? [])));
 
+/**
+ * `routes` with these hostnames taken out of every host matcher. A route left
+ * with no hostname of its own goes; one that still serves other names keeps
+ * them, and everything else about it — an imported site's route is someone's
+ * hand-written config, never rebuilt. Pure.
+ */
+export function withoutHosts(routes: any[], names: string[]): any[] {
+  const gone = new Set(names.map((name) => name.toLowerCase()));
+  return routes.flatMap((route) => {
+    const hosts = hostsOf(route);
+    if (!hosts.some((host) => gone.has(host.toLowerCase()))) return [route];
+    const match = (route.match as any[])
+      .map((m) => (Array.isArray(m?.host) ? { ...m, host: m.host.filter((h: any) => !gone.has(String(h).toLowerCase())) } : m))
+      // a matcher whose hosts all went would match every name — it goes, not widens
+      .filter((m) => !Array.isArray(m?.host) || m.host.length > 0);
+    return match.some((m) => Array.isArray(m?.host)) ? [{ ...route, match }] : [];
+  });
+}
+
+/** `routes` with `name` added to every host matcher that has `beside` — the same site, one more name. Pure. */
+export function withHostBeside(routes: any[], beside: string, name: string): any[] {
+  return routes.map((route) =>
+    hostsOf(route).includes(beside)
+      ? { ...route, match: route.match.map((m: any) => (Array.isArray(m?.host) && m.host.includes(beside) ? { ...m, host: [...m.host, name] } : m)) }
+      : route,
+  );
+}
+
 /** `routes` with `route` inserted ahead of the first catch-all, else at the end. */
 export function withRoute(routes: any[], route: any): any[] {
   const at = routes.findIndex(isCatchAll);
   return at < 0 ? [...routes, route] : [...routes.slice(0, at), route, ...routes.slice(at)];
 }
 
-/**
- * Rewrite the route list for one hostname: drop what is there, add `target` if
- * given. Only the one server block is written back, so TLS, other apps and
- * other server blocks are never touched.
- */
-const setRoute = (node: SshTarget, domain: string, target: Target | null) =>
-  withNodeLock(node, () => setRouteUnlocked(node, domain, target));
+type RouteChange =
+  // the site's names, all served by one route to `target` (a deploy)
+  | { set: string[]; target: Target }
+  // these names no longer served here (a delete, a name taken off an app)
+  | { drop: string[] }
+  // one more name for the site already served on `beside` (an imported route stays as written)
+  | { add: string; beside: string };
 
-async function setRouteUnlocked(node: SshTarget, domain: string, target: Target | null): Promise<void> {
+/**
+ * Rewrite the route list for some hostnames. Only the one server block is
+ * written back, so TLS, other apps and other server blocks are never touched.
+ */
+const changeRoutes = (node: SshTarget, change: RouteChange) => withNodeLock(node, () => changeRoutesUnlocked(node, change));
+
+async function changeRoutesUnlocked(node: SshTarget, change: RouteChange): Promise<void> {
+  const names = 'set' in change ? change.set : 'drop' in change ? change.drop : [change.add];
   const existing = await fetchCaddyConfig(node);
   if (existing === null) {
-    throw new Error(`Caddy on ${node.hostname} did not return its config — route for ${domain} left unchanged`);
+    throw new Error(`Caddy on ${node.hostname} did not return its config — route for ${names.join(', ')} left unchanged`);
   }
 
-  const change = target ? `route ${domain} → ${target.type}` : `route ${domain} removed`;
-  await keepBefore(node, existing, change);
+  const reason =
+    'set' in change
+      ? `route ${names.join(', ')} → ${change.target.type}`
+      : 'drop' in change
+        ? `route ${names.join(', ')} removed`
+        : `route ${change.add} added beside ${change.beside}`;
+  await keepBefore(node, existing, reason);
   // decided on the untouched config: ensureHttpServer below edits it in place
-  const whole = await (await snapshots()).coversCheckpoint(node.id, existing, domain);
+  const whole = await (await snapshots()).coversCheckpoint(node.id, existing, names);
 
   const hadServer = !!existing?.apps?.http?.servers?.[serverNameFor(existing)];
   const config = ensureHttpServer(existing);
@@ -406,8 +448,20 @@ async function setRouteUnlocked(node: SshTarget, domain: string, target: Target 
   const server = servers[serverName];
 
   const routes: any[] = server.routes || [];
-  const filteredRoutes = routes.filter((route) => !hostsOf(route).includes(domain));
-  server.routes = target ? withRoute(filteredRoutes, buildRoute(domain, target)) : filteredRoutes;
+  if ('add' in change) {
+    // the route may sit in another server block (a Caddyfile's); edit it where it is
+    let found = false;
+    for (const block of Object.values(servers) as any[]) {
+      if (!Array.isArray(block?.routes) || !block.routes.some((route: any) => hostsOf(route).includes(change.beside))) continue;
+      block.routes = withHostBeside(withoutHosts(block.routes, [change.add]), change.beside, change.add);
+      found = true;
+    }
+    if (!found) throw new Error(`Caddy on ${node.hostname} has no route for ${change.beside} to add ${change.add} to`);
+    await loadCaddyConfig(node, config);
+    await keepAfter(node, reason, whole);
+    return;
+  }
+  server.routes = 'set' in change ? withRoute(withoutHosts(routes, names), buildRoute(names, change.target)) : withoutHosts(routes, names);
 
   if (hadServer) {
     // PATCH replaces just this server block (listen, TLS policies and all,
@@ -420,18 +474,20 @@ async function setRouteUnlocked(node: SshTarget, domain: string, target: Target 
 
   // a write onto a whole config is the new baseline — which is also how a
   // removed route leaves it, instead of the watchdog putting it back
-  await keepAfter(node, change, whole);
+  await keepAfter(node, reason, whole);
 }
+
+const setRoute = (node: SshTarget, hosts: string[], target: Target) => changeRoutes(node, { set: hosts, target });
 
 export async function configureCaddyForStaticApplication(
   node: SshTarget,
   applicationId: string,
-  domain: string,
+  hosts: string[],
   bucketOrigin?: string | null
 ): Promise<void> {
   // R2-backed sites are proxied; older ones still redirect to their S3 URL
   if (bucketOrigin) {
-    await setRoute(node, domain, {
+    await setRoute(node, hosts, {
       type: 'bucket',
       origin: bucketOrigin,
     });
@@ -443,7 +499,7 @@ export async function configureCaddyForStaticApplication(
     return;
   }
 
-  await setRoute(node, domain, {
+  await setRoute(node, hosts, {
     type: 'static',
     redirectUrl,
   });
@@ -455,14 +511,14 @@ export const staticRouteError = (error: any): string =>
 
 export async function configureCaddyForRuntimeApplication(
   node: SshTarget,
-  domain: string,
+  hosts: string[],
   hostPort: number,
 ): Promise<void> {
   if (!hostPort || hostPort <= 0) {
     return;
   }
 
-  await setRoute(node, domain, {
+  await setRoute(node, hosts, {
     type: 'runtime',
     upstreamPort: hostPort,
   });
@@ -470,23 +526,28 @@ export async function configureCaddyForRuntimeApplication(
 
 export async function configureCaddyForPhpApplication(
   node: SshTarget,
-  domain: string,
+  hosts: string[],
   root: string,
   socket: string,
 ): Promise<void> {
-  await setRoute(node, domain, { type: 'php', root, socket });
+  await setRoute(node, hosts, { type: 'php', root, socket });
 }
 
-/** Drop the hostname's route when the application is deleted. */
-export async function removeCaddySite(node: SshTarget, domain: string): Promise<void> {
-  await setRoute(node, domain, null);
+/** Stop serving these names — the rest of a route that also serves others stays. */
+export async function removeCaddySite(node: SshTarget, ...hosts: string[]): Promise<void> {
+  await changeRoutes(node, { drop: hosts });
 }
 
-export async function configureCaddyForFiles(node: SshTarget, domain: string, root: string): Promise<void> {
+/** Serve `name` exactly as `beside` is served: the same route, one more hostname. */
+export async function addCaddyHost(node: SshTarget, beside: string, name: string): Promise<void> {
+  await changeRoutes(node, { add: name, beside });
+}
+
+export async function configureCaddyForFiles(node: SshTarget, hosts: string[], root: string): Promise<void> {
   if (!root) {
     return;
   }
-  await setRoute(node, domain, { type: 'files', root });
+  await setRoute(node, hosts, { type: 'files', root });
 }
 
 /**

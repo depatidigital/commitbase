@@ -29,6 +29,12 @@ export const atEach = (app: WithHosts): AppAt[] => app.domains.map((d) => ({ id:
 /** The names for a log line or a message: `a.com, b.com`. */
 export const hostList = (app: { domains: Array<{ host: string }> }): string => hostsOf(app).join(', ');
 
+/** An app's hostnames, by its id — for code that holds the app without them. */
+export async function appHosts(applicationId: string): Promise<string[]> {
+  const rows = await prisma.appDomain.findMany({ where: { applicationId }, select: { host: true }, orderBy: { host: 'asc' } });
+  return rows.map((row) => row.host);
+}
+
 /** The app answering on a hostname, if any. */
 export async function appIdAt(host: string): Promise<string | null> {
   const row = await prisma.appDomain.findUnique({ where: { host }, select: { applicationId: true } });
