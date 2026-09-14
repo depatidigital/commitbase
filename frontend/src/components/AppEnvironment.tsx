@@ -6,7 +6,7 @@ import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
 import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
 import { useToast } from "@/hooks/use-toast";
-import { Application, DetectedProject, getApplication, hasBeenDeployed, updateApplication } from "@/lib/applications";
+import { Application, DetectedProject, getApplication, hasBeenDeployed, hostsOf, updateApplication } from "@/lib/applications";
 import {
   DATABASE_KEYS,
   PLATFORM_KEYS,
@@ -233,7 +233,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           );
         }}
         // the app's own https URL for NEXT_PUBLIC_BASE_URL and friends
-        suggest={(row) => suggestAppUrl(row.key, row.value, application.domain)}
+        suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
         // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY…)
         generate={(row) => (row.value ? null : generateSecret(row.key))}
         // tried from the node the app runs on, with the value as typed

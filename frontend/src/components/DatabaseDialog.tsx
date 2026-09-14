@@ -20,7 +20,7 @@ import { t } from "@/lib/i18n";
 interface DatabaseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  application: { id: string; domain: string; organizationId?: string | null };
+  application: { id: string; name: string; organizationId?: string | null };
   /** DATABASE_URL as it stands — its engine and name prefill the form */
   currentUrl?: string;
   /** the app's other database variables, filled from the same credentials */
@@ -66,12 +66,12 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   const { toast } = useToast();
   const orgId = application.organizationId ?? "";
   const [mode, setMode] = useState<"create" | "existing">("create");
-  const [name, setName] = useState(() => nameFrom(application.domain));
+  const [name, setName] = useState(() => nameFrom(application.name));
   const [serverId, setServerId] = useState("");
   const [existingId, setExistingId] = useState("");
   // a login of its own per app by default: one app's credentials reach one database
   const [loginMode, setLoginMode] = useState<"new" | "existing">("new");
-  const [loginName, setLoginName] = useState(() => nameFrom(application.domain));
+  const [loginName, setLoginName] = useState(() => nameFrom(application.name));
   const [accountId, setAccountId] = useState("");
   const [busy, setBusy] = useState(false);
   const fromUrl = parseDatabaseUrl(currentUrl);
@@ -84,9 +84,9 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
     setMode("create");
     setExistingId("");
     setServerId("");
-    setName(fromUrl.name || nameFrom(application.domain));
+    setName(fromUrl.name || nameFrom(application.name));
     setLoginMode("new");
-    setLoginName(nameFrom(application.domain));
+    setLoginName(nameFrom(application.name));
     setAccountId("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);

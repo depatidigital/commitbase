@@ -159,7 +159,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                       <span className="mt-2 block">
                         {t("It changes all {count} apps of this project: {apps}.", {
                           count: apps.length,
-                          apps: apps.map((app) => app.domain).join(", "),
+                          apps: apps.flatMap((app) => app.domains.map((d) => d.host)).join(", "),
                         })}
                       </span>
                     )}

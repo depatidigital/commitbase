@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteApplication } from "@/hooks/useApplications";
-import { getTeardownPlan, runtimeLabel, type Application, type TeardownStepId } from "@/lib/applications";
+import { getTeardownPlan, hostList, runtimeLabel, type Application, type TeardownStepId } from "@/lib/applications";
 import { getAppDatabases } from "@/lib/databases";
 import { isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
@@ -39,7 +39,8 @@ export function DangerZoneCard({ application }: { application: Application }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [understood, setUnderstood] = useState(false);
-  const ready = typed.trim() === application.domain && understood;
+  // its name: an app of several hostnames has no one of them to type
+  const ready = typed.trim() === application.name && understood;
   // same key as the Database tab: already cached when the user got here
   const { data: databases } = useQuery({
     queryKey: ["databases", "application", application.id],
@@ -82,7 +83,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
             {imported
               ? t("Removes it from the panel and from the server. If anything cannot be removed, nothing is deleted.")
               : t("{domain} stops being served and the app is removed from the panel. This cannot be undone.", {
-                  domain: application.domain,
+                  domain: hostList(application),
                 })}
           </p>
         </div>
@@ -164,10 +165,10 @@ export function DangerZoneCard({ application }: { application: Application }) {
               </p>
             )}
             <label className="block space-y-2 text-sm">
-              <span>{t("Type {domain} to confirm", { domain: application.domain })}</span>
+              <span>{t("Type {domain} to confirm", { domain: application.name })}</span>
               <Input
                 value={typed}
-                placeholder={application.domain}
+                placeholder={application.name}
                 onChange={(e) => setTyped(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}

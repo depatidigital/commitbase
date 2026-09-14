@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
-import { hostsOf, repoName, runtimeLabel } from "@/lib/applications";
+import { hostsOf, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
 import { getServers } from "@/lib/servers";
 import { appParts, assignProjects, getProjects, projectPath, type AppPart, type Project, type ProjectApp } from "@/lib/projects";
@@ -127,9 +127,10 @@ export default function Projects() {
   const partsOf = (project: Project) =>
     project.applications.flatMap((app) => {
       const [main, ...paths] = appParts(app) as Array<AppPart & { repeat?: boolean }>;
-      const hosts = app.aliases?.length
-        ? hostsOf(app).map((host, i) => ({ ...main!, key: `${app.id}:${host}`, label: host, repeat: i > 0 }))
-        : [main!];
+      const hosts =
+        app.domains.length > 1
+          ? hostsOf(app).map((host, i) => ({ ...main!, key: `${app.id}:${host}`, label: host, repeat: i > 0 }))
+          : [main!];
       return [...hosts, ...paths].map((part) => ({ app, part }));
     });
 
@@ -212,7 +213,7 @@ export default function Projects() {
           {partsOf(project).map(({ app, part }) => {
             const type = APP_TYPES[part.type] ?? { label: part.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
             const TypeIcon = type.icon;
-            const internal = app.domain.endsWith(".local");
+            const internal = !isPublicHost(part.label);
             // what serves this part on the box: the app's own process, or Caddy
             const runtime = part.owner
               ? `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`
@@ -245,7 +246,7 @@ export default function Projects() {
                     <span title={type.label} className="shrink-0">
                       <TypeIcon className={`h-3.5 w-3.5 ${type.className}`} />
                     </span>
-                    <span className="truncate font-mono text-xs">{part.label.slice(app.domain.length) || part.label}</span>
+                    <span className="truncate font-mono text-xs">{part.label.slice(hostsOf(app)[0]?.length ?? 0) || part.label}</span>
                   </>
                 )}
                 {superAdmin && !part.repeat && (

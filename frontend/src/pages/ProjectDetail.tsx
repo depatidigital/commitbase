@@ -20,7 +20,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { AppWorkspace } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { deleteApplication, repoName } from "@/lib/applications";
+import { deleteApplication, hostList, hostsOf, isPublicHost, repoName } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
@@ -109,7 +109,7 @@ export default function ProjectDetail() {
 
   const deleteAll = async () => {
     for (const app of apps) {
-      setDeleting(app.domain);
+      setDeleting(app.name);
       try {
         await deleteApplication(app.id);
       } catch (err) {
@@ -118,7 +118,7 @@ export default function ProjectDetail() {
         void queryClient.invalidateQueries({ queryKey: ["project", id] });
         toast({
           variant: "destructive",
-          title: t("Stopped at {app}", { app: app.domain }),
+          title: t("Stopped at {app}", { app: app.name }),
           description: `${(err as Error).message} — ${t("the apps before it are deleted, the rest are kept.")}`,
         });
         return;
@@ -216,11 +216,14 @@ export default function ProjectDetail() {
                 <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
                 <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
                 <span className="min-w-0">
-                  <span className="block truncate font-medium">{app.domain.endsWith(".local") ? app.name : app.domain}</span>
+                  <span className="block truncate font-medium" title={hostList(app)}>
+                    {/* every name it answers on, none first */}
+                    {app.domains.every((d) => !isPublicHost(d.host)) ? app.name : hostList(app)}
+                  </span>
                   {/* a hostname split by path: its other parts */}
                   {parts.length > 1 && (
                     <span className="block truncate font-mono text-xs text-muted-foreground">
-                      {parts.filter((part) => !part.main).map((part) => part.label.slice(app.domain.length)).join(" · ")}
+                      {parts.filter((part) => !part.main).map((part) => part.label.slice(hostsOf(app)[0]?.length ?? 0)).join(" · ")}
                     </span>
                   )}
                   {!imported && app.rootDirectory && (
@@ -248,7 +251,7 @@ export default function ProjectDetail() {
                 <p>{t("Every app of this project is deleted, one after the other:")}</p>
                 <ul className="list-disc pl-5 font-mono text-xs">
                   {apps.map((app) => (
-                    <li key={app.id}>{app.domain}</li>
+                    <li key={app.id}>{hostList(app)}</li>
                   ))}
                 </ul>
                 {imported && (

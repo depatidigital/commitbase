@@ -111,7 +111,7 @@ export const useCreateApplication = () => {
 };
 
 /**
- * Live reachability of the app's hostname. Polls while it is not serving yet —
+ * Live reachability of each of the app's names. Polls while one is not serving yet —
  * DNS propagation and the first certificate take a minute or two.
  */
 export const useApplicationHostname = (id: string, poll = false) => {
@@ -119,7 +119,8 @@ export const useApplicationHostname = (id: string, poll = false) => {
     queryKey: ['applications', id, 'hostname'],
     queryFn: () => getApplicationHostname(id),
     enabled: !!id,
-    refetchInterval: (query) => (poll && !query.state.data?.live ? 5000 : false),
+    // until every one of its names answers
+    refetchInterval: (query) => (poll && !(query.state.data?.every((h) => h.live) ?? false) ? 5000 : false),
   });
 };
 
@@ -128,8 +129,8 @@ export const useSetupApplicationDns = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
-      setupApplicationDns(id, force ?? false),
+    mutationFn: ({ id, host, force }: { id: string; host: string; force?: boolean }) =>
+      setupApplicationDns(id, host, force ?? false),
     onSuccess: (result, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['applications', id, 'hostname'] });
       // the status card and the list dot read "points elsewhere" from here too

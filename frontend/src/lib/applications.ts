@@ -18,21 +18,33 @@ export const runtimeLabel = (runtime?: string | null): string =>
 /** `https://github.com/acme/shop.git` → `acme/shop` */
 export const repoName = (url: string) => url.replace(/\.git$/, '').split(/[/:]/).slice(-2).join('/');
 
+/** One hostname of an app, with the Domain (zone) it sits under. */
+export interface AppDomain {
+  host: string;
+  domainId: string | null;
+  /** list and detail endpoints: that domain, for its registration expiry */
+  parentDomain?: { id: string; name: string; expiresAt?: string | null; shared?: boolean } | null;
+}
+
 /**
- * Every hostname an app answers on, in a fixed order with none first: an
- * imported site behind several names is those names, not one plus extras.
+ * Every hostname an app answers on — one or more, all alike, none first. The
+ * API sends them sorted; that is the one order they are ever listed in.
  */
-export const hostsOf = (app: { domain: string; aliases?: string[] | null }): string[] =>
-  [app.domain, ...(app.aliases ?? [])].sort();
+export const hostsOf = (app: { domains: Array<{ host: string }> }): string[] => app.domains.map((d) => d.host);
+
+/** The names of an app for a sentence or a toast: `a.com, b.com`. */
+export const hostList = (app: { domains: Array<{ host: string }> }): string => hostsOf(app).join(', ');
+
+/** A browser can open it: not a sync placeholder like `web.pm2.local`. */
+export const isPublicHost = (host: string) => !host.endsWith('.local');
 
 export interface Application {
-  /** other hostnames it answers on (imported: one folder behind several names) — see hostsOf */
-  aliases?: string[];
   /** The node it was discovered on, when it came from a server sync. */
   server?: { id: string; name: string } | null;
   id: string;
   name: string;
-  domain: string;
+  /** its hostnames, all alike — see hostsOf */
+  domains: AppDomain[];
   type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA';
   status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'DEPLOYING' | 'BUILDING';
   repository?: string;
@@ -52,10 +64,6 @@ export interface Application {
   envVars?: Record<string, string>;
   userId: string | null;
   organizationId?: string | null;
-  /** the Domain (zone) its hostname sits under */
-  domainId?: string | null;
-  /** list and detail endpoints: that domain, for its registration expiry */
-  parentDomain?: { id: string; name: string; expiresAt?: string | null; shared?: boolean } | null;
   organization?: { id: string; name: string; slug: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -136,7 +144,6 @@ export interface CreateApplicationData {
 
 export interface UpdateApplicationData {
   name?: string;
-  domain?: string;
   type?: Application['type'];
   repository?: string;
   /** null clears it, undefined leaves it alone. */
@@ -150,8 +157,6 @@ export interface UpdateApplicationData {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
-  /** with a new domain: the user agreed to the DNS change shown */
-  dnsConsent?: boolean;
 }
 
 // Get all applications
@@ -215,8 +220,9 @@ export interface HostnameHealth {
   } | null;
 }
 
-export const getApplicationHostname = async (id: string): Promise<HostnameHealth> => {
-  const response = await apiRequest<HostnameHealth>(`/applications/${id}/hostname`);
+/** Each of the app's names, checked on its own — in the order hostsOf lists them. */
+export const getApplicationHostname = async (id: string): Promise<HostnameHealth[]> => {
+  const response = await apiRequest<HostnameHealth[]>(`/applications/${id}/hostname`);
 
   if (response.success && response.data) {
     return response.data;
@@ -230,14 +236,15 @@ export interface DnsOutcome {
   detail: string;
 }
 
-/** Point the hostname at the platform. `force` overwrites a record aimed elsewhere. */
+/** Point one of the app's names at the platform. `force` overwrites a record aimed elsewhere. */
 export const setupApplicationDns = async (
   id: string,
+  host: string,
   force = false,
 ): Promise<DnsOutcome> => {
   const response = await apiRequest<DnsOutcome>(`/applications/${id}/dns`, {
     method: 'POST',
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ host, force }),
   });
 
   if (response.success && response.data) {
@@ -245,6 +252,22 @@ export const setupApplicationDns = async (
   }
 
   throw new Error(response.error || t("Failed to set up DNS"));
+};
+
+/** One more name for the app, routed as its others. `dnsConsent`: the user agreed to the DNS change shown. */
+export const addAppDomain = async (id: string, host: string, dnsConsent?: boolean): Promise<{ host: string; dns: DnsOutcome; message?: string }> => {
+  const response = await apiRequest<{ host: string; dns: DnsOutcome }>(`/applications/${id}/domains`, {
+    method: 'POST',
+    body: JSON.stringify({ host, dnsConsent }),
+  });
+  if (response.success && response.data) return { ...response.data, message: response.message };
+  throw new Error(response.error || t("Could not add the domain"));
+};
+
+/** Take a name off the app: no longer routed, its record pointing here removed. Never the last one. */
+export const removeAppDomain = async (id: string, host: string): Promise<void> => {
+  const response = await apiRequest(`/applications/${id}/domains/${encodeURIComponent(host)}`, { method: 'DELETE' });
+  if (!response.success) throw new Error(response.error || t("Could not remove the domain"));
 };
 
 export interface DetectedProject {
@@ -699,7 +722,7 @@ export interface AppSyncResult {
   updated: number;
   apps: Array<{
     name: string;
-    domain: string;
+    hosts: string[];
     runtime: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
     status: 'RUNNING' | 'STOPPED' | 'ERROR';
     port?: number;

@@ -14,7 +14,8 @@ export type ProjectStatus = 'RUNNING' | 'PARTIAL' | 'STOPPED' | 'ERROR' | 'DEPLO
 export interface ProjectApp {
   id: string;
   name: string;
-  domain: string;
+  /** its hostnames, all alike */
+  domains: Array<{ host: string; domainId: string | null }>;
   type: string;
   status: string;
   runtime: string | null;
@@ -22,7 +23,6 @@ export interface ProjectApp {
   processName: string | null;
   rootDirectory: string | null;
   rootPath: string | null;
-  aliases?: string[];
   port: number | null;
   /** a hostname split by path: `/api/*` → the app, the rest → static files */
   routing: Array<{ path: string | null; proxy?: string; root?: string }> | null;
@@ -136,7 +136,9 @@ export type AppPart = {
 };
 
 export function appParts(app: ProjectApp): AppPart[] {
-  const host = app.domain.endsWith(".local") ? app.name : app.domain;
+  // a split is the same on every name of the app: shown once, under its first
+  const first = app.domains[0]?.host ?? app.name;
+  const host = first.endsWith(".local") ? app.name : first;
   if (!app.routing?.length) {
     return [{ key: app.id, label: host, type: app.type, proxyPort: app.port, root: null, main: true, owner: true }];
   }
