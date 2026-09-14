@@ -306,11 +306,12 @@ export const useSyncServerApps = () => {
     onSuccess: (result) => {
       toast({
         title: t('Server apps synced'),
-        description: t('{discovered} found — {created} imported, {updated} updated.', {
-          discovered: result.discovered,
-          created: result.created,
-          updated: result.updated,
-        }),
+        description:
+          t('{discovered} found — {created} imported, {updated} updated.', {
+            discovered: result.discovered,
+            created: result.created,
+            updated: result.updated,
+          }) + (result.databasesLinked ? ` ${t('{count} database(s) attached from their .env.', { count: result.databasesLinked })}` : ''),
         ...(result.errors?.length ? { variant: 'destructive' as const } : {}),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });

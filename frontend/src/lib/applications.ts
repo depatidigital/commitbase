@@ -717,6 +717,8 @@ export const hasBeenDeployed = (application: Application): boolean => {
 }; 
 
 export interface AppSyncResult {
+  /** databases the apps' .env files named, attached this sync */
+  databasesLinked?: number;
   discovered: number;
   created: number;
   updated: number;

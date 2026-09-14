@@ -41,6 +41,7 @@ export default {
   "Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
     "Menjalankan git checkout {branch} di {dir}, sampai commit terbaru di remote. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
   "Switch branch": "Ganti branch",
+  "{count} database(s) attached from their .env.": "{count} database ditautkan dari .env aplikasinya.",
   "I understand the site runs the code of {branch} as soon as it is switched.":
     "Saya mengerti situs langsung menjalankan kode dari {branch} begitu branch diganti.",
   "{branch} is the only branch on the remote — push another one to switch to it.":

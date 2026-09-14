@@ -5,6 +5,7 @@ import { createApplicationWithSource, dropOrphanSources, setSourceOrganization }
 import { setAppHosts, zonesFor } from '../lib/appDomains';
 import { exec, type SshTarget } from '../lib/runner';
 import { parseEnvFile } from '../lib/projectDetect';
+import { sealEnv } from '../lib/appEnv';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
 
@@ -588,6 +589,7 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         totals.discovered += result.discovered;
         totals.created += result.created;
         totals.updated += result.updated;
+        totals.databasesLinked = (totals.databasesLinked ?? 0) + (result.databasesLinked ?? 0);
         totals.apps.push(...result.apps);
         if (result.errors) errors.push(...result.errors);
       } catch (error: any) {
@@ -760,9 +762,9 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   // sources left without apps: moved onto a shared checkout, or deleted above
   await dropOrphanSources();
 
-  // the databases their .env files name, on this node's database servers
+  // their .env files: mirrored into the panel, and the databases they name attached
   try {
-    result.databasesLinked = await linkAppDatabases(node);
+    result.databasesLinked = await readAppEnvs(node);
   } catch (error: any) {
     errors.push(`databases: ${error?.message || 'could not read the apps\' .env files'}`);
   }
@@ -807,16 +809,17 @@ export function databaseRefs(env: Record<string, string>): DatabaseRef[] {
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 /**
- * Attach the databases the node's imported apps use, as their .env files say:
- * the app folder's, its parent's (Laravel serves public/) and the checkout's.
- * A database already attached to an app stays with it; only names are read.
+ * The node's imported apps' .env files — the app folder's, its parent's
+ * (Laravel serves public/) and the checkout's, the most specific winning.
+ * Mirrored into the app's env (sealed, like every app's), read-only in the
+ * panel: the file on the server is the truth, and the next sync overwrites.
+ * The databases they name are attached; one attached to an app stays with it.
  */
-async function linkAppDatabases(node: SshTarget): Promise<number> {
+async function readAppEnvs(node: SshTarget): Promise<number> {
   const servers = await prisma.databaseServer.findMany({
     where: { serverId: node.id },
     select: { id: true, engine: true, host: true, appHost: true },
   });
-  if (servers.length === 0) return 0;
 
   const apps = await prisma.application.findMany({
     where: { serverId: node.id, runtime: { not: null }, rootPath: { not: null } },
@@ -833,8 +836,10 @@ async function linkAppDatabases(node: SshTarget): Promise<number> {
       { timeout: 15_000, maxBuffer: 1024 * 1024 },
     ).catch(() => ({ stdout: '' }));
     if (!stdout.trim()) continue;
+    const env = Object.fromEntries(parseEnvFile(stdout));
+    await prisma.application.update({ where: { id: app.id }, data: { envVars: sealEnv(env) } });
 
-    for (const ref of databaseRefs(Object.fromEntries(parseEnvFile(stdout)))) {
+    for (const ref of databaseRefs(env)) {
       // the host it connects to must be one of these servers — this box, or the address it is known by
       const candidates = servers.filter(
         (server) =>
