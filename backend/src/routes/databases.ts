@@ -579,8 +579,9 @@ router.get('/:id/credentials', authenticateToken, async (req: AuthenticatedReque
 async function importable(req: AuthenticatedRequest, id: string) {
   const database = await manageable(req, id);
   if (!database) return { status: 404, error: 'Database not found' } as const;
-  if (database.discovered) {
-    return { status: 400, error: 'This database was imported from its server — the panel holds no login for it' } as const;
+  // imported from its server: backed up and restored as the login its app's .env names (databaseCredentials)
+  if (database.discovered && !database.applicationId) {
+    return { status: 400, error: 'This database was imported from its server — attach it to its app first, so its login is known' } as const;
   }
   if (database.status !== 'RUNNING' || !database.dbName) return { status: 400, error: 'The database is not ready yet' } as const;
   return { database };

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ProvisionError, accountName, connectionUrl, databaseName, hostForApp, loginName, ownerRoleName } from './databaseProvisionService';
+import { ProvisionError, loginFromEnv, accountName, connectionUrl, databaseName, hostForApp, loginName, ownerRoleName } from './databaseProvisionService';
 
 // login names: dashes become underscores, and MySQL's 32-char cap is kept
 assert.equal(loginName('acme', 'POSTGRESQL'), 'org_acme');
@@ -48,5 +48,11 @@ assert.equal(hostForApp({ ...tunnelled, appHost: '10.0.0.5' }, 'node-b'), '10.0.
 assert.equal(hostForApp({ ...tunnelled, appHost: 'localhost' }, 'node-b'), '103.1.2.3');
 // a managed service is the same address from everywhere
 assert.equal(hostForApp({ mode: 'DIRECT', host: 'db.example.com', appHost: 'db.example.com', serverId: null }, 'node-a'), 'db.example.com');
+
+// a discovered database is reached as the login its app's .env names — only for that very database
+assert.deepEqual(loginFromEnv({ DATABASE_URL: 'postgresql://cpns:p%40ss@127.0.0.1:5432/cpnsfokus' }, 'cpnsfokus'), { username: 'cpns', password: 'p@ss' });
+assert.equal(loginFromEnv({ DATABASE_URL: 'postgresql://cpns:x@127.0.0.1:5432/other' }, 'cpnsfokus'), null);
+assert.deepEqual(loginFromEnv({ DB_DATABASE: 'shop', DB_USERNAME: 'shopuser', DB_PASSWORD: 's' }, 'shop'), { username: 'shopuser', password: 's' });
+assert.equal(loginFromEnv({ DB_DATABASE: 'shop' }, 'shop'), null);
 
 console.log('databaseProvisionService: names + connectionUrl + logins + hostForApp OK');

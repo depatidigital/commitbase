@@ -302,7 +302,7 @@ async function withTenant<T>(databaseId: string, fn: (session: Session) => Promi
   const dbs = db.databaseServer;
   const dbName = db.dbName;
   const engine = dbs.engine as Engine;
-  // throws for a discovered database: we do not hold its password
+  // a discovered database: the login its app's .env names (databaseCredentials)
   const { username, password } = await databaseCredentials(databaseId);
   const ssl = tlsOptions(dbs);
 

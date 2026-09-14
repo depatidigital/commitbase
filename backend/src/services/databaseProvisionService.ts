@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { decrypt, encrypt } from '../lib/secretBox';
 import { withAdmin, type AdminSession, type DbServerRow } from './databaseServerService';
+import { readEnv } from '../lib/appEnv';
 
 /**
  * Creating and dropping tenant databases, and the logins that reach them.
@@ -379,11 +380,53 @@ export async function dropDatabase(id: string): Promise<void> {
  * only for databases the panel created; the caller audits the read. With
  * `appNodeId`, the host is the one an app on that node can reach (hostForApp).
  */
+/**
+ * The login an app's env uses for `dbName` — its DATABASE_URL / DIRECT_URL, or
+ * Laravel's DB_* (and PG* / MYSQL_*) — only when that env names this very
+ * database. null when it does not say. Pure.
+ */
+export function loginFromEnv(env: Record<string, string>, dbName: string): { username: string; password: string } | null {
+  for (const key of ['DATABASE_URL', 'DIRECT_URL']) {
+    try {
+      const url = new URL(env[key] ?? '');
+      if (decodeURIComponent(url.pathname.replace(/^\/+/, '')) === dbName && url.username) {
+        return { username: decodeURIComponent(url.username), password: decodeURIComponent(url.password) };
+      }
+    } catch {
+      // not a URL
+    }
+  }
+  const name = env.DB_DATABASE || env.DB_NAME || env.PGDATABASE || env.MYSQL_DATABASE;
+  const username = env.DB_USERNAME || env.DB_USER || env.PGUSER || env.MYSQL_USER;
+  if (name === dbName && username) return { username, password: env.DB_PASSWORD || env.PGPASSWORD || env.MYSQL_PASSWORD || '' };
+  return null;
+}
+
 export async function databaseCredentials(id: string, accountId?: string, appNodeId?: string | null) {
   const db = await loadDatabase(id);
   if (!db) throw new ProvisionError('Database not found');
   if (db.discovered) {
-    throw new ProvisionError('This database was imported from the server — its credentials live with whoever created it');
+    // Not ours: no login of the panel's. The app it is attached to says in its
+    // .env (mirrored by the app sync) which one it uses — that one, so a
+    // restore leaves everything owned by the login the app runs as.
+    const app = db.applicationId
+      ? await prisma.application.findUnique({ where: { id: db.applicationId }, select: { envVars: true } })
+      : null;
+    const login = app && db.dbName ? loginFromEnv(readEnv(app.envVars), db.dbName) : null;
+    if (!login || !db.databaseServer || !db.dbName) {
+      throw new ProvisionError("This database was imported from the server, and no attached app's .env names a login for it — sync the apps, or attach it to its app");
+    }
+    const dbs = db.databaseServer;
+    const host = appNodeId === undefined ? dbs.appHost : hostForApp(dbs, appNodeId);
+    return {
+      engine: dbs.engine,
+      host,
+      port: dbs.port,
+      database: db.dbName,
+      ...login,
+      tls: dbs.mode === 'DIRECT',
+      url: connectionUrl(dbs, login.username, db.dbName, login.password, host),
+    };
   }
   const { dbs, dbName } = requireParts(db);
 
