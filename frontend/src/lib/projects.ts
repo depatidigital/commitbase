@@ -1,0 +1,106 @@
+import apiRequest, { PaginatedResponse } from './api';
+import { type ListParams, listQuery } from './admin';
+import { t } from './i18n';
+import type { AppBranches } from './applications';
+
+/**
+ * Projects ("Proyek") — the API's sources: a repository checkout or an upload,
+ * and the apps ("Aplikasi") served from it. Pulling and deploying are the
+ * project's; everything per hostname stays on the app.
+ */
+
+export type ProjectStatus = 'RUNNING' | 'PARTIAL' | 'STOPPED' | 'ERROR' | 'DEPLOYING' | 'DISABLED' | 'EMPTY';
+
+export interface ProjectApp {
+  id: string;
+  name: string;
+  domain: string;
+  type: string;
+  status: string;
+  runtime: string | null;
+  disabled: boolean;
+  processName: string | null;
+  rootDirectory: string | null;
+  rootPath: string | null;
+  port: number | null;
+  createdAt: string;
+}
+
+export interface Project {
+  id: string;
+  /** what to show: its own name, else derived (repository, folder, first hostname) */
+  name: string;
+  /** the name someone gave it; null = derived */
+  customName: string | null;
+  /** IMPORTED: checked out on its server, pulled there. MANAGED: built and deployed by the panel. */
+  kind: 'IMPORTED' | 'MANAGED';
+  status: ProjectStatus;
+  repository: string | null;
+  branch: string | null;
+  gitAccountId: string | null;
+  /** imported: the checkout on its server */
+  path: string | null;
+  organization: { id: string; name: string; slug: string } | null;
+  server: { id: string; name: string; hostname?: string; publicIp?: string } | null;
+  applications: ProjectApp[];
+  activeRelease?: { id: string; commitSha: string | null; createdAt: string } | null;
+  lastDeployment?: { status: string; createdAt: string; commitHash: string | null; commitMessage: string | null } | null;
+  createdAt: string;
+}
+
+export const getProjects = async (
+  params: ListParams & { serverId?: string },
+): Promise<PaginatedResponse<Project>> => {
+  const { serverId, ...rest } = params;
+  const query = listQuery(rest);
+  const extra = serverId ? `${query ? '&' : '?'}serverId=${encodeURIComponent(serverId)}` : '';
+  const response = await apiRequest<PaginatedResponse<Project>>(`/sources${query}${extra}`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not load the projects'));
+};
+
+export const getProject = async (id: string): Promise<Project> => {
+  const response = await apiRequest<Project>(`/sources/${id}`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not load the project'));
+};
+
+export const updateProject = async (
+  id: string,
+  data: Partial<{ name: string; repository: string; branch: string; gitAccountId: string | null; organizationId: string | null }>,
+): Promise<Project> => {
+  const response = await apiRequest<Project>(`/sources/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not update the project'));
+};
+
+/** Branches, their newest commits, and what is live. */
+export const getProjectBranches = async (id: string): Promise<AppBranches> => {
+  const response = await apiRequest<AppBranches>(`/sources/${id}/branches`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not read the branches'));
+};
+
+/** git pull of an imported project's checkout — for every app served from it. */
+export const pullProject = async (id: string): Promise<{ output: string; apps: string[] }> => {
+  const response = await apiRequest<{ output: string; apps: string[] }>(`/sources/${id}/pull`, { method: 'POST' });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Pull failed'));
+};
+
+/** Build and release every app of a panel-managed project. */
+export const deployProject = async (id: string): Promise<string> => {
+  const response = await apiRequest<{ deploymentId: string }>(`/sources/${id}/deploy`, { method: 'POST' });
+  if (response.success && response.data) return response.data.deploymentId;
+  throw new Error(response.error || t('Could not start the deployment'));
+};
+
+/** Give projects (and every app of them) an owner. */
+export const assignProjects = async (ids: string[], organizationId: string | null): Promise<number> => {
+  const response = await apiRequest<{ count: number }>('/applications/bulk-assign', {
+    method: 'PATCH',
+    body: JSON.stringify({ ids, organizationId, sources: true }),
+  });
+  if (response.success && response.data) return response.data.count;
+  throw new Error(response.error || t('Failed to assign applications'));
+};
