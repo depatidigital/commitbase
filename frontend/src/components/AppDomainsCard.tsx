@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, Globe, Loader2, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Plus, ShoppingCart, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,7 @@ import { HostnamePicker, hostnameProblem, joinHost } from "@/components/Hostname
 import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { useToast } from "@/hooks/use-toast";
 import { type Application, type HostnameHealth, addAppDomain, removeAppDomain } from "@/lib/applications";
-import { HostBadge, HostPointing } from "@/components/HostCheck";
+import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { isAdmin } from "@/lib/auth";
 import { getDomainChoices } from "@/lib/domains";
 import { t } from "@/lib/i18n";
@@ -137,15 +137,21 @@ export function AppDomainsCard({
               </a>
               {name.parentDomain?.shared && <Badge variant="secondary">{t("free")}</Badge>}
               <DomainExpiryBadge domain={name.parentDomain} />
-              {/* how it is doing, and where its DNS leads — the one place every name is listed */}
+              {/* connected right: a tick, nothing more. Anything else says what is wrong, and how to fix it */}
               <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                <HostBadge
-                  host={name.host}
-                  check={checks?.find((check) => check.host === name.host)}
-                  pending={pending}
-                  onRepoint={onRepoint && (() => onRepoint(name.host))}
-                />
-                <HostPointing check={checks?.find((check) => check.host === name.host)} />
+                {(() => {
+                  const check = checks?.find((c) => c.host === name.host);
+                  if (!check) return null;
+                  if (hostOk(check) && check.pointing?.state === "here") {
+                    return <CheckCircle className="h-4 w-4 text-success" aria-label={t("Points at this server")} />;
+                  }
+                  return (
+                    <>
+                      <HostBadge host={name.host} check={check} pending={pending} onRepoint={onRepoint && (() => onRepoint(name.host))} />
+                      {check.pointing?.state === "elsewhere" && <HostPointing check={check} />}
+                    </>
+                  );
+                })()}
               </span>
               <Button
                 variant="ghost"
