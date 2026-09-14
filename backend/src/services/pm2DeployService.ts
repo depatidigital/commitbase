@@ -1,6 +1,7 @@
 import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
+import { listPm2Processes } from './appSyncService';
 
 /**
  * Build and restart an imported pm2 app where it lives: its own folder on its
@@ -55,13 +56,16 @@ export function pm2DeploySteps(files: string[], packageJson: string | null, proc
 /**
  * Runs `argv` in `dir` with nvm's node on the PATH — how these boxes install
  * node — and CI=true: there is no terminal to answer a prompt (pnpm refuses to
- * rebuild node_modules without one otherwise).
+ * rebuild node_modules without one otherwise). The node is the one pm2 runs
+ * the app with: the newest installed is not it (a Prisma that supports 24
+ * refuses 25). Unknown or not installed under nvm: every nvm node, as before.
  */
-const inDir = (dir: string, argv: string[]) => [
+const inDir = (dir: string, nodeVersion: string | undefined, argv: string[]) => [
   'sh',
   '-c',
-  'for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$d:$PATH"; done; export CI=true; cd -- "$0" && exec "$@"',
+  'v="$HOME/.nvm/versions/node/v$1/bin"; if [ -n "$1" ] && [ -d "$v" ]; then PATH="$v:$PATH"; else for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$d:$PATH"; done; fi; export CI=true; cd -- "$0" && shift && exec "$@"',
   dir,
+  nodeVersion && /^[0-9][0-9.]*$/.test(nodeVersion) ? nodeVersion : '',
   ...argv,
 ];
 
@@ -107,6 +111,8 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
   const [listing = '', json = ''] = stdout.split(/^---$/m);
   const files = listing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const steps = pm2DeploySteps(files, files.includes('package.json') ? json.trim() : null, app.processName);
+  // the node the running process uses — builds and native modules must match it
+  const nodeVersion = (await listPm2Processes(server)).find((process) => process.name === app.processName)?.nodeVersion;
 
   const deployment = await prisma.deployment.create({
     data: { applicationId: app.id, sourceId: app.sourceId, userId, status: 'BUILDING', deployLogs: `Build and restart in ${dir}\n` },
@@ -114,18 +120,19 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
   running.add(`${server.id}:${dir}`);
   // the page follows a deploying app; what it was comes back if the build fails
   await prisma.application.update({ where: { id: app.id }, data: { status: 'DEPLOYING' } });
-  void run(server, dir, app, steps, deployment.id).finally(() => running.delete(`${server.id}:${dir}`));
+  void run(server, dir, nodeVersion, app, steps, deployment.id).finally(() => running.delete(`${server.id}:${dir}`));
   return deployment.id;
 }
 
 async function run(
   server: SshTarget,
   dir: string,
+  nodeVersion: string | undefined,
   app: { id: string; status: string },
   steps: Array<{ label: string; argv: string[] }>,
   deploymentId: string,
 ): Promise<void> {
-  let log = `Build and restart in ${dir}\n`;
+  let log = `Build and restart in ${dir}${nodeVersion ? ` with node ${nodeVersion} (as pm2 runs it)` : ''}\n`;
   let dirty = false;
   // the row follows the log every couple of seconds, not every chunk
   const flush = setInterval(() => {
@@ -143,7 +150,7 @@ async function run(
       if (step.label === 'restart') await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'DEPLOYING' } });
       write(`\n$ ${step.argv.join(' ')}\n`);
       // the log streams through `write`; what exec keeps is only for its error message
-      await exec(server, inDir(dir, step.argv), { timeout: 30 * 60_000, maxBuffer: 1024 * 1024, onOutput: write });
+      await exec(server, inDir(dir, nodeVersion, step.argv), { timeout: 30 * 60_000, maxBuffer: 1024 * 1024, onOutput: write });
     }
     clearInterval(flush);
     await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'SUCCESS', deployLogs: log.slice(-200_000) } });

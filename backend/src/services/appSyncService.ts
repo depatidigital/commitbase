@@ -80,7 +80,7 @@ export type AppSyncResult = {
   errors?: string[];
 };
 
-type Pm2Process = {
+export type Pm2Process = {
   name: string;
   status: string;
   pid?: number | undefined;
@@ -91,6 +91,8 @@ type Pm2Process = {
   uptime?: string | undefined;
   /** what pm2 runs, as someone would type it in its folder */
   startCommand?: string | undefined;
+  /** the node pm2 runs it with, e.g. `24.13.0` — a build must use the same one */
+  nodeVersion?: string | undefined;
 };
 
 /**
@@ -158,6 +160,7 @@ export async function listPm2Processes(node: SshTarget): Promise<Pm2Process[]> {
           cpu: process.monit?.cpu != null ? `${process.monit.cpu}%` : undefined,
           uptime: env.pm_uptime ? humanUptime(env.pm_uptime) : undefined,
           startCommand: pm2StartCommand(env),
+          nodeVersion: typeof env.node_version === 'string' ? env.node_version : undefined,
         };
       })
       .filter((process) => process.name);
