@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getApplication, runtimeLabel } from "@/lib/applications";
 import { isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
-import { deployProject, getProject, PROJECT_STATUS } from "@/lib/projects";
+import { appParts, deployProject, getProject, PROJECT_STATUS } from "@/lib/projects";
 
 const APP_DOT: Record<string, string> = {
   RUNNING: "bg-success",
@@ -24,7 +24,7 @@ const APP_DOT: Record<string, string> = {
 };
 
 /**
- * A project ("Proyek") with several apps ("Aplikasi"): a monorepo's, or the
+ * A project ("Proyek") and its apps ("Aplikasi") — one, or a monorepo's, or the
  * sites one checkout serves. Pulling and deploying are here, once for all of
  * them; each app's own page keeps what is per hostname.
  */
@@ -97,7 +97,7 @@ export default function ProjectDetail() {
               </Button>
               <Button className="bg-gradient-primary" disabled={deploy.isPending || deploying} onClick={() => deploy.mutate()}>
                 {deploy.isPending || deploying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
-                {deploying ? t("Deploying…") : t("Deploy all")}
+                {deploying ? t("Deploying…") : project.applications.length > 1 ? t("Deploy all") : t("Deploy")}
               </Button>
             </>
           )}
@@ -115,32 +115,43 @@ export default function ProjectDetail() {
               </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border/60 p-0">
-              {project.applications.map((app) => {
-                const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
+              {/* one row per app — and per path of a hostname split by path
+                  (app.arusflow.id and app.arusflow.id/api/*); all of them open the app */}
+              {project.applications.flatMap((app) => appParts(app).map((part) => ({ app, part }))).map(({ app, part }) => {
+                const type = APP_TYPES[part.type] ?? { label: part.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
                 const TypeIcon = type.icon;
                 const internal = app.domain.endsWith(".local");
+                // what serves this part on the box: the app's own process, or Caddy
+                const runtime = part.owner
+                  ? app.runtime && `${runtimeLabel(app.runtime)}${app.processName ? ` · ${app.processName}` : ""}`
+                  : runtimeLabel(part.proxyPort ? "CADDY_PROXY" : "CADDY_STATIC");
+                const serves = app.routing?.length ? (part.proxyPort ? `:${part.proxyPort}` : part.root) : app.rootPath;
                 return (
                   <button
-                    key={app.id}
+                    key={part.key}
                     type="button"
                     onClick={() => navigate(`/application/${app.id}`)}
                     className={`flex w-full items-center gap-3 px-6 py-3 text-left hover:bg-muted/50 ${app.disabled ? "opacity-50" : ""}`}
                   >
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${APP_DOT[app.status] ?? "bg-muted-foreground/40"}`} title={app.status} />
+                    {/* the uptime check reaches the hostname, not its /api/*: the dot is the hostname row's */}
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${part.main ? APP_DOT[app.status] ?? "bg-muted-foreground/40" : ""}`}
+                      title={part.main ? app.status : undefined}
+                    />
                     <span className="flex w-20 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium">
                       <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
                       <span className="truncate">{type.label}</span>
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{internal ? app.name : app.domain}</span>
-                      {/* what tells the apps apart: their folder, or what runs them */}
+                      <span className="block truncate font-medium">{part.label}</span>
+                      {/* what tells them apart: their folder, or what runs them */}
                       <span className="block truncate text-xs text-muted-foreground">
-                        {[app.rootDirectory, superAdmin && app.runtime && `${runtimeLabel(app.runtime)}${app.processName ? ` · ${app.processName}` : ""}`, superAdmin && app.rootPath]
+                        {[part.main && app.rootDirectory, superAdmin && runtime, superAdmin && serves]
                           .filter(Boolean)
                           .join(" · ") || t("Repository root")}
                       </span>
                     </span>
-                    {!internal && (
+                    {!internal && part.main && (
                       <a
                         href={`https://${app.domain}`}
                         target="_blank"

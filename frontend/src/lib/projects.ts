@@ -117,6 +117,43 @@ export const PROJECT_STATUS: Record<ProjectStatus, { dot: string; text: string }
   EMPTY: { dot: "bg-muted-foreground/20", text: t("No apps") },
 };
 
-/** Where a project row goes: its one app's page, or the project's when it has several. */
-export const projectPath = (project: Pick<Project, "id" | "applications">) =>
-  project.applications.length === 1 ? `/application/${project.applications[0].id}` : `/project/${project.id}`;
+/**
+ * An app as the list shows it: one row per path its hostname is split into —
+ * `app.arusflow.id` (the static front end) and `app.arusflow.id/api/*` (the
+ * API) — else one row. `main` is the hostname itself: the part its uptime
+ * check reaches. `owner`: the part the app's own process (its port) serves.
+ */
+export type AppPart = {
+  key: string;
+  label: string;
+  type: string;
+  /** what serves it: `:9200`, or the folder of static files */
+  proxyPort: number | null;
+  root: string | null;
+  main: boolean;
+  owner: boolean;
+};
+
+export function appParts(app: ProjectApp): AppPart[] {
+  const host = app.domain.endsWith(".local") ? app.name : app.domain;
+  if (!app.routing?.length) {
+    return [{ key: app.id, label: host, type: app.type, proxyPort: app.port, root: null, main: true, owner: true }];
+  }
+  // the hostname first, then its paths, in the order Caddy tries them
+  const parts = [...app.routing].sort((a, b) => Number(a.path !== null) - Number(b.path !== null));
+  return parts.map((part, index) => {
+    const port = Number(part.proxy?.match(/:(\d+)$/)?.[1]) || null;
+    return {
+      key: `${app.id}:${index}`,
+      label: part.path ? `${host}${part.path}` : host,
+      type: part.proxy ? "NODEJS" : "STATIC",
+      proxyPort: port,
+      root: part.root ?? null,
+      main: part.path === null,
+      owner: port !== null && port === app.port,
+    };
+  });
+}
+
+/** Where a project goes: always its own page — its apps are opened from there. */
+export const projectPath = (project: Pick<Project, "id">) => `/project/${project.id}`;

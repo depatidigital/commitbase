@@ -13,6 +13,9 @@ assert.strictEqual(sourceName({ name: null, repository: 'https://gitlab.com/depa
 assert.strictEqual(sourceName({ name: null, repository: 'https://gitlab.com/depatidevteam/sematapress.git', path: null }), 'sematapress');
 assert.strictEqual(sourceName({ name: null, repository: 'git@github.com:acme/shop', path: null }), 'shop');
 assert.strictEqual(sourceName({ name: '', repository: null, path: '/var/www/html/arusflow_9200/' }), 'arusflow_9200');
+// a folder named like every served folder says nothing: its parent does
+assert.strictEqual(sourceName({ name: null, repository: null, path: '/var/www/html/cgc.depatidigital.com/public' }), 'cgc.depatidigital.com');
+assert.strictEqual(sourceName({ name: null, repository: null, path: '/srv/shop/web/dist' }), 'shop');
 assert.strictEqual(sourceName({ name: null, repository: null, path: null }, 'blog.example.com'), 'blog.example.com');
 
 // worst first; switched-off apps only count when all are

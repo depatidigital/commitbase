@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, FolderGit2, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
+import { AlertCircle, ExternalLink, FolderGit2, Layers, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,13 +11,15 @@ import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
+import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
-import { repoName } from "@/lib/applications";
+import { repoName, runtimeLabel } from "@/lib/applications";
+import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
 import { getServers } from "@/lib/servers";
-import { assignProjects, getProjects, PROJECT_STATUS, projectPath, type Project } from "@/lib/projects";
+import { appParts, assignProjects, getProjects, projectPath, type AppPart, type Project, type ProjectApp } from "@/lib/projects";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
 const ALL = "__all__";
@@ -30,10 +32,32 @@ const ago = (value: string) => {
   return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
+const TONE_DOT: Record<Tone, string> = {
+  up: "bg-success",
+  down: "bg-destructive ring-4 ring-destructive/15",
+  warn: "bg-warning",
+  deploying: "",
+  muted: "bg-muted-foreground/40",
+};
+
+function Dot({ tone, text }: { tone: Tone; text: string }) {
+  return (
+    <span className="flex items-center justify-center" title={text}>
+      {tone === "deploying" ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" />
+      ) : (
+        <span className={`h-2.5 w-2.5 rounded-full ${TONE_DOT[tone]}`} />
+      )}
+      <span className="sr-only">{text}</span>
+    </span>
+  );
+}
+
 /**
  * The app list, one row per project ("Proyek"): a repository checkout or an
- * upload, and the apps ("Aplikasi") served from it. Most have one app, and
- * open straight onto it; a monorepo or a multi-site checkout opens its project.
+ * upload, with the apps ("Aplikasi") served from it listed inside the row,
+ * each with its own uptime. The row opens the project — its apps are opened
+ * from there; here they are only listed, with a link to the live site.
  */
 export default function Projects() {
   const navigate = useNavigate();
@@ -55,6 +79,16 @@ export default function Projects() {
     refetchInterval: 15_000,
   });
   const projects = data?.data ?? [];
+
+  // one request for the uptime of every app on the page, on the checks' rhythm
+  const appIds = projects.flatMap((project) => project.applications.map((app) => app.id));
+  const { data: healthById = {} } = useQuery({
+    queryKey: ["applications", "health", appIds],
+    queryFn: () => getApplicationHealth(appIds),
+    enabled: appIds.length > 0,
+    refetchInterval: 60_000,
+  });
+  const statusOf = (app: ProjectApp) => appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
 
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superAdmin });
 
@@ -85,6 +119,69 @@ export default function Projects() {
   const allSelected = projects.length > 0 && projects.every((project) => selectedIds.includes(project.id));
   const toggleOne = (id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  // One line of a project's row per app (per path of a split hostname): its
+  // uptime dot, type, address and open-link; how it runs, for the operator.
+  // Only the open-link does anything — the row itself is the project's.
+  const appLine = (app: ProjectApp, part: AppPart) => {
+    const type = APP_TYPES[part.type] ?? { label: part.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
+    const TypeIcon = type.icon;
+    // a sync placeholder like arusflow.pm2.local: nothing a browser can open
+    const internal = app.domain.endsWith(".local");
+    const health = healthById[app.id] as Health | undefined;
+    const { tone, text } = statusOf(app);
+    // what serves this part on the box: the app's own process, or Caddy
+    const runtime = part.owner
+      ? `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`
+      : part.proxyPort
+        ? runtimeLabel("CADDY_PROXY")
+        : runtimeLabel("CADDY_STATIC");
+    const target = !app.routing?.length ? null : part.proxyPort ? `:${part.proxyPort}` : part.root?.split("/").slice(-2).join("/") ?? null;
+    return (
+      <div key={part.key} className={`flex min-w-0 items-center gap-2 ${app.disabled ? "opacity-50" : ""}`}>
+        {/* the uptime check reaches the hostname, not its /api/*: the dot is the hostname line's */}
+        <span className="w-3 shrink-0">
+          {part.main && (
+            <Dot
+              tone={tone}
+              text={[text, health?.uptime24h != null && t("{uptime}% up in the last 24 hours", { uptime: health.uptime24h }), health?.state !== "up" && health?.lastError]
+                .filter(Boolean)
+                .join(" · ")}
+            />
+          )}
+        </span>
+        <span className="flex w-20 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+          <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
+          <span className="truncate">{type.label}</span>
+        </span>
+        <span className="truncate text-sm">{part.label}</span>
+        {!internal && part.main && (
+          <a
+            href={`https://${app.domain}`}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 text-muted-foreground hover:text-primary"
+            aria-label={t("Open {url}", { url: app.domain })}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+        {superAdmin && (
+          <span className="flex min-w-0 shrink items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
+              {runtime}
+            </Badge>
+            {target && <span className="truncate font-mono">→ {target}</span>}
+          </span>
+        )}
+        {part.main && health?.uptime24h != null && (
+          <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground" title={t("Successful checks in the last 24 hours")}>
+            {t("{uptime}% / 24h", { uptime: health.uptime24h })}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const columns: Column<Project>[] = [
     ...(superAdmin
       ? [
@@ -96,12 +193,11 @@ export default function Projects() {
                 aria-label={t("Select all projects on this page")}
               />
             ),
-            className: "w-10",
+            className: "w-10 align-top",
             cell: (project: Project) => (
               <Checkbox
                 checked={selectedIds.includes(project.id)}
                 onCheckedChange={() => toggleOne(project.id)}
-                onClick={(event) => event.stopPropagation()}
                 aria-label={t("Select {name}", { name: project.name })}
               />
             ),
@@ -109,83 +205,68 @@ export default function Projects() {
         ]
       : []),
     {
-      header: "",
-      className: "w-10",
+      header: t("Project"),
+      sortKey: "name",
+      className: "align-top",
+      // the project, and its apps under its name — one row, one way in
       cell: (project) => {
-        const status = PROJECT_STATUS[project.status] ?? PROJECT_STATUS.STOPPED;
+        const down = project.applications.filter((app) => statusOf(app).tone === "down").length;
         return (
-          <span className="flex items-center justify-center" title={status.text}>
-            {project.status === "DEPLOYING" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" />
-            ) : (
-              <span className={`h-2.5 w-2.5 rounded-full ${status.dot}`} />
-            )}
-            <span className="sr-only">{status.text}</span>
-          </span>
+          <div className="min-w-0 space-y-1.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate font-medium">{project.name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t("{count} apps", { count: project.applications.reduce((sum, app) => sum + appParts(app).length, 0) })}
+              </span>
+              {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">· {t("{count} down", { count: down })}</span>}
+            </span>
+            <div className="space-y-1 pl-1">
+              {project.applications.flatMap((app) => appParts(app).map((part) => appLine(app, part)))}
+            </div>
+          </div>
         );
       },
     },
     {
-      header: t("Project"),
-      sortKey: "name",
+      header: t("Repository"),
+      className: "w-[18%] align-top",
+      // where the code comes from; for a monorepo, the folders of its apps
       cell: (project) => (
-        <div className="min-w-0">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <Link
-              to={projectPath(project)}
-              onClick={(event) => event.stopPropagation()}
-              className="truncate font-medium transition-colors hover:text-primary"
-            >
-              {project.name}
-            </Link>
+        <div className="min-w-0 space-y-0.5 font-mono text-xs text-muted-foreground">
+          <span className="block truncate" title={project.repository ?? undefined}>
+            {project.repository ? `${repoName(project.repository)} · ${project.branch || "main"}` : t("Uploaded files")}
           </span>
-          {/* where the code comes from: the repository and branch, else the folder */}
-          <span className="mt-0.5 block truncate font-mono text-xs text-muted-foreground" title={project.path ?? project.repository ?? undefined}>
-            {project.repository
-              ? `${repoName(project.repository)} · ${project.branch || "main"}`
-              : project.path ?? t("Uploaded files")}
-          </span>
-        </div>
-      ),
-    },
-    {
-      header: t("Apps"),
-      className: "w-[30%]",
-      sortKey: "apps",
-      // its hostnames, as many as fit; the count says the rest
-      cell: (project) => (
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          {project.applications.slice(0, 3).map((app) => (
-            <Link
-              key={app.id}
-              to={`/application/${app.id}`}
-              onClick={(event) => event.stopPropagation()}
-              className={`max-w-full truncate rounded-md bg-muted px-1.5 py-0.5 text-xs hover:text-primary ${app.disabled ? "opacity-50" : ""}`}
-              title={app.domain}
-            >
-              {app.domain.endsWith(".local") ? app.name : app.domain}
-            </Link>
+          {[...new Set(project.applications.map((app) => app.rootDirectory).filter(Boolean))].map((dir) => (
+            <span key={dir} className="block truncate">
+              {dir}
+            </span>
           ))}
-          {project.applications.length > 3 && (
-            <span className="text-xs text-muted-foreground">{t("+{count} more", { count: project.applications.length - 3 })}</span>
-          )}
         </div>
       ),
     },
     ...(superAdmin
       ? [
           {
+            // where it lives on the server: the checkout a pull updates
+            header: t("Folder"),
+            className: "w-[18%] align-top",
+            cell: (project: Project) => (
+              <span className="block truncate font-mono text-xs text-muted-foreground" title={project.path ?? undefined}>
+                {project.path ?? "—"}
+              </span>
+            ),
+          },
+          {
             header: t("Organization"),
-            className: "w-[14%]",
+            className: "w-[12%] align-top",
             sortKey: "organization",
             cell: (project: Project) => (
               <button
                 type="button"
                 title={t("Change organization")}
                 className="max-w-full"
-                onClick={(event) => {
-                  event.stopPropagation();
+                onClick={() => {
                   setAssignOrgId(project.organization?.id ?? null);
                   setAssignTarget({ id: project.id, name: project.name });
                 }}
@@ -202,11 +283,11 @@ export default function Projects() {
           },
           {
             header: t("Server"),
-            className: "w-28 text-xs",
+            className: "w-28 align-top text-xs",
             sortKey: "server",
             cell: (project: Project) =>
               project.server ? (
-                <Link to={`/servers/${project.server.id}`} onClick={(event) => event.stopPropagation()} className="truncate hover:underline">
+                <Link to={`/servers/${project.server.id}`} className="truncate hover:underline">
                   {project.server.name}
                 </Link>
               ) : (
@@ -217,7 +298,7 @@ export default function Projects() {
       : []),
     {
       header: t("Last deploy"),
-      className: "w-32 text-xs",
+      className: "w-28 align-top text-xs",
       cell: (project) => {
         const last = project.lastDeployment;
         if (!last) return <span className="text-muted-foreground">—</span>;

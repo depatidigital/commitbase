@@ -77,6 +77,13 @@ export async function setSourceOrganization(sourceIds: string[], organizationId:
 /** `https://gitlab.com/acme/shop.git` → `shop`; `/var/www/html/shop/` → `shop`. Pure. */
 const lastSegment = (value: string) => value.replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || null;
 
+// what a served folder is usually called inside its project — no name at all
+const GENERIC = new Set(['public', 'public_html', 'html', 'www', 'htdocs', 'web', 'dist', 'build', 'out', 'current', 'server', 'app', 'src']);
+
+/** `/var/www/html/cgc.depatidigital.com/public` → `cgc.depatidigital.com`: the nearest folder with a name of its own. */
+const folderName = (value: string) =>
+  value.replace(/\/+$/, '').split('/').filter(Boolean).reverse().find((part) => !GENERIC.has(part.toLowerCase())) ?? lastSegment(value);
+
 /**
  * What a source is called when nobody named it: the folder it is checked out
  * in — one repository is often checked out several times on a server, once
@@ -89,7 +96,7 @@ export function sourceName(
 ): string {
   return (
     source.name?.trim() ||
-    (source.path && lastSegment(source.path)) ||
+    (source.path && folderName(source.path)) ||
     (source.repository && lastSegment(source.repository)) ||
     firstDomain ||
     'Proyek'
