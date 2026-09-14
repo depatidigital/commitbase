@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { detectFromFiles, nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly } from './projectDetect';
+import { detectFromFiles, nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -144,5 +144,34 @@ assert.strictEqual(next.preDeployCommand, null);
 // the client is generated before the build, not left to the install
 assert.strictEqual(detectFromFiles({ ...prismaPkg, 'pnpm-lock.yaml': '' }).generateCommand, 'pnpm prisma generate');
 assert.strictEqual(next.generateCommand, null);
+
+// Monorepo: a workspace package inherits the root's lockfile, node version and
+// packageManager, and installs at the root
+const webPkg = { 'package.json': JSON.stringify({ dependencies: { next: '15.0.0' }, scripts: { build: 'next build' } }) };
+const workspaceRoot = {
+  'package.json': JSON.stringify({ private: true, packageManager: 'pnpm@9.1.0' }),
+  'pnpm-lock.yaml': '',
+  '.nvmrc': '20' + NL,
+};
+const inWorkspace = withRootFiles(webPkg, workspaceRoot);
+assert.strictEqual(inWorkspace.installAtRoot, true);
+const web = detectFromFiles(inWorkspace.files);
+assert.strictEqual(web.packageManager, 'pnpm');
+assert.strictEqual(web.installCommand, 'pnpm install --frozen-lockfile');
+assert.strictEqual(web.nodeVersion, '20');
+// packageManager alone (yarn berry repos without a lockfile yet) still names the manager
+assert.strictEqual(detectFromFiles(withRootFiles(webPkg, { 'package.json': JSON.stringify({ packageManager: 'yarn@4.0.0' }) }).files).packageManager, 'yarn');
+// a folder with its own lockfile is its own project: installs there, keeps its manager
+const standalone = withRootFiles({ ...webPkg, 'package-lock.json': '' }, workspaceRoot);
+assert.strictEqual(standalone.installAtRoot, false);
+assert.strictEqual(standalone.files['pnpm-lock.yaml'], undefined);
+assert.strictEqual(detectFromFiles(standalone.files).installCommand, 'npm ci --no-audit --no-fund');
+// its own packageManager wins over the root's
+assert.strictEqual(
+  JSON.parse(withRootFiles({ 'package.json': JSON.stringify({ packageManager: 'bun@1.1.0' }) }, workspaceRoot).files['package.json']!).packageManager,
+  'bun@1.1.0',
+);
+// nothing to inherit: unchanged, installs in the folder
+assert.deepStrictEqual(withRootFiles(webPkg, {}), { files: webPkg, installAtRoot: false });
 
 console.log('projectDetect: ok');

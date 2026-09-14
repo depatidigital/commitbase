@@ -5,7 +5,10 @@
 # Not installed on the node: the panel sends this file's text over SSH and runs
 # it as root with `bash -c <text> cb-app-unit <args>` (orgProvisionService).
 #
-#   cb-app-unit install <org-slug> <app-id>
+#   cb-app-unit install <org-slug> <app-id> [source-id]
+#       source-id: the directory the app's code runs from when it is not the
+#       app's own — the apps of one monorepo share their source's tree. The
+#       unit may write there too, and both trees are handed to the tenant.
 #   cb-app-unit start|stop|restart|remove|status <org-slug> <app-id>
 #   cb-app-unit chown <org-slug> <app-id>     ownership only — PHP apps have no unit
 #   cb-app-unit cancel-build <org-slug> <app-id>
@@ -29,8 +32,14 @@ CB_GROUP="${CB_GROUP:-larika}"
 # Tenant build code (npm scripts, composer) runs as this user. Never the SSH
 # user: that one has passwordless root, and a postinstall script would get it.
 BUILD_USER="${BUILD_USER:-larika-build}"
-BUILD_MEMORY_MAX="${4:-2G}"
-BUILD_CPU_WEIGHT="${5:-50}"
+BUILD_MEMORY_MAX="2G"
+BUILD_CPU_WEIGHT="50"
+SOURCE_ID="$APP_ID"
+# the 4th and 5th arguments mean something different per action
+case "$ACTION" in
+  build)   BUILD_MEMORY_MAX="${4:-2G}"; BUILD_CPU_WEIGHT="${5:-50}" ;;
+  install) SOURCE_ID="${4:-$APP_ID}" ;;
+esac
 [[ "$BUILD_MEMORY_MAX" =~ ^[0-9]+[KMGT]?$ ]] || { echo "cb-app-unit: invalid memory max: '$BUILD_MEMORY_MAX'" >&2; exit 2; }
 [[ "$BUILD_CPU_WEIGHT" =~ ^[0-9]{1,5}$ ]]    || { echo "cb-app-unit: invalid cpu weight: '$BUILD_CPU_WEIGHT'" >&2; exit 2; }
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
@@ -38,6 +47,7 @@ HOME_ROOT="${CB_HOME_ROOT:-/home}"
 [[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build|cancel-build)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
+[[ "$SOURCE_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                     || { echo "cb-app-unit: invalid source id: '$SOURCE_ID'" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "cb-app-unit: must run as root" >&2; exit 2; }
 if getent group commitbase >/dev/null && find "$HOME_ROOT" -maxdepth 1 -name 'cb-*' -group commitbase -print -quit | grep -q .; then
   echo "cb-app-unit: tenant homes on this node still belong to the pre-rename 'commitbase' group — run migrate-to-larika.sh on it first" >&2; exit 4
@@ -46,6 +56,8 @@ fi
 OS_USER="cb-$SLUG"
 HOME_DIR="$HOME_ROOT/$OS_USER"
 APP_DIR="$HOME_DIR/apps/$APP_ID"
+# same org's home, same id rules: never outside this tenant
+SOURCE_DIR="$HOME_DIR/apps/$SOURCE_ID"
 UNIT="cb-$SLUG-$APP_ID.service"
 UNIT_PATH="/etc/systemd/system/$UNIT"
 

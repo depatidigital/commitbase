@@ -434,16 +434,20 @@ const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock
  * version and `packageManager` live at the root only. Pure.
  */
 export function withRootFiles(own: DetectInput, root: DetectInput): { files: DetectInput; installAtRoot: boolean } {
-  const installAtRoot = !LOCKFILES.some((name) => own[name] !== undefined) && LOCKFILES.some((name) => root[name] !== undefined);
+  // a lockfile of its own makes the folder a project of its own
+  const ownLock = LOCKFILES.some((name) => own[name] !== undefined);
+  const installAtRoot = !ownLock && LOCKFILES.some((name) => root[name] !== undefined);
   const inherited = [...(installAtRoot ? LOCKFILES : []), '.nvmrc', '.node-version'] as const;
   const files: DetectInput = { ...own };
   for (const name of inherited) if (files[name] === undefined && root[name] !== undefined) files[name] = root[name];
-  try {
-    const declared = JSON.parse(root['package.json'] || '{}')?.packageManager;
-    const pkg = own['package.json'] ? JSON.parse(own['package.json']) : null;
-    if (declared && pkg && !pkg.packageManager) files['package.json'] = JSON.stringify({ ...pkg, packageManager: declared });
-  } catch {
-    // an unreadable package.json on either side: detect from the folder's own
+  if (!ownLock) {
+    try {
+      const declared = JSON.parse(root['package.json'] || '{}')?.packageManager;
+      const pkg = own['package.json'] ? JSON.parse(own['package.json']) : null;
+      if (declared && pkg && !pkg.packageManager) files['package.json'] = JSON.stringify({ ...pkg, packageManager: declared });
+    } catch {
+      // an unreadable package.json on either side: detect from the folder's own
+    }
   }
   return { files, installAtRoot };
 }
