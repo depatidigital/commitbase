@@ -52,11 +52,15 @@ export function pm2DeploySteps(files: string[], packageJson: string | null, proc
   return steps;
 }
 
-/** Runs `argv` in `dir` with nvm's node on the PATH — how these boxes install node. */
+/**
+ * Runs `argv` in `dir` with nvm's node on the PATH — how these boxes install
+ * node — and CI=true: there is no terminal to answer a prompt (pnpm refuses to
+ * rebuild node_modules without one otherwise).
+ */
 const inDir = (dir: string, argv: string[]) => [
   'sh',
   '-c',
-  'for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$d:$PATH"; done; cd -- "$0" && exec "$@"',
+  'for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$d:$PATH"; done; export CI=true; cd -- "$0" && exec "$@"',
   dir,
   ...argv,
 ];
@@ -138,14 +142,16 @@ async function run(
     for (const step of steps) {
       if (step.label === 'restart') await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'DEPLOYING' } });
       write(`\n$ ${step.argv.join(' ')}\n`);
-      await exec(server, inDir(dir, step.argv), { timeout: 30 * 60_000, maxBuffer: 0, onOutput: write });
+      // the log streams through `write`; what exec keeps is only for its error message
+      await exec(server, inDir(dir, step.argv), { timeout: 30 * 60_000, maxBuffer: 1024 * 1024, onOutput: write });
     }
     clearInterval(flush);
     await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'SUCCESS', deployLogs: log.slice(-200_000) } });
     await prisma.application.update({ where: { id: app.id }, data: { status: 'RUNNING', lastDeployment: new Date() } });
   } catch (error: any) {
     clearInterval(flush);
-    write(`\n${String(error?.stderr || error?.message || error).trim()}\n`);
+    // the step's output is in the log already, streamed — only why it stopped
+    write(`\n${String(error?.message || error).split('\n')[0]}\n`);
     // stopped before the restart: pm2 still runs what it ran — its output may be half rewritten
     write('\nStopped here — nothing after this step ran. pm2 was not restarted unless the log above says so.\n');
     await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'FAILED', deployLogs: log.slice(-200_000) } });

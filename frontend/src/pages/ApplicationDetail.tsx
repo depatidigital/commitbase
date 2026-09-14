@@ -802,11 +802,13 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                     <p className="text-sm text-muted-foreground">{t("Whatever was serving before keeps serving.")}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
+                    {/* again the same way: an imported pm2 app builds where it runs, asked first */}
+                    <Button onClick={canPm2Build ? () => setConfirmPm2Build(true) : deploy} disabled={starting} className="bg-gradient-primary">
                       {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
                       {t("Retry deploy")}
                     </Button>
-                    {!uploadedSite && (
+                    {/* an imported app's env is its .env on the server — nothing to edit here */}
+                    {!uploadedSite && !application.runtime && (
                       <Button variant="outline" onClick={() => setActiveTab("environment")}>
                         {t("Edit environment")}
                       </Button>
