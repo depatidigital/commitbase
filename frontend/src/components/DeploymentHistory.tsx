@@ -46,13 +46,19 @@ const IN_PROGRESS = ["PENDING", "BUILDING", "DEPLOYING"];
 // (routes/applications.ts). Give Deployment a kind column if that ever changes.
 const isRestore = (deployLogs?: string) => !!deployLogs?.startsWith("Switched to the release");
 
-/** Polls the on-disk build log while the deploy runs, pinned to the newest line. */
-export function LiveBuildLog({ appId }: { appId: string }) {
-  const { data: logs } = useQuery({
+/**
+ * Polls the on-disk build log while the deploy runs, pinned to the newest line.
+ * `text`: a log the caller already follows instead — an imported pm2 app's
+ * build writes onto its deployment row, not into a build log on disk.
+ */
+export function LiveBuildLog({ appId, text }: { appId: string; text?: string | undefined }) {
+  const { data: fetched } = useQuery({
     queryKey: ["build-live", appId],
     queryFn: () => getLiveBuildLog(appId),
     refetchInterval: 2000,
+    enabled: text === undefined,
   });
+  const logs = text ?? fetched;
   const box = useRef<HTMLPreElement>(null);
 
   useEffect(() => {

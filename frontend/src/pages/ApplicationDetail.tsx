@@ -773,7 +773,10 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 {published && (
                   <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
                 )}
-                {!uploadedSite && <LiveBuildLog appId={application.id} />}
+                {!uploadedSite && (
+                  // an imported app's build logs onto its deployment row, refetched with the app while it runs
+                  <LiveBuildLog appId={application.id} text={application.runtime ? (newestDeploy ?? lastDeployment)?.deployLogs ?? "" : undefined} />
+                )}
               </CardContent>
             </Card>
           ) : needsSetup ? (
