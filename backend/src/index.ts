@@ -12,6 +12,7 @@ import { allServers } from './lib/servers';
 import { getCaddyConfig } from './services/caddyService';
 import { backfillSources } from './lib/sources';
 import { backfillAppDomains } from './lib/appDomains';
+import { recoverPm2Deploys } from './services/pm2DeployService';
 
 config();
 
@@ -207,6 +208,10 @@ backfillSources()
   .then((created) => created && console.log(`📦 Sources created for ${created} existing app(s)`))
   .catch((err) => console.error('Source backfill failed — apps without a source show no repository:', err))
   // before the first request too: every app reads its hostnames from app_domains
+  // a pm2 build cut off by this restart: said so, and the app no longer "deploying"
+  .then(() => recoverPm2Deploys())
+  .then((recovered) => recovered && console.log(`🧹 ${recovered} interrupted pm2 build(s) marked failed`))
+  .catch((err) => console.error('Could not recover interrupted pm2 builds:', err))
   .then(() => backfillAppDomains())
   .then((moved) => moved && console.log(`🌐 Hostnames moved for ${moved} existing app(s)`))
   .catch((err) => console.error('Hostname backfill failed — apps without one show no address:', err))

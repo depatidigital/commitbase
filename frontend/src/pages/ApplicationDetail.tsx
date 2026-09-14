@@ -775,7 +775,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 )}
                 {!uploadedSite && (
                   // an imported app's build logs onto its deployment row, refetched with the app while it runs
-                  <LiveBuildLog appId={application.id} text={application.runtime ? (newestDeploy ?? lastDeployment)?.deployLogs ?? "" : undefined} />
+                  <LiveBuildLog appId={application.id} text={application.runtime ? lastDeployment?.deployLogs ?? "" : undefined} />
                 )}
               </CardContent>
             </Card>

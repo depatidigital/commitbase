@@ -166,3 +166,23 @@ async function run(
     await prisma.application.update({ where: { id: app.id }, data: { status: app.status as AppStatus } }).catch(() => {});
   }
 }
+
+/**
+ * A build the panel was running when it stopped: nothing follows it any more.
+ * Its row says so and the app leaves "deploying" — pm2 still runs whatever it
+ * ran. Called at startup; only imported apps, whose builds are these.
+ */
+export async function recoverPm2Deploys(): Promise<number> {
+  const stale = await prisma.deployment.findMany({
+    where: { status: { in: ['PENDING', 'BUILDING', 'DEPLOYING'] }, application: { runtime: { not: null } } },
+    select: { id: true, applicationId: true, deployLogs: true },
+  });
+  for (const row of stale) {
+    await prisma.deployment.update({
+      where: { id: row.id },
+      data: { status: 'FAILED', deployLogs: `${row.deployLogs ?? ''}\n\nInterrupted: the panel restarted while this ran. Check the site, then build again.\n` },
+    });
+    await prisma.application.updateMany({ where: { id: row.applicationId, status: 'DEPLOYING' }, data: { status: 'RUNNING' } });
+  }
+  return stale.length;
+}
