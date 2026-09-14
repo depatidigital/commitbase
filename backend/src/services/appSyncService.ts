@@ -240,7 +240,8 @@ export function classifyRoute(route: any): {
 }
 
 /** One path of a hostname split by path: what serves it. `path` null = everything else. */
-export type RoutePart = { path: string | null; proxy?: string; root?: string };
+/** `spa`: a static part that answers unknown paths with its index.html (a front-end router's). */
+export type RoutePart = { path: string | null; proxy?: string; root?: string; spa?: boolean };
 
 /**
  * How a site split by path is served, in the order Caddy tries it — an API
@@ -255,7 +256,7 @@ export function routeParts(route: any): RoutePart[] | null {
   const realPath = (value: unknown) => (typeof value === 'string' && value.startsWith('/') ? value : undefined);
   // `root` is set by a vars handler earlier in the same subroute, and holds for
   // what follows it there and below
-  const visit = (handlers: any[], path: string | null, scope: { root?: string | undefined }) => {
+  const visit = (handlers: any[], path: string | null, scope: { root?: string | undefined; spa?: boolean }) => {
     for (const handler of Array.isArray(handlers) ? handlers : []) {
       if (handler?.handler === 'vars' && realPath(handler.root)) scope.root = handler.root;
       if (handler?.handler === 'reverse_proxy') {
@@ -265,12 +266,17 @@ export function routeParts(route: any): RoutePart[] | null {
       }
       if (handler?.handler === 'file_server') {
         const root = realPath(handler.root) ?? scope.root;
-        parts.push({ path, ...(root && { root }) });
+        parts.push({ path, ...(root && { root }), ...(scope.spa && { spa: true }) });
       }
       if (handler?.handler === 'subroute') {
         const inner = { ...scope };
         for (const nested of Array.isArray(handler.routes) ? handler.routes : []) {
-          const paths = (Array.isArray(nested?.match) ? nested.match : []).flatMap((m: any) => (Array.isArray(m?.path) ? m.path : []));
+          const matchers = Array.isArray(nested?.match) ? nested.match : [];
+          const paths = matchers.flatMap((m: any) => (Array.isArray(m?.path) ? m.path : []));
+          // try_files ending in index.html: every unknown path gets the app's page (Caddyfile `try_files {path} /index.html`)
+          if (matchers.some((m: any) => Array.isArray(m?.file?.try_files) && m.file.try_files.some((f: unknown) => /(^|\/)index\.html$/.test(String(f))))) {
+            inner.spa = true;
+          }
           visit(nested?.handle, paths.length ? paths.join(', ') : path, inner);
         }
       }

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AppType } from '@prisma/client';
+import { AppType, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
@@ -24,7 +24,7 @@ import {
   siteStorage,
 } from '../services/staticReleaseService';
 import { Pm2DeployError, startPm2Deploy } from '../services/pm2DeployService';
-import { addCaddyHost, configureCaddyForStaticApplication, removeCaddySite, staticRouteError } from '../services/caddyService';
+import { addCaddyHost, caddyfileFor, configureCaddyForSplit, configureCaddyForStaticApplication, removeCaddySite, routingProblem, staticRouteError } from '../services/caddyService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
@@ -1251,6 +1251,71 @@ router.post('/:id/pm2-deploy', authenticateToken, async (req: AuthenticatedReque
     if (error instanceof Pm2DeployError) return res.status(409).json({ success: false, error: error.message } as ApiResponse);
     console.error('Error starting a pm2 build:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not start the build' } as ApiResponse);
+  }
+});
+
+/**
+ * Route an imported app's names by path — `/api/*` to a port, the rest a
+ * folder — rewriting its Caddy route through the admin API. Its organization's
+ * owner or admin may, within the app's own ports and folder (a tenant must not
+ * point its name at another tenant's process or files); a platform admin
+ * anywhere on the box. Only on an explicit yes: it is live for visitors at once.
+ * Answers with the Caddyfile text of the same routing, to keep the server's in step.
+ */
+router.put('/:id/routing', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      include: { ...withDomains, source: { select: { path: true } } },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const platformAdmin = isPlatformAdmin(req);
+    if (!platformAdmin && !(application.organizationId && (await canManageOrg(req, application.organizationId)))) {
+      return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can change its routing" } as ApiResponse);
+    }
+    // a panel-managed app's route is rewritten by every deploy — its routing is the deploy's
+    if (!application.runtime || application.runtime === 'CADDY_PHP') {
+      return res.status(400).json({ success: false, error: 'Routing is set here only for imported Node or static sites' } as ApiResponse);
+    }
+    if (req.body?.consent !== true) {
+      return res.status(400).json({ success: false, error: 'Confirm that visitors get the new routing at once' } as ApiResponse);
+    }
+
+    // what this app already reaches: its own port and the ones its routing uses
+    const current = (Array.isArray(application.routing) ? application.routing : []) as Array<{ proxy?: string }>;
+    const ownPorts = new Set(
+      [application.port, ...current.map((part) => Number(String(part.proxy ?? '').match(/:(\d+)$/)?.[1]))].filter((port): port is number => !!port),
+    );
+    const base = application.source?.path ?? (application.rootPath ? path.posix.dirname(application.rootPath) : null);
+    const problem = routingProblem(req.body?.parts, {
+      ports: platformAdmin ? null : ownPorts,
+      base: platformAdmin ? null : base,
+    });
+    if (typeof problem === 'string') return res.status(400).json({ success: false, error: problem } as ApiResponse);
+    const parts = problem;
+
+    const hosts = hostsOf(application).filter((host) => !host.endsWith('.pm2.local'));
+    if (hosts.length === 0) return res.status(400).json({ success: false, error: 'This app has no hostname to route' } as ApiResponse);
+    const node = await serverForApplication(application.id);
+    await configureCaddyForSplit(node, hosts, parts);
+
+    // the same shape the sync reads back from Caddy (routeParts), so nothing changes on the next sync
+    const routing = parts.length > 1 ? parts.map((part) => ({ path: part.path, ...(part.port ? { proxy: `127.0.0.1:${part.port}` } : { root: part.root, ...(part.spa && { spa: true }) }) })) : null;
+    await prisma.application.update({ where: { id: application.id }, data: { routing: routing ?? Prisma.DbNull } });
+    const caddyfile = caddyfileFor(hosts, parts);
+    await prisma.deployment.create({
+      data: {
+        applicationId: application.id,
+        sourceId: application.sourceId,
+        userId: req.user!.userId,
+        status: 'SUCCESS',
+        deployLogs: `Routing changed in Caddy. The same, for the server's Caddyfile:\n\n${caddyfile}`,
+      },
+    });
+    return res.json({ success: true, data: { routing, caddyfile }, message: 'Routing updated' } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error setting routing:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not update the routing' } as ApiResponse);
   }
 });
 

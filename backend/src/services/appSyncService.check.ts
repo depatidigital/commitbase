@@ -4,7 +4,7 @@
 import assert from 'assert';
 import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, type DiscoveredApp } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
-import { buildRoute } from './caddyService';
+import { buildRoute, caddyfileFor, routingProblem } from './caddyService';
 
 // --- live Caddy routes: the inventory reads the admin API, never a Caddyfile ---
 
@@ -173,7 +173,8 @@ assert.strictEqual(repositoryFromRemote(''), null);
 const splitRoute = {"match":[{"host":["app.arusflow.id"]}],"handle":[{"routes":[{"group":"group81","match":[{"path":["/api/*"]}],"handle":[{"routes":[{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"localhost:9200"}]}]}],"handler":"subroute"}]},{"group":"group81","handle":[{"routes":[{"handle":[{"root":"/var/www/html/arusflow_9200/web/dist","handler":"vars"}]},{"match":[{"file":{"try_files":["{http.request.uri.path}","/index.html"]}}],"handle":[{"uri":"{http.matchers.file.relative}","handler":"rewrite"}]},{"handle":[{"hide":["/etc/caddy/sites/arusflow.id.caddy"],"handler":"file_server"}]}],"handler":"subroute"}]}],"handler":"subroute"}],"terminal":true};
 assert.deepStrictEqual(routeParts(splitRoute), [
   { path: '/api/*', proxy: 'localhost:9200' },
-  { path: null, root: '/var/www/html/arusflow_9200/web/dist' },
+  // try_files {path} /index.html: the front end's router answers unknown paths
+  { path: null, root: '/var/www/html/arusflow_9200/web/dist', spa: true },
 ]);
 // the hostname is still the app behind the proxy
 assert.deepStrictEqual(classifyRoute(splitRoute), { type: 'NODEJS', port: 9200 });
@@ -204,6 +205,35 @@ assert.deepStrictEqual(merged.map((app) => app.hosts), [
   ['y.go.id'],
   ['worker.pm2.local'],
 ]);
+
+// --- routing set in the panel reads back the same on the next sync ---
+{
+  const parts = [
+    { path: '/api/*, /ws*', port: 9200 },
+    { path: null, root: '/var/www/html/arusflow/web/dist', spa: true },
+  ];
+  const route = buildRoute(['app.arusflow.id', 'www.arusflow.id'], { type: 'split', parts });
+  assert.deepStrictEqual(route.match, [{ host: ['app.arusflow.id', 'www.arusflow.id'] }]);
+  assert.deepStrictEqual(routeParts(route), [
+    { path: '/api/*, /ws*', proxy: '127.0.0.1:9200' },
+    { path: null, root: '/var/www/html/arusflow/web/dist', spa: true },
+  ]);
+  assert.strictEqual(
+    caddyfileFor(['app.arusflow.id'], parts),
+    'app.arusflow.id {\n\thandle /api/* /ws* {\n\t\treverse_proxy 127.0.0.1:9200\n\t}\n\thandle {\n\t\troot * /var/www/html/arusflow/web/dist\n\t\ttry_files {path} /index.html\n\t\tfile_server\n\t}\n}',
+  );
+  // a tenant: its own ports and folder only
+  const limits = { ports: new Set([9200]), base: '/var/www/html/arusflow' };
+  assert.ok(Array.isArray(routingProblem(parts, limits)));
+  assert.match(String(routingProblem([{ path: null, port: 5432 }], limits)), /not one this app runs on/);
+  assert.match(String(routingProblem([{ path: null, root: '/var/www/html/other' }], limits)), /outside this app's folder/);
+  assert.match(String(routingProblem([{ path: null, root: '/var/www/html/arusflow/../other' }], limits)), /not an absolute folder/);
+  // the catch-all: exactly one, last
+  assert.match(String(routingProblem([{ path: null, port: 9200 }, { path: '/api/*', port: 9200 }], limits)), /comes last/);
+  assert.match(String(routingProblem([{ path: 'api', port: 9200 }], limits)), /not a path|comes last/);
+  // a platform admin: anywhere
+  assert.ok(Array.isArray(routingProblem([{ path: null, port: 5432 }], { ports: null, base: null })));
+}
 
 // --- what pm2 runs, as one would type it in the app's folder ---
 assert.strictEqual(pm2StartCommand({ pm_exec_path: '/usr/bin/npm', args: ['run', 'start'], exec_interpreter: 'none' }), 'npm run start');
