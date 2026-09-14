@@ -53,7 +53,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
           select: {
             id: true,
             name: true,
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
         // who deployed — the history row says so
@@ -109,7 +109,7 @@ router.get('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
           select: {
             id: true,
             name: true,
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
       },
@@ -217,7 +217,7 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
       include: {
         application: {
           select: {
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
       },
@@ -249,7 +249,7 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
           }
         }
       } else {
-        logs = await deploymentService.getApplicationLogs(deployment.application.id, lines);
+        logs = await deploymentService.getApplicationLogs(deployment.applicationId, lines);
       }
     } catch (error) {
       logs = `No logs available for ${logType}`;
@@ -316,7 +316,7 @@ router.post('/application/:appId', authenticateToken, async (req: AuthenticatedR
           select: {
             id: true,
             name: true,
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
       },
@@ -380,7 +380,7 @@ router.put('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
           select: {
             id: true,
             name: true,
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
       },

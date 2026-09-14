@@ -393,7 +393,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
       ...(serverId && { serverId }),
       ...(domainId && { domainId }),
-      ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }, { aliases: { has: search.trim().toLowerCase() } }] }),
+      ...(search && { OR: [{ name: contains(search) }, { domains: { some: { host: contains(search) } } }] }),
     };
 
     const [applications, total] = await Promise.all([

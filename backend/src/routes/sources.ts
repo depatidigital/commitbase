@@ -21,7 +21,8 @@ const router = Router();
 const instanceSelect = {
   id: true,
   name: true,
-  domain: true,
+  // every name it answers on, all alike
+  domains: { select: { host: true, domainId: true }, orderBy: { host: 'asc' } },
   type: true,
   status: true,
   runtime: true,
@@ -29,7 +30,6 @@ const instanceSelect = {
   processName: true,
   rootDirectory: true,
   rootPath: true,
-  aliases: true,
   port: true,
   routing: true,
   createdAt: true,
@@ -84,7 +84,7 @@ async function findSource(req: AuthenticatedRequest, res: Response) {
 
 const present = <T extends { name: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
   ...source,
-  name: sourceName(source, source.applications[0]?.domain),
+  name: sourceName(source, source.applications[0]?.domains[0]?.host),
   customName: source.name,
   kind: kindOf(source),
   status: rollupStatus(source.applications),
@@ -112,8 +112,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           { name: contains(search) },
           { repository: contains(search) },
           { path: contains(search) },
-          // an alias only whole: Postgres arrays have no substring match through Prisma
-          { applications: { some: { OR: [{ domain: contains(search) }, { name: contains(search) }, { aliases: { has: search.trim().toLowerCase() } }] } } },
+          { applications: { some: { OR: [{ domains: { some: { host: contains(search) } } }, { name: contains(search) }] } } },
         ],
       }),
       // a source is its apps; one without any is on its way out
@@ -326,7 +325,7 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
       await record('SUCCESS', output, { hash, message });
       return res.json({
         success: true,
-        data: { output, apps: source.applications.map((app) => app.domain) },
+        data: { output, apps: source.applications.flatMap((app) => app.domains.map((d) => d.host)) },
         message: `Pulled ${branch}`,
       } as ApiResponse);
     } catch (error: any) {
