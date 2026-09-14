@@ -12,6 +12,7 @@ type Props = {
   dnsManaged: boolean;
   /** a proxy whose port had nothing listening at the last sync */
   portDead: boolean;
+  port?: number | null;
   canManage: boolean;
   /** the DNS change is running — the confirm dialog has closed, so this is the only feedback */
   pending: boolean;
@@ -23,7 +24,7 @@ type Props = {
  * this server — one click in a Cloudflare zone we run, the record to set
  * anywhere else — with a heads-up when nothing listens here yet.
  */
-export function DnsFixCard({ host, pointing, dnsManaged, portDead, canManage, pending, onRepoint }: Props) {
+export function DnsFixCard({ host, pointing, dnsManaged, portDead, port, canManage, pending, onRepoint }: Props) {
   const { toast } = useToast();
   const expected = pointing?.expected ?? "";
   const record = `${host}  A  ${expected}`;
@@ -64,7 +65,7 @@ export function DnsFixCard({ host, pointing, dnsManaged, portDead, canManage, pe
         {/* a heads-up, not a gate: the operator may be moving it here right now */}
         {portDead && (
           <p className="text-xs text-warning">
-            {t("Port {port} is not listening yet — the site answers here once the app runs.", { port: application.port ?? "—" })}
+            {t("Port {port} is not listening yet — the site answers here once the app runs.", { port: port ?? "—" })}
           </p>
         )}
       </CardContent>

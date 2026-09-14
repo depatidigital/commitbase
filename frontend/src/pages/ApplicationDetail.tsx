@@ -62,7 +62,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostsOf, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -191,12 +191,13 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
   // only Stop asks first: a deploy replaces nothing until it works, and can be cancelled
   const [confirmStop, setConfirmStop] = useState(false);
-  const [confirmRepoint, setConfirmRepoint] = useState(false);
+  // which of its names "Point it here" was asked for
+  const [repointHost, setRepointHost] = useState<string | null>(null);
 
   // API hooks
   const { application, isLoading, error } = useApplicationStatus(id!);
-  // keeps polling until the hostname answers, then settles
-  const { data: hostname } = useApplicationHostname(id!, true);
+  // each of its names checked on its own; polls until every one answers, then settles
+  const { data: checks } = useApplicationHostname(id!, true);
   // the same uptime checks the apps list colours its dot from
   const { data: healthById } = useQuery({
     queryKey: ['applications', 'health', [id]],
@@ -429,12 +430,21 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   // sync's ERROR ("no listener on the port") must not call a site that answers dead
   // answers, but the name leads to another server: that is not this app serving.
   // The live DNS check here, else what the last hostname check found.
-  const elsewhere = hostname?.live
-    ? hostname.pointing?.state === 'elsewhere'
-      ? hostname.pointing.origin ?? hostname.pointing.addresses.join(', ')
-      : healthById?.[application.id]?.pointsElsewhere
-    : undefined;
-  const siteLive = !!hostname?.live && !elsewhere && (published || overall.tone === 'up');
+  // Every name must: one answering from another server, or not at all, is the
+  // app not serving there — said by name.
+  const hosts = hostsOf(application);
+  const checkOf = (host: string) => checks?.find((check) => check.host === host);
+  const allLive = !!checks?.length && checks.every((check) => check.live);
+  const strayCheck = checks?.find((check) => check.live && check.pointing?.state === 'elsewhere');
+  const elsewhereHost = strayCheck?.host ?? (allLive && healthById?.[application.id]?.pointsElsewhere ? hosts[0] : undefined);
+  const elsewhere = strayCheck
+    ? strayCheck.pointing!.origin ?? strayCheck.pointing!.addresses.join(', ')
+    : allLive
+      ? healthById?.[application.id]?.pointsElsewhere
+      : undefined;
+  // the first name that does not answer — what the card names when it is down
+  const failing = checks?.find((check) => !check.live);
+  const siteLive = allLive && !elsewhere && (published || overall.tone === 'up');
   // down by the checks (or an ERROR row) — the card must say so, not "Running"
   const down = !siteLive && !failureReason && overall.tone === 'down';
   // start/stop reach a process we deployed, or pm2's; anything else imported
@@ -468,12 +478,12 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
                   {application.name}
                 </h1>
-                {published && (
+                {published && hosts.length === 1 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
                         <a
-                          href={`https://${application.domain}`}
+                          href={`https://${hosts[0]}`}
                           target="_blank"
                           rel="noreferrer"
                           aria-label={t("Visit site")}
@@ -531,12 +541,10 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 <p className="break-words text-sm text-muted-foreground">
                   {application.disabled ? t("Not monitored — switched off in the panel. Nothing on the server changed.") :
                    uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
-                   elsewhere ? t("{domain} is answered by another server ({ip}), not this one.", { domain: application.domain, ip: elsewhere }) :
-                   // several names: the check says which one failed
-                   down && application.aliases?.length && healthById?.[application.id]?.lastError ? healthById[application.id]!.lastError :
-                   down ? (hostname && !hostname.resolves
-                     ? t("{domain} has no DNS record, so nobody can reach it.", { domain: application.domain })
-                     : t("{domain} does not answer.", { domain: application.domain })) :
+                   elsewhere ? t("{domain} is answered by another server ({ip}), not this one.", { domain: elsewhereHost ?? hostList(application), ip: elsewhere }) :
+                   down ? (failing && !failing.resolves
+                     ? t("{domain} has no DNS record, so nobody can reach it.", { domain: failing.host })
+                     : t("{domain} does not answer.", { domain: failing?.host ?? hostList(application) })) :
                    siteLive ? (
                      <span className="flex flex-col">
                        {hostsOf(application).map((host) => (
@@ -546,7 +554,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                        ))}
                      </span>
                    ) :
-                   published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: application.domain }) :
+                   published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: failing?.host ?? hostList(application) }) :
                    application.status === 'STOPPED' ? t("Stopped — nothing is serving.") :
                    failureReason ? t("Whatever was serving before keeps serving.") :
                    t("Not serving.")}
@@ -565,9 +573,9 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
               </Button>
             )}
             {/* several names are each a link above; one button could only pick one */}
-            {siteLive && !application.aliases?.length && (
+            {siteLive && hosts.length === 1 && (
               <Button asChild variant="outline">
-                <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
+                <a href={`https://${hosts[0]}`} target="_blank" rel="noreferrer">
                   <ExternalLink className="h-4 w-4 mr-2" />
                   {t("Visit site")}
                 </a>
@@ -688,13 +696,14 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
         {/* answers from someone else's server: how to make it right, either way round */}
         {elsewhere && (
           <DnsFixCard
-            application={application}
-            pointing={hostname?.pointing ?? null}
-            dnsManaged={!!hostname?.dnsManaged}
+            host={elsewhereHost ?? hosts[0] ?? ""}
+            pointing={checkOf(elsewhereHost ?? "")?.pointing ?? null}
+            dnsManaged={!!checkOf(elsewhereHost ?? "")?.dnsManaged}
             portDead={application.runtime === "CADDY_PROXY" && application.status === "ERROR"}
+            port={application.port}
             canManage={isAdmin()}
             pending={setupDns.isPending}
-            onRepoint={() => setConfirmRepoint(true)}
+            onRepoint={() => setRepointHost(elsewhereHost ?? hosts[0] ?? null)}
           />
         )}
         {/* the branch and what is newer than live — after the first deploy;
@@ -823,7 +832,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                   <p className="text-sm text-muted-foreground">
                     {t("Upload the site's build output — the folder with index.html (usually dist/, build/ or out/).")}
                     {" "}
-                    {t("It goes live at {domain} as soon as the upload finishes.", { domain: application.domain })}
+                    {t("It goes live at {domain} as soon as the upload finishes.", { domain: hostList(application) })}
                   </p>
                 </CardHeader>
                 <CardContent>
@@ -852,24 +861,21 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 <p className="text-xs text-muted-foreground">{t("What visitors get")}</p>
               </CardHeader>
               <CardContent className="pt-2 pb-2">
+                {/* each of its names on its own — all alike, one can answer while another does not */}
+                {application.domains.map((name) => {
+                  const check = checkOf(name.host);
+                  const stray = check?.live && check.pointing?.state === "elsewhere";
+                  return (
+                    <div key={name.host}>
                 <Field label={t("Domain")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {application.aliases?.length ? (
-                      // several names, all alike: listed, the rest of the row speaks for them together
-                      <span className="flex basis-full flex-col items-end font-mono">
-                        {hostsOf(application).map((host) => (
-                          <span key={host}>{host}</span>
-                        ))}
-                      </span>
-                    ) : (
-                      <span className="font-mono">{application.domain}</span>
-                    )}
-                    <DomainExpiryBadge domain={application.parentDomain} />
+                    <span className="font-mono">{name.host}</span>
+                    <DomainExpiryBadge domain={name.parentDomain} />
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0"
-                      onClick={() => copyToClipboard(application.domain)}
+                      onClick={() => copyToClipboard(name.host)}
                       aria-label={t("Copy")}
                     >
                       <Copy className="h-3 w-3" />
@@ -877,56 +883,60 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                     {/* whether the hostname actually answers — RUNNING only ever
                         meant the process started */}
                     {/* the registration first: an expired domain can still "answer" — with a parking page */}
-                    {hostname?.domainProblem ? (
+                    {check?.domainProblem ? (
                       <Badge
                         variant="outline"
                         className="gap-1 border-destructive text-destructive"
                         title={t("{domain} at the registry: {problem}", {
-                          domain: hostname.registeredDomain ?? application.domain,
-                          problem: DOMAIN_PROBLEM[hostname.domainProblem](),
+                          domain: check.registeredDomain ?? name.host,
+                          problem: DOMAIN_PROBLEM[check.domainProblem](),
                         })}
                       >
                         <AlertCircle className="h-3 w-3" />
-                        {DOMAIN_PROBLEM[hostname.domainProblem]()}
+                        {DOMAIN_PROBLEM[check.domainProblem]()}
                       </Badge>
-                    ) : hostname?.live && elsewhere ? (
+                    ) : stray ? (
                       // it answers — from someone else's server
-                      <Badge variant="outline" className="gap-1 border-warning text-warning" title={t("DNS points to {ip}", { ip: elsewhere })}>
+                      <Badge
+                        variant="outline"
+                        className="gap-1 border-warning text-warning"
+                        title={t("DNS points to {ip}", { ip: check.pointing!.origin ?? check.pointing!.addresses.join(", ") })}
+                      >
                         <Wifi className="h-3 w-3" />
                         {t("reachable elsewhere")}
                       </Badge>
-                    ) : hostname?.live ? (
+                    ) : check?.live ? (
                       <Badge className="gap-1 bg-success text-success-foreground hover:bg-success/90">
                         <Wifi className="h-3 w-3" />
                         {t("reachable")}
                       </Badge>
-                    ) : hostname ? (
+                    ) : check ? (
                       <>
                         <Badge
                           variant="outline"
                           className="gap-1 border-warning text-warning"
                           title={
-                            hostname.resolves
-                              ? hostname.error
-                              : hostname.dnsManaged
-                                ? t("{domain} has no DNS record, so browsers cannot find this server. Point it here to fix it.", { domain: application.domain })
-                                : t("{domain} has no DNS record, and its domain is not on Cloudflare here — add the record wherever its DNS is hosted.", { domain: application.domain })
+                            check.resolves
+                              ? check.error ?? undefined
+                              : check.dnsManaged
+                                ? t("{domain} has no DNS record, so browsers cannot find this server. Point it here to fix it.", { domain: name.host })
+                                : t("{domain} has no DNS record, and its domain is not on Cloudflare here — add the record wherever its DNS is hosted.", { domain: name.host })
                           }
                         >
                           <WifiOff className="h-3 w-3" />
                           {/* no record, and its domain is not a zone we run: not connected to the panel at all */}
-                          {hostname.resolves ? t("not serving yet") : hostname.dnsManaged ? t("no DNS") : t("not connected")}
+                          {check.resolves ? t("not serving yet") : check.dnsManaged ? t("no DNS") : t("not connected")}
                         </Badge>
                         {/* only a Cloudflare zone we run can take the record — anywhere else the button could only fail.
                             Already pointing here: DNS is not the problem, the app not answering is */}
-                        {hostname.dnsManaged && hostname.pointing?.state !== "here" && (
+                        {check.dnsManaged && check.pointing?.state !== "here" && (
                         <Button
                           variant="outline"
                           size="sm"
                           className="h-6"
                           disabled={setupDns.isPending}
                           // overwrites whatever the record points at — asked first, never one click
-                          onClick={() => setConfirmRepoint(true)}
+                          onClick={() => setRepointHost(name.host)}
                         >
                           {t("Point it here")}
                         </Button>
@@ -936,22 +946,22 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                   </div>
                 </Field>
                 {/* answering is not enough: it has to answer from this app's server */}
-                {hostname?.pointing && hostname.pointing.state !== "none" && (
+                {check?.pointing && check.pointing.state !== "none" && (
                   <Field label={t("DNS points to")}>
-                    {hostname.pointing.state === "here" ? (
+                    {check.pointing.state === "here" ? (
                       <span className="inline-flex items-center gap-1 text-xs text-success">
                         <CheckCircle className="h-3.5 w-3.5 shrink-0" />
                         {t("This server")}
-                        <span className="font-mono text-muted-foreground">{hostname.pointing.expected}</span>
+                        <span className="font-mono text-muted-foreground">{check.pointing.expected}</span>
                       </span>
-                    ) : hostname.pointing.state === "elsewhere" ? (
+                    ) : check.pointing.state === "elsewhere" ? (
                       <>
                         <span className="break-all font-mono text-xs">
-                          {hostname.pointing.origin ?? hostname.pointing.addresses.join(", ")}
+                          {check.pointing.origin ?? check.pointing.addresses.join(", ")}
                         </span>
                         <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive">
                           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                          {t("Not this server ({ip})", { ip: hostname.pointing.expected ?? "—" })}
+                          {t("Not this server ({ip})", { ip: check.pointing.expected ?? "—" })}
                         </span>
                       </>
                     ) : (
@@ -964,6 +974,9 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                     )}
                   </Field>
                 )}
+                    </div>
+                  );
+                })}
                 {/* the version visitors are getting */}
                 <Field label={t("Last Deployment")}>
                   {lastDeployment ? (
@@ -1371,13 +1384,14 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
           </AlertDialogContent>
         </AlertDialog>
 
-        {confirmRepoint && (
+        {repointHost && (
           <RepointDialog
-            application={application}
-            onClose={() => setConfirmRepoint(false)}
+            applicationId={application.id}
+            name={application.domains.find((d) => d.host === repointHost) ?? { host: repointHost }}
+            onClose={() => setRepointHost(null)}
             onConfirm={() => {
-              setupDns.mutate({ id: application.id, force: true });
-              setConfirmRepoint(false);
+              setupDns.mutate({ id: application.id, host: repointHost, force: true });
+              setRepointHost(null);
             }}
           />
         )}
