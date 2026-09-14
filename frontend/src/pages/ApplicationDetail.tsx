@@ -618,15 +618,18 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 by upload. Once deployed, Redeploy rebuilds what is live — so it
                 sits in the menu, not one stray click away */}
             {deploying ? (
-              <Button
-                variant="ghost"
-                className="text-destructive hover:text-destructive"
-                disabled={cancelDeploy.isPending}
-                onClick={() => setConfirmCancel(true)}
-              >
-                <Square className="h-4 w-4 mr-2" />
-                {t("Cancel deploy")}
-              </Button>
+              // a pm2 build on the server runs to its end — there is no release to fall back to mid-way
+              application.runtime ? null : (
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  disabled={cancelDeploy.isPending}
+                  onClick={() => setConfirmCancel(true)}
+                >
+                  <Square className="h-4 w-4 mr-2" />
+                  {t("Cancel deploy")}
+                </Button>
+              )
             ) : needsSetup || uploadedSite ? null : !deployed && !application.runtime ? (
               <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
                 {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}

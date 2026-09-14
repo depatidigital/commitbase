@@ -1,3 +1,4 @@
+import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 
@@ -107,6 +108,8 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
     data: { applicationId: app.id, sourceId: app.sourceId, userId, status: 'BUILDING', deployLogs: `Build and restart in ${dir}\n` },
   });
   running.add(`${server.id}:${dir}`);
+  // the page follows a deploying app; what it was comes back if the build fails
+  await prisma.application.update({ where: { id: app.id }, data: { status: 'DEPLOYING' } });
   void run(server, dir, app, steps, deployment.id).finally(() => running.delete(`${server.id}:${dir}`));
   return deployment.id;
 }
@@ -146,5 +149,7 @@ async function run(
     // stopped before the restart: pm2 still runs what it ran — its output may be half rewritten
     write('\nStopped here — nothing after this step ran. pm2 was not restarted unless the log above says so.\n');
     await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'FAILED', deployLogs: log.slice(-200_000) } });
+    // pm2 still runs what it ran before
+    await prisma.application.update({ where: { id: app.id }, data: { status: app.status as AppStatus } }).catch(() => {});
   }
 }
