@@ -925,9 +925,9 @@ router.post(
         }
 
         const release = await prisma.release.create({
-          data: { applicationId: application.id, status: 'READY', path: folder, deploymentId: deployment.id },
+          data: { sourceId: application.sourceId, status: 'READY', path: folder, deploymentId: deployment.id },
         });
-        const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
+        const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), source: { update: { activeReleaseId: release.id } } };
 
         try {
           await configureCaddyForStaticApplication(
