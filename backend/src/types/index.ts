@@ -122,6 +122,8 @@ export const CreateApplicationSchema = z.object({
   organizationId: z.string().min(1).optional(),
   // the user agreed to replace what the hostname points at today (lib/appHostname applyAppDns)
   dnsConsent: z.boolean().optional(),
+  // add it to this project (a Source) instead of starting a new one
+  sourceId: z.string().min(1).optional(),
 });
 
 export const UpdateApplicationSchema = z.object({

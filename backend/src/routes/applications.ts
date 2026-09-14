@@ -624,6 +624,31 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
 
+    // An app added to an existing project ("Tambah Aplikasi"): no source of its
+    // own — it builds with the project's other apps, from the same commit, so it
+    // runs on the project's node and belongs to the project's organization.
+    const joining = req.body.sourceId
+      ? await prisma.source.findFirst({
+          where: { id: String(req.body.sourceId), ...(await orgScope(req)) },
+          include: { applications: { select: { type: true } } },
+        })
+      : null;
+    if (req.body.sourceId) {
+      if (!joining) return res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
+      if (joining.path) {
+        return res.status(400).json({
+          success: false,
+          error: 'This project was imported from its server — its apps are the sites served from that folder',
+        } as ApiResponse);
+      }
+      if (type === 'STATIC' || joining.applications.some((app) => app.type === 'STATIC')) {
+        return res.status(400).json({ success: false, error: 'A static site cannot share its project with other apps yet' } as ApiResponse);
+      }
+      if (!joining.serverId) {
+        return res.status(409).json({ success: false, error: 'This project has no server yet — deploy it once first' } as ApiResponse);
+      }
+    }
+
     // Check if domain already exists
     const existingApp = await prisma.application.findUnique({
       where: { domain },
@@ -639,18 +664,28 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // Ownership boundary: the hostname sits under a domain owned by one of the
     // caller's organizations (the app inherits that org), or under a shared
     // platform domain (the app belongs to the caller's org).
-    const resolved = await resolveAppHost(req, domain, req.body.organizationId);
+    const resolved = await resolveAppHost(req, domain, joining?.organizationId ?? req.body.organizationId);
     if ('error' in resolved) {
       return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
     }
     const { parent: parentDomain, organizationId } = resolved;
+    if (joining?.organizationId && organizationId !== joining.organizationId) {
+      return res.status(403).json({
+        success: false,
+        error: "That domain belongs to another organization — pick one of this project's organization",
+      } as ApiResponse);
+    }
 
     // Which node it runs on: a superadmin may pick one, everyone else gets the
     // organization's default server. An org spans nodes — this is per app.
     const org = organizationId
       ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { defaultServerId: true } })
       : null;
-    const requested = req.user!.role === 'SUPERADMIN' && typeof req.body.serverId === 'string' ? req.body.serverId : null;
+    const requested = joining
+      ? joining.serverId
+      : req.user!.role === 'SUPERADMIN' && typeof req.body.serverId === 'string'
+        ? req.body.serverId
+        : null;
     if (requested && !(await prisma.server.findUnique({ where: { id: requested }, select: { id: true } }))) {
       return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
     }
@@ -671,26 +706,26 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(409).json({ success: false, error: taken } as ApiResponse);
     }
 
+    const fields = {
+      name,
+      domain,
+      type,
+      rootDirectory,
+      installCommand,
+      buildCommand,
+      preDeployCommand,
+      startCommand,
+      port,
+      ...(envVars && { envVars: sealEnv(envVars) }),
+      userId: req.user!.userId,
+      domainId: parentDomain.id,
+      organizationId,
+      serverId,
+    };
     const application = withSourceFields(
-      await createApplicationWithSource(
-        {
-          name,
-          domain,
-          type,
-          rootDirectory,
-          installCommand,
-          buildCommand,
-          preDeployCommand,
-          startCommand,
-          port,
-          ...(envVars && { envVars: sealEnv(envVars) }),
-          userId: req.user!.userId,
-          domainId: parentDomain.id,
-          organizationId,
-          serverId,
-        },
-        { repository, gitAccountId, branch },
-      ),
+      joining
+        ? await prisma.application.create({ data: { ...fields, sourceId: joining.id }, include: { source: true } })
+        : await createApplicationWithSource(fields, { repository, gitAccountId, branch }),
     );
 
     // Provision the org on that node now, so the first deploy does not wait
