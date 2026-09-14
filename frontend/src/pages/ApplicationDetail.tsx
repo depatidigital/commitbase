@@ -667,8 +667,8 @@ export default function ApplicationDetail() {
         )}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
-        {application.repository && !needsSetup && (
-          <SourcePanel application={application} onDeploy={deploy} starting={starting} deploying={deploying} />
+        {application.repository && application.sourceId && !needsSetup && (
+          <SourcePanel projectId={application.sourceId} onDeploy={deploy} starting={starting} deploying={deploying} />
         )}
         </aside>
 

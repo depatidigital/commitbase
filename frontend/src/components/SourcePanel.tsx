@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle, Download, GitBranch, GitCommit, Loader2, Lock, RefreshCw, Rocket } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CheckCircle, Download, FolderGit2, GitBranch, GitCommit, Loader2, Lock, RefreshCw, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Application, getAppBranches, pullOnServer, repoName, updateApplication } from "@/lib/applications";
+import { repoName } from "@/lib/applications";
+import { getProject, getProjectBranches, pullProject, updateProject } from "@/lib/projects";
 import { isSuperAdmin } from "@/lib/auth";
 import {
   AlertDialog,
@@ -19,10 +21,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { t } from "@/lib/i18n";
 
-/** owner/repo out of a clone URL — the part a person recognises */
 interface SourcePanelProps {
-  application: Application;
-  /** the page's deploy: saves pending env edits, then starts it */
+  /** the project (source) the page's app — or the page — is about */
+  projectId: string;
+  /** the page's deploy: saves pending env edits, then starts it (the whole project) */
   onDeploy: () => void;
   starting?: boolean;
   /** a deploy is running — nothing to offer until it ends */
@@ -30,28 +32,32 @@ interface SourcePanelProps {
 }
 
 /**
- * Where the code comes from, in the page's side panel: the branch, a fetch,
- * and whether something newer than what is live is waiting. The deploy button
- * shows only when there is — an up-to-date app redeploys from the menu.
+ * Where the code comes from, in the page's side panel: the project, its
+ * branch, a fetch, and whether something newer than what is live is waiting.
+ * It is the project's — a pull or deploy here changes every app of it. The
+ * deploy button shows only when there is something to ship.
  */
-export function SourcePanel({ application, onDeploy, starting, deploying }: SourcePanelProps) {
+export function SourcePanel({ projectId, onDeploy, starting, deploying }: SourcePanelProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const current = application.branch || "main";
+  const { data: project } = useQuery({ queryKey: ["project", projectId], queryFn: () => getProject(projectId) });
+  const current = project?.branch || "main";
   // an ls-remote, not a clone. Not under ['application', id]: the status poll
   // invalidates that every 2s during a deploy.
   const remote = useQuery({
-    queryKey: ["branches", application.id],
-    queryFn: () => getAppBranches(application.id),
+    queryKey: ["branches", projectId],
+    queryFn: () => getProjectBranches(projectId),
     staleTime: 60_000,
     retry: false,
+    enabled: !!project?.repository,
   });
   const [branch, setBranch] = useState(current);
   useEffect(() => setBranch(current), [current]);
 
   // imported by the server sync: the checkout on the box is someone else's, so
   // this only says where the code comes from — no branch switch, no deploy
-  const readOnly = !!application.runtime;
+  const readOnly = project?.kind === "IMPORTED";
+  const apps = project?.applications ?? [];
   const changed = branch !== current;
   const head = remote.data?.heads[branch];
   const live = remote.data?.liveCommit ?? null;
@@ -60,22 +66,25 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
   const shippable = !!head && (changed || head !== live);
 
   const saveBranch = useMutation({
-    mutationFn: () => updateApplication(application.id, { branch }),
+    mutationFn: () => updateProject(projectId, { branch }),
     onSuccess: () => {
-      // the app row, what detection reads, and this comparison all follow the branch
-      void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
-      void queryClient.invalidateQueries({ queryKey: ["branches", application.id] });
+      // the apps, what detection reads, and this comparison all follow the branch
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["application"] });
+      void queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not save"), description: error.message }),
   });
 
   const [confirmPull, setConfirmPull] = useState(false);
   const pull = useMutation({
-    mutationFn: () => pullOnServer(application.id),
-    onSuccess: (output) => {
+    mutationFn: () => pullProject(projectId),
+    onSuccess: ({ output }) => {
       toast({ title: t("Pulled on the server"), description: output.split("\n").slice(-3).join(" · ") });
-      // the server's HEAD moved
-      void queryClient.invalidateQueries({ queryKey: ["branches", application.id] });
+      // the server's HEAD moved, and the pull is in the history now
+      void queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["deployments"] });
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not pull"), description: error.message }),
   });
@@ -104,10 +113,19 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
           </Button>
         </div>
 
-        <p className="flex min-w-0 items-center gap-1.5 text-sm" title={application.repository ?? undefined}>
+        {/* the project, when it is more than this page's app */}
+        {project && apps.length > 1 && (
+          <Link to={`/project/${project.id}`} className="flex min-w-0 items-center gap-1.5 text-sm font-medium hover:text-primary">
+            <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{project.name}</span>
+            <span className="shrink-0 text-xs font-normal text-muted-foreground">{t("{count} apps", { count: apps.length })}</span>
+          </Link>
+        )}
+
+        <p className="flex min-w-0 items-center gap-1.5 text-sm" title={project?.repository ?? undefined}>
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate font-mono text-xs">{repoName(application.repository ?? "")}</span>
-          {application.gitAccountId && (
+          <span className="truncate font-mono text-xs">{repoName(project?.repository ?? "")}</span>
+          {project?.gitAccountId && (
             <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={t("Private — read through a connected account.")} />
           )}
         </p>
@@ -144,8 +162,17 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
                   <AlertDialogTitle>{t("Pull {branch} on the server?", { branch: current })}</AlertDialogTitle>
                   <AlertDialogDescription>
                     {t("Runs git pull --ff-only in {dir}. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.", {
-                      dir: application.rootPath ?? "",
+                      dir: project?.path ?? "",
                     })}
+                    {/* one checkout, several sites: say which ones change */}
+                    {apps.length > 1 && (
+                      <span className="mt-2 block">
+                        {t("It changes all {count} apps of this project: {apps}.", {
+                          count: apps.length,
+                          apps: apps.map((app) => app.domain).join(", "),
+                        })}
+                      </span>
+                    )}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

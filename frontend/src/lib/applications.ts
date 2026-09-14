@@ -29,6 +29,10 @@ export interface Application {
   repository?: string;
   gitAccountId?: string | null;
   branch?: string;
+  /** the project ("Proyek") it is built from — shared by a monorepo's apps */
+  sourceId?: string | null;
+  /** its folder in the repository (monorepos); null = the root */
+  rootDirectory?: string | null;
   /** null = the detected install */
   installCommand?: string | null;
   buildCommand?: string;
@@ -367,12 +371,6 @@ export type AppBranches = {
   liveCommit: string | null;
 };
 
-export const getAppBranches = async (id: string): Promise<AppBranches> => {
-  const response = await apiRequest<AppBranches>(`/applications/${id}/branches`);
-  if (response.success && response.data) return response.data;
-  throw new Error(response.error || t("Could not read the branches"));
-};
-
 /**
  * A file to upload and its path inside the upload. Kept apart from the File
  * because dropped files carry no webkitRelativePath.
@@ -568,9 +566,6 @@ export type ApiMsg = { text: string; params?: Record<string, string | number> };
 export type TeardownStep = { id: TeardownStepId; command?: string; detail?: ApiMsg; blocked?: ApiMsg; satisfied?: ApiMsg; kept?: ApiMsg };
 
 /** `git pull --ff-only` in an imported app's checkout on its server — code only (superadmin). */
-export const pullOnServer = async (id: string): Promise<string> =>
-  (await apiRequest<{ output: string }>(`/applications/${id}/pull`, { method: 'POST' })).data?.output ?? '';
-
 /** Whether an imported app's recorded folder is on its server; exists null when it could not be asked. */
 export const getAppFolder = async (id: string): Promise<{ path: string | null; exists: boolean | null }> =>
   (await apiRequest<{ path: string | null; exists: boolean | null }>(`/applications/${id}/folder`)).data!;
