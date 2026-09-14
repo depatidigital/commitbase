@@ -64,24 +64,24 @@ async function main() {
   const domainRows = await prisma.domain.findMany({ select: { id: true, name: true } });
   const byName = new Map(domainRows.map((d) => [d.name.toLowerCase(), d]));
 
-  const unlinked = await prisma.application.findMany({
+  const unlinked = await prisma.appDomain.findMany({
     where: { domainId: null },
-    select: { id: true, domain: true },
+    select: { id: true, host: true },
   });
 
   const orphans: string[] = [];
 
   for (const app of unlinked) {
-    const parent = candidateParents(app.domain)
+    const parent = candidateParents(app.host)
       .map((n) => byName.get(n))
       .find(Boolean);
 
     if (!parent) {
-      orphans.push(app.domain);
+      orphans.push(app.host);
       continue;
     }
 
-    await prisma.application.update({ where: { id: app.id }, data: { domainId: parent.id } });
+    await prisma.appDomain.update({ where: { id: app.id }, data: { domainId: parent.id } });
   }
 
   console.log(`✅ Linked ${unlinked.length - orphans.length} application(s).`);

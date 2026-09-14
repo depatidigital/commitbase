@@ -47,13 +47,19 @@ export async function launchDeploy(application: Application, userId: string): Pr
   // and a deploy that finishes into a hostname that does not resolve is worse
   // than one that says so.
   let dnsWarning = '';
-  for (const app of group) {
-    const dns = await ensureAppHostname(app).catch(
+  // every name of every app of the group
+  const names = await prisma.appDomain.findMany({
+    where: { applicationId: { in: group.map((app) => app.id) } },
+    select: { applicationId: true, host: true, domainId: true },
+    orderBy: { host: 'asc' },
+  });
+  for (const name of names) {
+    const dns = await ensureAppHostname({ id: name.applicationId, domain: name.host, domainId: name.domainId }).catch(
       (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
     );
     // does not fail the deploy — the hostname may be in a zone we do not run
     if (dns.state === 'conflict' || dns.state === 'unavailable') {
-      dnsWarning += `DNS was not set up${group.length > 1 ? ` for ${app.domain}` : ''}: ${dns.detail}\n\n`;
+      dnsWarning += `DNS was not set up${names.length > 1 ? ` for ${name.host}` : ''}: ${dns.detail}\n\n`;
     }
   }
 

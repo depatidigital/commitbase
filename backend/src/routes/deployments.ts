@@ -249,7 +249,7 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
           }
         }
       } else {
-        logs = await deploymentService.getApplicationLogs(deployment.application.domain, lines);
+        logs = await deploymentService.getApplicationLogs(deployment.application.id, lines);
       }
     } catch (error) {
       logs = `No logs available for ${logType}`;

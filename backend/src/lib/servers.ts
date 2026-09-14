@@ -15,14 +15,14 @@ import type { SshTarget } from './runner';
 export async function serverForApplication(applicationId: string): Promise<SshTarget & { id: string; publicIp: string }> {
   const application = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { domain: true, server: true, organization: { select: { defaultServer: true } } },
+    select: { name: true, server: true, organization: { select: { defaultServer: true } } },
   });
 
   if (!application) throw new Error(`Unknown application: ${applicationId}`);
 
   const server = application.server ?? application.organization?.defaultServer;
   if (!server) {
-    throw new Error(`${application.domain} has no server — pick one for the app, or set its organization's default server`);
+    throw new Error(`${application.name} has no server — pick one for the app, or set its organization's default server`);
   }
   return server;
 }

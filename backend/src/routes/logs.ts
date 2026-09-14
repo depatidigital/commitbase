@@ -75,7 +75,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
           }
         }
       } else {
-        logs = await deploymentService.getApplicationLogsFromFiles(application.domain, logType, lines);
+        logs = await deploymentService.getApplicationLogsFromFiles(application.id, logType, lines);
       }
     } catch (error) {
       logs = `No logs available for ${logType}`;
@@ -86,7 +86,6 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       data: {
         logs,
         applicationId: appId,
-        domain: application.domain,
         logType,
         lines: lines,
       },
@@ -259,27 +258,20 @@ router.post('/test-build-log/:appId', authenticateToken, async (req: Authenticat
       } as ApiResponse);
     }
 
-    if (!application.domain) {
-      return res.status(400).json({
-        success: false,
-        error: 'Application domain is required',
-      } as ApiResponse);
-    }
 
     // Create test build log entry
-    const success = await deploymentService.createTestBuildLog(application.domain, message || 'Test build log entry');
+    const success = await deploymentService.createTestBuildLog(application.id, message || 'Test build log entry');
 
     if (success) {
       // Check if build log exists
-      const logStatus = await deploymentService.checkBuildLogExists(application.domain);
+      const logStatus = await deploymentService.checkBuildLogExists(application.id);
       
       return res.json({
         success: true,
         data: {
           message: 'Test build log created successfully',
           logStatus,
-          domain: application.domain,
-        },
+          },
         message: 'Test build log created successfully',
       } as ApiResponse);
     } else {
@@ -324,21 +316,14 @@ router.get('/build-log-status/:appId', authenticateToken, async (req: Authentica
       } as ApiResponse);
     }
 
-    if (!application.domain) {
-      return res.status(400).json({
-        success: false,
-        error: 'Application domain is required',
-      } as ApiResponse);
-    }
 
     // Check build log status
-    const logStatus = await deploymentService.checkBuildLogExists(application.domain);
+    const logStatus = await deploymentService.checkBuildLogExists(application.id);
     
     return res.json({
       success: true,
       data: {
         logStatus,
-        domain: application.domain,
         applicationId: appId,
       },
       message: 'Build log status retrieved successfully',
