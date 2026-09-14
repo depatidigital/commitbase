@@ -8,7 +8,7 @@ import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
-import { setSourceOrganization, sourceName } from '../lib/sources';
+import { isBranchName, setSourceOrganization, sourceName } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
 
 /**
@@ -67,6 +67,19 @@ const checkoutGit = (server: Parameters<typeof exec>[0], dir: string, args: stri
     ['env', 'GIT_TERMINAL_PROMPT=0', 'GIT_SSH_COMMAND=ssh -o BatchMode=yes', 'git', '-c', 'safe.directory=*', '-C', dir, ...args],
     { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
   );
+
+/**
+ * Why the panel must not run git in this checkout, or null when it may: only
+ * as the folder's owner — git as another user (root, typically) leaves files
+ * the apps cannot write.
+ */
+async function notOwner(server: Parameters<typeof exec>[0], dir: string): Promise<string | null> {
+  const { stdout: who } = await exec(server, ['sh', '-c', 'stat -c %U -- "$1" && id -un', 'sh', dir], { timeout: 15_000 });
+  const [owner, user] = who.trim().split('\n');
+  return !owner || owner !== user
+    ? `${dir} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Run git on the server as ${owner}.`
+    : null;
+}
 
 async function findSource(req: AuthenticatedRequest, res: Response) {
   const source = await prisma.source.findFirst({
@@ -291,14 +304,8 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
     const server = await prisma.server.findUnique({ where: { id: source.serverId } });
     if (!server) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);
 
-    const { stdout: who } = await exec(server, ['sh', '-c', 'stat -c %U -- "$1" && id -un', 'sh', source.path], { timeout: 15_000 });
-    const [owner, user] = who.trim().split('\n');
-    if (!owner || owner !== user) {
-      return res.status(409).json({
-        success: false,
-        error: `${source.path} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Pull it on the server as ${owner}.`,
-      } as ApiResponse);
-    }
+    const refused = await notOwner(server, source.path);
+    if (refused) return res.status(409).json({ success: false, error: refused } as ApiResponse);
 
     const branch = source.branch || 'main';
     const first = source.applications[0];
@@ -335,6 +342,87 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
     }
   } catch (error) {
     console.error('Error pulling project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Switch an imported checkout to another branch, on its server — for every
+ * app served from it. Like a pull: code only (no install, build or restart),
+ * and it refuses rather than lose anything — local changes stop it, and the
+ * branch only ever moves forward to what the remote has. It lands in the
+ * project's history like a deploy.
+ */
+router.post('/:id/checkout', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!source.path || !source.serverId || !source.repository) {
+      return res.status(400).json({ success: false, error: 'Only a project checked out on its server from git can switch branches here' } as ApiResponse);
+    }
+    const branch = String(req.body?.branch ?? '').trim();
+    if (!isBranchName(branch)) return res.status(400).json({ success: false, error: 'Pick a branch' } as ApiResponse);
+
+    const server = await prisma.server.findUnique({ where: { id: source.serverId } });
+    if (!server) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);
+    const refused = await notOwner(server, source.path);
+    if (refused) return res.status(409).json({ success: false, error: refused } as ApiResponse);
+
+    const git = (args: string[]) => checkoutGit(server, source.path!, args);
+    // uncommitted edits on the box would be carried along, or block the switch halfway
+    const dirty = (await git(['status', '--porcelain', '--untracked-files=no'])).stdout.trim();
+    if (dirty) {
+      return res.status(409).json({
+        success: false,
+        error: `${source.path} has local changes — commit or discard them on the server first:\n${dirty.split('\n').slice(0, 5).join('\n')}`,
+      } as ApiResponse);
+    }
+
+    const first = source.applications[0];
+    const log: string[] = [];
+    const step = async (args: string[]) => {
+      log.push(`$ git ${args.join(' ')}`);
+      const { stdout, stderr } = await git(args);
+      if (`${stdout}${stderr}`.trim()) log.push(`${stdout}${stderr}`.trim());
+    };
+    const record = (status: 'SUCCESS' | 'FAILED', commit?: { hash?: string | undefined; message?: string | undefined }) =>
+      first
+        ? prisma.deployment.create({
+            data: {
+              applicationId: first.id,
+              sourceId: source.id,
+              userId: req.user!.userId,
+              status,
+              deployLogs: `Switch ${source.path} to ${branch}\n\n${log.join('\n')}`,
+              commitHash: commit?.hash ?? null,
+              commitMessage: commit?.message ?? null,
+            },
+          })
+        : null;
+
+    try {
+      // a single-branch clone has no ref for the others: fetch this one by name
+      await step(['fetch', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+      const local = await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).then(() => true, () => false);
+      // an existing local branch keeps its commits: switched to, then moved forward only
+      await step(local ? ['checkout', branch] : ['checkout', '-b', branch, '--track', `origin/${branch}`]);
+      if (local) await step(['merge', '--ff-only', `origin/${branch}`]);
+      const head = await git(['log', '-1', '--format=%H%n%s']).catch(() => null);
+      const [hash, message] = (head?.stdout ?? '').trim().split('\n');
+      await prisma.source.update({ where: { id: source.id }, data: { branch } });
+      await record('SUCCESS', { hash, message });
+      return res.json({
+        success: true,
+        data: { output: log.join('\n'), apps: source.applications.flatMap((app) => app.domains.map((d) => d.host)) },
+        message: `Switched to ${branch}`,
+      } as ApiResponse);
+    } catch (error: any) {
+      log.push(String(error?.stderr || error?.message || error).trim());
+      await record('FAILED');
+      return res.status(502).json({ success: false, error: log[log.length - 1]!.slice(0, 500) } as ApiResponse);
+    }
+  } catch (error) {
+    console.error('Error switching branch:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

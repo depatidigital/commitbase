@@ -3,7 +3,7 @@
  * Run: npx tsx src/lib/sources.check.ts
  */
 import assert from 'assert';
-import { sourceName } from './sources';
+import { isBranchName, sourceName } from './sources';
 import { rollupStatus } from '../routes/sources';
 
 // named: that; else the checkout folder, the repository, the first hostname
@@ -28,5 +28,16 @@ assert.strictEqual(rollupStatus([app('STOPPED'), app('STOPPED')]), 'STOPPED');
 assert.strictEqual(rollupStatus([app('RUNNING'), app('ERROR', true)]), 'RUNNING');
 assert.strictEqual(rollupStatus([app('ERROR', true)]), 'DISABLED');
 assert.strictEqual(rollupStatus([]), 'EMPTY');
+
+// a branch to switch to: a name, never an option or a range
+assert.ok(isBranchName('main'));
+assert.ok(isBranchName('feature/new-ui'));
+assert.ok(isBranchName('release-1.2'));
+assert.ok(!isBranchName(''));
+assert.ok(!isBranchName('--upload-pack=touch /tmp/x'));
+assert.ok(!isBranchName('-b'));
+assert.ok(!isBranchName('main..evil'));
+assert.ok(!isBranchName('a b'));
+assert.ok(!isBranchName('main;rm'));
 
 console.log('sources: ok');

@@ -545,10 +545,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                          https://{hosts[0]}
                        </a>
                      ) : (
-                       // several names, at a glance; each one's state is on the Domains tab
-                       <button type="button" className="break-words text-left font-mono text-xs text-foreground hover:text-primary hover:underline" onClick={() => setActiveTab("domains")}>
-                         {hosts.join(", ")}
-                       </button>
+                       // several names, all serving: nothing to single out — only a name in trouble is named here
+                       null
                      )
                    ) :
                    published ? t("Up — waiting for {domain} to answer. DNS and the certificate can take a few minutes.", { domain: failing?.host ?? hostList(application) }) :
@@ -867,6 +865,15 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                       <Field label={t("Domain")}>
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="font-mono">{name.host}</span>
+                          <a
+                            href={`https://${name.host}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={t("Open {url}", { url: name.host })}
+                            className="text-muted-foreground hover:text-primary"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
                           <DomainExpiryBadge domain={name.parentDomain} />
                           <Button
                             variant="ghost"
@@ -892,20 +899,34 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 })}
                 {application.domains.length > 1 && application.domains.some((name) => hostOk(checkOf(name.host))) && (
                   <Field label={application.domains.every((name) => hostOk(checkOf(name.host))) ? t("Domain") : t("Other domains")}>
-                    <button
-                      type="button"
-                      className="inline-flex flex-wrap items-center justify-end gap-x-1.5 text-right hover:text-primary"
-                      onClick={() => setActiveTab("domains")}
-                    >
-                      {/* the healthy names, at a glance; the ones in trouble are listed above */}
-                      <span className="font-mono">
-                        {application.domains.filter((name) => hostOk(checkOf(name.host))).map((name) => name.host).join(", ")}
-                      </span>
-                      <span className="text-xs text-success">
+                    {/* the healthy names, at a glance, each one opens; the ones in trouble are listed above */}
+                    <span className="font-mono">
+                      {application.domains
+                        .filter((name) => hostOk(checkOf(name.host)))
+                        .map((name, i, list) => (
+                          <span key={name.host} className="inline-flex items-center gap-1">
+                            {name.host}
+                            <a
+                              href={`https://${name.host}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={t("Open {url}", { url: name.host })}
+                              className="text-muted-foreground hover:text-primary"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                            {i < list.length - 1 && <span className="mr-1">,</span>}
+                          </span>
+                        ))}
+                    </span>
+                    <span className="mt-0.5 flex items-center justify-end gap-1.5 text-xs">
+                      <span className="text-success">
                         {application.domains.every((name) => hostOk(checkOf(name.host))) ? t("all reachable") : t("reachable")}
                       </span>
-                      <span className="text-xs text-primary">{t("Manage")} →</span>
-                    </button>
+                      <button type="button" className="text-primary hover:underline" onClick={() => setActiveTab("domains")}>
+                        {t("Manage")} →
+                      </button>
+                    </span>
                   </Field>
                 )}
                 {/* the version visitors are getting */}

@@ -119,3 +119,7 @@ export function withSourceFields<T extends WithSource>(app: T) {
     activeReleaseId: app.source?.activeReleaseId ?? null,
   };
 }
+
+/** A branch name git takes as a name, never as an option or a revision expression. Pure. */
+export const isBranchName = (name: string) =>
+  /^[A-Za-z0-9._/-]+$/.test(name) && !name.startsWith('-') && !name.includes('..') && !name.endsWith('/') && !name.endsWith('.lock');
