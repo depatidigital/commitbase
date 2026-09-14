@@ -231,7 +231,7 @@ export async function checkApplicationHostnames(): Promise<string> {
     // a hostname that only exists inside the platform has nothing to check,
     // and a switched-off app is off on purpose
     where: { domain: { not: { endsWith: '.pm2.local' } }, disabled: false },
-    select: { id: true, domain: true, domainId: true },
+    select: { id: true, domain: true, domainId: true, aliases: true },
   });
 
   if (apps.length === 0) return 'no applications to check';
@@ -248,6 +248,16 @@ export async function checkApplicationHostnames(): Promise<string> {
         const startedAt = Date.now();
         const health = await checkAppHostname(app.domain);
         const ms = Date.now() - startedAt;
+        // every name it answers on: one alias down is the app down, said by name
+        if (health.live) {
+          for (const alias of app.aliases) {
+            const other = await checkAppHostname(alias);
+            if (!other.live) {
+              Object.assign(health, { live: false, httpStatus: other.httpStatus, error: `${alias}: ${other.error ?? 'not answering'}` });
+              break;
+            }
+          }
+        }
 
         // only an answer can come from the wrong place; a stale entry is refreshed
         const known = pointing.get(app.id);

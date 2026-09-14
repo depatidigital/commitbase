@@ -161,8 +161,8 @@ export async function inspectHost(
   host: string,
   opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined } = {},
 ): Promise<HostInspection> {
-  const app = await prisma.application.findUnique({
-    where: { domain: host },
+  const app = await prisma.application.findFirst({
+    where: { OR: [{ domain: host }, { aliases: { has: host } }] },
     select: { id: true, name: true, organizationId: true },
   });
   const visible = app && (isPlatformAdmin(req) || (app.organizationId && (await getOrgIds(req)).includes(app.organizationId)));

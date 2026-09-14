@@ -29,6 +29,7 @@ const instanceSelect = {
   processName: true,
   rootDirectory: true,
   rootPath: true,
+  aliases: true,
   port: true,
   routing: true,
   createdAt: true,
@@ -111,7 +112,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           { name: contains(search) },
           { repository: contains(search) },
           { path: contains(search) },
-          { applications: { some: { OR: [{ domain: contains(search) }, { name: contains(search) }] } } },
+          // an alias only whole: Postgres arrays have no substring match through Prisma
+          { applications: { some: { OR: [{ domain: contains(search) }, { name: contains(search) }, { aliases: { has: search.trim().toLowerCase() } }] } } },
         ],
       }),
       // a source is its apps; one without any is on its way out

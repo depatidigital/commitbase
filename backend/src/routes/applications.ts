@@ -393,7 +393,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
       ...(serverId && { serverId }),
       ...(domainId && { domainId }),
-      ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }] }),
+      ...(search && { OR: [{ name: contains(search) }, { domain: contains(search) }, { aliases: { has: search.trim().toLowerCase() } }] }),
     };
 
     const [applications, total] = await Promise.all([
@@ -666,8 +666,9 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     }
 
     // Check if domain already exists
-    const existingApp = await prisma.application.findUnique({
-      where: { domain },
+    // an alias of another app is taken as much as its main hostname
+    const existingApp = await prisma.application.findFirst({
+      where: { OR: [{ domain }, { aliases: { has: domain } }] },
     });
 
     if (existingApp) {
@@ -1092,8 +1093,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         return res.status(400).json({ success: false, error: 'An imported app keeps its hostname' } as ApiResponse);
       }
 
-      const domainConflict = await prisma.application.findUnique({
-        where: { domain: normalizedDomain },
+      const domainConflict = await prisma.application.findFirst({
+        where: { OR: [{ domain: normalizedDomain }, { aliases: { has: normalizedDomain } }] },
       });
 
       if (domainConflict) {

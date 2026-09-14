@@ -113,6 +113,28 @@ export function AppDomainsCard({ application }: { application: Application }) {
           <DomainExpiryBadge domain={application.parentDomain} />
         </div>
 
+        {/* the same app under other names — checked together with the main one */}
+        {!!application.aliases?.length && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t("Also answers on")}</p>
+            <ul className="space-y-1">
+              {application.aliases.map((alias) => (
+                <li key={alias}>
+                  <a
+                    href={`https://${alias}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary"
+                  >
+                    {alias}
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {application.runtime ? (
           <p className="text-sm text-muted-foreground">{t("An imported app keeps its hostname.")}</p>
         ) : isLoading ? (

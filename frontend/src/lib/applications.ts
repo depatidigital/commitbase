@@ -18,7 +18,16 @@ export const runtimeLabel = (runtime?: string | null): string =>
 /** `https://github.com/acme/shop.git` → `acme/shop` */
 export const repoName = (url: string) => url.replace(/\.git$/, '').split(/[/:]/).slice(-2).join('/');
 
+/**
+ * Every hostname an app answers on, in a fixed order with none first: an
+ * imported site behind several names is those names, not one plus extras.
+ */
+export const hostsOf = (app: { domain: string; aliases?: string[] | null }): string[] =>
+  [app.domain, ...(app.aliases ?? [])].sort();
+
 export interface Application {
+  /** other hostnames it answers on (imported: one folder behind several names) — see hostsOf */
+  aliases?: string[];
   /** The node it was discovered on, when it came from a server sync. */
   server?: { id: string; name: string } | null;
   id: string;

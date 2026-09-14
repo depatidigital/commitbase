@@ -22,6 +22,7 @@ export interface ProjectApp {
   processName: string | null;
   rootDirectory: string | null;
   rootPath: string | null;
+  aliases?: string[];
   port: number | null;
   /** a hostname split by path: `/api/*` → the app, the rest → static files */
   routing: Array<{ path: string | null; proxy?: string; root?: string }> | null;

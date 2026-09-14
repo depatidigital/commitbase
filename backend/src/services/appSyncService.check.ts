@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, type DiscoveredApp } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
@@ -180,5 +180,29 @@ assert.deepStrictEqual(classifyRoute(splitRoute), { type: 'NODEJS', port: 9200 }
 // one thing serving it all is not a split; nor is PHP (file_server + FastCGI are one app)
 assert.strictEqual(routeParts(runtimeRoute), null);
 assert.strictEqual(routeParts(phpRoute), null);
+
+// --- one folder behind several hostnames is one app, the rest its aliases ---
+const site = (domain: string, extra: Partial<DiscoveredApp> = {}): DiscoveredApp =>
+  ({ name: domain, domain, runtime: 'CADDY_PHP', type: 'PHP', status: 'RUNNING', rootPath: '/var/www/cms/public', ...extra });
+const merged = mergeSameSite([
+  site('a.go.id'),
+  site('b.go.id'),
+  site('other.go.id', { rootPath: '/var/www/other' }),
+  site('c.go.id'),
+  // same folder, served differently (a proxied port): not the same app
+  site('api.go.id', { runtime: 'CADDY_PROXY', port: 9000 }),
+  // nothing known about where it runs: never merged
+  site('x.go.id', { rootPath: undefined }),
+  site('y.go.id', { rootPath: undefined }),
+  site('worker.pm2.local', { runtime: 'PM2', port: 9000 }),
+]);
+assert.deepStrictEqual(merged.map((app) => [app.domain, app.aliases ?? []]), [
+  ['a.go.id', ['b.go.id', 'c.go.id']],
+  ['other.go.id', []],
+  ['api.go.id', []],
+  ['x.go.id', []],
+  ['y.go.id', []],
+  ['worker.pm2.local', []],
+]);
 
 console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');

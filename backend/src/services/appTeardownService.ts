@@ -189,11 +189,13 @@ export async function teardownPlan(app: Application): Promise<TeardownStep[]> {
   }
 
   if (!placeholder) {
-    steps.push({ id: 'route', detail: msg('Caddy route for {domain}', { domain: app.domain }), blocked: isPanel ?? noServer });
-    if (app.domainId) {
+    // every name it answers on
+    const hosts = [app.domain, ...app.aliases].join(', ');
+    steps.push({ id: 'route', detail: msg('Caddy route for {domain}', { domain: hosts }), blocked: isPanel ?? noServer });
+    if (app.domainId || app.aliases.length) {
       steps.push({
         id: 'dns',
-        detail: msg('DNS record {domain} → this server (Cloudflare, only if it points here)', { domain: app.domain }),
+        detail: msg('DNS record {domain} → this server (Cloudflare, only if it points here)', { domain: hosts }),
         blocked: isPanel,
       });
     }
@@ -252,8 +254,14 @@ export async function teardownApp(app: Application): Promise<TeardownResult> {
   for (const id of steps) {
     try {
       if (id === 'process') await deletePm2Process(server!, app.processName!);
-      if (id === 'route') await removeCaddySite(server!, app.domain);
-      if (id === 'dns') await removeAppHostname(app, { strict: true });
+      if (id === 'route') {
+        for (const host of [app.domain, ...app.aliases]) await removeCaddySite(server!, host);
+      }
+      if (id === 'dns') {
+        await removeAppHostname(app, { strict: true });
+        // an alias can sit under another zone: found by its name
+        for (const alias of app.aliases) await removeAppHostname({ ...app, domain: alias, domainId: null }, { strict: true });
+      }
       if (id === 'files') await removeFolder(server!, app);
       done.push(id);
     } catch (error: any) {

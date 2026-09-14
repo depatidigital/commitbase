@@ -235,6 +235,17 @@ export type HostnameHealth = {
 };
 
 /**
+ * A server error is down, and so is an empty 404 at / — the web server
+ * answering with nothing there (a PHP site without its index, a root pointing
+ * at the wrong folder). An app's own 404 has a body, and an API with no route
+ * at / is still serving.
+ */
+export function answersLive(status: number | null, contentLength?: string): boolean {
+  if (!status || status >= 500) return false;
+  return !(status === 404 && contentLength === '0');
+}
+
+/**
  * Is the site actually reachable? "RUNNING" only ever meant "the unit started",
  * which is not what anyone reads it as — this asks the hostname itself.
  */
@@ -255,12 +266,14 @@ export async function checkAppHostname(host: string, timeoutMs = 5000): Promise<
       (response) => {
         response.resume();
         const status = response.statusCode ?? null;
+        const live = answersLive(status, response.headers['content-length']);
         resolve({
           ...base,
           resolves: true,
           https: true,
           httpStatus: status,
-          live: !!status && status < 500,
+          live,
+          error: live ? null : `Answers HTTP ${status}${status === 404 ? ' with an empty page — nothing is served at /' : ''}`,
         });
       },
     );

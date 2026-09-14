@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
-import { repoName, runtimeLabel } from "@/lib/applications";
+import { hostsOf, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
 import { getServers } from "@/lib/servers";
 import { appParts, assignProjects, getProjects, projectPath, type AppPart, type Project, type ProjectApp } from "@/lib/projects";
@@ -122,7 +122,16 @@ export default function Projects() {
   // An app's lines — one per path of a split hostname — in the Apps column and
   // again, lined up (same height), in the Uptime column.
   const LINE = "flex h-6 min-w-0 items-center gap-1.5";
-  const partsOf = (project: Project) => project.applications.flatMap((app) => appParts(app).map((part) => ({ app, part })));
+  // A site under several names gets a line per name, all alike; the uptime and
+  // what serves it are said once, on the first — they are one check, one app.
+  const partsOf = (project: Project) =>
+    project.applications.flatMap((app) => {
+      const [main, ...paths] = appParts(app) as Array<AppPart & { repeat?: boolean }>;
+      const hosts = app.aliases?.length
+        ? hostsOf(app).map((host, i) => ({ ...main!, key: `${app.id}:${host}`, label: host, repeat: i > 0 }))
+        : [main!];
+      return [...hosts, ...paths].map((part) => ({ app, part }));
+    });
 
   // where the code comes from, said under the project's name
   const originOf = (project: Project) =>
@@ -131,7 +140,8 @@ export default function Projects() {
       : project.kind !== "IMPORTED"
         ? t("Uploaded files")
         : project.path
-          ? t("Server folder (not git)")
+          ? // the folder itself says it better, to whoever may see it
+            superAdmin ? project.path : t("Server folder (not git)")
           : t("On the server (folder not detected)");
 
   const columns: Column<Project>[] = [
@@ -159,7 +169,7 @@ export default function Projects() {
     {
       header: t("Project"),
       sortKey: "name",
-      className: "w-[26%] align-top",
+      className: "w-[24%] align-top",
       cell: (project) => {
         const down = project.applications.filter((app) => statusOf(app).tone === "down").length;
         return (
@@ -168,7 +178,11 @@ export default function Projects() {
               <span className="truncate font-medium">{project.name}</span>
               {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">{t("{count} down", { count: down })}</span>}
             </span>
-            <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground" title={project.repository ?? undefined}>
+            <span
+              className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground"
+              // the checkout a pull updates, for whoever may see it
+              title={[project.repository, superAdmin && project.path].filter(Boolean).join("\n") || undefined}
+            >
               {/* where it comes from, as a mark: a branch, an upload, or a folder on the server */}
               {project.repository ? (
                 <GitBranch className="h-3 w-3 shrink-0" />
@@ -214,11 +228,11 @@ export default function Projects() {
                     <span className="truncate text-sm">{part.label}</span>
                     {!internal && (
                       <a
-                        href={`https://${app.domain}`}
+                        href={`https://${part.label}`}
                         target="_blank"
                         rel="noreferrer"
                         className="shrink-0 text-muted-foreground hover:text-primary"
-                        aria-label={t("Open {url}", { url: app.domain })}
+                        aria-label={t("Open {url}", { url: part.label })}
                       >
                         <ExternalLink className="h-3 w-3" />
                       </a>
@@ -234,7 +248,7 @@ export default function Projects() {
                     <span className="truncate font-mono text-xs">{part.label.slice(app.domain.length) || part.label}</span>
                   </>
                 )}
-                {superAdmin && (
+                {superAdmin && !part.repeat && (
                   <span className="flex min-w-0 shrink items-center gap-1.5 text-xs text-muted-foreground">
                     <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
                       {runtime}
@@ -261,7 +275,7 @@ export default function Projects() {
             return (
               <div key={part.key} className="flex h-6 items-center justify-end gap-1.5">
                 {/* the state and the number behind it, together; a path has no check of its own */}
-                {part.main && (
+                {part.main && !part.repeat && (
                   <>
                     <Dot tone={tone} text={[text, health?.state !== "up" && health?.lastError].filter(Boolean).join(" · ")} />
                     {health?.uptime24h != null && (
@@ -278,55 +292,35 @@ export default function Projects() {
     ...(superAdmin
       ? [
           {
-            // where it lives on the server: the checkout a pull updates
-            header: t("Folder"),
-            className: "w-[16%] align-top",
-            cell: (project: Project) => (
-              <span className="flex h-6 items-center">
-                <span className="truncate font-mono text-xs text-muted-foreground" title={project.path ?? undefined}>
-                  {project.path ?? "—"}
-                </span>
-              </span>
-            ),
-          },
-          {
+            // who owns it, and the box it runs on under that
             header: t("Organization"),
-            className: "w-[11%] align-top",
+            className: "w-[13%] align-top",
             sortKey: "organization",
             cell: (project: Project) => (
-              <button
-                type="button"
-                title={t("Change organization")}
-                className="max-w-full"
-                onClick={() => {
-                  setAssignOrgId(project.organization?.id ?? null);
-                  setAssignTarget({ id: project.id, name: project.name });
-                }}
-              >
-                {project.organization ? (
-                  <Badge variant="outline" className="max-w-full truncate hover:border-primary">
-                    {project.organization.name}
-                  </Badge>
-                ) : (
-                  <span className="text-xs text-primary underline-offset-2 hover:underline">{t("Unassigned — assign")}</span>
-                )}
-              </button>
-            ),
-          },
-          {
-            header: t("Server"),
-            className: "w-28 align-top text-xs",
-            sortKey: "server",
-            cell: (project: Project) => (
-              <span className="flex h-6 items-center">
-                {project.server ? (
-                  <Link to={`/servers/${project.server.id}`} className="truncate hover:underline">
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  title={t("Change organization")}
+                  className="max-w-full"
+                  onClick={() => {
+                    setAssignOrgId(project.organization?.id ?? null);
+                    setAssignTarget({ id: project.id, name: project.name });
+                  }}
+                >
+                  {project.organization ? (
+                    <Badge variant="outline" className="max-w-full truncate hover:border-primary">
+                      {project.organization.name}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-primary underline-offset-2 hover:underline">{t("Unassigned — assign")}</span>
+                  )}
+                </button>
+                {project.server && (
+                  <Link to={`/servers/${project.server.id}`} className="block truncate text-xs text-muted-foreground hover:underline">
                     {project.server.name}
                   </Link>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
                 )}
-              </span>
+              </div>
             ),
           },
         ]

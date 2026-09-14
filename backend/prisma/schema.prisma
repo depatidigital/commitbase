@@ -330,6 +330,10 @@ model Application {
   id          String   @id @default(cuid())
   name        String
   domain      String   @unique
+  /// Other hostnames the same app answers on — imported sites whose server
+  /// routes several names to one folder. The sync keeps them; `domain` stays
+  /// the one it checks first and shows.
+  aliases     String[] @default([])
   type        AppType
   status      AppStatus @default(STOPPED)
   port        Int?

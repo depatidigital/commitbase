@@ -38,7 +38,34 @@ export type DiscoveredApp = {
   checkout?: string | undefined;
   /** a hostname split by path (routeParts), else undefined */
   routing?: RoutePart[] | undefined;
+  /** the other hostnames served exactly the same way (mergeSameSite) */
+  aliases?: string[] | undefined;
 };
+
+/**
+ * Hostnames served the same way — same runtime, folder, port and path split —
+ * are one app under several names: a multi-site CMS behind five domains, say.
+ * The first one found keeps the row; the rest become its aliases.
+ */
+export function mergeSameSite(apps: DiscoveredApp[]): DiscoveredApp[] {
+  const sites = new Map<string, DiscoveredApp>();
+  const merged: DiscoveredApp[] = [];
+  for (const app of apps) {
+    const placeholder = app.domain.endsWith('.pm2.local');
+    // nothing known about where it runs: nothing proves two hostnames are one app
+    const key = placeholder || (!app.rootPath && !app.port)
+      ? null
+      : [app.runtime, app.rootPath ?? '', app.port ?? '', JSON.stringify(app.routing ?? null)].join('|');
+    const site = key ? sites.get(key) : undefined;
+    if (site) {
+      site.aliases = [...(site.aliases ?? []), app.domain];
+      continue;
+    }
+    if (key) sites.set(key, app);
+    merged.push(app);
+  }
+  return merged;
+}
 
 export type AppSyncResult = {
   discovered: number;
@@ -521,7 +548,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     if (app.rootPath) app.checkout = state?.checkout ?? app.rootPath;
   }
 
-  return apps;
+  return mergeSameSite(apps);
 }
 
 /** Every node, so the inventory is the whole estate rather than one box. */
@@ -587,6 +614,8 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       configPath: app.configPath ?? null,
       // written each sync: a split that was undone on the server goes too
       routing: app.routing ? (app.routing as Prisma.InputJsonValue) : Prisma.DbNull,
+      // set below, once it is known which row keeps which hostname
+      aliases: [] as string[],
       status: app.status,
       port: app.port ?? null,
       memory: app.memory ?? null,
@@ -596,18 +625,62 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
     };
 
     try {
-      const existing = await prisma.application.findUnique({
-        where: { domain: app.domain },
+      // every row holding one of its hostnames — as its domain, or an alias
+      // from an earlier sync — oldest first
+      const hosts = [app.domain, ...(app.aliases ?? [])];
+      const found = await prisma.application.findMany({
+        where: { OR: [{ domain: { in: hosts } }, { aliases: { hasSome: hosts } }] },
         include: { _count: { select: { deployments: true } }, source: { select: { repository: true } } },
+        orderBy: { createdAt: 'asc' },
       });
-      const domainId = parentDomainOf(app.domain, domains)?.id ?? null;
-      let applicationId: string;
+      // A row that only has one of these as an alias, while its own hostname is
+      // served some other way now, lost it: it gives the alias up rather than
+      // being merged. Only when none of them is anyone's main hostname does such
+      // a row carry on as this app (its main hostname went, its aliases did not).
+      const byDomain = found.filter((row) => hosts.includes(row.domain));
+      const rows = byDomain.length ? byDomain : found;
+      for (const row of found.filter((row) => !rows.includes(row))) {
+        await prisma.application.update({
+          where: { id: row.id },
+          data: { aliases: row.aliases.filter((host) => !hosts.includes(host)) },
+        });
+      }
 
       // The panel's own apps show up in the scan too — their route is on the
       // box. Stamping a runtime on one turns it into an "imported" app the panel
       // then refuses to deploy, and guesses a directory it never had. Created
       // here (no runtime) or deployed from here (has deployments): not ours.
-      if (existing && (!existing.runtime || existing._count.deployments > 0)) continue;
+      const ours = rows.filter((row) => !row.runtime || row._count.deployments > 0);
+      const taken = new Set(ours.flatMap((row) => [row.domain, ...row.aliases]));
+      // the row that stays: one someone assigned, else the oldest
+      const imported = rows.filter((row) => !ours.includes(row));
+      const existing = imported.find((row) => row.organizationId) ?? imported[0] ?? null;
+      // merged into it: rows of the same org (or none) — never another tenant's
+      const same = (row: (typeof rows)[number]) =>
+        !row.organizationId || !existing?.organizationId || row.organizationId === existing.organizationId;
+      const merging = imported.filter((row) => row !== existing && same(row));
+      for (const row of imported.filter((row) => row !== existing && !same(row))) {
+        errors.push(`${row.domain}: served from the same folder as ${existing!.domain}, but owned by another organization — kept apart`);
+        for (const host of [row.domain, ...row.aliases]) taken.add(host);
+      }
+
+      const free = hosts.filter((host) => !taken.has(host));
+      if (free.length === 0) continue;
+      // the row keeps its name when it still answers on it
+      app.domain = existing && free.includes(existing.domain) ? existing.domain : free[0]!;
+      app.aliases = free.filter((host) => host !== app.domain);
+      fields.aliases = app.aliases;
+
+      if (merging.length) {
+        // one app now: its databases come along, its duplicate rows go (the
+        // server is untouched — nothing is torn down)
+        const ids = merging.map((row) => row.id);
+        await prisma.database.updateMany({ where: { applicationId: { in: ids } }, data: { applicationId: existing!.id } });
+        await prisma.application.deleteMany({ where: { id: { in: ids } } });
+      }
+
+      const domainId = parentDomainOf(app.domain, domains)?.id ?? null;
+      let applicationId: string;
 
       // The source is the checkout: every app served from it shares one, and
       // pulling it updates them all. No folder known: a source of its own.
@@ -629,7 +702,10 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           // fills rows synced before the link / the repo existed; never moves a set one
           data: {
             ...fields,
-            ...(!existing.domainId && domainId && { domainId }),
+            // its main hostname went, an alias carries on as it
+            ...(existing.domain !== app.domain
+              ? { domain: app.domain, domainId }
+              : !existing.domainId && domainId && { domainId }),
             ...(joins && { sourceId: shared!.id }),
           },
         });
