@@ -1757,49 +1757,58 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
+      include: withDomains,
     });
 
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    // the registration too: an expired domain often still resolves — to the registrar's parking page
-    const [health, managed, registration, pointing] = await Promise.all([
-      checkAppHostname(application.domain),
-      dnsManaged(application),
-      hostnameRegistration(application.domain).catch(() => null),
-      // does the name lead to the server this app runs on — or somewhere else that happens to answer
-      whereHostnamePoints(application).catch(() => null),
-    ]);
-    return res.json({
-      success: true,
-      data: {
-        ...health,
-        dnsManaged: managed,
-        domainProblem: registration?.problem ?? null,
-        registeredDomain: registration?.domain ?? null,
-        pointing,
-      },
-    } as ApiResponse);
+    // each of its names on its own: one can answer while another does not
+    const data = await Promise.all(
+      atEach(application).map(async (at) => {
+        // the registration too: an expired domain often still resolves — to the registrar's parking page
+        const [health, managed, registration, pointing] = await Promise.all([
+          checkAppHostname(at.domain),
+          dnsManaged(at),
+          hostnameRegistration(at.domain).catch(() => null),
+          // does the name lead to the server this app runs on — or somewhere else that happens to answer
+          whereHostnamePoints(at).catch(() => null),
+        ]);
+        return {
+          ...health,
+          dnsManaged: managed,
+          domainProblem: registration?.problem ?? null,
+          registeredDomain: registration?.domain ?? null,
+          pointing,
+        };
+      }),
+    );
+    return res.json({ success: true, data } as ApiResponse);
   } catch (error) {
     console.error('Error checking application hostname:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 
-/** Create or repoint the app's DNS record. `force` overwrites a conflicting one. */
+/** Create or repoint the DNS record of one of the app's names (`host`). `force` overwrites a conflicting one. */
 router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
+      include: withDomains,
     });
 
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
+    // which name: the one asked for — an app of one name needs no asking
+    const names = atEach(application);
+    const at = req.body?.host ? names.find((name) => name.domain === normalizeHost(req.body.host)) : names.length === 1 ? names[0] : undefined;
+    if (!at) return res.status(400).json({ success: false, error: 'Say which of its hostnames' } as ApiResponse);
 
     // force = the user confirmed the repoint dialog, which showed what is replaced
-    const result = await applyAppDns(req, application, req.body?.force === true);
+    const result = await applyAppDns(req, at, req.body?.force === true);
     // the record just moved: what the hostname check remembered about it is stale
     forgetPointing(application.id);
 

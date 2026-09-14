@@ -109,7 +109,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
         include: {
           organization: { select: { id: true, name: true, slug: true } },
           // how many apps already sit on it — shown in the add-app domain picker
-          _count: { select: { applications: true } },
+          _count: { select: { appDomains: true } },
         },
         orderBy: sortOrder(req.query.sort, req.query.order),
         ...(paged && { skip, take: limit }),
@@ -151,7 +151,7 @@ router.get('/choices', authenticateToken, async (req: AuthenticatedRequest, res:
   try {
     const domains = await prisma.domain.findMany({
       where: { status: 'ACTIVE', OR: [await orgScope(req), { shared: true }] },
-      select: { id: true, name: true, shared: true, organizationId: true, _count: { select: { applications: true } } },
+      select: { id: true, name: true, shared: true, organizationId: true, _count: { select: { appDomains: true } } },
       // shared first: the default for an app with no domain of its own
       orderBy: [{ shared: 'desc' }, { name: 'asc' }],
     });

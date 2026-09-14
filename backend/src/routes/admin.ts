@@ -140,7 +140,7 @@ router.get('/domains', async (req: AuthenticatedRequest, res: Response) => {
         include: {
           organization: { select: { id: true, name: true, slug: true } },
           user: { select: { id: true, email: true, name: true, role: true } },
-          _count: { select: { applications: true } },
+          _count: { select: { appDomains: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -180,7 +180,7 @@ router.post('/domains/:id/assign', validateRequest(AssignDomainSchema), async (r
 
     const [updated] = await prisma.$transaction([
       prisma.domain.update({ where: { id }, data: { organizationId } }),
-      prisma.application.updateMany({ where: { domainId: id }, data: { organizationId } }),
+      prisma.application.updateMany({ where: { domains: { some: { domainId: id } } }, data: { organizationId } }),
     ]);
 
     return res.json({ success: true, data: updated, message: `Domain assigned to ${target.name}` } as ApiResponse);
@@ -202,7 +202,7 @@ router.delete('/domains/:id/assign', async (req: AuthenticatedRequest, res: Resp
 
     const [updated] = await prisma.$transaction([
       prisma.domain.update({ where: { id }, data: { organizationId: null } }),
-      prisma.application.updateMany({ where: { domainId: id }, data: { organizationId: null } }),
+      prisma.application.updateMany({ where: { domains: { some: { domainId: id } } }, data: { organizationId: null } }),
     ]);
 
     return res.json({ success: true, data: updated, message: 'Domain unassigned' } as ApiResponse);

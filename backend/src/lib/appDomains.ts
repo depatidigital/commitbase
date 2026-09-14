@@ -62,9 +62,14 @@ export async function setAppHosts(
   const have = new Set((await tx.appDomain.findMany({ where: { applicationId }, select: { host: true } })).map((d) => d.host));
   const known = hosts.filter((h): h is { host: string; domainId: string | null } => typeof h !== 'string');
   const unknown = await zonesFor(hosts.filter((h): h is string => typeof h === 'string'));
-  const fresh = [...known, ...unknown].filter((h) => !have.has(h.host));
+  const all = [...known, ...unknown];
+  const fresh = all.filter((h) => !have.has(h.host));
   if (fresh.length) {
     await tx.appDomain.createMany({ data: fresh.map((h) => ({ applicationId, host: h.host, domainId: h.domainId })) });
+  }
+  // a name from before its zone was known gets it now; a set one never moves
+  for (const h of all.filter((h) => have.has(h.host) && h.domainId)) {
+    await tx.appDomain.updateMany({ where: { applicationId, host: h.host, domainId: null }, data: { domainId: h.domainId } });
   }
 }
 

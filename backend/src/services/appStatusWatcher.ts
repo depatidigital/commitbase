@@ -29,10 +29,10 @@ export async function checkAllApplications(): Promise<void> {
           where: { id: application.id },
           data: { status },
         });
-        console.log(`Application ${application.domain} is ${status}`);
+        console.log(`Application ${application.name} is ${status}`);
       }
     } catch (error) {
-      console.error(`Failed to check status for ${application.domain}:`, error);
+      console.error(`Failed to check status for ${application.name}:`, error);
     }
   }
 
