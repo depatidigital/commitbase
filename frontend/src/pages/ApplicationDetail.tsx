@@ -1118,6 +1118,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 {application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
                   <Field label={t("Checkout")}>
                     <span className="break-all font-mono text-xs">{application.checkoutPath}</span>
+                  </Field>
                 )}
                 {/* one hostname split by path on its server — an API under
                     /api beside a static front end: both halves, as Caddy tries them */}

@@ -50,6 +50,7 @@ export default {
   "Save routing": "Simpan routing",
   "Points at this server": "Mengarah ke server ini",
   "This app": "Aplikasi ini",
+  Checkout: "Checkout",
   "Another process": "Proses lain",
   "show less": "sembunyikan",
   "Routing updated": "Routing diperbarui",

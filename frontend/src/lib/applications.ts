@@ -75,6 +75,8 @@ export interface Application {
   runtime?: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | null;
   processName?: string | null;
   rootPath?: string | null;
+  /** imported: the git checkout its folder sits in (the sync's `git rev-parse --show-toplevel`) */
+  checkoutPath?: string | null;
   configPath?: string | null;
   /** a hostname its server splits by path: `/api/*` → the app, the rest → static files */
   routing?: Array<{ path: string | null; proxy?: string; root?: string; spa?: boolean }> | null;
