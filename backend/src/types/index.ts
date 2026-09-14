@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Request } from 'express';
+import { cleanRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
 
 // User types
 export const UserRole = {
@@ -91,6 +92,15 @@ export const UpdateDomainSchema = z.object({
 });
 
 // Application schemas
+const rootDirectorySchema = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((raw) => {
+    const cleaned = cleanRootDirectory(raw);
+    return cleaned === null || ROOT_DIRECTORY_RE.test(cleaned);
+  }, 'Root directory is a folder in the repository, like apps/web');
+
 export const CreateApplicationSchema = z.object({
   name: z.string().min(1, 'Application name is required'),
   domain: z.string().min(1, 'Domain is required'),
@@ -99,6 +109,8 @@ export const CreateApplicationSchema = z.object({
   // Which connected GitHub/GitLab account clones a private repository
   gitAccountId: z.string().optional(),
   branch: z.string().optional(),
+  // an app's folder in a monorepo; '' or null = the repository root
+  rootDirectory: rootDirectorySchema,
   installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
   preDeployCommand: z.string().optional(),
@@ -119,6 +131,8 @@ export const UpdateApplicationSchema = z.object({
   repository: z.string().optional(),
   gitAccountId: z.string().nullable().optional(),
   branch: z.string().optional(),
+  // an app's folder in a monorepo; '' or null = the repository root
+  rootDirectory: rootDirectorySchema,
   installCommand: z.string().optional(),
   buildCommand: z.string().optional(),
   preDeployCommand: z.string().optional(),

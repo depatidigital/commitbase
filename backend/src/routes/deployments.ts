@@ -39,10 +39,10 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     }
 
     const skip = (page - 1) * limit;
+    // every deploy of the app's source: a monorepo's apps deploy together, from any one of them
+    const where = application.sourceId ? { sourceId: application.sourceId } : { applicationId: appId };
     const deployments = await prisma.deployment.findMany({
-      where: {
-        applicationId: appId,
-      },
+      where,
       orderBy: {
         createdAt: 'desc',
       },
@@ -61,11 +61,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       },
     });
 
-    const total = await prisma.deployment.count({
-      where: {
-        applicationId: appId,
-      },
-    });
+    const total = await prisma.deployment.count({ where });
 
     return res.json({
       success: true,
@@ -309,6 +305,7 @@ router.post('/application/:appId', authenticateToken, async (req: AuthenticatedR
     const deployment = await prisma.deployment.create({
       data: {
         applicationId: appId,
+        sourceId: application.sourceId,
         userId: req.user!.userId,
         status,
         buildLogs,

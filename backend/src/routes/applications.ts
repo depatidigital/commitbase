@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AppType } from '@prisma/client';
+import { AppStatus, AppType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
@@ -28,7 +28,8 @@ import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, whe
 import { serverForApplication } from '../lib/servers';
 import { forgetPointing, healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
-import { appFsFor } from '../lib/appFs';
+import { appFsFor, sourceFsFor } from '../lib/appFs';
+import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE, sourceDirOf } from '../lib/appPaths';
 import { queueOrgNode } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
@@ -233,6 +234,11 @@ router.post('/caddy/heal', authenticateToken, requireRole(['SUPERADMIN']), async
 router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { repository, branch, files } = req.body || {};
+    // an app's folder in a monorepo (git flow; an upload sends that folder's files itself)
+    const rootDirectory = cleanRootDirectory(req.body?.rootDirectory);
+    if (rootDirectory && !ROOT_DIRECTORY_RE.test(rootDirectory)) {
+      return res.status(400).json({ success: false, error: 'Root directory is a folder in the repository, like apps/web' } as ApiResponse);
+    }
 
     if (files && typeof files === 'object') {
       const input: DetectInput = {};
@@ -250,6 +256,7 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
         repository.trim(),
         String(branch || 'main').trim() || 'main',
         gitAccountId ? await gitAuthFor(gitAccountId) : undefined,
+        rootDirectory,
       );
       return res.json({ success: true, data: detected } as ApiResponse);
     }
@@ -273,7 +280,7 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
-      select: { id: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
+      select: { id: true, rootDirectory: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
@@ -283,10 +290,12 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
           source.repository,
           source.branch || 'main',
           source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined,
+          application.rootDirectory,
         )
       : await (async () => {
-          const afs = await appFsFor(application.id);
-          return detectProject(path.posix.join(afs.appDir, 'sources'), afs.readText);
+          const afs = await sourceFsFor(application.id);
+          const sources = path.posix.join(afs.appDir, 'sources');
+          return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources);
         })();
 
     return res.json({ success: true, data: detected } as ApiResponse);
@@ -709,6 +718,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
   try {
     const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId } = req.body;
     const domain = normalizeHost(req.body.domain);
+    const rootDirectory = cleanRootDirectory(req.body.rootDirectory);
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
 
@@ -765,6 +775,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
           name,
           domain,
           type,
+          rootDirectory,
           installCommand,
           buildCommand,
           preDeployCommand,
@@ -872,7 +883,7 @@ router.post(
         // An upload is this app's deploy, so it gets a row in the history —
         // including when it fails, which is when the history matters most.
         const deployment = await prisma.deployment.create({
-          data: { status: 'DEPLOYING', applicationId: application.id, userId: req.user!.userId },
+          data: { status: 'DEPLOYING', applicationId: application.id, sourceId: application.sourceId, userId: req.user!.userId },
         });
         const fail = async (status: number, message: string) => {
           await prisma.deployment.update({
@@ -1090,7 +1101,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
   try {
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
-    const { name, domain, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId } =
+    const { name, domain, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId, rootDirectory } =
       req.body || {};
     if (!id) {
       return res.status(400).json({
@@ -1178,6 +1189,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         ...(domainId && { domainId }),
         ...(organizationId !== undefined && { organizationId }),
         type,
+        // '' / null: back to the repository root
+        ...(rootDirectory !== undefined && { rootDirectory: cleanRootDirectory(rootDirectory) }),
         // '' clears back to the detected install / no pre-deploy step
         ...(installCommand !== undefined && { installCommand: installCommand.trim() || null }),
         buildCommand,
@@ -1288,6 +1301,31 @@ router.get('/:id/folder', authenticateToken, async (req: AuthenticatedRequest, r
   }
 });
 
+/**
+ * A deleted app's files. Its source's tree (sources, releases, current) goes
+ * with the source's last app; while other apps of it remain, only what is this
+ * app's own does — and when the tree is in this app's directory (the source
+ * shares its id), that is its run.sh, runtime env and unit logs, nothing else.
+ */
+async function removeAppFiles(application: { id: string; sourceId: string | null }): Promise<void> {
+  const afs = await appFsFor(application.id).catch(() => null);
+  if (!afs) return;
+  const others = application.sourceId
+    ? await prisma.application.count({ where: { sourceId: application.sourceId, id: { not: application.id } } })
+    : 0;
+  const rm = (p: string) => afs.rm(p, { recursive: true, force: true }).catch(() => {});
+  const sourceDir = sourceDirOf(afs.appDir, application.sourceId);
+
+  if (others === 0) {
+    await rm(afs.appDir);
+    if (sourceDir !== afs.appDir) await rm(sourceDir);
+  } else if (sourceDir === afs.appDir) {
+    for (const file of ['run.sh', '.env.runtime', 'logs/out.log', 'logs/error.log']) await rm(path.posix.join(afs.appDir, file));
+  } else {
+    await rm(afs.appDir);
+  }
+}
+
 // Delete an application
 router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1358,8 +1396,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
           console.error(`Could not delete the site files of ${application.domain}:`, error?.message),
         );
       }
-      const afs = await appFsFor(application.id).catch(() => null);
-      await afs?.rm(afs.appDir, { recursive: true, force: true }).catch(() => {});
+      await removeAppFiles(application);
     }
 
     // Its databases outlive it (onDelete: SetNull). One that only knew its org
@@ -1509,9 +1546,21 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     const imported = refuseImported(application, res);
     if (imported) return imported;
 
+    // A deploy builds the app's whole source, so every app of it (a monorepo's)
+    // goes out with it — each keeps its own status, from what it was before.
+    const group = await deploymentService.groupOf(application);
+    const before = new Map(group.map((app) => [app.id, app.status]));
+    const setStatus = (status: (was: AppStatus) => AppStatus, extra: { lastDeployment?: Date } = {}) =>
+      Promise.all(
+        [...before].map(([appId, was]) => prisma.application.update({ where: { id: appId }, data: { status: status(was), ...extra } })),
+      );
+
     // A running app can be redeployed — the new release builds beside it and
     // takes over only once it answers. Two deploys at once is the thing to stop.
-    if (application.status === 'DEPLOYING' || application.status === 'BUILDING' || deploymentService.isDeploying(id)) {
+    if (
+      group.some((app) => app.status === 'DEPLOYING' || app.status === 'BUILDING') ||
+      deploymentService.isDeploying(application)
+    ) {
       return res.status(409).json({
         success: false,
         error: 'A deployment is already in progress',
@@ -1523,25 +1572,27 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       data: {
         status: 'PENDING',
         applicationId: application.id,
+        sourceId: application.sourceId,
         userId: req.user!.userId,
       },
     });
 
     // Update application status
-    await prisma.application.update({
-      where: { id },
-      data: { status: 'DEPLOYING' },
-    });
+    await setStatus(() => 'DEPLOYING');
 
-    // Heal the DNS record before the build runs — someone may have removed it,
+    // Heal the DNS records before the build runs — someone may have removed one,
     // and a deploy that finishes into a hostname that does not resolve is worse
     // than one that says so.
-    const dns = await ensureAppHostname(application).catch(
-      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-    );
-    // does not fail the deploy — the hostname may be in a zone we do not run
-    const dnsWarning =
-      dns.state === 'conflict' || dns.state === 'unavailable' ? `DNS was not set up: ${dns.detail}\n\n` : '';
+    let dnsWarning = '';
+    for (const app of group) {
+      const dns = await ensureAppHostname(app).catch(
+        (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+      );
+      // does not fail the deploy — the hostname may be in a zone we do not run
+      if (dns.state === 'conflict' || dns.state === 'unavailable') {
+        dnsWarning += `DNS was not set up${group.length > 1 ? ` for ${app.domain}` : ''}: ${dns.detail}\n\n`;
+      }
+    }
 
     // Start deployment in background
     deploymentService.deploy({
@@ -1552,10 +1603,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       // cancelled: the service already wrote CANCELLED and why; and whatever
       // ran before still runs — back to that, or stopped if nothing did
       if (result.cancelled) {
-        await prisma.application.update({
-          where: { id },
-          data: { status: application.status === 'RUNNING' ? 'RUNNING' : 'STOPPED' },
-        });
+        await setStatus((was) => (was === 'RUNNING' ? 'RUNNING' : 'STOPPED'));
         return;
       }
 
@@ -1574,16 +1622,12 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       // how that went (rolledBack). A deploy that failed before it — build,
       // sync, anything thrown early — never touched what was running.
       const touched = result.rolledBack !== undefined;
-      await prisma.application.update({
-        where: { id },
-        data: {
-          status:
-            result.success || result.rolledBack || (!touched && application.status === 'RUNNING') ? 'RUNNING' : 'ERROR',
-          // only a deploy that left something running counts — the UI reads
-          // lastDeployment as "has a build to start"
-          ...(result.success && { lastDeployment: new Date() }),
-        },
-      });
+      await setStatus(
+        (was) => (result.success || result.rolledBack || (!touched && was === 'RUNNING') ? 'RUNNING' : 'ERROR'),
+        // only a deploy that left something running counts — the UI reads
+        // lastDeployment as "has a build to start"
+        result.success ? { lastDeployment: new Date() } : {},
+      );
     }).catch(async (error) => {
       console.error('Deployment failed:', error);
 
@@ -1597,10 +1641,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       });
 
       // thrown before anything was switched: what ran before still runs
-      await prisma.application.update({
-        where: { id },
-        data: { status: application.status === 'RUNNING' ? 'RUNNING' : 'ERROR' },
-      });
+      await setStatus((was) => (was === 'RUNNING' ? 'RUNNING' : 'ERROR'));
     });
 
     return res.json({
@@ -1647,7 +1688,7 @@ router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest,
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     const imported = refuseImported(application, res);
     if (imported) return imported;
-    if (deploymentService.isDeploying(application.id)) {
+    if (deploymentService.isDeploying(application)) {
       return res.status(409).json({ success: false, error: 'A deployment is running — clean up once it has finished' } as ApiResponse);
     }
 
@@ -2035,6 +2076,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       await prisma.deployment.create({
         data: {
           applicationId: application.id,
+          sourceId: application.sourceId,
           userId: req.user!.userId,
           status: 'SUCCESS',
           commitHash: release.commitSha,
@@ -2056,10 +2098,11 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
 
     await deploymentService.stopApplication(application.domain);
 
+    // every app of the source runs from the release just switched to
     const started = await deploymentService.startRelease(application, release);
 
-    await prisma.application.update({
-      where: { id: application.id },
+    await prisma.application.updateMany({
+      where: application.sourceId ? { sourceId: application.sourceId, runtime: null } : { id: application.id },
       data: {
         status: started ? 'RUNNING' : 'ERROR',
         lastDeployment: new Date(),
@@ -2069,6 +2112,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
     await prisma.deployment.create({
       data: {
         applicationId: application.id,
+        sourceId: application.sourceId,
         userId: req.user!.userId,
         status: started ? 'SUCCESS' : 'FAILED',
         commitHash: release.commitSha,

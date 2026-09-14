@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import { appFsFor, type AppFs } from '../lib/appFs';
+import { sourceFsFor, type AppFs } from '../lib/appFs';
 import { currentDirFor, logsDirFor, releasesDirFor, sharedDirFor, sourcesDirFor } from '../lib/appPaths';
 import { exec, type SshTarget } from '../lib/runner';
 import * as path from 'path';
@@ -52,7 +52,7 @@ async function sizes(afs: AppFs, paths: string[]): Promise<Map<string, number>> 
 async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
   const dir = releasesDirFor(afs.appDir);
   const current = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
-  // the app's source's releases — the tree they are in is the app's (source.id = app.id)
+  // the app's source's releases — the tree they are in is `afs`, the source's
   const ready = await prisma.release.findMany({
     where: { source: { applications: { some: { id: applicationId } } }, status: 'READY', path: { not: null } },
     orderBy: { createdAt: 'desc' },
@@ -71,11 +71,14 @@ async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
   return { releases, ready };
 }
 
-/** The app's disk use on its node. Null for a static site — its files are in R2. */
+/**
+ * The disk use of the app's source tree on its node — shared by the apps of a
+ * monorepo, so each of them shows the same. Null for a static site — its files are in R2.
+ */
 export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES): Promise<AppDisk | null> {
   const app = await prisma.application.findUnique({ where: { id: applicationId }, select: { type: true, runtime: true } });
   if (!app || app.type === 'STATIC' || app.runtime) return null;
-  const afs = await appFsFor(applicationId);
+  const afs = await sourceFsFor(applicationId);
 
   const { releases } = await releasesOf(afs, applicationId, keep);
   const cache = join(sharedDirFor(afs.appDir), 'next-cache');
@@ -130,7 +133,7 @@ export async function cleanupAppReleases(
 export async function cleanupApp(applicationId: string, opts: { cache?: boolean } = {}) {
   const before = await appDiskUsage(applicationId);
   if (!before) return null;
-  const { removed } = await cleanupAppReleases(await appFsFor(applicationId), applicationId, opts);
+  const { removed } = await cleanupAppReleases(await sourceFsFor(applicationId), applicationId, opts);
   const after = await appDiskUsage(applicationId);
   return { removed, freedBytes: Math.max(0, before.totalBytes - (after?.totalBytes ?? 0)), after };
 }

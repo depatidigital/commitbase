@@ -6,7 +6,7 @@ import { orgScope, logScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 import * as path from 'path';
-import { appFsFor } from '../lib/appFs';
+import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { followPm2Logs } from '../services/appSyncService';
 import * as systemd from '../services/systemdService';
 import { logsDirFor } from '../lib/appPaths';
@@ -47,10 +47,9 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     let logs = '';
     try {
       if (logType === 'build') {
+        // the source's latest build: a monorepo app's may have been started from a sibling
         const latestDeployment = await prisma.deployment.findFirst({
-          where: {
-            applicationId: appId,
-          },
+          where: application.sourceId ? { sourceId: application.sourceId } : { applicationId: appId },
           orderBy: {
             createdAt: 'desc',
           },
@@ -117,7 +116,8 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
-    const afs = await appFsFor(application.id);
+    // builds run in the source's tree, which is a monorepo app's shared one
+    const afs = await sourceFsFor(application.id);
     const logFile = path.posix.join(afs.appDir, 'logs', 'build.log');
     const TAIL = 64 * 1024;
     let text = '';

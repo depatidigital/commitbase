@@ -429,12 +429,13 @@ router.post('/:id/cleanup', authenticateToken, requireRole(['SUPERADMIN']), asyn
     const deployments = new DeploymentService();
     const apps = await prisma.application.findMany({
       where: { ...appsOnServer(server.id), runtime: null, type: { not: 'STATIC' } },
-      select: { id: true, domain: true },
+      // apps of one source share its tree: cleaning it again is a no-op
+      select: { id: true, domain: true, sourceId: true },
     });
     let freedBytes = 0;
     const skipped: string[] = [];
     for (const app of apps) {
-      if (deployments.isDeploying(app.id)) {
+      if (deployments.isDeploying(app)) {
         skipped.push(app.domain);
         continue;
       }

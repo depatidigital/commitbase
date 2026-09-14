@@ -5,21 +5,21 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { uploadBuildLog } from './s3Service';
 import { configureCaddyForRuntimeApplication, configureCaddyForStaticApplication, configureCaddyForPhpApplication, staticRouteError } from './caddyService';
-import { appUnit, appBuild, ensureOrgOnNode } from './orgProvisionService';
+import { appBuild, ensureOrgOnNode, sourceTreeUnit } from './orgProvisionService';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
-import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor } from '../lib/appPaths';
-import { appFsFor, appFsForDomain, type AppFs } from '../lib/appFs';
+import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
+import { appFsFor, appFsForDomain, sourceFsFor, sourceFsForDomain, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
-import { sealEnv } from '../lib/appEnv';
+import { readEnv, sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as http from 'http';
 import { cleanupAppReleases } from './appDiskService';
-import { buildKeyOf } from '../lib/buildKey';
+import { buildKeyOf, groupBuildKey } from '../lib/buildKey';
 
 // Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
 // it on localhost. Apps must listen on $PORT — the health check enforces it.
@@ -36,8 +36,10 @@ const cancelling = new Set<string>();
 
 /** A deploy stopped on request — recorded as CANCELLED, not FAILED. */
 class CancelledError extends Error {}
-const throwIfCancelled = (applicationId: string) => {
-  if (cancelling.has(applicationId)) throw new CancelledError('Deployment cancelled');
+/** What the locks are held on: the source, which all its apps build from together. */
+const lockKey = (application: { id: string; sourceId: string | null }) => application.sourceId ?? application.id;
+const throwIfCancelled = (key: string) => {
+  if (cancelling.has(key)) throw new CancelledError('Deployment cancelled');
 };
 let running = 0;
 const waiting: Array<() => void> = [];
@@ -119,7 +121,8 @@ export interface BuildResult {
   success: boolean;
   error?: string;
   releaseDir?: string;
-  docroot?: string; // PHP: document root relative to the release
+  /** PHP: each app's document root, relative to the release */
+  docroots?: Record<string, string>;
 }
 
 export interface DeployResult {
@@ -157,9 +160,9 @@ export class DeploymentService {
     });
   }
 
-  /** Create the application's tree (logs/, sources/) where it belongs. */
+  /** Create the application's source tree (logs/, sources/) where it belongs. */
   async prepareAppDirectory(applicationId: string): Promise<AppFs> {
-    const afs = await appFsFor(applicationId);
+    const afs = await sourceFsFor(applicationId);
     try {
       await afs.mkdir(logsDirFor(afs.appDir));
       await afs.mkdir(sourcesDirFor(afs.appDir));
@@ -565,13 +568,14 @@ export class DeploymentService {
   /**
    * PHP apps have no unit: the org's PHP-FPM pool serves them. Publishing is
    * handing the tree to the tenant user and pointing Caddy at the docroot.
+   * `afs` is the app's source tree; `docroot` is relative to its releases.
    */
   private async publishPhp(application: AppWithOrg, afs: AppFs, docroot: string): Promise<boolean> {
     const slug = application.organization?.slug;
     if (!slug) throw new Error('PHP apps need an organization (the FPM pool is per org)');
 
     const deployLogPath = join(logsDirFor(afs.appDir), 'deploy.log');
-    await appUnit('chown', slug, application.id);
+    await sourceTreeUnit('chown', slug, application.sourceId ?? application.id, application.id);
 
     // The pool socket lives on the org's node, next to its Caddy — not on the panel.
     const node = afs.node ?? (await serverForApplication(application.id));
@@ -633,9 +637,10 @@ export class DeploymentService {
     if (app.type === 'STATIC') {
       await configureCaddyForStaticApplication(node, app.id, app.domain, app.staticOrigin);
     } else if (app.type === 'PHP') {
-      const afs = await appFsFor(app.id);
-      const detected = await detectProject(currentDirFor(afs.appDir), afs.readText);
-      if (!(await this.publishPhp(app, afs, detected.outputDir || '.'))) throw new Error('no FPM socket');
+      const afs = await sourceFsFor(app.id);
+      const current = currentDirFor(afs.appDir);
+      const detected = await detectProject(inRootDirectory(current, app.rootDirectory), afs.readText, undefined, current);
+      if (!(await this.publishPhp(app, afs, join(app.rootDirectory ?? '', detected.outputDir || '.')))) throw new Error('no FPM socket');
     } else if (app.port) {
       await configureCaddyForRuntimeApplication(node, app.domain, app.port);
     } else {
@@ -706,14 +711,15 @@ export class DeploymentService {
 
   /**
    * Activate a release. The sources tree already on disk is the release, so
-   * this is a unit reinstall and restart.
+   * this is a unit reinstall and restart — of every app of the source, since
+   * they all run from its `current`. True when all of them came up.
    */
   async startRelease(application: Application, release: Release): Promise<boolean> {
     if (!application.domain) {
       throw new Error('Application domain is required for release start');
     }
 
-    const afs = await appFsFor(application.id);
+    const afs = await sourceFsFor(application.id);
     await afs.mkdir(logsDirFor(afs.appDir));
     await afs.appendFile(join(logsDirFor(afs.appDir), 'deploy.log'), `[${new Date().toISOString()}] RELEASE STARTED: ${release.id}` + NL);
 
@@ -722,7 +728,28 @@ export class DeploymentService {
       await this.activateRelease(afs, release.path);
     }
 
-    return this.startApplication(application.domain);
+    let started = true;
+    for (const app of await this.groupOf(application)) {
+      // PHP serves straight from `current`: the switch above is all it needs
+      if (systemd.needsUnit(app.type)) started = (await this.startApplication(app.domain)) && started;
+    }
+    return started;
+  }
+
+  /**
+   * Every app one deploy builds and starts together: the apps of the source
+   * (a monorepo's), oldest first, else the app alone. Imported apps never share one.
+   */
+  async groupOf(application: Application): Promise<AppWithOrg[]> {
+    const include = { organization: { select: { slug: true } } } as const;
+    if (!application.sourceId) {
+      return [await prisma.application.findUniqueOrThrow({ where: { id: application.id }, include })];
+    }
+    return prisma.application.findMany({
+      where: { sourceId: application.sourceId, runtime: null },
+      include,
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async stopApplication(domain?: string): Promise<boolean> {
@@ -758,17 +785,17 @@ export class DeploymentService {
     return this.getApplicationLogsFromFiles(domain, 'out', lines);
   }
 
-  /** True while a deploy for this application is in flight. */
-  isDeploying(applicationId: string): boolean {
-    return deploying.has(applicationId);
+  /** True while a deploy for this application — for any app of its source — is in flight. */
+  isDeploying(application: { id: string; sourceId: string | null }): boolean {
+    return deploying.has(lockKey(application));
   }
 
   /**
-   * Full deployment process. One deploy per app at a time, and at most
-   * BUILD_CONCURRENCY builds on the box.
+   * Full deployment process. One deploy per source at a time (its apps build
+   * together), and at most BUILD_CONCURRENCY builds on the box.
    */
   async deploy(config: DeploymentConfig): Promise<DeployResult> {
-    const id = config.application.id;
+    const id = lockKey(config.application);
     if (deploying.has(id)) return { success: false, error: 'A deployment is already in progress for this application' };
     deploying.add(id);
     try {
@@ -786,15 +813,18 @@ export class DeploymentService {
    * so there is never half a switch. False when nothing is deploying.
    */
   async cancelDeploy(applicationId: string): Promise<boolean> {
-    if (!deploying.has(applicationId)) return false;
-    cancelling.add(applicationId);
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
-      select: { type: true, organization: { select: { slug: true } } },
+      select: { id: true, sourceId: true, type: true, organization: { select: { slug: true } } },
     });
+    if (!app) return false;
+    const key = lockKey(app);
+    if (!deploying.has(key)) return false;
+    cancelling.add(key);
     // static builds run on the panel and stop at the next step instead
-    if (app && app.type !== 'STATIC' && app.organization?.slug) {
-      await appUnit('cancel-build', app.organization.slug, applicationId).catch((error: any) =>
+    if (app.type !== 'STATIC' && app.organization?.slug) {
+      // the build runs as the source's: cb-build-<slug>-<source id>
+      await sourceTreeUnit('cancel-build', app.organization.slug, key, applicationId).catch((error: any) =>
         console.error(`Could not stop the build of ${applicationId}:`, error?.message ?? error),
       );
     }
@@ -803,6 +833,7 @@ export class DeploymentService {
 
   private async deployInner(config: DeploymentConfig): Promise<DeployResult> {
     const { application, deployment, envVars = {} } = config;
+    const key = lockKey(application);
     let commitSha: string | undefined;
 
     try {
@@ -813,13 +844,19 @@ export class DeploymentService {
         data: { status: 'BUILDING' },
       });
 
+      // everything built from this source goes out together, from one commit
+      const group = await this.groupOf(application);
+      if (group.length > 1 && group.some((app) => app.type === 'STATIC')) {
+        throw new Error('A static site cannot share its source with other apps yet — give it a source of its own');
+      }
+
       // The org has to exist on this app's node before anything lands there —
       // provisioned lazily, on the nodes it actually uses. A no-op once done.
       if (application.organizationId && application.type !== 'STATIC') {
         const node = await serverForApplication(application.id);
         await ensureOrgOnNode(application.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
       }
-      throwIfCancelled(application.id);
+      throwIfCancelled(key);
 
       const afs = await this.prepareAppDirectory(application.id);
       const { appDir } = afs;
@@ -833,9 +870,18 @@ export class DeploymentService {
       const uploadLog = () =>
         afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, application.id, deployment.id)).catch(() => {});
 
-      // Fresh logs for a fresh deployment
+      // Fresh logs for a fresh deployment — each app's start log too, where it has its own
       await afs.writeFile(buildLogPath, '');
       await afs.writeFile(deployLogPath, '');
+      const ownDeployLogs = new Map<string, { afs: AppFs; path: string }>();
+      for (const app of group) {
+        const own = await appFsFor(app.id);
+        if (own.appDir === appDir) continue;
+        const file = join(logsDirFor(own.appDir), 'deploy.log');
+        await own.mkdir(logsDirFor(own.appDir));
+        await own.writeFile(file, '');
+        ownDeployLogs.set(app.id, { afs: own, path: file });
+      }
 
       const source = application.sourceId ? await prisma.source.findUnique({ where: { id: application.sourceId } }) : null;
       if (source?.repository) {
@@ -853,7 +899,7 @@ export class DeploymentService {
           data: { commitHash: commitSha ?? null, commitMessage: commitMessage ?? null },
         });
       }
-      throwIfCancelled(application.id);
+      throwIfCancelled(key);
 
       if (application.type === 'STATIC') {
         // Static sites build on the panel (AppFs is local for them) and are
@@ -923,12 +969,15 @@ export class DeploymentService {
           // Same detection the create screen showed: install before building,
           // take the framework's output folder, and let a plain HTML repo
           // (no package.json, no build) ship as-is.
-          const detected = await detectProject(sourcesDir, afs.readText);
-          const hasPackageJson = await afs.exists(join(sourcesDir, 'package.json'));
-          const steps = [
-            hasPackageJson ? detected.installCommand : '',
-            application.buildCommand || detected.buildCommand || '',
-          ].filter(Boolean);
+          // A monorepo site is detected and built in its folder; a workspace
+          // installs at the repository root.
+          const workDir = inRootDirectory(sourcesDir, application.rootDirectory);
+          if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${application.rootDirectory} in the repository`);
+          const detected = await detectProject(workDir, afs.readText, undefined, sourcesDir);
+          const hasPackageJson = await afs.exists(join(workDir, 'package.json'));
+          const install = hasPackageJson ? detected.installCommand : '';
+          const build = application.buildCommand || detected.buildCommand || '';
+          const steps = [install, build].filter(Boolean);
 
           await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);
 
@@ -937,8 +986,9 @@ export class DeploymentService {
             // ponytail: tenant build code on the panel as the backend user. Move
             // static builds into a node's build cgroup if untrusted tenants ship static sites.
             await afs.appendFile(buildLogPath, `$ ${steps.join(' && ')}` + NL);
-            await streamToLog('sh', ['-c', steps.join(' && ')], buildLogPath, 600000, {
-              cwd: sourcesDir,
+            // install where the lockfile is, build in the folder ($1)
+            await streamToLog('sh', ['-c', [install, build && `cd "$1" && ${build}`].filter(Boolean).join(' && '), 'sh', workDir], buildLogPath, 600000, {
+              cwd: detected.installAtRoot ? sourcesDir : workDir,
               env: staticBuildEnv,
             });
             await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] STATIC BUILD COMPLETED` + NL);
@@ -951,7 +1001,7 @@ export class DeploymentService {
           );
           let distDir: string | null = null;
           for (const candidate of distCandidates) {
-            const candidatePath = join(sourcesDir, candidate);
+            const candidatePath = join(workDir, candidate);
             if (await afs.exists(candidatePath)) {
               distDir = candidatePath;
               break;
@@ -1035,10 +1085,12 @@ export class DeploymentService {
       }
 
       // Same commit, build settings and env as a build still on disk: that tree
-      // is this deploy's build — nothing to install or compile again.
-      const buildKey = commitSha ? buildKeyOf(application, commitSha, envVars) : null;
+      // is this deploy's build — nothing to install or compile again. For a
+      // monorepo, the same for every one of its apps.
+      const envs = new Map(group.map((app) => [app.id, app.id === application.id ? envVars : readEnv(app.envVars)]));
+      const buildKey = commitSha ? groupBuildKey(group.map((app) => buildKeyOf(app, commitSha!, envs.get(app.id)!))) : null;
       const reused =
-        buildKey && application.sourceId && application.type !== 'PHP'
+        buildKey && application.sourceId && !group.some((app) => app.type === 'PHP')
           ? await this.reusableRelease(afs, application.sourceId, buildKey)
           : null;
       if (reused) {
@@ -1050,10 +1102,10 @@ export class DeploymentService {
       }
       const buildResult: BuildResult = reused
         ? { success: true, releaseDir: reused.path! }
-        : await this.runBuild(afs, application, deployment, envVars);
+        : await this.runBuild(afs, group, deployment, envs);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
-      throwIfCancelled(application.id);
+      throwIfCancelled(key);
       const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
       if (!buildResult.success) {
@@ -1080,23 +1132,51 @@ export class DeploymentService {
         },
       });
 
+      // One switch for every app of the source — they all run from `current`.
+      // Each is then started (PHP: published); one that does not come up takes
+      // the whole release back, so the apps never run different commits.
       const previousRelease = await this.activateRelease(afs, buildResult.releaseDir!);
-      const startResult =
-        application.type === 'PHP'
-          ? await this.publishPhp((await this.appWithOrg(application.domain))!, afs, buildResult.docroot || '.')
-          : await this.startApplication(application.domain);
+      const failed: string[] = [];
+      for (const app of group) {
+        const ok =
+          app.type === 'PHP'
+            ? await this.publishPhp(app, afs, buildResult.docroots?.[app.id] ?? join(app.rootDirectory ?? '', '.'))
+            : await this.startApplication(app.domain);
+        if (!ok) failed.push(app.domain);
+      }
+      const startResult = failed.length === 0;
 
       let rolledBack = false;
       if (!startResult && previousRelease) {
         // Put the last good release back so the site stays up.
-        await afs.appendFile(deployLogPath, `Rolling back to ${previousRelease}` + NL);
+        await afs.appendFile(
+          deployLogPath,
+          `Rolling back to ${previousRelease}${group.length > 1 ? ` — ${failed.join(', ')} did not start` : ''}` + NL,
+        );
         await this.activateRelease(afs, previousRelease);
-        rolledBack = await this.startApplication(application.domain).catch(() => false);
+        rolledBack = true;
+        for (const app of group) {
+          // PHP serves straight from `current`: switching it back is the rollback
+          if (systemd.needsUnit(app.type)) rolledBack = (await this.startApplication(app.domain).catch(() => false)) && rolledBack;
+        }
         // a reused tree is a kept release — never this deploy's to delete
         if (!reused) await afs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
       }
 
-      const deployLogs = await readLog(deployLogPath, 'Deploy logs not available');
+      // the source's deploy log, then each app's own start log where it has one
+      const readDeployLogs = async () => {
+        const base = await readLog(deployLogPath, 'Deploy logs not available');
+        const own = await Promise.all(
+          group
+            .filter((app) => ownDeployLogs.has(app.id))
+            .map(async (app) => {
+              const { afs: appAfs, path: file } = ownDeployLogs.get(app.id)!;
+              return `==> ${app.domain} <==` + NL + ((await appAfs.readText(file).catch(() => '')).trim() || '(nothing logged)');
+            }),
+        );
+        return [base, ...own].join(NL + NL);
+      };
+      const deployLogs = await readDeployLogs();
 
       if (!startResult) {
         await prisma.deployment.update({
@@ -1108,9 +1188,10 @@ export class DeploymentService {
           },
         });
 
+        const what = group.length > 1 ? `${failed.join(', ')} failed to start` : 'Application failed to start';
         return {
           success: false,
-          error: rolledBack ? 'New release failed to start; the previous one is back up' : 'Application failed to start',
+          error: rolledBack ? `New release failed to start (${what}); the previous one is back up` : what,
           buildLogs,
           deployLogs,
           rolledBack,
@@ -1126,7 +1207,8 @@ export class DeploymentService {
         },
       });
 
-      const port = application.port || this.getDefaultPort(application.type);
+      // runBuild gave the apps their ports; a reused build's are already on the rows
+      const portOf = (app: Application) => app.port || this.getDefaultPort(app.type);
 
       // a reused build is already a release — one row per tree, or pruning the
       // older row would delete the tree the newer one serves from
@@ -1137,7 +1219,7 @@ export class DeploymentService {
             sourceId: application.sourceId,
             commitSha: commitSha ?? null,
             status: 'READY',
-            ports: { port },
+            ports: Object.fromEntries(group.map((app) => [app.domain, portOf(app)])),
             health: 'HEALTHY',
             logsRef: logsDir,
             path: buildResult.releaseDir ?? null,
@@ -1154,28 +1236,27 @@ export class DeploymentService {
         data: { source: { update: { activeReleaseId: release.id } } },
       });
 
-      // The app is up; without its route the hostname is not. Said first in the
-      // deploy log (the line the history shows), not swallowed. It stays RUNNING
-      // on purpose: the watchdog re-applies routes of running apps, so a Caddy
-      // that was briefly unreachable heals on its own; an ERROR app never would.
+      // The apps are up; without their routes the hostnames are not. Said first
+      // in the deploy log (the line the history shows), not swallowed. They stay
+      // RUNNING on purpose: the watchdog re-applies routes of running apps, so a
+      // Caddy that was briefly unreachable heals on its own; an ERROR app never would.
       let routeWarning = '';
-      if (application.type !== 'PHP') {
+      for (const app of group) {
+        if (app.type === 'PHP') continue;
         try {
-          await configureCaddyForRuntimeApplication(
-            await serverForApplication(application.id),
-            application.domain,
-            port,
-          );
+          await configureCaddyForRuntimeApplication(await serverForApplication(app.id), app.domain, portOf(app));
         } catch (error: any) {
-          routeWarning =
-            `The app is running, but its Caddy route could not be set — ${application.domain} is not served yet: ` +
+          routeWarning +=
+            `The app is running, but its Caddy route could not be set — ${app.domain} is not served yet: ` +
             `${error?.message ?? String(error)}. The watchdog retries it; redeploy to try now.` + NL;
-          console.error(`Caddy route for ${application.domain} not set:`, error?.message ?? error);
-          await afs.appendFile(deployLogPath, routeWarning).catch(() => {});
-          await prisma.deployment
-            .update({ where: { id: deployment.id }, data: { deployLogs: routeWarning + deployLogs } })
-            .catch(() => {});
+          console.error(`Caddy route for ${app.domain} not set:`, error?.message ?? error);
         }
+      }
+      if (routeWarning) {
+        await afs.appendFile(deployLogPath, routeWarning).catch(() => {});
+        await prisma.deployment
+          .update({ where: { id: deployment.id }, data: { deployLogs: routeWarning + deployLogs } })
+          .catch(() => {});
       }
 
       return {
@@ -1244,7 +1325,7 @@ export class DeploymentService {
         return false;
       }
 
-      const afs = await appFsFor(deployment.applicationId);
+      const afs = await sourceFsFor(deployment.applicationId);
       const logsDir = logsDirFor(afs.appDir);
       await afs.writeFile(join(logsDir, 'build.log'), '');
       await afs.writeFile(join(logsDir, 'deploy.log'), '');
@@ -1289,7 +1370,7 @@ export class DeploymentService {
         return 'Deployment not found';
       }
 
-      const afs = await appFsFor(deployment.applicationId);
+      const afs = await sourceFsFor(deployment.applicationId);
       const name = logType === 'build' ? 'build' : logType === 'deploy' ? 'deploy' : 'combined';
       return this.tailLog(afs, join(logsDirFor(afs.appDir), `${name}-${deploymentId}.log`), lines, logType);
     } catch (error) {
@@ -1306,7 +1387,8 @@ export class DeploymentService {
         return 'No domain provided';
       }
 
-      const afs = await appFsForDomain(domain);
+      // the build log is the source's; the unit's logs are the app's own
+      const afs = logType === 'build' ? await sourceFsForDomain(domain) : await appFsForDomain(domain);
       if (!afs) return `No application found for domain ${domain}`;
 
       const logsDir = logsDirFor(afs.appDir);
@@ -1331,7 +1413,7 @@ export class DeploymentService {
         return { exists: false, path: '' };
       }
 
-      const afs = await appFsForDomain(domain);
+      const afs = await sourceFsForDomain(domain);
       if (!afs) return { exists: false, path: '' };
 
       const buildLogPath = join(logsDirFor(afs.appDir), 'build.log');
@@ -1354,7 +1436,7 @@ export class DeploymentService {
         return false;
       }
 
-      const afs = await appFsForDomain(domain);
+      const afs = await sourceFsForDomain(domain);
       if (!afs) return false;
 
       const logsDir = logsDirFor(afs.appDir);
