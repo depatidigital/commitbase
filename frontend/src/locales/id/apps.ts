@@ -48,6 +48,7 @@ export default {
   "Move down": "Turunkan",
   "Add path": "Tambah path",
   "Save routing": "Simpan routing",
+  "Points at this server": "Mengarah ke server ini",
   "Routing updated": "Routing diperbarui",
   "Visitors get it now.": "Langsung berlaku untuk pengunjung.",
   "Could not update the routing": "Gagal memperbarui routing",
