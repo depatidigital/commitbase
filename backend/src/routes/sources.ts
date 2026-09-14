@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
-import { orgScope, isPlatformAdmin } from '../lib/scope';
+import { canManageOrg, orgScope, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
@@ -80,6 +80,10 @@ async function notOwner(server: Parameters<typeof exec>[0], dir: string): Promis
     ? `${dir} belongs to ${owner ?? 'another user'}, but the panel logs in as ${user}. Run git on the server as ${owner}.`
     : null;
 }
+
+/** Its organization's owner or admin (and the platform's admins) — the client decides which branch their site runs. */
+const maySwitchBranch = async (req: AuthenticatedRequest, source: { organizationId: string | null }) =>
+  isPlatformAdmin(req) || (!!source.organizationId && (await canManageOrg(req, source.organizationId)));
 
 async function findSource(req: AuthenticatedRequest, res: Response) {
   const source = await prisma.source.findFirst({
@@ -185,7 +189,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
   try {
     const source = await findSource(req, res);
     if (!source) return;
-    return res.json({ success: true, data: present(source) } as ApiResponse);
+    return res.json({ success: true, data: { ...present(source), canSwitchBranch: await maySwitchBranch(req, source) } } as ApiResponse);
   } catch (error) {
     console.error('Error fetching project:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -353,15 +357,22 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
  * branch only ever moves forward to what the remote has. It lands in the
  * project's history like a deploy.
  */
-router.post('/:id/checkout', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/checkout', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const source = await findSource(req, res);
     if (!source) return;
+    if (!(await maySwitchBranch(req, source))) {
+      return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can switch the branch" } as ApiResponse);
+    }
     if (!source.path || !source.serverId || !source.repository) {
       return res.status(400).json({ success: false, error: 'Only a project checked out on its server from git can switch branches here' } as ApiResponse);
     }
     const branch = String(req.body?.branch ?? '').trim();
     if (!isBranchName(branch)) return res.status(400).json({ success: false, error: 'Pick a branch' } as ApiResponse);
+    // the sites run the other branch the moment it is checked out: only on an explicit yes
+    if (req.body?.consent !== true) {
+      return res.status(400).json({ success: false, error: 'Confirm that the sites run the new branch as soon as it is switched' } as ApiResponse);
+    }
 
     const server = await prisma.server.findUnique({ where: { id: source.serverId } });
     if (!server) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);

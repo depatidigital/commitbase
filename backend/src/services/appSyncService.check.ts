@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, type DiscoveredApp } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, type DiscoveredApp } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
@@ -204,5 +204,17 @@ assert.deepStrictEqual(merged.map((app) => app.hosts), [
   ['y.go.id'],
   ['worker.pm2.local'],
 ]);
+
+// --- which databases an app's .env names: names, engine, host — never a password ---
+assert.deepStrictEqual(databaseRefs({ DATABASE_URL: 'postgresql://app:s3cr%40t@127.0.0.1:5432/shop_db?schema=public' }), [
+  { name: 'shop_db', engine: 'POSTGRESQL', host: '127.0.0.1' },
+]);
+// Laravel
+assert.deepStrictEqual(databaseRefs({ DB_CONNECTION: 'mysql', DB_HOST: 'localhost', DB_DATABASE: 'cpns', DB_PASSWORD: 'x' }), [
+  { name: 'cpns', engine: 'MYSQL', host: 'localhost' },
+]);
+assert.deepStrictEqual(databaseRefs({ DB_CONNECTION: 'pgsql', DB_DATABASE: 'blog' }), [{ name: 'blog', engine: 'POSTGRESQL', host: undefined }]);
+// nothing that names a database: nothing
+assert.deepStrictEqual(databaseRefs({ APP_KEY: 'base64:x', DATABASE_URL: 'not a url' }), []);
 
 console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');

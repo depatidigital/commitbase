@@ -34,6 +34,17 @@ export default {
   "Runs git pull --ff-only in {dir}. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
     "Menjalankan git pull --ff-only di {dir}. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
   "Pulled on the server": "Pull di server berhasil",
+  "Switched to {branch} on the server": "Server beralih ke {branch}",
+  "Could not switch the branch": "Gagal berganti branch",
+  "Switch to {branch} on the server": "Ganti ke {branch} di server",
+  "Switch the server to {branch}?": "Ganti server ke {branch}?",
+  "Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
+    "Menjalankan git checkout {branch} di {dir}, sampai commit terbaru di remote. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
+  "Switch branch": "Ganti branch",
+  "I understand the site runs the code of {branch} as soon as it is switched.":
+    "Saya mengerti situs langsung menjalankan kode dari {branch} begitu branch diganti.",
+  "{branch} is the only branch on the remote — push another one to switch to it.":
+    "{branch} satu-satunya branch di remote — push branch lain untuk bisa berganti.",
   "Could not pull": "Pull gagal",
   "domain not registered": "domain belum terdaftar",
   "domain expired": "domain kedaluwarsa",

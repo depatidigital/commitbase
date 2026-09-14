@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Download, GitBranch, GitCommit, Loader2, Lock, RefreshCw, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { repoName } from "@/lib/applications";
-import { getProject, getProjectBranches, pullProject, updateProject } from "@/lib/projects";
+import { checkoutProject, getProject, getProjectBranches, pullProject, updateProject } from "@/lib/projects";
 import { isSuperAdmin } from "@/lib/auth";
 import {
   AlertDialog,
@@ -53,8 +54,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const [branch, setBranch] = useState(current);
   useEffect(() => setBranch(current), [current]);
 
-  // imported by the server sync: the checkout on the box is someone else's, so
-  // this only says where the code comes from — no branch switch, no deploy
+  // imported by the server sync: the checkout on the box is someone else's —
+  // pulled (superadmin) or switched (its org's owner/admin) there, code only, never deployed
   const readOnly = project?.kind === "IMPORTED";
   const apps = project?.applications ?? [];
   const changed = branch !== current;
@@ -86,6 +87,24 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
       void queryClient.invalidateQueries({ queryKey: ["deployments"] });
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not pull"), description: error.message }),
+  });
+
+  const [confirmCheckout, setConfirmCheckout] = useState(false);
+  // ticked in the dialog: the switch goes live on the sites at once, nobody reviews it after
+  const [consent, setConsent] = useState(false);
+  const checkout = useMutation({
+    mutationFn: () => checkoutProject(projectId, branch, consent),
+    onSuccess: () => {
+      toast({ title: t("Switched to {branch} on the server", { branch }) });
+      void queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["application"] });
+      void queryClient.invalidateQueries({ queryKey: ["deployments"] });
+    },
+    onError: (error: Error) => {
+      setBranch(current);
+      toast({ variant: "destructive", title: t("Could not switch the branch"), description: error.message });
+    },
   });
 
   const deployBranch = async () => {
@@ -129,18 +148,87 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
           <p className="break-words text-xs text-destructive">{(remote.error as Error).message}</p>
         ) : readOnly ? (
           <>
-            <p
-              className="text-xs text-muted-foreground"
-              title={`${t("Live now")}: ${live?.slice(0, 7) ?? "—"} · ${t("Newest on {branch}", { branch: current })}: ${head?.slice(0, 7) ?? "—"}`}
+            {/* its org's owner or admin may switch the checkout; everyone else sees which branch it is on */}
+            {project?.canSwitchBranch && (
+              <Select value={branch} onValueChange={setBranch} disabled={checkout.isPending || pull.isPending || (remote.data?.branches.length ?? 0) < 2}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[...new Set([current, ...(remote.data?.branches ?? [])])].map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {/* the picker is there, but there is nothing to switch to — say why */}
+            {project?.canSwitchBranch && (remote.data?.branches.length ?? 0) < 2 && (
+              <p className="text-xs text-muted-foreground">
+                {t("{branch} is the only branch on the remote — push another one to switch to it.", { branch: current })}
+              </p>
+            )}
+            {changed && project?.canSwitchBranch && (
+              <Button type="button" className="w-full" disabled={checkout.isPending} onClick={() => setConfirmCheckout(true)}>
+                {checkout.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <GitBranch className="h-4 w-4 mr-2" />}
+                {t("Switch to {branch} on the server", { branch })}
+              </Button>
+            )}
+            <AlertDialog
+              open={confirmCheckout}
+              onOpenChange={(open) => {
+                setConfirmCheckout(open);
+                setConsent(false);
+              }}
             >
-              {!head || !live
-                ? t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })
-                : head === live
-                  ? t("The server has the newest commit on {branch}.", { branch: current })
-                  : t("The server is behind {branch}.", { branch: current })}
-            </p>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t("Switch the server to {branch}?", { branch })}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.", {
+                      branch,
+                      dir: project?.path ?? "",
+                    })}
+                    {apps.length > 1 && (
+                      <span className="mt-2 block">
+                        {t("It changes all {count} apps of this project: {apps}.", {
+                          count: apps.length,
+                          apps: apps.flatMap((app) => app.domains.map((d) => d.host)).join(", "),
+                        })}
+                      </span>
+                    )}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox checked={consent} onCheckedChange={(checked) => setConsent(checked === true)} className="mt-0.5" />
+                  <span>
+                    {t("I understand the site runs the code of {branch} as soon as it is switched.", { branch })}
+                  </span>
+                </label>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setBranch(current)}>{t("Cancel")}</AlertDialogCancel>
+                  <AlertDialogAction disabled={!consent} onClick={() => checkout.mutate()}>
+                    {t("Switch branch")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            {/* how the checkout stands on its own branch — another one picked says nothing about it */}
+            {!changed && (
+              <p
+                className="text-xs text-muted-foreground"
+                title={`${t("Live now")}: ${live?.slice(0, 7) ?? "—"} · ${t("Newest on {branch}", { branch: current })}: ${head?.slice(0, 7) ?? "—"}`}
+              >
+                {!head || !live
+                  ? t("Checked out on the server from {branch}. Newest on the remote: {sha}.", { branch: current, sha: head?.slice(0, 7) ?? "—" })
+                  : head === live
+                    ? t("The server has the newest commit on {branch}.", { branch: current })
+                    : t("The server is behind {branch}.", { branch: current })}
+              </p>
+            )}
             {/* only the operator touches a server by hand, and only when there is something to pull */}
-            {isSuperAdmin() && head && live && head !== live && (
+            {isSuperAdmin() && !changed && head && live && head !== live && (
               <Button type="button" variant="outline" className="w-full" disabled={pull.isPending} onClick={() => setConfirmPull(true)}>
                 {pull.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                 {t("Pull on server")}

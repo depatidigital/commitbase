@@ -46,6 +46,8 @@ export interface Project {
   organization: { id: string; name: string; slug: string } | null;
   server: { id: string; name: string; hostname?: string; publicIp?: string } | null;
   applications: ProjectApp[];
+  /** detail only: the caller may switch an imported checkout's branch (its org's owner/admin, a platform admin) */
+  canSwitchBranch?: boolean;
   activeRelease?: { id: string; commitSha: string | null; createdAt: string } | null;
   lastDeployment?: { status: string; createdAt: string; commitHash: string | null; commitMessage: string | null } | null;
   createdAt: string;
@@ -89,6 +91,14 @@ export const pullProject = async (id: string): Promise<{ output: string; apps: s
   const response = await apiRequest<{ output: string; apps: string[] }>(`/sources/${id}/pull`, { method: 'POST' });
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Pull failed'));
+};
+
+/** Switch an imported project's checkout to another branch, on its server — for every app served from it. */
+/** `consent`: the user ticked that the sites run the new branch at once — the API refuses without it. */
+export const checkoutProject = async (id: string, branch: string, consent: boolean): Promise<{ output: string; apps: string[] }> => {
+  const response = await apiRequest<{ output: string; apps: string[] }>(`/sources/${id}/checkout`, { method: 'POST', body: JSON.stringify({ branch, consent }) });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not switch the branch'));
 };
 
 /** Build and release every app of a panel-managed project. */

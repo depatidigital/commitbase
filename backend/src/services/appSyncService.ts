@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { createApplicationWithSource, dropOrphanSources, setSourceOrganization } from '../lib/sources';
 import { setAppHosts, zonesFor } from '../lib/appDomains';
 import { exec, type SshTarget } from '../lib/runner';
+import { parseEnvFile } from '../lib/projectDetect';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
 
@@ -67,6 +68,8 @@ export function mergeSameSite(apps: DiscoveredApp[]): DiscoveredApp[] {
 }
 
 export type AppSyncResult = {
+  /** databases their .env files named, attached to them this sync */
+  databasesLinked?: number;
   discovered: number;
   created: number;
   updated: number;
@@ -757,8 +760,102 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   // sources left without apps: moved onto a shared checkout, or deleted above
   await dropOrphanSources();
 
+  // the databases their .env files name, on this node's database servers
+  try {
+    result.databasesLinked = await linkAppDatabases(node);
+  } catch (error: any) {
+    errors.push(`databases: ${error?.message || 'could not read the apps\' .env files'}`);
+  }
+
   if (errors.length) result.errors = errors;
   return result;
+}
+
+export type DatabaseRef = { name: string; engine?: 'POSTGRESQL' | 'MYSQL' | undefined; host?: string | undefined };
+
+const engineOf = (value?: string): DatabaseRef['engine'] =>
+  /^(postgres|postgresql|pgsql)\b/i.test(value ?? '') ? 'POSTGRESQL' : /^(mysql|mariadb)\b/i.test(value ?? '') ? 'MYSQL' : undefined;
+
+/**
+ * The databases an app's .env names — by URL (DATABASE_URL, Prisma's
+ * DIRECT_URL) or by parts (Laravel's DB_*, libpq's PG*, MYSQL_*): the name,
+ * and the engine and host when it says. Only names leave here, never a
+ * password. Pure.
+ */
+export function databaseRefs(env: Record<string, string>): DatabaseRef[] {
+  const refs: DatabaseRef[] = [];
+  for (const key of ['DATABASE_URL', 'DIRECT_URL']) {
+    try {
+      const url = new URL(env[key] ?? '');
+      const name = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+      if (name) refs.push({ name, engine: engineOf(url.protocol), host: url.hostname || undefined });
+    } catch {
+      // not a URL
+    }
+  }
+  const name = env.DB_DATABASE || env.DB_NAME || env.PGDATABASE || env.MYSQL_DATABASE;
+  if (name) {
+    refs.push({
+      name,
+      engine: engineOf(env.DB_CONNECTION) ?? (env.PGDATABASE ? 'POSTGRESQL' : env.MYSQL_DATABASE ? 'MYSQL' : undefined),
+      host: env.DB_HOST || env.PGHOST || env.MYSQL_HOST || undefined,
+    });
+  }
+  return refs;
+}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+/**
+ * Attach the databases the node's imported apps use, as their .env files say:
+ * the app folder's, its parent's (Laravel serves public/) and the checkout's.
+ * A database already attached to an app stays with it; only names are read.
+ */
+async function linkAppDatabases(node: SshTarget): Promise<number> {
+  const servers = await prisma.databaseServer.findMany({
+    where: { serverId: node.id },
+    select: { id: true, engine: true, host: true, appHost: true },
+  });
+  if (servers.length === 0) return 0;
+
+  const apps = await prisma.application.findMany({
+    where: { serverId: node.id, runtime: { not: null }, rootPath: { not: null } },
+    select: { id: true, organizationId: true, rootPath: true, source: { select: { path: true } } },
+  });
+
+  let linked = 0;
+  for (const app of apps) {
+    const dirs = [...new Set([app.source?.path, path.posix.dirname(app.rootPath!), app.rootPath].filter((dir): dir is string => !!dir))];
+    // one read per app; the most specific file last, so its values win
+    const { stdout } = await exec(
+      node,
+      ['sh', '-c', 'for d; do [ -r "$d/.env" ] && { cat -- "$d/.env"; echo; }; done; true', 'sh', ...dirs],
+      { timeout: 15_000, maxBuffer: 1024 * 1024 },
+    ).catch(() => ({ stdout: '' }));
+    if (!stdout.trim()) continue;
+
+    for (const ref of databaseRefs(Object.fromEntries(parseEnvFile(stdout)))) {
+      // the host it connects to must be one of these servers — this box, or the address it is known by
+      const candidates = servers.filter(
+        (server) =>
+          (!ref.engine || server.engine === ref.engine) &&
+          (!ref.host || LOCAL_HOSTS.has(ref.host) || ref.host === server.host || ref.host === server.appHost),
+      );
+      if (candidates.length === 0) continue;
+      const found = await prisma.database.findMany({
+        where: { databaseServerId: { in: candidates.map((server) => server.id) }, dbName: ref.name, applicationId: null },
+        select: { id: true, organizationId: true },
+      });
+      // the same name on two servers: nothing proves which one — left for someone to attach
+      if (found.length !== 1) continue;
+      await prisma.database.update({
+        where: { id: found[0]!.id },
+        data: { applicationId: app.id, ...(!found[0]!.organizationId && app.organizationId && { organizationId: app.organizationId }) },
+      });
+      linked++;
+    }
+  }
+  return linked;
 }
 
 /**
