@@ -492,7 +492,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           server: { select: { id: true, name: true } },
           // registration expiry of the domain it sits under — flagged on the row when close
           parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
-          source: true,
+          // where its code comes from, and the other apps built from it (a monorepo's)
+          source: { include: { applications: { select: { id: true, name: true, domain: true, rootDirectory: true } } } },
           deployments: {
             orderBy: {
               createdAt: 'desc',
@@ -670,7 +671,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
           select: { defaultServer: { select: { id: true, name: true, hostname: true, publicIp: true, tags: true } } },
         },
         parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
-        source: true,
+        source: { include: { applications: { select: { id: true, name: true, domain: true, rootDirectory: true } } } },
       },
     });
 

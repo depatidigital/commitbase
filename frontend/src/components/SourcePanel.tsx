@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Application, getAppBranches, pullOnServer, updateApplication } from "@/lib/applications";
+import { Application, getAppBranches, pullOnServer, repoName, updateApplication } from "@/lib/applications";
 import { isSuperAdmin } from "@/lib/auth";
 import {
   AlertDialog,
@@ -20,8 +20,6 @@ import {
 import { t } from "@/lib/i18n";
 
 /** owner/repo out of a clone URL — the part a person recognises */
-const shortName = (url: string) => url.replace(/\.git$/, "").split(/[/:]/).slice(-2).join("/");
-
 interface SourcePanelProps {
   application: Application;
   /** the page's deploy: saves pending env edits, then starts it */
@@ -108,7 +106,7 @@ export function SourcePanel({ application, onDeploy, starting, deploying }: Sour
 
         <p className="flex min-w-0 items-center gap-1.5 text-sm" title={application.repository ?? undefined}>
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate font-mono text-xs">{shortName(application.repository ?? "")}</span>
+          <span className="truncate font-mono text-xs">{repoName(application.repository ?? "")}</span>
           {application.gitAccountId && (
             <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={t("Private — read through a connected account.")} />
           )}

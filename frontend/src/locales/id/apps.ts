@@ -72,6 +72,8 @@ export default {
   "Last deploy": "Deploy terakhir",
   "Change organization": "Ubah organisasi",
   "Unassigned — assign": "Belum ditetapkan — tetapkan",
+  "Built together with {apps}, from the same source": "Dibangun bersama {apps}, dari sumber yang sama",
+  "monorepo · {count} apps": "monorepo · {count} aplikasi",
   Start: "Jalankan",
   Stop: "Hentikan",
   Restart: "Mulai ulang",

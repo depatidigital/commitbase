@@ -2,7 +2,10 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote } from './appSyncService';
+import {
+  classifyRoute, routeHosts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote,
+  monorepoCheckouts, parseProbe, PROBE_SCRIPT, rootDirectoryIn,
+} from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
@@ -168,4 +171,60 @@ assert.strictEqual(repositoryFromRemote('ssh://git@gitlab.example.com:2222/team/
 assert.strictEqual(repositoryFromRemote('/srv/git/shop.git'), null);
 assert.strictEqual(repositoryFromRemote(''), null);
 
-console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');
+// --- monorepos: where in its checkout each app is ---
+
+assert.strictEqual(rootDirectoryIn('/srv/arusflow', '/srv/arusflow/server'), 'server');
+assert.strictEqual(rootDirectoryIn('/srv/arusflow', '/srv/arusflow/apps/web'), 'apps/web');
+assert.strictEqual(rootDirectoryIn('/srv/arusflow', '/srv/arusflow'), undefined, 'the root is no folder');
+assert.strictEqual(rootDirectoryIn('/srv/arusflow', '/srv/other'), undefined, 'outside the checkout');
+assert.strictEqual(rootDirectoryIn('/srv/a', '/srv/a/has space'), undefined, 'not a plain folder path');
+assert.deepStrictEqual(
+  monorepoCheckouts([{ checkout: '/srv/a' }, { checkout: '/srv/b' }, { checkout: '/srv/a' }, {}]),
+  ['/srv/a'],
+  'only a checkout with more than one app is a monorepo',
+);
+const probed = parseProbe(
+  [
+    '/srv/a/server\t1\tgit@github.com:acme/a.git\tmain\t/srv/a\t/srv/a/server',
+    '/srv/a/web/dist\t1\tgit@github.com:acme/a.git\tmain\t/srv/a\t/srv/a/web',
+    '/var/www/plain\t1\t\t\t\t',
+  ].join('\n'),
+);
+assert.deepStrictEqual(probed.get('/srv/a/server'), {
+  exists: true, repository: 'https://github.com/acme/a.git', branch: 'main', checkout: '/srv/a', rootDirectory: 'server',
+});
+assert.strictEqual(probed.get('/srv/a/web/dist')?.rootDirectory, 'web');
+assert.deepStrictEqual(probed.get('/var/www/plain'), { exists: true });
+
+console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote + monorepos OK');
+
+// PROBE_SCRIPT for real, with bash and git, on a monorepo: a backend folder, a
+// site served from a build folder, a Laravel-style public/ at the root
+(async () => {
+  const fs = await import('fs/promises');
+  const os = await import('os');
+  const path = await import('path');
+  const { execFileSync } = await import('child_process');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-probe-'));
+  const bash = (script: string, ...args: string[]) => execFileSync('bash', ['-c', script, 'bash', ...args], { cwd: root }).toString();
+  bash(
+    'git init -q repo && cd repo && git remote add origin git@github.com:acme/arusflow.git && ' +
+      'mkdir -p server web/dist public && echo {} > server/package.json && echo {} > web/package.json && echo {} > composer.json && ' +
+      'git -c user.email=t@t -c user.name=t add -A && git -c user.email=t@t -c user.name=t commit -qm init && mkdir ../plain',
+  );
+  const at = bash('pwd').trim();
+  const dirs = ['server', 'web/dist', 'public', 'nope'].map((d) => `${at}/repo/${d}`).concat(`${at}/plain`);
+  const states = parseProbe(bash(PROBE_SCRIPT, ...dirs));
+  const state = (d: string) => states.get(`${at}/${d}`);
+  assert.strictEqual(state('repo/server')?.rootDirectory, 'server');
+  assert.strictEqual(state('repo/web/dist')?.rootDirectory, 'web', 'a build folder is its project');
+  assert.strictEqual(state('repo/public')?.rootDirectory, undefined, 'public/ of a root project is the root');
+  assert.strictEqual(state('repo/server')?.repository, 'https://github.com/acme/arusflow.git');
+  assert.strictEqual(state('repo/server')?.checkout, state('repo/web/dist')?.checkout, 'one checkout');
+  assert.deepStrictEqual(state('repo/nope'), { exists: false });
+  assert.deepStrictEqual(state('plain'), { exists: true });
+  console.log('appSyncService: PROBE_SCRIPT OK');
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

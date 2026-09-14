@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +33,7 @@ import {
   ExternalLink,
   MoreHorizontal,
   Layers,
+  GitBranch,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,7 +69,7 @@ import {
 } from "@/hooks/useApplications";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { useDomains } from "@/hooks/useDomains";
-import { bulkAssignApplications, hasBeenDeployed, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
+import { bulkAssignApplications, hasBeenDeployed, repoName, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
   Tooltip,
@@ -281,6 +282,46 @@ export default function Application() {
         (a, b) => appStatus(a.status, healthById[a.id], a.disabled).rank - appStatus(b.status, healthById[b.id], b.disabled).rank,
       );
 
+  /** The row's second line: runtime (operators), hostname when the name differs, source. */
+  const secondLine = (app: (typeof applications)[number]): ReactNode[] => {
+    // an imported site is named after its hostname, so printing both is
+    // printing the same string twice — it only earns its place when the app
+    // was given a name of its own; a .local placeholder is never an address
+    const named = !app.domain.endsWith(".local") && app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
+    const repo = app.source?.repository;
+    const siblings = (app.source?.applications ?? []).filter((other) => other.id !== app.id);
+    return [
+      superAdmin && (
+        <Badge
+          variant="outline"
+          className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}
+        >
+          {runtimeLabel(app.runtime)}
+          {app.runtime === "PM2" && app.processName && ` · ${app.processName}`}
+        </Badge>
+      ),
+      named && <span className="truncate">{app.domain}</span>,
+      repo && (
+        <span className="flex min-w-0 items-center gap-1" title={app.branch ? `${repo} · ${app.branch}` : repo}>
+          <GitBranch className="h-3 w-3 shrink-0" />
+          <span className="truncate font-mono">
+            {repoName(repo)}
+            {app.rootDirectory && `/${app.rootDirectory}`}
+          </span>
+        </span>
+      ),
+      siblings.length > 0 && (
+        <Badge
+          variant="outline"
+          className="shrink-0 px-1.5 py-0 text-[10px] font-medium"
+          title={t("Built together with {apps}, from the same source", { apps: siblings.map((other) => other.name).join(", ") })}
+        >
+          {t("monorepo · {count} apps", { count: siblings.length + 1 })}
+        </Badge>
+      ),
+    ].filter(Boolean);
+  };
+
   const columns: Column<(typeof applications)[number]>[] = [
     ...(superAdmin
       ? [
@@ -338,13 +379,9 @@ export default function Application() {
       // name and hostname are the same string for every imported site, so they
       // share one cell: the name leads, the address and the owner sit under it
       cell: (app) => {
-        // an imported site is named after its hostname, so printing both is
-        // printing the same string twice — the second line only earns its
-        // place when the app was given a name of its own
         // a sync placeholder like arusflow.pm2.local: nothing a browser can open,
         // and nothing a client should have to read
         const internal = app.domain.endsWith(".local");
-        const named = !internal && app.name.trim().toLowerCase() !== app.domain.trim().toLowerCase();
         // what kind of app, as its icon — a column of badges said the same thing louder
         const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
         const TypeIcon = type.icon;
@@ -381,20 +418,17 @@ export default function Application() {
                 </a>
               )}
             </span>
-            {/* what runs it on the box — how it is stopped and removed depends on it */}
-            {(named || superAdmin) && (
+            {/* what runs it on the box (how it is stopped and removed depends on
+                it), its address, and where its code comes from — a monorepo's
+                apps say which folder, and that they are built together */}
+            {secondLine(app).length > 0 && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                {superAdmin && (
-                  <Badge
-                    variant="outline"
-                    className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}
-                  >
-                    {runtimeLabel(app.runtime)}
-                    {app.runtime === "PM2" && app.processName && ` · ${app.processName}`}
-                  </Badge>
-                )}
-                {superAdmin && named && <span>·</span>}
-                {named && <span className="truncate">{app.domain}</span>}
+                {secondLine(app).map((item, index) => (
+                  <Fragment key={index}>
+                    {index > 0 && <span>·</span>}
+                    {item}
+                  </Fragment>
+                ))}
               </span>
             )}
           </div>

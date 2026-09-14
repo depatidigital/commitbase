@@ -15,6 +15,9 @@ export const runtimeLabel = (runtime?: string | null): string =>
     CADDY_PROXY: t('Caddy (reverse proxy)'),
   })[runtime ?? ''] ?? (runtime || t('Managed by {appName}', { appName: APP_NAME }));
 
+/** `https://github.com/acme/shop.git` → `acme/shop` */
+export const repoName = (url: string) => url.replace(/\.git$/, '').split(/[/:]/).slice(-2).join('/');
+
 export interface Application {
   /** The node it was discovered on, when it came from a server sync. */
   server?: { id: string; name: string } | null;
@@ -26,6 +29,16 @@ export interface Application {
   repository?: string;
   gitAccountId?: string | null;
   branch?: string;
+  /** the app's folder in its repository (monorepos); null = the root */
+  rootDirectory?: string | null;
+  sourceId?: string | null;
+  /** list and detail endpoints: where its code comes from, with every app built from it */
+  source?: {
+    id: string;
+    repository: string | null;
+    branch: string | null;
+    applications: Array<{ id: string; name: string; domain: string; rootDirectory: string | null }>;
+  } | null;
   /** null = the detected install */
   installCommand?: string | null;
   buildCommand?: string;
