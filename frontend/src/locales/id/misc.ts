@@ -181,4 +181,60 @@ export default {
   "Register an OAuth app with the callback URL below. The secret is stored encrypted. Leave the client ID blank to turn it off.":
     "Daftarkan aplikasi OAuth dengan URL callback di bawah. Secret disimpan terenkripsi. Kosongkan client ID untuk menonaktifkannya.",
   "Change both for a self-hosted GitLab.": "Ubah keduanya untuk GitLab self-hosted.",
+  // Integration setup guides (components/IntegrationSteps.tsx)
+  "How to set this up": "Cara mengaturnya",
+  "Log in to your Rdash reseller dashboard and open its API settings.": "Masuk ke dashboard reseller Rdash Anda dan buka pengaturan API-nya.",
+  "Copy the Reseller ID and the API key.": "Salin Reseller ID dan API key.",
+  "If the API is restricted by IP, allow this server's public IP there.": "Jika API dibatasi per IP, izinkan IP publik server ini di sana.",
+  "Click Edit in RDASH configuration below and paste both. Leave Base URL blank to use":
+    "Klik Ubah pada konfigurasi RDASH di bawah dan tempel keduanya. Kosongkan Base URL untuk memakai",
+  "Save. The overview loads once the credentials work, and domain registration becomes available.":
+    "Simpan. Ringkasan akan muncul setelah kredensial berfungsi, dan pendaftaran domain bisa digunakan.",
+  "API token (DNS and zones)": "API token (DNS dan zona)",
+  "In the Cloudflare dashboard open": "Di dashboard Cloudflare buka",
+  "and start from a Custom token.": "lalu mulai dari Custom token.",
+  "Add these permissions:": "Tambahkan izin berikut:",
+  "and, for static sites on R2,": "dan, untuk situs statis di R2,",
+  "Resources: your account, and": "Resources: akun Anda, dan",
+  "Create the token and copy it — Cloudflare shows it only once.": "Buat token lalu salin — Cloudflare hanya menampilkannya sekali.",
+  "Click Edit in Cloudflare configuration below and paste the token. Leave API base blank for the public Cloudflare API.":
+    "Klik Ubah pada konfigurasi Cloudflare di bawah dan tempel token. Kosongkan API base untuk memakai API Cloudflare publik.",
+  "R2 storage (optional, for static sites)": "Penyimpanan R2 (opsional, untuk situs statis)",
+  "Open": "Buka",
+  "with Object Read & Write, scoped to that bucket.": "dengan izin Object Read & Write, khusus untuk bucket tersebut.",
+  "Copy the Access Key ID and Secret Access Key, and the Account ID from the R2 overview page.":
+    "Salin Access Key ID dan Secret Access Key, serta Account ID dari halaman ringkasan R2.",
+  "Click Edit in Cloudflare R2 storage below and fill them in. Public URL is the custom domain connected to the bucket; Root folder is the prefix every site is uploaded under.":
+    "Klik Ubah pada penyimpanan Cloudflare R2 di bawah dan isi semuanya. Public URL adalah domain kustom yang terhubung ke bucket; Folder root adalah prefix tempat setiap situs diunggah.",
+  "Save. The settings are checked against the bucket right away.": "Simpan. Pengaturan langsung diuji ke bucket.",
+  "and create or pick a project.": "lalu buat atau pilih sebuah project.",
+  "In": "Di",
+  "enable": "aktifkan",
+  "and": "dan",
+  "It needs no project roles.": "Tidak perlu role project apa pun.",
+  "Open the service account, then": "Buka service account tersebut, lalu",
+  "A key file downloads.": "File key akan terunduh.",
+  "Click Edit below and paste the whole contents of the key file.": "Klik Ubah di bawah dan tempel seluruh isi file key.",
+  "Under Default owners, list the Google accounts (comma-separated) that should see every added domain in their Search Console.":
+    "Di Pemilik bawaan, isi akun Google (dipisah koma) yang harus melihat setiap domain yang ditambahkan di Search Console mereka.",
+  "Save. The key is checked against Google right away.": "Simpan. Key langsung diuji ke Google.",
+  "On GitHub open": "Di GitHub buka",
+  "For an organization, use the same menu under the organization settings.": "Untuk organisasi, gunakan menu yang sama di pengaturan organisasi.",
+  "Homepage URL: this panel's address. Authorization callback URL: the GitHub callback URL shown below, exactly.":
+    "Homepage URL: alamat panel ini. Authorization callback URL: URL callback GitHub yang tertera di bawah, persis sama.",
+  "Register the app, then Generate a new client secret.": "Daftarkan aplikasi, lalu klik Generate a new client secret.",
+  "Click Edit on GitHub below, paste the Client ID and the client secret, and save.":
+    "Klik Ubah pada GitHub di bawah, tempel Client ID dan client secret, lalu simpan.",
+  "On GitLab open": "Di GitLab buka",
+  "On a self-hosted GitLab an admin can use Admin area → Applications for an instance-wide app.":
+    "Di GitLab self-hosted, admin dapat memakai Admin area → Applications untuk aplikasi seluruh instance.",
+  "Redirect URI: the GitLab callback URL shown below, exactly. Keep Confidential checked. Scopes:":
+    "Redirect URI: URL callback GitLab yang tertera di bawah, persis sama. Biarkan Confidential tercentang. Scopes:",
+  "Save the application and copy the Application ID and the Secret.": "Simpan aplikasi lalu salin Application ID dan Secret.",
+  "Click Edit on GitLab below: Application ID goes in Client ID, Secret in Client secret. For a self-hosted GitLab also set OAuth URL to":
+    "Klik Ubah pada GitLab di bawah: Application ID ke Client ID, Secret ke Client secret. Untuk GitLab self-hosted, isi juga URL OAuth dengan",
+  "and API URL to": "dan URL API dengan",
+  "Save.": "Simpan.",
+  "Users can now connect their GitHub and GitLab accounts from Add app and pick repositories from them.":
+    "Pengguna kini dapat menghubungkan akun GitHub dan GitLab dari Tambah aplikasi dan memilih repositori darinya.",
 } satisfies Record<string, string>;

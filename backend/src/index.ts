@@ -53,6 +53,11 @@ import { authenticateToken, requireRole } from './middleware/auth';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Caddy on the same host terminates TLS: take req.protocol / req.ip from its
+// X-Forwarded-* headers (OAuth redirect_uri, rate limiting). 'loopback' only
+// believes those headers from 127.0.0.1/::1, so a direct client can't spoof them.
+app.set('trust proxy', 'loopback');
+
 // Security middleware
 app.use(helmet());
 
