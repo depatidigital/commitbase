@@ -1159,19 +1159,25 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
       organizationId = resolved.organizationId;
     }
 
+    // where the code comes from is the source's, shared with its other apps
+    if (existingApp.sourceId && (repository !== undefined || branch !== undefined || gitAccountId !== undefined)) {
+      await prisma.source.update({
+        where: { id: existingApp.sourceId },
+        // undefined leaves it alone; null deliberately clears it
+        data: { repository, branch, ...(gitAccountId !== undefined && { gitAccountId }) },
+      });
+    }
+
     // Update application
     const updatedApp = await prisma.application.update({
       where: { id },
+      include: { source: true },
       data: {
         name,
         ...(normalizedDomain && { domain: normalizedDomain }),
         ...(domainId && { domainId }),
         ...(organizationId !== undefined && { organizationId }),
         type,
-        repository,
-        // undefined leaves it alone; null deliberately clears it
-        ...(gitAccountId !== undefined && { gitAccountId }),
-        branch,
         // '' clears back to the detected install / no pre-deploy step
         ...(installCommand !== undefined && { installCommand: installCommand.trim() || null }),
         buildCommand,
@@ -1215,7 +1221,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 
     return res.json({
       success: true,
-      data: { ...updatedApp, envVars: readEnv(updatedApp.envVars), ...(dns && { dns }) },
+      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars), ...(dns && { dns }) },
       message:
         dns && (dns.state === 'conflict' || dns.state === 'unavailable')
           ? `Application updated, but DNS was not set up: ${dns.detail}`
