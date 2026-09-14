@@ -201,6 +201,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the build"), description: error.message }),
   });
+  // the env names on the overview: a few, or all of them
+  const [envExpanded, setEnvExpanded] = useState(false);
   // which of its names "Point it here" was asked for
   const [repointHost, setRepointHost] = useState<string | null>(null);
 
@@ -1152,7 +1154,26 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                   <Field label={t("Environment Variables")}>
                     {/* names only — values can be secrets, and this page is widely viewed */}
                     {application.envVars && Object.keys(application.envVars).length > 0 ? (
-                      <span className="break-all font-mono text-xs">{Object.keys(application.envVars).join(", ")}</span>
+                      (() => {
+                        const keys = Object.keys(application.envVars);
+                        // a long .env is a wall: the first few, the rest on request
+                        const FEW = 8;
+                        const shown = envExpanded ? keys : keys.slice(0, FEW);
+                        return (
+                          <span className="break-all font-mono text-xs">
+                            {shown.join(", ")}
+                            {keys.length > FEW && (
+                              <button
+                                type="button"
+                                className="ml-1.5 font-sans text-primary hover:underline"
+                                onClick={() => setEnvExpanded((open) => !open)}
+                              >
+                                {envExpanded ? t("show less") : t("+{count} more", { count: keys.length - FEW })}
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })()
                     ) : (
                       <span className="text-muted-foreground">{t("No environment variables configured")}</span>
                     )}

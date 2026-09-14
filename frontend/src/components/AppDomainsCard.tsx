@@ -142,8 +142,13 @@ export function AppDomainsCard({
                 {(() => {
                   const check = checks?.find((c) => c.host === name.host);
                   if (!check) return null;
-                  if (hostOk(check) && check.pointing?.state === "here") {
-                    return <CheckCircle className="h-4 w-4 text-success" aria-label={t("Points at this server")} />;
+                  // answers, from this server (or behind Cloudflare's proxy, which hides which)
+                  if (hostOk(check)) {
+                    return (
+                      <span title={t("Points at this server")}>
+                        <CheckCircle className="h-4 w-4 text-success" aria-label={t("Points at this server")} />
+                      </span>
+                    );
                   }
                   return (
                     <>
