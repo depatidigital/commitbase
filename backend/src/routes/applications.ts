@@ -71,7 +71,8 @@ const sortOrder = (sort: unknown, order: unknown): any[] => {
       // a sync creates a batch within the same moment
       return [{ createdAt: direction }, byName];
     default:
-      return [{ status: 'desc' }, byName];
+      // switched-off apps go last, whatever state they were left in
+      return [{ disabled: 'asc' }, { status: 'desc' }, byName];
   }
 };
 
@@ -1231,6 +1232,25 @@ router.get('/:id/teardown', authenticateToken, requireRole([]), async (req: Auth
     return res.json({ success: true, data: await teardownPlan(application) } as ApiResponse);
   } catch (error) {
     console.error('Error building teardown plan:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Switch an app off in the panel, or back on. Nothing on the server changes:
+ * it only stops being checked and moves to the bottom of the list — for a site
+ * that is dead on purpose and should neither be deleted nor shout.
+ */
+router.post('/:id/disabled', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+
+    const disabled = req.body?.disabled === true;
+    await prisma.application.update({ where: { id: application.id }, data: { disabled } });
+    return res.json({ success: true, data: { disabled }, message: disabled ? 'Application disabled' : 'Application enabled' } as ApiResponse);
+  } catch (error) {
+    console.error('Error toggling application:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

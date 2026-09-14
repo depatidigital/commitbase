@@ -29,7 +29,9 @@ export type Tone = "up" | "down" | "warn" | "deploying" | "muted";
  * they cannot disagree. `rank` puts what needs a look first: broken, then in
  * flight, then fine.
  */
-export const appStatus = (status: string, health?: Health): { text: string; tone: Tone; rank: number } => {
+export const appStatus = (status: string, health?: Health, disabled = false): { text: string; tone: Tone; rank: number } => {
+  // switched off in the panel: not watched, and last in line
+  if (disabled) return { text: t("Disabled"), tone: "muted", rank: 9 };
   if (status === "DEPLOYING" || status === "BUILDING") return { text: t("Deploying"), tone: "deploying", rank: 1 };
   // stopped on purpose — not an outage, whatever the checks say
   if (status === "STOPPED") return { text: t("Stopped"), tone: "muted", rank: 3 };

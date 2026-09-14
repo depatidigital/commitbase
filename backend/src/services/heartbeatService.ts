@@ -228,8 +228,9 @@ export async function checkApplicationHostnames(): Promise<string> {
   const { checkAppHostname, whereHostnamePoints } = await import('./appDnsService');
 
   const apps = await prisma.application.findMany({
-    // a hostname that only exists inside the platform has nothing to check
-    where: { domain: { not: { endsWith: '.pm2.local' } } },
+    // a hostname that only exists inside the platform has nothing to check,
+    // and a switched-off app is off on purpose
+    where: { domain: { not: { endsWith: '.pm2.local' } }, disabled: false },
     select: { id: true, domain: true, domainId: true },
   });
 

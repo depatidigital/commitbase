@@ -41,6 +41,12 @@ export default {
   "domain inactive": "domain tidak aktif",
   "{domain} at the registry: {problem}": "{domain} di registri: {problem}",
   "Point it here": "Arahkan ke sini",
+  Disable: "Nonaktifkan",
+  Enable: "Aktifkan",
+  Enabled: "Aktif kembali",
+  "Could not update the app": "Gagal memperbarui aplikasi",
+  "Not monitored — switched off in the panel. Nothing on the server changed.":
+    "Tidak dipantau — dinonaktifkan di panel. Tidak ada yang berubah di server.",
   "Changing DNS…": "Mengubah DNS…",
   "Successful checks in the last 24 hours": "Pengecekan berhasil dalam 24 jam terakhir",
 

@@ -29,6 +29,7 @@ import {
   Loader2,
   RefreshCw,
   Eye,
+  Power,
   ExternalLink,
   MoreHorizontal,
   Layers,
@@ -65,9 +66,9 @@ import {
   useRestartApplication,
   useSyncServerApps,
 } from "@/hooks/useApplications";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { useDomains } from "@/hooks/useDomains";
-import { bulkAssignApplications, hasBeenDeployed, runtimeLabel } from "@/lib/applications";
+import { bulkAssignApplications, hasBeenDeployed, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import {
   Tooltip,
@@ -189,6 +190,17 @@ export default function Application() {
       toast({ title: t("Assign failed"), description: error.message, variant: "destructive" }),
   });
 
+  // switched off: kept, not monitored, listed last — nothing on the server changes
+  const canToggle = isAdmin();
+  const toggleDisabled = useMutation({
+    mutationFn: ({ id, disabled }: { id: string; disabled: boolean }) => setApplicationDisabled(id, disabled),
+    onSuccess: (_, { disabled }) => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      toast({ title: disabled ? t("Disabled") : t("Enabled") });
+    },
+    onError: (error: Error) => toast({ title: t("Could not update the app"), description: error.message, variant: "destructive" }),
+  });
+
   const allSelected =
     applications.length > 0 && applications.every((app) => selectedIds.includes(app.id));
 
@@ -266,7 +278,7 @@ export default function Application() {
   const rows = query.sort
     ? applications
     : [...applications].sort(
-        (a, b) => appStatus(a.status, healthById[a.id]).rank - appStatus(b.status, healthById[b.id]).rank,
+        (a, b) => appStatus(a.status, healthById[a.id], a.disabled).rank - appStatus(b.status, healthById[b.id], b.disabled).rank,
       );
 
   const columns: Column<(typeof applications)[number]>[] = [
@@ -297,7 +309,7 @@ export default function Application() {
       className: "w-10",
       cell: (app) => {
         const health = healthById[app.id];
-        const { text, tone } = appStatus(app.status, health);
+        const { text, tone } = appStatus(app.status, health, app.disabled);
         const since = tone === "down" ? downSince(health) : undefined;
         // the word and the numbers behind the colour, for whoever hovers
         const detail = [
@@ -338,7 +350,7 @@ export default function Application() {
         const TypeIcon = type.icon;
 
         return (
-          <div className="flex min-w-0 items-center gap-3">
+          <div className={`flex min-w-0 items-center gap-3 ${app.disabled ? "opacity-50" : ""}`}>
           {/* icon and name: an icon alone had to be learned. Fixed width, so the app names line up */}
           <span
             className="flex w-20 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium"
@@ -444,6 +456,8 @@ export default function Application() {
             className: "w-[18%]",
             cell: (app: (typeof applications)[number]) => {
               const health = healthById[app.id];
+              // switched off: its old red beats are history, not news
+              if (app.disabled) return <span className="text-xs text-muted-foreground">{t("Disabled")}</span>;
               return (
                 <div className="space-y-0.5">
                   <HeartbeatBar health={health} />
@@ -501,6 +515,13 @@ export default function Application() {
               <Eye className="mr-2 h-4 w-4" />
               {t("Manage")}
             </DropdownMenuItem>
+            {/* off without deleting: not checked, and out of the way at the bottom */}
+            {canToggle && (
+              <DropdownMenuItem onClick={() => toggleDisabled.mutate({ id: app.id, disabled: !app.disabled })}>
+                <Power className="mr-2 h-4 w-4" />
+                {app.disabled ? t("Enable") : t("Disable")}
+              </DropdownMenuItem>
+            )}
 
             {app.status === "RUNNING" ? (
               <DropdownMenuItem

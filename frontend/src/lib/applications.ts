@@ -53,6 +53,8 @@ export interface Application {
   rootPath?: string | null;
   configPath?: string | null;
   lastSyncedAt?: string | null;
+  /** switched off in the panel: not monitored, listed last */
+  disabled?: boolean;
   /** when the last successful deploy went out */
   lastDeployment?: string | null;
   deployments?: Deployment[];
@@ -701,6 +703,11 @@ export const syncServerApps = async (): Promise<AppSyncResult> => {
 };
 
 /** Give many applications an owner at once — the imported-sites workflow. */
+/** Switch an app off in the panel (not monitored, listed last), or back on. Nothing on the server changes. */
+export const setApplicationDisabled = async (id: string, disabled: boolean): Promise<void> => {
+  await apiRequest(`/applications/${id}/disabled`, { method: 'POST', body: JSON.stringify({ disabled }) });
+};
+
 export const bulkAssignApplications = async (
   ids: string[],
   organizationId: string | null,

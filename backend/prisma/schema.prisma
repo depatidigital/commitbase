@@ -365,6 +365,10 @@ model Application {
   rootPath     String?   // document root / working directory on the server
   configPath   String?   // /etc/caddy/sites/<name>.caddy
   lastSyncedAt DateTime?
+
+  /// Switched off by an operator: kept, but not monitored and listed last.
+  /// Nothing on the server changes; the sync still updates it.
+  disabled     Boolean   @default(false)
   
   // Timestamps
   createdAt DateTime @default(now())

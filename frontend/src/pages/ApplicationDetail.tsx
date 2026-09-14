@@ -40,6 +40,7 @@ import {
   Network,
   FileText,
   AlertTriangle,
+  Power,
   Zap,
   Wifi,
   WifiOff,
@@ -61,7 +62,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, hasBeenDeployed, runtimeLabel, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, hasBeenDeployed, setApplicationDisabled, runtimeLabel, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -180,6 +181,14 @@ export default function ApplicationDetail() {
     refetchInterval: 60_000,
   });
   const setupDns = useSetupApplicationDns();
+  // switched off in the panel (not monitored, listed last) — back on from here
+  const toggleDisabled = useMutation({
+    mutationFn: (disabled: boolean) => setApplicationDisabled(id!, disabled),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['application', id] });
+      void queryClient.invalidateQueries({ queryKey: ['applications'] });
+    },
+  });
   const startApp = useStartApplication();
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
@@ -392,7 +401,7 @@ export default function ApplicationDetail() {
   // where the running deploy is, from its row's status (PENDING → BUILDING → DEPLOYING)
   const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
   // same verdict as the apps list's dot: the uptime checks win over the stored status
-  const overall = appStatus(application.status, healthById?.[application.id]);
+  const overall = appStatus(application.status, healthById?.[application.id], application.disabled);
   // answering now, and either expected to (published) or the checks agree — a
   // sync's ERROR ("no listener on the port") must not call a site that answers dead
   // answers, but the name leads to another server: that is not this app serving.
@@ -470,7 +479,9 @@ export default function ApplicationDetail() {
           <CardContent className="space-y-4 p-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="mt-0.5 shrink-0">
-                {siteLive ? (
+                {application.disabled ? (
+                  <Power className="h-5 w-5 text-muted-foreground" />
+                ) : siteLive ? (
                   <CheckCircle className="h-5 w-5 text-green-500" />
                 ) : elsewhere ? (
                   <AlertTriangle className="h-5 w-5 text-warning" />
@@ -480,7 +491,9 @@ export default function ApplicationDetail() {
               </div>
               <div className="min-w-0">
                 <h3 className="font-semibold">
-                  {siteLive
+                  {application.disabled
+                    ? t("Disabled")
+                    : siteLive
                     ? t("Live and serving")
                     : elsewhere
                       ? t("Active, not connected")
@@ -491,7 +504,8 @@ export default function ApplicationDetail() {
                           : STATUS_LABELS[application.status] ?? application.status}
                 </h3>
                 <p className="break-words text-sm text-muted-foreground">
-                  {uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
+                  {application.disabled ? t("Not monitored — switched off in the panel. Nothing on the server changed.") :
+                   uploadedSite && !hasSiteFiles ? t("No files yet — upload the site's build output (a folder with index.html).") :
                    elsewhere ? t("{domain} is answered by another server ({ip}), not this one.", { domain: application.domain, ip: elsewhere }) :
                    down ? (hostname && !hostname.resolves
                      ? t("{domain} has no DNS record, so nobody can reach it.", { domain: application.domain })
@@ -513,6 +527,12 @@ export default function ApplicationDetail() {
           {/* no refresh button: the data refetches whenever the tab regains
               focus, and polls while a deploy runs */}
           <div className="flex flex-col gap-2 [&>button]:w-full [&>a]:w-full">
+            {application.disabled && isAdmin() && (
+              <Button variant="outline" disabled={toggleDisabled.isPending} onClick={() => toggleDisabled.mutate(false)}>
+                <Power className="h-4 w-4 mr-2" />
+                {t("Enable")}
+              </Button>
+            )}
             {siteLive && (
               <Button asChild variant="outline">
                 <a href={`https://${application.domain}`} target="_blank" rel="noreferrer">
