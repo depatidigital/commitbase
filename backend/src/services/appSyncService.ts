@@ -1,6 +1,6 @@
 import path from 'path';
 import { prisma } from '../lib/prisma';
-import { createApplicationWithSource, dropOrphanSources } from '../lib/sources';
+import { createApplicationWithSource, dropOrphanSources, setSourceOrganization } from '../lib/sources';
 import { parentDomainOf } from '../lib/scope';
 import { exec, type SshTarget } from '../lib/runner';
 import { allServers } from '../lib/servers';
@@ -29,6 +29,12 @@ export type DiscoveredApp = {
   /** the git remote its folder was cloned from, when it is a checkout */
   repository?: string | undefined;
   branch?: string | undefined;
+  /**
+   * The folder its code is pulled into: the git checkout root (the served
+   * folder is often its public/), else the folder itself. Apps with the same
+   * one on a node share a source.
+   */
+  checkout?: string | undefined;
 };
 
 export type AppSyncResult = {
@@ -306,7 +312,7 @@ export function repositoryFromRemote(remote: string | undefined): string | null 
   return full ? `https://${full[1]}/${full[2]}` : null;
 }
 
-export type FolderState = { exists: boolean; repository?: string; branch?: string };
+export type FolderState = { exists: boolean; repository?: string; branch?: string; checkout?: string };
 
 /**
  * Whether each folder is there, and for a git checkout its remote and branch —
@@ -324,7 +330,7 @@ export async function probeFolders(node: SshTarget, dirs: string[]): Promise<Map
       [
         'sh',
         '-c',
-        'for d; do printf "%s\\t%s\\t%s\\t%s\\n" "$d" "$([ -d "$d" ] && echo 1)" "$(git -c safe.directory="*" -C "$d" config --get remote.origin.url 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done',
+        'for d; do printf "%s\\t%s\\t%s\\t%s\\t%s\\n" "$d" "$([ -d "$d" ] && echo 1)" "$(git -c safe.directory="*" -C "$d" config --get remote.origin.url 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)" "$(git -c safe.directory="*" -C "$d" rev-parse --show-toplevel 2>/dev/null)"; done',
         'sh',
         ...dirs,
       ],
@@ -332,7 +338,7 @@ export async function probeFolders(node: SshTarget, dirs: string[]): Promise<Map
     );
 
     for (const line of stdout.split(/\r?\n/)) {
-      const [dir, exists, remote, branch] = line.split('\t');
+      const [dir, exists, remote, branch, toplevel] = line.split('\t');
       if (!dir) continue;
       const repository = repositoryFromRemote(remote) ?? undefined;
       found.set(dir, {
@@ -340,6 +346,8 @@ export async function probeFolders(node: SshTarget, dirs: string[]): Promise<Map
         ...(repository && { repository }),
         // a detached checkout says "HEAD" — that is not a branch to deploy
         ...(repository && branch && branch !== 'HEAD' && { branch }),
+        // the checkout root, remote or not
+        ...(toplevel?.startsWith('/') && { checkout: toplevel.replace(/\/+$/, '') }),
       });
     }
     return found;
@@ -464,6 +472,8 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     // a guess that is not on disk is no folder at all
     if (guessed.has(app) && state && !state.exists) app.rootPath = undefined;
     if (state?.repository) Object.assign(app, { repository: state.repository, branch: state.branch });
+    // not a checkout (or the node was not asked): the folder itself is what its apps share
+    if (app.rootPath) app.checkout = state?.checkout ?? app.rootPath;
   }
 
   return apps;
@@ -552,6 +562,20 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       // here (no runtime) or deployed from here (has deployments): not ours.
       if (existing && (!existing.runtime || existing._count.deployments > 0)) continue;
 
+      // The source is the checkout: every app served from it shares one, and
+      // pulling it updates them all. No folder known: a source of its own.
+      const shared = app.checkout ? await checkoutSource(node.id, app) : null;
+      // an app keeps its org, and an app of another org is never moved onto
+      // (or given) this source's — that would hand one tenant another's app
+      const owner = existing?.organizationId ?? null;
+      const joins = shared && (!owner || !shared.organizationId || shared.organizationId === owner);
+      if (shared && !joins) {
+        errors.push(`${app.domain}: its folder ${app.checkout} is shared with another organization's app — kept apart`);
+      }
+      if (joins && owner && !shared!.organizationId) {
+        await setSourceOrganization([shared!.id], owner);
+      }
+
       if (existing) {
         await prisma.application.update({
           where: { id: existing.id },
@@ -559,9 +583,10 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
           data: {
             ...fields,
             ...(!existing.domainId && domainId && { domainId }),
+            ...(joins && { sourceId: shared!.id }),
           },
         });
-        if (existing.sourceId && !existing.source?.repository && app.repository) {
+        if (!joins && existing.sourceId && !existing.source?.repository && app.repository) {
           await prisma.source.update({
             where: { id: existing.sourceId },
             data: { repository: app.repository, branch: app.branch ?? 'main' },
@@ -570,6 +595,23 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         applicationId = existing.id;
         result.updated += 1;
         result.apps.push({ ...app, action: 'updated' });
+      } else if (joins) {
+        // a new hostname on a checkout that already has an owner is that owner's
+        const created = await prisma.application.create({
+          data: {
+            name: app.name,
+            domain: app.domain,
+            type: app.type,
+            userId,
+            domainId,
+            ...fields,
+            sourceId: shared!.id,
+            organizationId: shared!.organizationId,
+          },
+        });
+        applicationId = created.id;
+        result.created += 1;
+        result.apps.push({ ...app, action: 'created' });
       } else {
         const created = await createApplicationWithSource(
           {
@@ -593,21 +635,40 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   }
 
   // `<name>.pm2.local` rows are the sync's own placeholders: one whose process
-  // is gone, or is now found behind a route, goes — unless someone assigned it.
+  // is gone goes unless someone assigned it; one whose process is now found
+  // behind a route goes regardless — the routed app is that process, org and all.
   // Only when pm2 answered, so a failed `pm2 jlist` does not wipe them all.
   if (discovered.some((app) => app.processName)) {
+    const routed = discovered
+      .filter((app) => app.processName && !app.domain.endsWith('.pm2.local'))
+      .map((app) => app.processName!);
     await prisma.application.deleteMany({
       where: {
         serverId: node.id,
-        organizationId: null,
         domain: { endsWith: '.pm2.local', notIn: discovered.map((app) => app.domain) },
+        OR: [{ organizationId: null }, { processName: { in: routed } }],
       },
     });
-    await dropOrphanSources();
   }
+  // sources left without apps: moved onto a shared checkout, or deleted above
+  await dropOrphanSources();
 
   if (errors.length) result.errors = errors;
   return result;
+}
+
+/**
+ * The source of a checkout on a node — found, or made. What the scan read
+ * there (remote, branch) is the truth for an imported checkout, so it is
+ * written back each sync.
+ */
+async function checkoutSource(serverId: string, app: DiscoveredApp) {
+  const code = app.repository ? { repository: app.repository, branch: app.branch ?? 'main' } : {};
+  return prisma.source.upsert({
+    where: { serverId_path: { serverId, path: app.checkout! } },
+    create: { serverId, path: app.checkout!, ...code },
+    update: code,
+  });
 }
 
 /**

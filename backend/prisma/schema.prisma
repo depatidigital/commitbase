@@ -68,6 +68,7 @@ model Organization {
   databases        Database[]
   databaseAccounts OrgDatabaseAccount[]
   nodes            OrgNode[]
+  sources          Source[]
 
   @@index([defaultServerId])
   @@map("organizations")
@@ -173,6 +174,7 @@ model Server {
   defaultForOrganizations Organization[] @relation("OrgDefaultServer")
   orgNodes                OrgNode[]
   applications            Application[]
+  sources                 Source[]
   databaseServers         DatabaseServer[]
 
   @@map("servers")
@@ -432,6 +434,19 @@ model Application {
 /// the app's own directory; removed with its last app (dropOrphanSources).
 model Source {
   id              String      @id @default(cuid())
+  /// What the UI calls it (a "Proyek"). null = derived: the repository's name,
+  /// else the checkout folder's, else its first app's hostname (lib/sources sourceName).
+  name            String?
+  /// Owner. Its apps follow it — an org is assigned per source, never per app.
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  /// The node its code is on; every app of it runs there.
+  serverId        String?
+  server          Server?     @relation(fields: [serverId], references: [id], onDelete: SetNull)
+  /// Imported apps: the git checkout (or folder) on that node the apps are
+  /// served from — pulled as one. null for the panel's own sources, whose tree
+  /// is apps/<id> in the org's home.
+  path            String?
   /// null for uploaded sources
   repository      String?
   branch          String?     @default("main")
@@ -450,7 +465,9 @@ model Source {
   applications    Application[]
   releases        Release[]   @relation("SourceReleases")
 
+  @@unique([serverId, path])
   @@index([gitAccountId])
+  @@index([organizationId])
   @@map("sources")
 }
 

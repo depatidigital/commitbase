@@ -21,6 +21,13 @@ export async function backfillSources(): Promise<number> {
     prisma.$executeRaw`
       UPDATE "deployments" d SET "sourceId" = a."sourceId"
       FROM "applications" a WHERE a."id" = d."applicationId" AND d."sourceId" IS NULL AND a."sourceId" IS NOT NULL`,
+    // owner and node from its apps, for sources from before they carried them
+    prisma.$executeRaw`
+      UPDATE "sources" s SET "organizationId" = a."organizationId"
+      FROM "applications" a WHERE a."sourceId" = s."id" AND s."organizationId" IS NULL AND a."organizationId" IS NOT NULL`,
+    prisma.$executeRaw`
+      UPDATE "sources" s SET "serverId" = a."serverId"
+      FROM "applications" a WHERE a."sourceId" = s."id" AND s."serverId" IS NULL AND a."serverId" IS NOT NULL`,
   ]);
   return created;
 }
@@ -31,17 +38,60 @@ export async function backfillSources(): Promise<number> {
  */
 export const dropOrphanSources = () => prisma.source.deleteMany({ where: { applications: { none: {} } } });
 
-export type SourceFields = { repository?: string | null; branch?: string | null; gitAccountId?: string | null };
+export type SourceFields = {
+  repository?: string | null;
+  branch?: string | null;
+  gitAccountId?: string | null;
+  path?: string | null;
+};
 
-/** A new app on a new source of its own, sharing its id — see model Source. */
+/**
+ * A new app on a new source of its own, sharing its id — see model Source. The
+ * source takes the app's owner and node: apps follow their source's.
+ */
 export function createApplicationWithSource(
   data: Omit<Prisma.ApplicationUncheckedCreateInput, 'id' | 'sourceId'>,
   source: SourceFields,
 ) {
   return prisma.$transaction(async (tx) => {
-    const { id } = await tx.source.create({ data: source });
+    const { id } = await tx.source.create({
+      data: { ...source, organizationId: data.organizationId ?? null, serverId: data.serverId ?? null },
+    });
     return tx.application.create({ data: { ...data, id, sourceId: id }, include: { source: true } });
   });
+}
+
+/**
+ * Give a source an owner — and every app of it, since apps follow their source.
+ * The one way an org is assigned; `applications.organizationId` stays as the
+ * copy every per-app scope check already reads.
+ */
+export async function setSourceOrganization(sourceIds: string[], organizationId: string | null): Promise<number> {
+  const [, apps] = await prisma.$transaction([
+    prisma.source.updateMany({ where: { id: { in: sourceIds } }, data: { organizationId } }),
+    prisma.application.updateMany({ where: { sourceId: { in: sourceIds } }, data: { organizationId } }),
+  ]);
+  return apps.count;
+}
+
+/** `https://gitlab.com/acme/shop.git` → `shop`; `/var/www/html/shop/` → `shop`. Pure. */
+const lastSegment = (value: string) => value.replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || null;
+
+/**
+ * What a source is called when nobody named it: its repository, else the
+ * folder it is checked out in, else its first app's hostname. Pure.
+ */
+export function sourceName(
+  source: { name: string | null; repository: string | null; path: string | null },
+  firstDomain?: string | null,
+): string {
+  return (
+    source.name?.trim() ||
+    (source.repository && lastSegment(source.repository)) ||
+    (source.path && lastSegment(source.path)) ||
+    firstDomain ||
+    'Proyek'
+  );
 }
 
 type WithSource = { source?: { repository: string | null; branch: string | null; gitAccountId: string | null; activeReleaseId: string | null } | null };

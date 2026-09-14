@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AppStatus, AppType } from '@prisma/client';
+import { AppType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Application, PaginatedResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
@@ -37,6 +37,7 @@ import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { createApplicationWithSource, dropOrphanSources, withSourceFields } from '../lib/sources';
+import { launchDeploy } from '../services/deployLaunch';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
 import { requireRole } from '../middleware/auth';
@@ -1546,107 +1547,17 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     const imported = refuseImported(application, res);
     if (imported) return imported;
 
-    // A deploy builds the app's whole source, so every app of it (a monorepo's)
-    // goes out with it — each keeps its own status, from what it was before.
-    const group = await deploymentService.groupOf(application);
-    const before = new Map(group.map((app) => [app.id, app.status]));
-    const setStatus = (status: (was: AppStatus) => AppStatus, extra: { lastDeployment?: Date } = {}) =>
-      Promise.all(
-        [...before].map(([appId, was]) => prisma.application.update({ where: { id: appId }, data: { status: status(was), ...extra } })),
-      );
-
-    // A running app can be redeployed — the new release builds beside it and
-    // takes over only once it answers. Two deploys at once is the thing to stop.
-    if (
-      group.some((app) => app.status === 'DEPLOYING' || app.status === 'BUILDING') ||
-      deploymentService.isDeploying(application)
-    ) {
+    const launched = await launchDeploy(application, req.user!.userId);
+    if (!launched) {
       return res.status(409).json({
         success: false,
         error: 'A deployment is already in progress',
       } as ApiResponse);
     }
 
-    // Create deployment record
-    const deployment = await prisma.deployment.create({
-      data: {
-        status: 'PENDING',
-        applicationId: application.id,
-        sourceId: application.sourceId,
-        userId: req.user!.userId,
-      },
-    });
-
-    // Update application status
-    await setStatus(() => 'DEPLOYING');
-
-    // Heal the DNS records before the build runs — someone may have removed one,
-    // and a deploy that finishes into a hostname that does not resolve is worse
-    // than one that says so.
-    let dnsWarning = '';
-    for (const app of group) {
-      const dns = await ensureAppHostname(app).catch(
-        (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-      );
-      // does not fail the deploy — the hostname may be in a zone we do not run
-      if (dns.state === 'conflict' || dns.state === 'unavailable') {
-        dnsWarning += `DNS was not set up${group.length > 1 ? ` for ${app.domain}` : ''}: ${dns.detail}\n\n`;
-      }
-    }
-
-    // Start deployment in background
-    deploymentService.deploy({
-      application,
-      deployment,
-      envVars: readEnv(application.envVars),
-    }).then(async (result) => {
-      // cancelled: the service already wrote CANCELLED and why; and whatever
-      // ran before still runs — back to that, or stopped if nothing did
-      if (result.cancelled) {
-        await setStatus((was) => (was === 'RUNNING' ? 'RUNNING' : 'STOPPED'));
-        return;
-      }
-
-      // Update deployment record with logs. A deploy that threw returns only
-      // `error` — keep the build log it already wrote to the row, and say why.
-      await prisma.deployment.update({
-        where: { id: deployment.id },
-        data: {
-          status: result.success ? 'SUCCESS' : 'FAILED',
-          ...(result.buildLogs !== undefined && { buildLogs: result.buildLogs }),
-          deployLogs: dnsWarning + (result.deployLogs || (result.success ? '' : result.error || 'Deployment failed')),
-        },
-      });
-
-      // Only the switch to the new release can take the site down, and it says
-      // how that went (rolledBack). A deploy that failed before it — build,
-      // sync, anything thrown early — never touched what was running.
-      const touched = result.rolledBack !== undefined;
-      await setStatus(
-        (was) => (result.success || result.rolledBack || (!touched && was === 'RUNNING') ? 'RUNNING' : 'ERROR'),
-        // only a deploy that left something running counts — the UI reads
-        // lastDeployment as "has a build to start"
-        result.success ? { lastDeployment: new Date() } : {},
-      );
-    }).catch(async (error) => {
-      console.error('Deployment failed:', error);
-
-      // Update deployment record
-      await prisma.deployment.update({
-        where: { id: deployment.id },
-        data: {
-          status: 'FAILED',
-          buildLogs: error.message || 'Deployment failed',
-        },
-      });
-
-      // thrown before anything was switched: what ran before still runs
-      await setStatus((was) => (was === 'RUNNING' ? 'RUNNING' : 'ERROR'));
-    });
-
     return res.json({
       success: true,
-      data: { deploymentId: deployment.id },
+      data: { deploymentId: launched.deploymentId },
       message: 'Application deployment started',
     } as ApiResponse);
   } catch (error) {
