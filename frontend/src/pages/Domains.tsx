@@ -359,7 +359,7 @@ export default function Domains() {
       header: t("Apps"),
       className: "w-20",
       cell: (domain) => {
-        const apps = domain._count?.applications ?? 0;
+        const apps = domain._count?.appDomains ?? 0;
         return apps ? <span>{apps}</span> : <span className="text-muted-foreground">-</span>;
       },
     },

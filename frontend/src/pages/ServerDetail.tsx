@@ -165,7 +165,7 @@ const ServerDetail = () => {
 
   // hosts that already have an application row, so the sites list can say which
   // ones importing would actually add
-  const known = new Set((apps.data ?? []).map((app) => app.domain));
+  const known = new Set((apps.data ?? []).flatMap((app) => app.domains.map((d) => d.host)));
 
   if (isLoading || !server) {
     return (
@@ -363,7 +363,7 @@ const ServerDetail = () => {
                       className="flex items-center justify-between gap-3 border-b border-border/60 py-2 text-sm last:border-0"
                     >
                       <span className="min-w-0">
-                        <span className="block truncate font-medium">{app.domain}</span>
+                        <span className="block truncate font-medium">{app.domains.map((d) => d.host).join(", ") || app.name}</span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {app.organization?.name ?? t("Unassigned")} · {app.type.toLowerCase()}
                           {app.port ? ` · :${app.port}` : ""}

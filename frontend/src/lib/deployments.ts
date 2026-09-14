@@ -17,7 +17,7 @@ export interface Deployment {
   application?: {
     id: string;
     name: string;
-    domain: string;
+    domains: Array<{ host: string }>;
   };
   /** who started it */
   user?: { name: string | null; email: string };

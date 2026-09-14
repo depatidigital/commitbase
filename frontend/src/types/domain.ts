@@ -21,7 +21,7 @@ export interface Domain {
   /** any organization may put apps under it */
   shared?: boolean;
   /** list endpoint only */
-  _count?: { applications: number };
+  _count?: { appDomains: number };
   createdAt: string;
   updatedAt: string;
   userId: string;

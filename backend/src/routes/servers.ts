@@ -374,7 +374,7 @@ router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (r
       select: {
         id: true,
         name: true,
-        domain: true,
+        domains: { select: { host: true }, orderBy: { host: 'asc' } },
         type: true,
         status: true,
         port: true,
@@ -382,7 +382,7 @@ router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (r
         lastDeployment: true,
         organization: { select: { id: true, name: true, slug: true } },
       },
-      orderBy: { domain: 'asc' },
+      orderBy: { name: 'asc' },
     });
 
     return res.json({ success: true, data: apps } as ApiResponse);

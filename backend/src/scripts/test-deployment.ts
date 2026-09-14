@@ -30,7 +30,7 @@ async function createTestDeployment() {
           select: {
             id: true,
             name: true,
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
       },
@@ -51,7 +51,7 @@ async function createTestDeployment() {
           select: {
             id: true,
             name: true,
-            domain: true,
+            domains: { select: { host: true }, orderBy: { host: 'asc' } },
           },
         },
       },

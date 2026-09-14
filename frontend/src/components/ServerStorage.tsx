@@ -103,7 +103,7 @@ export function ServerStorage({ serverId }: { serverId: string }) {
                 {data.apps.map((app) => (
                   <div key={app.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                     <Link to={`/application/${app.id}`} className="min-w-0 truncate font-medium hover:underline">
-                      {app.domain}
+                      {app.domains.map((d) => d.host).join(", ") || app.name}
                     </Link>
                     <span className="flex items-center gap-3 text-xs text-muted-foreground">
                       {app.reclaimableBytes > 0 && (

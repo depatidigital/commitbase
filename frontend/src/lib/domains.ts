@@ -64,7 +64,7 @@ export interface DomainChoice {
   name: string;
   shared: boolean;
   organizationId: string | null;
-  _count: { applications: number };
+  _count: { appDomains: number };
 }
 
 export const getDomainChoices = async (): Promise<DomainChoice[]> => {

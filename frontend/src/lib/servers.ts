@@ -137,7 +137,7 @@ export const getServerCaddySites = async (id: string): Promise<CaddySite[]> =>
 export interface ServerApp {
   id: string;
   name: string;
-  domain: string;
+  domains: Array<{ host: string }>;
   type: string;
   status: string;
   port: number | null;
@@ -178,7 +178,7 @@ export const snapshotServerCaddy = async (id: string): Promise<string> => {
 /** The node's disk, and each panel app on it: what it uses and what cleaning up frees. */
 export interface ServerDisk {
   disk: { size: number; used: number; avail: number } | null;
-  apps: Array<{ id: string; name: string; domain: string; totalBytes: number | null; reclaimableBytes: number; cacheBytes: number }>;
+  apps: Array<{ id: string; name: string; domains: Array<{ host: string }>; totalBytes: number | null; reclaimableBytes: number; cacheBytes: number }>;
 }
 
 export const getServerDisk = async (id: string): Promise<ServerDisk> =>

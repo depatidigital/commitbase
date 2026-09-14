@@ -198,7 +198,7 @@ export interface DatabaseWithApplication extends Database {
   application: {
     id: string;
     name: string;
-    domain: string;
+    domains: Array<{ host: string }>;
     organization?: { id: string; name: string; slug: string } | null;
   } | null;
   /** the org that owns the database itself — falls back to the app's for older rows */

@@ -65,7 +65,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
             select: {
               id: true,
               name: true,
-              domain: true,
+              domains: { select: { host: true }, orderBy: { host: 'asc' } },
               organization: { select: { id: true, name: true, slug: true } },
             },
           },

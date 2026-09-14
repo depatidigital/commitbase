@@ -84,7 +84,7 @@ export interface AdminDomain {
   createdAt: string;
   organization: OrgSummary | null;
   user: { id: string; email: string; name: string | null; role: string } | null;
-  _count: { applications: number };
+  _count: { appDomains: number };
 }
 
 export interface CreateUserData {

@@ -140,7 +140,7 @@ export default function Application() {
   // only domains that have an app — the rest would filter to an empty table
   const { data: allDomains = [] } = useDomains();
   const domainsWithApps = allDomains
-    .filter((domain) => (domain._count?.applications ?? 0) > 0)
+    .filter((domain) => (domain._count?.appDomains ?? 0) > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
   const { data: servers = [] } = useQuery({
     queryKey: ["servers"],
@@ -681,7 +681,7 @@ export default function Application() {
                   {domainsWithApps.map((domain) => (
                     <SelectItem key={domain.id} value={domain.id}>
                       {domain.name}
-                      <span className="ml-2 text-xs text-muted-foreground">{domain._count?.applications}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{domain._count?.appDomains}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>

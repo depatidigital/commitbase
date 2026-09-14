@@ -164,7 +164,7 @@ export function HostnamePicker({
                 <CommandEmpty>{t("No domains found.")}</CommandEmpty>
                 <CommandGroup>
                   {choices.map((choice) => {
-                    const apps = choice._count?.applications ?? 0;
+                    const apps = choice._count?.appDomains ?? 0;
                     return (
                       <CommandItem
                         key={choice.id}

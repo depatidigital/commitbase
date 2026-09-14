@@ -147,7 +147,7 @@ export default function Admin() {
       className: "w-[40%]",
       cell: (d) => <span className="block truncate font-medium">{d.name}</span>,
     },
-    { header: t("Apps"), className: "w-20", cell: (d) => d._count.applications },
+    { header: t("Apps"), className: "w-20", cell: (d) => d._count.appDomains },
     {
       header: t("Owning organization"),
       className: "w-[40%]",
@@ -158,7 +158,7 @@ export default function Admin() {
             setPendingAssign({
               domainId: d.id,
               domainName: d.name,
-              appCount: d._count.applications,
+              appCount: d._count.appDomains,
               organizationId,
               organizationName:
                 organizations.find((o) => o.id === organizationId)?.name ??
