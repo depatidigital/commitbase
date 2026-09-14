@@ -25,6 +25,8 @@ export type DiscoveredApp = {
   status: 'RUNNING' | 'STOPPED' | 'ERROR';
   port?: number | undefined;
   processName?: string | undefined;
+  /** pm2's: what it runs (pm2StartCommand) */
+  startCommand?: string | undefined;
   rootPath?: string | undefined;
   configPath?: string | undefined;
   memory?: string | undefined;
@@ -87,7 +89,28 @@ type Pm2Process = {
   memory?: string | undefined;
   cpu?: string | undefined;
   uptime?: string | undefined;
+  /** what pm2 runs, as someone would type it in its folder */
+  startCommand?: string | undefined;
 };
+
+/**
+ * What a pm2 process runs, as one would type it in its folder: `npm run
+ * start`, `node dist/server.js --port 3000`. From pm2's own record of it — the
+ * script (a package manager, or a file) and its arguments. Pure.
+ */
+export function pm2StartCommand(env: { pm_exec_path?: unknown; args?: unknown; exec_interpreter?: unknown; pm_cwd?: unknown }): string | undefined {
+  const script = typeof env.pm_exec_path === 'string' ? env.pm_exec_path : '';
+  if (!script) return undefined;
+  const args = Array.isArray(env.args) ? env.args.map(String).join(' ') : typeof env.args === 'string' ? env.args : '';
+  const base = path.posix.basename(script).replace(/\.(c?js|cmd)$/, '');
+  // npm, pnpm, yarn, bun (or their cli.js): the package manager and its arguments
+  const manager = ['npm', 'npm-cli', 'npx', 'npx-cli', 'pnpm', 'yarn', 'bun'].includes(base) ? base.replace('-cli', '') : null;
+  const cwd = typeof env.pm_cwd === 'string' ? env.pm_cwd : '';
+  const file = cwd && script.startsWith(`${cwd.replace(/\/+$/, '')}/`) ? path.posix.relative(cwd, script) : script;
+  const interpreter = typeof env.exec_interpreter === 'string' && env.exec_interpreter !== 'none' ? path.posix.basename(env.exec_interpreter) : '';
+  const command = manager ?? (interpreter ? `${interpreter} ${file}` : file);
+  return [command, args].filter(Boolean).join(' ');
+}
 
 function humanBytes(bytes: number): string {
   if (!bytes) return '0MB';
@@ -134,6 +157,7 @@ export async function listPm2Processes(node: SshTarget): Promise<Pm2Process[]> {
           memory: humanBytes(process.monit?.memory || 0),
           cpu: process.monit?.cpu != null ? `${process.monit.cpu}%` : undefined,
           uptime: env.pm_uptime ? humanUptime(env.pm_uptime) : undefined,
+          startCommand: pm2StartCommand(env),
         };
       })
       .filter((process) => process.name);
@@ -504,6 +528,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
             : 'RUNNING',
         port: target.port,
         processName: process?.name,
+        startCommand: process?.startCommand,
         rootPath: knownRoot || guessedRoot,
         routing: routeParts(route) ?? undefined,
         memory: process?.memory,
@@ -530,6 +555,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
       status: process.status === 'online' ? 'RUNNING' : 'STOPPED',
       port: process.port,
       processName: process.name,
+      startCommand: process.startCommand,
       rootPath: process.cwd,
       memory: process.memory,
       cpu: process.cpu,
@@ -642,6 +668,8 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
       serverId: node.id,
       runtime: app.runtime,
       processName: app.processName ?? null,
+      // what runs it on the box: pm2 says — a pm2 that did not answer this time forgets nothing
+      ...(app.startCommand && { startCommand: app.startCommand }),
       rootPath: app.rootPath ?? null,
       configPath: app.configPath ?? null,
       // written each sync: a split that was undone on the server goes too
@@ -809,7 +837,30 @@ export function databaseRefs(env: Record<string, string>): DatabaseRef[] {
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 /**
- * The node's imported apps' .env files — the app folder's, its parent's
+ * How a Node app in a folder is built: its package.json `build` script, run by
+ * the package manager its lockfile says. undefined when it has none. Pure.
+ */
+export function buildCommandFrom(packageJson: string, files: string[]): string | undefined {
+  let scripts: Record<string, unknown> = {};
+  try {
+    scripts = JSON.parse(packageJson)?.scripts ?? {};
+  } catch {
+    return undefined;
+  }
+  if (typeof scripts.build !== 'string' || !scripts.build.trim()) return undefined;
+  const manager = files.includes('pnpm-lock.yaml')
+    ? 'pnpm'
+    : files.includes('yarn.lock')
+      ? 'yarn'
+      : files.includes('bun.lockb') || files.includes('bun.lock')
+        ? 'bun'
+        : 'npm';
+  return manager === 'yarn' ? 'yarn build' : `${manager} run build`;
+}
+
+/**
+ * What the sync reads in each imported app's folder: a Node app's build
+ * command (buildCommandFrom), and the .env files — the app folder's, its parent's
  * (Laravel serves public/) and the checkout's, the most specific winning.
  * Mirrored into the app's env (sealed, like every app's), read-only in the
  * panel: the file on the server is the truth, and the next sync overwrites.
@@ -823,7 +874,7 @@ async function readAppEnvs(node: SshTarget): Promise<number> {
 
   const apps = await prisma.application.findMany({
     where: { serverId: node.id, runtime: { not: null }, rootPath: { not: null } },
-    select: { id: true, organizationId: true, rootPath: true, source: { select: { path: true } } },
+    select: { id: true, type: true, organizationId: true, rootPath: true, source: { select: { path: true } } },
   });
 
   let linked = 0;
@@ -835,6 +886,21 @@ async function readAppEnvs(node: SshTarget): Promise<number> {
       ['sh', '-c', 'for d; do [ -r "$d/.env" ] && { cat -- "$d/.env"; echo; }; done; true', 'sh', ...dirs],
       { timeout: 15_000, maxBuffer: 1024 * 1024 },
     ).catch(() => ({ stdout: '' }));
+
+    // a Node app's build: its own folder's package.json, else the checkout's
+    if (app.type === 'NODEJS') {
+      const pkg = await exec(
+        node,
+        ['sh', '-c', 'for d; do if [ -r "$d/package.json" ]; then ls -- "$d"; echo "---"; cat -- "$d/package.json"; exit 0; fi; done; true', 'sh', app.rootPath!, ...(app.source?.path ? [app.source.path] : [])],
+        { timeout: 15_000, maxBuffer: 1024 * 1024 },
+      ).catch(() => ({ stdout: '' }));
+      const [listing = '', json = ''] = pkg.stdout.split(/^---$/m);
+      await prisma.application.update({
+        where: { id: app.id },
+        data: { buildCommand: buildCommandFrom(json, listing.split(/\r?\n/).map((line) => line.trim())) ?? null },
+      });
+    }
+
     if (!stdout.trim()) continue;
     const env = Object.fromEntries(parseEnvFile(stdout));
     await prisma.application.update({ where: { id: app.id }, data: { envVars: sealEnv(env) } });

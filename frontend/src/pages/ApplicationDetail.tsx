@@ -1096,7 +1096,19 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 )}
                 {!isStatic && (
                   <Field label={t("Start Command")}>
-                    <span className="font-mono text-xs">{application.startCommand || t("Not configured")}</span>
+                    {application.runtime === "PM2" && application.processName ? (
+                      // pm2 keeps the command: it is started and restarted by its name, which is what Restart here runs
+                      <>
+                        <span className="font-mono text-xs">pm2 restart {application.processName}</span>
+                        {application.startCommand && (
+                          <span className="block break-all font-mono text-[11px] text-muted-foreground" title={t("What pm2 runs")}>
+                            {t("runs")}: {application.startCommand}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="font-mono text-xs">{application.startCommand || t("Not configured")}</span>
+                    )}
                   </Field>
                 )}
                 {!uploadedSite && (

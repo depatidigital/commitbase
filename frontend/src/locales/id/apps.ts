@@ -41,6 +41,8 @@ export default {
   "Runs git checkout {branch} in {dir}, up to the newest commit on the remote. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.":
     "Menjalankan git checkout {branch} di {dir}, sampai commit terbaru di remote. Hanya kodenya yang berubah: tidak ada yang diinstal, di-build, atau di-restart. Ditolak jika server punya perubahan lokal.",
   "Switch branch": "Ganti branch",
+  "What pm2 runs": "Yang dijalankan pm2",
+  runs: "menjalankan",
   "Read from the .env on the server{dir} at the last sync. Change it there, then sync again.":
     "Dibaca dari .env di server{dir} saat sinkronisasi terakhir. Ubah di server, lalu sinkronkan lagi.",
   "Show values": "Tampilkan nilai",

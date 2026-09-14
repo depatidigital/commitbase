@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, type DiscoveredApp } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, type DiscoveredApp } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
@@ -204,6 +204,26 @@ assert.deepStrictEqual(merged.map((app) => app.hosts), [
   ['y.go.id'],
   ['worker.pm2.local'],
 ]);
+
+// --- what pm2 runs, as one would type it in the app's folder ---
+assert.strictEqual(pm2StartCommand({ pm_exec_path: '/usr/bin/npm', args: ['run', 'start'], exec_interpreter: 'none' }), 'npm run start');
+assert.strictEqual(pm2StartCommand({ pm_exec_path: '/usr/lib/node_modules/pnpm/bin/pnpm.cjs', args: 'start', exec_interpreter: 'node' }), 'pnpm start');
+assert.strictEqual(
+  pm2StartCommand({ pm_exec_path: '/var/www/html/cpns/dist/server.js', pm_cwd: '/var/www/html/cpns', args: ['--port', '2100'], exec_interpreter: 'node' }),
+  'node dist/server.js --port 2100',
+);
+assert.strictEqual(
+  pm2StartCommand({ pm_exec_path: '/home/u/.nvm/versions/node/v24/bin/npx', args: ['next', 'start', '-p', '2100'], exec_interpreter: 'node' }),
+  'npx next start -p 2100',
+);
+assert.strictEqual(pm2StartCommand({}), undefined);
+
+// --- how a Node app is built: its build script, by its lockfile's package manager ---
+assert.strictEqual(buildCommandFrom('{"scripts":{"build":"next build"}}', ['package.json', 'pnpm-lock.yaml']), 'pnpm run build');
+assert.strictEqual(buildCommandFrom('{"scripts":{"build":"vite build"}}', ['yarn.lock']), 'yarn build');
+assert.strictEqual(buildCommandFrom('{"scripts":{"build":"tsc"}}', ['package-lock.json']), 'npm run build');
+assert.strictEqual(buildCommandFrom('{"scripts":{"start":"node x"}}', []), undefined);
+assert.strictEqual(buildCommandFrom('not json', []), undefined);
 
 // --- which databases an app's .env names: names, engine, host — never a password ---
 assert.deepStrictEqual(databaseRefs({ DATABASE_URL: 'postgresql://app:s3cr%40t@127.0.0.1:5432/shop_db?schema=public' }), [
