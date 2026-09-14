@@ -1114,6 +1114,11 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                     )}
                   </Field>
                 )}
+                {/* imported: the git checkout its folder sits in — where a pull, a branch switch and a build run */}
+                {application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
+                  <Field label={t("Checkout")}>
+                    <span className="break-all font-mono text-xs">{application.checkoutPath}</span>
+                )}
                 {/* one hostname split by path on its server — an API under
                     /api beside a static front end: both halves, as Caddy tries them */}
                 {!!application.routing?.length && (

@@ -90,25 +90,41 @@ export class Pm2DeployError extends Error {}
 export async function startPm2Deploy(applicationId: string, userId: string): Promise<string> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { id: true, name: true, runtime: true, processName: true, rootPath: true, serverId: true, sourceId: true, status: true },
+    select: {
+      id: true,
+      name: true,
+      runtime: true,
+      processName: true,
+      rootPath: true,
+      serverId: true,
+      sourceId: true,
+      status: true,
+      source: { select: { path: true } },
+    },
   });
   if (!app || app.runtime !== 'PM2' || !app.processName || !app.rootPath) {
     throw new Pm2DeployError('Only an app pm2 runs from a known folder can be built here');
   }
   const server = app.serverId ? await prisma.server.findUnique({ where: { id: app.serverId } }) : null;
   if (!server) throw new Pm2DeployError('This pm2 app is not linked to a server — sync the apps again');
-  const dir = app.rootPath;
+  // The git checkout the process's folder sits in (the sync's `git rev-parse
+  // --show-toplevel`): the lockfile and a monorepo's workspace live at its
+  // root, so install and build run there. No package.json there: the
+  // process's own folder, as before.
+  const candidates = [...new Set([app.source?.path, app.rootPath].filter((d): d is string => !!d))];
+  const { stdout } = await exec(
+    server,
+    // the first with a package.json; none: the last (the process's folder) with nothing to install
+    ['sh', '-c', 'for d; do if [ -r "$d/package.json" ]; then echo "$d"; ls -- "$d"; echo "---"; cat -- "$d/package.json"; exit 0; fi; last="$d"; done; echo "$last"; ls -- "$last"; echo "---"', 'sh', ...candidates],
+    { timeout: 15_000, maxBuffer: 1024 * 1024 },
+  );
+  const [head = '', json = ''] = stdout.split(/^---$/m);
+  const [dirLine = app.rootPath, ...listingLines] = head.split(/\r?\n/);
+  const dir = dirLine.trim() || app.rootPath;
+  const listing = listingLines.join('\n');
   if (running.has(`${server.id}:${dir}`)) throw new Pm2DeployError(`A build is already running in ${dir}`);
   const refused = await notOwner(server, dir);
   if (refused) throw new Pm2DeployError(refused);
-
-  // what is in the folder now — the branch checked out decides, not what the last sync saw
-  const { stdout } = await exec(
-    server,
-    ['sh', '-c', 'ls -- "$1"; echo "---"; [ -r "$1/package.json" ] && cat -- "$1/package.json"; true', 'sh', dir],
-    { timeout: 15_000, maxBuffer: 1024 * 1024 },
-  );
-  const [listing = '', json = ''] = stdout.split(/^---$/m);
   const files = listing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const steps = pm2DeploySteps(files, files.includes('package.json') ? json.trim() : null, app.processName);
   // the node the running process uses — builds and native modules must match it

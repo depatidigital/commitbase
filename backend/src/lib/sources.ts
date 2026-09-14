@@ -103,7 +103,7 @@ export function sourceName(
   );
 }
 
-type WithSource = { source?: { repository: string | null; branch: string | null; gitAccountId: string | null; activeReleaseId: string | null } | null };
+type WithSource = { source?: { repository: string | null; branch: string | null; gitAccountId: string | null; activeReleaseId: string | null; path?: string | null } | null };
 
 /**
  * The app as the API has always answered it: repository, branch, clone account
@@ -117,6 +117,8 @@ export function withSourceFields<T extends WithSource>(app: T) {
     branch: app.source?.branch ?? null,
     gitAccountId: app.source?.gitAccountId ?? null,
     activeReleaseId: app.source?.activeReleaseId ?? null,
+    // an imported one: the git checkout its folder sits in (git rev-parse --show-toplevel, by the sync)
+    checkoutPath: app.source?.path ?? null,
   };
 }
 

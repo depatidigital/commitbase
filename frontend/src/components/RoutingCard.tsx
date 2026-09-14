@@ -17,18 +17,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type RoutingPart, hostList, setAppRouting } from "@/lib/applications";
+import { type Application, type RoutingPart, hostList, runtimeLabel, setAppRouting } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
-type Row = { path: string | null; kind: "port" | "folder"; port: string; root: string; spa: boolean };
+/**
+ * `app`: the app's own process (its port, never typed — pm2's mapping is not
+ * something to edit here). `port`: another process the routing already reached
+ * (a socket server), kept as it is. `folder`: files from disk.
+ */
+type Row = { path: string | null; kind: "app" | "port" | "folder"; port: string; root: string; spa: boolean };
 
 /** What the app is routed as now: its split, else one target — its port, or its folder. */
 function rowsOf(application: Application): Row[] {
   const toRow = (part: { path: string | null; proxy?: string; root?: string; spa?: boolean }): Row => {
     const port = part.proxy?.match(/:(\d+)$/)?.[1];
-    return port
-      ? { path: part.path, kind: "port", port, root: "", spa: false }
-      : { path: part.path, kind: "folder", port: "", root: part.root ?? "", spa: !!part.spa };
+    if (!port) return { path: part.path, kind: "folder", port: "", root: part.root ?? "", spa: !!part.spa };
+    return { path: part.path, kind: Number(port) === application.port ? "app" : "port", port, root: "", spa: false };
   };
   if (application.routing?.length) {
     // the hostname's own part (no path) last — the order Caddy tries them
@@ -36,7 +40,7 @@ function rowsOf(application: Application): Row[] {
     return parts.map(toRow);
   }
   return application.port
-    ? [{ path: null, kind: "port", port: String(application.port), root: "", spa: false }]
+    ? [{ path: null, kind: "app", port: String(application.port), root: "", spa: false }]
     : [{ path: null, kind: "folder", port: "", root: application.rootPath ?? "", spa: false }];
 }
 
@@ -62,12 +66,19 @@ export function RoutingCard({ application }: { application: Application }) {
       return next;
     });
   // a new path goes before "everything else", which stays last
-  const add = () => setRows((all) => [...all.slice(0, -1), { path: "/", kind: "port", port: "", root: "", spa: false }, all[all.length - 1]!]);
+  const add = () =>
+    setRows((all) => [
+      ...all.slice(0, -1),
+      { path: "/", kind: application.port ? "app" : "folder", port: String(application.port ?? ""), root: "", spa: false },
+      all[all.length - 1]!,
+    ]);
+  // what the app's own process is called here — its port stays behind it
+  const appLabel = application.processName ? `${runtimeLabel(application.runtime)} · ${application.processName}` : t("This app");
 
   const parts = (): RoutingPart[] =>
     rows.map((row) => ({
       path: row.path,
-      ...(row.kind === "port" ? { port: Number(row.port) } : { root: row.root.trim(), spa: row.spa }),
+      ...(row.kind === "folder" ? { root: row.root.trim(), spa: row.spa } : { port: Number(row.kind === "app" ? application.port : row.port) }),
     }));
 
   const save = async (ok: boolean) => {
@@ -109,17 +120,17 @@ export function RoutingCard({ application }: { application: Application }) {
                 )}
                 <span className="text-muted-foreground">→</span>
                 <Select value={row.kind} onValueChange={(kind) => update(index, { kind: kind as Row["kind"] })}>
-                  <SelectTrigger className="h-9 w-28">
+                  <SelectTrigger className="h-9 w-48">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="port">{t("Port")}</SelectItem>
+                    {application.port && <SelectItem value="app">{appLabel}</SelectItem>}
+                    {/* only a process the routing already reached — never a port typed in */}
+                    {row.kind === "port" && <SelectItem value="port">{t("Another process")}</SelectItem>}
                     <SelectItem value="folder">{t("Folder")}</SelectItem>
                   </SelectContent>
                 </Select>
-                {row.kind === "port" ? (
-                  <Input className="w-28 font-mono text-sm" inputMode="numeric" value={row.port} placeholder="9200" onChange={(e) => update(index, { port: e.target.value })} />
-                ) : (
+                {row.kind === "folder" ? (
                   <>
                     <Input className="min-w-[12rem] flex-1 font-mono text-sm" value={row.root} placeholder="/var/www/html/app/dist" onChange={(e) => update(index, { root: e.target.value })} />
                     <label className="flex items-center gap-1.5 text-xs" title={t("Unknown paths get index.html — for a front end with its own router.")}>
@@ -127,7 +138,7 @@ export function RoutingCard({ application }: { application: Application }) {
                       SPA
                     </label>
                   </>
-                )}
+                ) : null}
                 {!last && (
                   <span className="ml-auto flex items-center">
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={index === 0} onClick={() => move(index, -1)} aria-label={t("Move up")}>
