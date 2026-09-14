@@ -465,7 +465,7 @@ export default function AddApp() {
     } catch (error) {
       const message =
         error instanceof Error && error.message === "GitHub OAuth is not configured"
-          ? t("GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.")
+          ? t("GitHub OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.")
           : t("Could not start GitHub OAuth flow.");
       toast({
         variant: "destructive",
@@ -483,7 +483,7 @@ export default function AddApp() {
     } catch (error) {
       const message =
         error instanceof Error && error.message === "GitLab OAuth is not configured"
-          ? t("GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET.")
+          ? t("GitLab OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.")
           : t("Could not start GitLab OAuth flow.");
       toast({
         variant: "destructive",

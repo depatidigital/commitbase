@@ -38,5 +38,9 @@ assert.strictEqual(providerOf('git@github.com:acme/site.git'), null);
 assert.strictEqual(providerOf('https://bitbucket.org/acme/site.git'), null);
 // a lookalike host is not GitHub
 assert.strictEqual(providerOf('https://github.com.evil.io/acme/site.git'), null);
+// self-hosted GitLab: the host of the configured OAuth base, gitlab.com still too
+assert.strictEqual(providerOf('https://git.acme.io/team/app.git', 'https://git.acme.io/oauth'), 'gitlab');
+assert.strictEqual(providerOf('https://gitlab.com/team/app.git', 'https://git.acme.io/oauth'), 'gitlab');
+assert.strictEqual(providerOf('https://git.acme.io/team/app.git'), null);
 
 console.log('gitCredentials: OK');

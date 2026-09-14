@@ -33,6 +33,7 @@ import { queueOrgNode } from '../services/orgProvisionService';
 import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
+import { getGitOAuthConfig } from '../services/integrationConfigService';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
@@ -419,7 +420,7 @@ router.post('/branches', authenticateToken, async (req: AuthenticatedRequest, re
     anonymousError = error;
   }
 
-  const provider = providerOf(repository);
+  const provider = providerOf(repository, (await getGitOAuthConfig('gitlab')).oauthBase);
   if (provider) {
     // ponytail: one ls-remote per account, in turn — fine for the handful a user connects
     const accounts = await prisma.gitAccount.findMany({

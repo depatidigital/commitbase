@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { getGitOAuthConfig } from '../services/integrationConfigService';
 
 /**
  * Credentials for cloning a private repository.
@@ -18,19 +19,20 @@ export const USERNAME: Record<string, string> = {
 
 /**
  * Which connected-account provider an HTTPS repository URL is on: github.com,
- * or gitlab.com / the self-hosted GitLab the OAuth app points at. null for any
- * other host, and for SSH URLs — an OAuth token only works over HTTPS.
+ * or gitlab.com / the self-hosted GitLab the OAuth app points at (`gitlabOAuthBase`,
+ * from getGitOAuthConfig). null for any other host, and for SSH URLs — an OAuth
+ * token only works over HTTPS.
  */
-export function providerOf(repository: string): 'github' | 'gitlab' | null {
+export function providerOf(repository: string, gitlabOAuthBase = 'https://gitlab.com/oauth'): 'github' | 'gitlab' | null {
   const host = repository.match(/^https?:\/\/(?:[^@/]+@)?([^/:?#]+)/i)?.[1]?.toLowerCase();
   if (!host) return null;
   if (host === 'github.com' || host === 'www.github.com') return 'github';
 
   let gitlabHost = 'gitlab.com';
   try {
-    gitlabHost = new URL(process.env.GITLAB_OAUTH_BASE || 'https://gitlab.com/oauth').hostname.toLowerCase();
+    gitlabHost = new URL(gitlabOAuthBase).hostname.toLowerCase();
   } catch {
-    // a malformed GITLAB_OAUTH_BASE leaves gitlab.com
+    // a malformed OAuth base leaves gitlab.com
   }
   return host === 'gitlab.com' || host === gitlabHost ? 'gitlab' : null;
 }
@@ -74,13 +76,11 @@ export function credentialArgs(username: string): string[] {
 export async function freshAccessToken(account: Account): Promise<string> {
   if (!needsRefresh(account.tokenExpiresAt, account.refreshToken)) return account.accessToken;
 
-  const clientId = process.env.GITLAB_CLIENT_ID;
-  const clientSecret = process.env.GITLAB_CLIENT_SECRET;
+  const { clientId, clientSecret, oauthBase } = await getGitOAuthConfig('gitlab');
   if (!clientId || !clientSecret) {
     throw new Error('GitLab OAuth is not configured — cannot refresh the expired token');
   }
 
-  const oauthBase = (process.env.GITLAB_OAUTH_BASE || 'https://gitlab.com/oauth').replace(/\/$/, '');
   const response = await fetch(`${oauthBase}/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

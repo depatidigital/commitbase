@@ -4,6 +4,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { freshAccessToken } from '../lib/gitCredentials';
+import { getGitOAuthConfig } from '../services/integrationConfigService';
 
 const gitAccountClient: any = (prisma as any).gitAccount;
 
@@ -215,8 +216,7 @@ router.get(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const clientId = process.env.GITHUB_CLIENT_ID;
-      const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+      const { clientId, clientSecret } = await getGitOAuthConfig('github');
 
       if (!clientId || !clientSecret) {
         return res.status(400).json({
@@ -318,8 +318,7 @@ router.get(
         } as ApiResponse);
       }
 
-      const clientId = process.env.GITHUB_CLIENT_ID;
-      const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+      const { clientId, clientSecret } = await getGitOAuthConfig('github');
 
       if (!clientId || !clientSecret) {
         return res.status(400).json({
@@ -456,10 +455,7 @@ router.get(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const clientId = process.env.GITLAB_CLIENT_ID;
-      const clientSecret = process.env.GITLAB_CLIENT_SECRET;
-      const authBase =
-        process.env.GITLAB_OAUTH_BASE || 'https://gitlab.com/oauth';
+      const { clientId, clientSecret, oauthBase: authBase } = await getGitOAuthConfig('gitlab');
 
       if (!clientId || !clientSecret) {
         return res.status(400).json({
@@ -565,10 +561,7 @@ router.get(
         } as ApiResponse);
       }
 
-      const clientId = process.env.GITLAB_CLIENT_ID;
-      const clientSecret = process.env.GITLAB_CLIENT_SECRET;
-      const oauthBase =
-        process.env.GITLAB_OAUTH_BASE || 'https://gitlab.com/oauth';
+      const { clientId, clientSecret, oauthBase, apiBase } = await getGitOAuthConfig('gitlab');
 
       if (!clientId || !clientSecret) {
         return res.status(400).json({
@@ -627,11 +620,8 @@ router.get(
         ? new Date(Date.now() + Number(tokenData.expires_in) * 1000)
         : null;
 
-      const apiBase =
-        process.env.GITLAB_API_BASE || 'https://gitlab.com/api/v4';
-
       const userResponse = await fetchFn(
-        `${apiBase.replace(/\/$/, '')}/user`,
+        `${apiBase}/user`,
         {
           method: 'GET',
           headers: {
@@ -764,7 +754,7 @@ async function githubRepositories(account: ListedAccount): Promise<ListedReposit
 async function gitlabRepositories(account: ListedAccount): Promise<ListedRepository[]> {
   // refreshes an expired GitLab token, which lives ~2h
   const token = await freshAccessToken(account);
-  const apiBase = (process.env.GITLAB_API_BASE || 'https://gitlab.com/api/v4').replace(/\/$/, '');
+  const { apiBase } = await getGitOAuthConfig('gitlab');
   const repositories: ListedRepository[] = [];
   for (let page = 1; page <= REPOSITORY_PAGES; page++) {
     const response = await fetch(

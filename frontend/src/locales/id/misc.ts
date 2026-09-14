@@ -165,4 +165,16 @@ export default {
   "It may have moved, or you may not have access to it.":
     "Halaman mungkin telah dipindahkan, atau Anda tidak memiliki akses ke halaman tersebut.",
   "Back to applications": "Kembali ke aplikasi",
+  // Git OAuth apps (superadmin)
+  "Git OAuth apps": "Aplikasi OAuth Git",
+  "Git OAuth settings saved": "Pengaturan OAuth Git disimpan",
+  "Failed to save Git OAuth settings": "Gagal menyimpan pengaturan OAuth Git",
+  "Client ID": "Client ID",
+  "Client secret": "Client secret",
+  "OAuth URL": "URL OAuth",
+  "API URL": "URL API",
+  "Callback URL": "URL callback",
+  "Register an OAuth app with the callback URL below. The secret is stored encrypted. Leave the client ID blank to turn it off.":
+    "Daftarkan aplikasi OAuth dengan URL callback di bawah. Secret disimpan terenkripsi. Kosongkan client ID untuk menonaktifkannya.",
+  "Change both for a self-hosted GitLab.": "Ubah keduanya untuk GitLab self-hosted.",
 } satisfies Record<string, string>;

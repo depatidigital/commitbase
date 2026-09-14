@@ -5,8 +5,18 @@ const RDASH_PROVIDER = 'rdash';
 const CLOUDFLARE_PROVIDER = 'cloudflare';
 const R2_PROVIDER = 'r2';
 const GOOGLE_PROVIDER = 'google';
+// `_oauth`: plain 'github'/'gitlab' rows keyed by user id are the legacy
+// per-user tokens migrateGitAccounts.ts reads.
+const GITHUB_OAUTH_PROVIDER = 'github_oauth';
+const GITLAB_OAUTH_PROVIDER = 'gitlab_oauth';
 
-type Provider = typeof RDASH_PROVIDER | typeof CLOUDFLARE_PROVIDER | typeof R2_PROVIDER | typeof GOOGLE_PROVIDER;
+type Provider =
+  | typeof RDASH_PROVIDER
+  | typeof CLOUDFLARE_PROVIDER
+  | typeof R2_PROVIDER
+  | typeof GOOGLE_PROVIDER
+  | typeof GITHUB_OAUTH_PROVIDER
+  | typeof GITLAB_OAUTH_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -126,3 +136,31 @@ export const splitEmails = (value: string | null | undefined) =>
 
 export const setGoogleConfigValue = (key: 'serviceAccount' | 'owners', value: string) =>
   setIntegrationConfigValue(GOOGLE_PROVIDER, key, value);
+
+export type GitOAuthProvider = 'github' | 'gitlab';
+export const GIT_OAUTH_KEYS = ['clientId', 'clientSecret', 'oauthBase', 'apiBase'] as const;
+export type GitOAuthKey = (typeof GIT_OAUTH_KEYS)[number];
+
+const gitOAuthRow = (provider: GitOAuthProvider) =>
+  provider === 'github' ? GITHUB_OAUTH_PROVIDER : GITLAB_OAUTH_PROVIDER;
+
+/**
+ * The OAuth app users connect their GitHub/GitLab accounts through, set in the
+ * superadmin panel (secret secretBox-encrypted). oauthBase/apiBase only mean
+ * anything for GitLab (self-hosted).
+ */
+export async function getGitOAuthConfig(provider: GitOAuthProvider) {
+  const [clientId, clientSecret, oauthBase, apiBase] = await Promise.all(
+    GIT_OAUTH_KEYS.map((key) => getIntegrationConfigValue(gitOAuthRow(provider), key)),
+  );
+
+  return {
+    clientId: clientId || null,
+    clientSecret: clientSecret ? decrypt(clientSecret) : null,
+    oauthBase: (oauthBase || 'https://gitlab.com/oauth').replace(/\/$/, ''),
+    apiBase: (apiBase || 'https://gitlab.com/api/v4').replace(/\/$/, ''),
+  };
+}
+
+export const setGitOAuthConfigValue = (provider: GitOAuthProvider, key: GitOAuthKey, value: string) =>
+  setIntegrationConfigValue(gitOAuthRow(provider), key, value);

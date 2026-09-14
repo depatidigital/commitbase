@@ -12,12 +12,12 @@ export default {
   "App type": "Tipe aplikasi",
   Source: "Sumber",
   Configure: "Konfigurasi",
-  "GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.":
-    "OAuth GitHub belum dikonfigurasi di server. Silakan atur GITHUB_CLIENT_ID dan GITHUB_CLIENT_SECRET.",
+  "GitHub OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.":
+    "OAuth GitHub belum dikonfigurasi. Superadmin dapat mengaturnya di Integrasi → Aplikasi OAuth Git.",
   "Could not start GitHub OAuth flow.": "Tidak dapat memulai alur OAuth GitHub.",
   "GitHub connection failed": "Koneksi GitHub gagal",
-  "GitLab OAuth is not configured on the server. Please set GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET.":
-    "OAuth GitLab belum dikonfigurasi di server. Silakan atur GITLAB_CLIENT_ID dan GITLAB_CLIENT_SECRET.",
+  "GitLab OAuth is not configured. A superadmin can set it up under Integrations → Git OAuth apps.":
+    "OAuth GitLab belum dikonfigurasi. Superadmin dapat mengaturnya di Integrasi → Aplikasi OAuth Git.",
   "Could not start GitLab OAuth flow.": "Tidak dapat memulai alur OAuth GitLab.",
   "GitLab connection failed": "Koneksi GitLab gagal",
   "{domain} is being set up.": "{domain} sedang disiapkan.",
