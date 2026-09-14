@@ -1,8 +1,8 @@
 import * as https from 'https';
 import { isIPv4 } from 'net';
 import { resolve4 } from 'node:dns/promises';
-import { Application } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import type { AppAt } from '../lib/appDomains';
 import {
   listCloudflareDnsRecords,
   createDnsRecord,
@@ -61,10 +61,10 @@ async function targetForApp(applicationId: string): Promise<DnsTarget | null> {
 }
 
 /** Whether the app's hostname sits in a Cloudflare zone we run — the only DNS "point it here" can write. */
-export const dnsManaged = async (application: Pick<Application, 'domainId' | 'domain'>) => !!(await zoneFor(application));
+export const dnsManaged = async (application: Pick<AppAt, 'domainId' | 'domain'>) => !!(await zoneFor(application));
 
 /** The zone the app's hostname belongs to, or null when we do not run its DNS. */
-async function zoneFor(application: Pick<Application, 'domainId' | 'domain'>) {
+async function zoneFor(application: Pick<AppAt, 'domainId' | 'domain'>) {
   const domain = application.domainId
     ? await prisma.domain.findUnique({ where: { id: application.domainId } })
     : await prisma.domain.findFirst({
@@ -84,7 +84,7 @@ async function zoneFor(application: Pick<Application, 'domainId' | 'domain'>) {
  * app. `force` overwrites it, for the caller that has asked the user.
  */
 export async function ensureAppHostname(
-  application: Pick<Application, 'id' | 'domain' | 'domainId'>,
+  application: AppAt,
   { force = false }: { force?: boolean } = {},
 ): Promise<HostnameOutcome> {
   const host = lower(application.domain);
@@ -152,7 +152,7 @@ export async function ensureAppHostname(
 
 /** Drop the record the deploy created. A wildcard or a hand-made record stays. */
 export async function removeAppHostname(
-  application: Pick<Application, 'id' | 'domain' | 'domainId'>,
+  application: AppAt,
   // teardown is all-or-nothing, so there a failed removal must stop the delete
   { strict = false }: { strict?: boolean } = {},
 ): Promise<void> {
@@ -338,7 +338,7 @@ export type DnsPointing = {
  * runs on. Public DNS for a proxied record only shows Cloudflare; when the zone
  * is ours, the record itself names the origin.
  */
-export async function whereHostnamePoints(application: Pick<Application, 'id' | 'domain' | 'domainId'>): Promise<DnsPointing> {
+export async function whereHostnamePoints(application: AppAt): Promise<DnsPointing> {
   const host = lower(application.domain);
   const target = await targetForApp(application.id);
   const expected = target?.content ?? null;

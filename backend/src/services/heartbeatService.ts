@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { atEach } from '../lib/appDomains';
 
 /**
  * Check history for the things the platform watches.
@@ -227,12 +228,16 @@ export async function pruneHeartbeats(): Promise<number> {
 export async function checkApplicationHostnames(): Promise<string> {
   const { checkAppHostname, whereHostnamePoints } = await import('./appDnsService');
 
-  const apps = await prisma.application.findMany({
-    // a hostname that only exists inside the platform has nothing to check,
-    // and a switched-off app is off on purpose
-    where: { domain: { not: { endsWith: '.pm2.local' } }, disabled: false },
-    select: { id: true, domain: true, domainId: true, aliases: true },
-  });
+  const apps = (
+    await prisma.application.findMany({
+      // a switched-off app is off on purpose
+      where: { disabled: false },
+      select: { id: true, domains: { select: { host: true, domainId: true }, orderBy: { host: 'asc' } } },
+    })
+  )
+    // a hostname that only exists inside the platform has nothing to check
+    .map((app) => ({ ...app, domains: app.domains.filter((d) => !d.host.endsWith('.pm2.local')) }))
+    .filter((app) => app.domains.length > 0);
 
   if (apps.length === 0) return 'no applications to check';
 
@@ -245,26 +250,29 @@ export async function checkApplicationHostnames(): Promise<string> {
     const slice = apps.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       slice.map(async (app) => {
+        const names = atEach(app);
         const startedAt = Date.now();
-        const health = await checkAppHostname(app.domain);
-        const ms = Date.now() - startedAt;
-        // every name it answers on: one alias down is the app down, said by name
-        if (health.live) {
-          for (const alias of app.aliases) {
-            const other = await checkAppHostname(alias);
-            if (!other.live) {
-              Object.assign(health, { live: false, httpStatus: other.httpStatus, error: `${alias}: ${other.error ?? 'not answering'}` });
-              break;
-            }
-          }
-        }
+        // every name it answers on: one of them down is the app down, said by name
+        const checks = [];
+        for (const at of names) checks.push({ at, health: await checkAppHostname(at.domain) });
+        const ms = Math.round((Date.now() - startedAt) / names.length);
+        const failed = checks.find((check) => !check.health.live);
+        const health = failed
+          ? { ...failed.health, error: names.length > 1 ? `${failed.at.domain}: ${failed.health.error ?? 'not answering'}` : failed.health.error }
+          : checks[0]!.health;
 
         // only an answer can come from the wrong place; a stale entry is refreshed
         const known = pointing.get(app.id);
         if (health.live && (!known || Date.now() - known.at > POINTING_TTL_MS)) {
-          const where = await whereHostnamePoints(app).catch(() => null);
-          // unknown (no answer, or proxied and unreadable) is not "elsewhere"
-          const elsewhere = where?.state === 'elsewhere' ? where.origin ?? where.addresses.join(', ') : undefined;
+          let elsewhere: string | undefined;
+          for (const at of names) {
+            const where = await whereHostnamePoints(at).catch(() => null);
+            // unknown (no answer, or proxied and unreadable) is not "elsewhere"
+            if (where?.state === 'elsewhere') {
+              elsewhere = where.origin ?? where.addresses.join(', ');
+              break;
+            }
+          }
           pointing.set(app.id, { at: Date.now(), elsewhere });
         }
         return { app, health, ms };

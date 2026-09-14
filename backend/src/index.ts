@@ -11,6 +11,7 @@ import { DeploymentService } from './services/deployment';
 import { allServers } from './lib/servers';
 import { getCaddyConfig } from './services/caddyService';
 import { backfillSources } from './lib/sources';
+import { backfillAppDomains } from './lib/appDomains';
 
 config();
 
@@ -205,4 +206,8 @@ async function onListening() {
 backfillSources()
   .then((created) => created && console.log(`📦 Sources created for ${created} existing app(s)`))
   .catch((err) => console.error('Source backfill failed — apps without a source show no repository:', err))
+  // before the first request too: every app reads its hostnames from app_domains
+  .then(() => backfillAppDomains())
+  .then((moved) => moved && console.log(`🌐 Hostnames moved for ${moved} existing app(s)`))
+  .catch((err) => console.error('Hostname backfill failed — apps without one show no address:', err))
   .then(() => app.listen(PORT, onListening));

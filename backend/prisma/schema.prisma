@@ -329,11 +329,8 @@ model Invite {
 model Application {
   id          String   @id @default(cuid())
   name        String
-  domain      String   @unique
-  /// Other hostnames the same app answers on — imported sites whose server
-  /// routes several names to one folder. The sync keeps them; `domain` stays
-  /// the one it checks first and shows.
-  aliases     String[] @default([])
+  /// The hostnames it answers on — one or more, all alike (AppDomain).
+  domains     AppDomain[]
   type        AppType
   status      AppStatus @default(STOPPED)
   port        Int?
@@ -355,6 +352,12 @@ model Application {
   // dropping data before it is copied. Drop once every install has started once.
   repository  String?
   branch      String? @default("main")
+
+  // Deprecated: moved to AppDomain (`domains`). Only backfillAppDomains reads
+  // these, once, and clears `domain`; nothing else reads or writes them.
+  domain       String?  @unique
+  domainId     String?
+  parentDomain Domain?  @relation("DomainApplications", fields: [domainId], references: [id])
 
   // Build & runtime config
   /// null = the detected one (pnpm install --frozen-lockfile, npm ci, …)
@@ -421,16 +424,30 @@ model Application {
   serverId     String?
   server       Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
-  // Parent domain this app's hostname lives under (ownership boundary)
-  domainId     String?
-  parentDomain Domain? @relation("DomainApplications", fields: [domainId], references: [id])
-
   @@index([userId])
   @@index([domainId])
   @@index([gitAccountId])
   @@index([organizationId])
   @@index([sourceId])
   @@map("applications")
+}
+
+/// A hostname an application answers on. An app has one or more, all alike —
+/// none is its "main" one. Unique across the platform: one name, one app.
+model AppDomain {
+  id            String      @id @default(cuid())
+  host          String      @unique
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  /// The Domain (zone) the name sits under — the ownership boundary, where
+  /// its DNS record goes, whose expiry it shares. null: not a zone we know.
+  domainId      String?
+  parentDomain  Domain?     @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+
+  @@index([applicationId])
+  @@index([domainId])
+  @@map("app_domains")
 }
 
 /// Where an application's code comes from, and what was built from it: a git
@@ -672,7 +689,10 @@ model Domain {
   userId String?
   user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  /// Deprecated: see Application.domainId
   applications Application[] @relation("DomainApplications")
+  /// the app hostnames under it
+  appDomains   AppDomain[]
 
   @@index([userId])
   @@index([organizationId])

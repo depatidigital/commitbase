@@ -1,4 +1,5 @@
-import type { Application, Domain } from '@prisma/client';
+import type { Domain } from '@prisma/client';
+import type { AppAt } from './appDomains';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from './prisma';
 import { canManageOrg, candidateParents, getOrgIds, isPlatformAdmin, orgScope } from './scope';
@@ -161,10 +162,12 @@ export async function inspectHost(
   host: string,
   opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined } = {},
 ): Promise<HostInspection> {
-  const app = await prisma.application.findFirst({
-    where: { OR: [{ domain: host }, { aliases: { has: host } }] },
-    select: { id: true, name: true, organizationId: true },
-  });
+  const app = (
+    await prisma.appDomain.findUnique({
+      where: { host },
+      select: { application: { select: { id: true, name: true, organizationId: true } } },
+    })
+  )?.application;
   const visible = app && (isPlatformAdmin(req) || (app.organizationId && (await getOrgIds(req)).includes(app.organizationId)));
   const usedBy =
     app && app.id !== opts.excludeAppId ? (visible ? { id: app.id, name: app.name } : { id: null, name: null }) : null;
@@ -220,7 +223,7 @@ export async function inspectHost(
  */
 export async function applyAppDns(
   req: AuthenticatedRequest,
-  application: Pick<Application, 'id' | 'domain' | 'domainId'>,
+  application: AppAt,
   consent: boolean,
 ): Promise<HostnameOutcome> {
   let parent = application.domainId ? await prisma.domain.findUnique({ where: { id: application.domainId } }) : null;
