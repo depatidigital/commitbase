@@ -510,6 +510,11 @@ export class DeploymentService {
               // npm installs on one machine take turns: two writing ~/.npm at once left tarballs
               // "corrupted". pnpm's store is safe under concurrency, so it is not held up.
               // ponytail: one lock per machine; the cache is shared and stays one copy.
+              // pnpm 10.9+ runs dependencies' build scripts (prisma engines, esbuild) only when allowed, and
+              // errors otherwise (ERR_PNPM_IGNORED_BUILDS): said in the workspace file it reads in every version
+              if (detected.packageManager === 'pnpm') {
+                installs.push(`grep -qs dangerouslyAllowAllBuilds pnpm-workspace.yaml || printf '\ndangerouslyAllowAllBuilds: true\n' >> pnpm-workspace.yaml`);
+              }
               installs.push(
                 detected.packageManager === 'npm'
                   ? // made 0666 by whichever build user is first, so the others can open it too
@@ -556,7 +561,13 @@ export class DeploymentService {
               // pnpm's switch only: npm warns about every npm_config_* it does not know
               // pnpm's switches only: npm warns about every npm_config_* it does not know.
               // package_manager_strict: pnpm chosen over a package.json that names npm
-              ...(detected.packageManager === 'pnpm' && { npm_config_dangerously_allow_all_builds: 'true', npm_config_package_manager_strict: 'false' }),
+              ...(detected.packageManager === 'pnpm' && {
+                npm_config_dangerously_allow_all_builds: 'true',
+                npm_config_package_manager_strict: 'false',
+                // pnpm 11+ reads its own prefix
+                pnpm_config_dangerously_allow_all_builds: 'true',
+                pnpm_config_package_manager_strict: 'false',
+              }),
             },
             installDir,
             installs,
