@@ -911,33 +911,15 @@ export function AppWorkspace({
           {deploying ? (
             <Card className="bg-gradient-card border-primary/40">
               <CardContent className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="flex items-center gap-2 text-lg font-semibold">
-                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                    {deployed ? t("Redeploying…") : t("Deploying…")}
-                  </h3>
-                  <ol className="flex flex-wrap items-center gap-2 text-sm">
-                    {DEPLOY_PHASES.map((phase, index) => (
-                      <li
-                        key={phase.status}
-                        className={`flex items-center gap-1.5 ${
-                          index < phaseIndex ? "text-primary" : index === phaseIndex ? "font-medium" : "text-muted-foreground/60"
-                        }`}
-                      >
-                        {index < phaseIndex ? <CheckCircle className="h-4 w-4" /> : index === phaseIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="h-4 w-4 rounded-full border" />}
-                        {phase.label}
-                        {index < DEPLOY_PHASES.length - 1 && <span className="text-muted-foreground/50">→</span>}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-                {published && (
-                  <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>
-                )}
-                {!uploadedSite && (
+                <DeployProgress
+                  appId={application.id}
+                  status={newestDeploy?.status ?? lastDeployment?.status}
+                  redeploy={deployed}
+                  published={published}
                   // an imported app's build logs onto its deployment row, refetched with the app while it runs
-                  <LiveBuildLog appId={application.id} text={application.runtime ? lastDeployment?.deployLogs ?? "" : undefined} />
-                )}
+                  logText={application.runtime ? lastDeployment?.deployLogs ?? "" : undefined}
+                  showLog={!uploadedSite}
+                />
               </CardContent>
             </Card>
           ) : needsSetup ? (
