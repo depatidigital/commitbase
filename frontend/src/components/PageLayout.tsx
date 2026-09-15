@@ -48,8 +48,9 @@ export function PageLayout({
               {Icon && <Icon className="h-5 w-5" />}
               {title}
             </h1>
+            {/* a div, not a p: a description may hold badges (divs) and rows */}
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <div className="text-sm text-muted-foreground">{description}</div>
             )}
           </div>
         </div>
