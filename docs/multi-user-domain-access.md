@@ -21,7 +21,7 @@ Status: **implemented** (see §12 for what shipped and how to migrate). Target: 
 | `IntegrationConfig` | global table, no route guard | holds provider secrets — must be ADMIN-only |
 | `Application` ↔ `Domain` | **no relation.** `Application.domain` is a free `String @unique` | a user can point an app at any hostname, incl. another client's domain |
 | `GitAccount.accessToken` | stored plaintext | needs encryption at rest |
-| S3 keys | `getStaticSitePrefix(applicationId)` — app-scoped, not tenant-scoped | usable, but no per-tenant isolation or quota |
+| R2 object keys (static sites) | per-site bucket or folder (r2Service) — app-scoped, not tenant-scoped | usable, but no per-tenant isolation or quota |
 
 **Two real holes, not stylistic:**
 
@@ -250,7 +250,7 @@ Design the key layout now so you don't migrate objects later:
 tenants/{organizationId}/domains/{domainId}/apps/{applicationId}/...
 ```
 
-Current `getStaticSitePrefix(applicationId)` is app-scoped only. Prefixing with `{organizationId}` gives you for free:
+Current R2 site keys (r2Service) are app-scoped only. Prefixing with `{organizationId}` gives you for free:
 
 - per-tenant usage accounting (`ListObjectsV2` on the prefix),
 - clean deletion when a client leaves,
@@ -297,7 +297,7 @@ Upload rules — do not simplify these away:
 **Phase 3 — hardening / later.** NOT STARTED
 8. Encrypt `GitAccount.accessToken` / `Application.envVars`.
 9. Audit-log entries into the existing `Log` model.
-10. Org-prefixed S3 keys + presigned uploads.
+10. Org-prefixed R2 keys + presigned uploads.
 11. Postgres RLS.
 12. Email delivery for invites — today the link is copied out of the UI.
 

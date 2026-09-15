@@ -90,7 +90,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 
 /**
  * The build log of the deploy in progress, read straight from disk so it can
- * be followed while the build runs (the S3 copy only lands at the end). The
+ * be followed while the build runs (the deployment's copy only lands at the end). The
  * last 64 KB is plenty for a live view; the full log is on the deployment.
  */
 router.get('/application/:appId/build-live', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {

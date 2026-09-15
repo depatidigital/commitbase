@@ -76,7 +76,6 @@ export interface Application {
   organization?: { id: string; name: string; slug: string } | null;
   createdAt: string;
   updatedAt: string;
-  staticSiteUrl?: string | null;
   /** the site's Cloudflare R2 bucket, once files have been uploaded */
   staticBucket?: string | null;
   /** detail endpoint only: the node it runs on (found there, else its organization's) */
