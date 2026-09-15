@@ -585,7 +585,8 @@ export default function ProjectDetail() {
  * is on its page — the card's › button.
  */
 function AppQuickEdit({ appId }: { appId: string }) {
-  const { data: application, isLoading } = useApplication(appId);
+  // refetched by hand after a change made here (a host, a deploy): its own query, whatever a cache-wide invalidation reaches
+  const { data: application, isLoading, refetch: refetchApp } = useApplication(appId);
   const start = useStartExistingApplication();
   const firstDeploy = useStartApplication();
   const queryClient = useQueryClient();
@@ -620,19 +621,31 @@ function AppQuickEdit({ appId }: { appId: string }) {
   });
   // a deploy running: followed through its history (which polls itself while one runs),
   // its progress and build log shown on the card — as its page shows them
-  const { data: history } = useDeploymentHistory(appId);
+  const { data: history, refetch: refetchHistory } = useDeploymentHistory(appId);
   const newestDeploy = history?.data?.[0];
-  const inFlight = firstDeploy.isPending || ["PENDING", "BUILDING", "DEPLOYING"].includes(newestDeploy?.status ?? "");
+  // the click, the app (set DEPLOYING before the start answers), or its newest deployment — whichever says so first
+  const inFlight =
+    firstDeploy.isPending ||
+    ["DEPLOYING", "BUILDING"].includes(application?.status ?? "") ||
+    ["PENDING", "BUILDING", "DEPLOYING"].includes(newestDeploy?.status ?? "");
+  const startDeploy = (id: string) =>
+    firstDeploy.mutate(id, {
+      // the new row and status at once — the history then polls itself until the deploy ends
+      onSuccess: () => {
+        void refetchHistory();
+        void refetchApp();
+      },
+    });
   // when it ends: the app again — its status, its first release, its checklist gone
   const wasInFlight = useRef(false);
   useEffect(() => {
     if (inFlight) wasInFlight.current = true;
     else if (wasInFlight.current) {
       wasInFlight.current = false;
-      void queryClient.invalidateQueries({ queryKey: ["application", appId] });
+      void refetchApp();
       void queryClient.invalidateQueries({ queryKey: ["project"] });
     }
-  }, [inFlight, appId, queryClient]);
+  }, [inFlight, refetchApp, queryClient]);
   if (isLoading || !application) {
     return (
       <div className="border-t border-border/60 p-4">
