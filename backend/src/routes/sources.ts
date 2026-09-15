@@ -79,12 +79,21 @@ async function findSource(req: AuthenticatedRequest, res: Response) {
     include: {
       organization: { select: { id: true, name: true, slug: true } },
       server: { select: { id: true, name: true, hostname: true, publicIp: true } },
-      applications: { select: instanceSelect, orderBy: { createdAt: 'asc' } },
-      activeRelease: { select: { id: true, commitSha: true, createdAt: true } },
+      applications: {
+        select: { ...instanceSelect, activeRelease: { select: { id: true, commitSha: true, createdAt: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
     },
   });
-  if (!source) res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
-  return source;
+  if (!source) {
+    res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
+    return null;
+  }
+  // What is live, for the project: its apps deploy on their own, so the oldest of
+  // their live releases — the one furthest behind — is what the project stands on.
+  const live = source.applications.map((app) => app.activeRelease).filter((r): r is NonNullable<typeof r> => !!r);
+  const activeRelease = live.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0] ?? null;
+  return { ...source, activeRelease };
 }
 
 const present = <T extends { name: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
@@ -452,23 +461,33 @@ router.post('/:id/build', authenticateToken, async (req: AuthenticatedRequest, r
   }
 });
 
-/** Build and release every app of a panel-managed project, from one commit. */
+/** Deploy every app of a panel-managed project: each launched on its own, all at once. */
 router.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const source = await findSource(req, res);
     if (!source) return;
-    const managed = source.applications.find((app) => !app.runtime);
-    if (source.path || !managed) {
+    const managed = source.applications.filter((app) => !app.runtime);
+    if (source.path || managed.length === 0) {
       return res.status(409).json({
         success: false,
         error: 'This project was imported from its server and is managed there — pull it instead',
       } as ApiResponse);
     }
 
-    const application = await prisma.application.findUniqueOrThrow({ where: { id: managed.id } });
-    const launched = await launchDeploy(application, req.user!.userId);
-    if (!launched) return res.status(409).json({ success: false, error: 'A deployment is already in progress' } as ApiResponse);
-    return res.json({ success: true, data: { deploymentId: launched.deploymentId }, message: 'Deployment started' } as ApiResponse);
+    const applications = await prisma.application.findMany({ where: { id: { in: managed.map((app) => app.id) } } });
+    const launched: string[] = [];
+    const busy: string[] = [];
+    for (const application of applications) {
+      const started = await launchDeploy(application, req.user!.userId);
+      if (started) launched.push(started.deploymentId);
+      else busy.push(application.name);
+    }
+    if (launched.length === 0) return res.status(409).json({ success: false, error: 'A deployment is already in progress' } as ApiResponse);
+    return res.json({
+      success: true,
+      data: { deploymentIds: launched, deploymentId: launched[0] },
+      message: busy.length ? `Deployment started; ${busy.join(', ')} already deploying` : 'Deployment started',
+    } as ApiResponse);
   } catch (error) {
     console.error('Error deploying project:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);

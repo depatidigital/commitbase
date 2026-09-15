@@ -9,7 +9,7 @@ import { appBuild, ensureOrgOnNode, sourceTreeUnit } from './orgProvisionService
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { uploadSiteDirectory } from './r2Service';
-import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, servingFolder, siteStorage } from './staticReleaseService';
+import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';

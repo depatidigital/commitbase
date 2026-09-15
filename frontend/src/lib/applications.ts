@@ -687,11 +687,10 @@ export const startExistingApplication = async (id: string): Promise<Application 
 };
 
 // Start application (with redeploy)
-/** `only`: the app's own deploy — it alone, not every app of its project (the setup checklist's Deploy). */
-export const startApplication = async (id: string, only = false): Promise<Application | boolean> => {
+/** Deploy the app — it alone; a project deploy is each of its apps (deployProject). */
+export const startApplication = async (id: string): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/start`, {
     method: 'POST',
-    ...(only && { body: JSON.stringify({ only: true }) }),
   });
   
   if (response.success) {

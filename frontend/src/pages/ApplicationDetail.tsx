@@ -254,7 +254,6 @@ export function AppWorkspace({
     },
   });
   const startApp = useStartApplication();
-  const startAppOnly = useStartApplication({ only: true });
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
@@ -358,17 +357,16 @@ export function AppWorkspace({
   const envSave = useRef<(() => Promise<boolean>) | null>(null);
   const connectDb = useRef<(() => void) | null>(null);
   const [savingForDeploy, setSavingForDeploy] = useState(false);
-  // `only`: this app alone (its setup checklist) — else its whole project (the Source panel)
-  const deploy = async (only = false) => {
+  const deploy = async () => {
     if (envStatus.dirty) {
       setSavingForDeploy(true);
       const saved = await envSave.current?.();
       setSavingForDeploy(false);
       if (!saved) return;
     }
-    (only ? startAppOnly : startApp).mutate(id!);
+    startApp.mutate(id!);
   };
-  const starting = savingForDeploy || startApp.isPending || startAppOnly.isPending;
+  const starting = savingForDeploy || startApp.isPending;
 
   // Update logs when data changes
   useEffect(() => {
@@ -460,7 +458,6 @@ export function AppWorkspace({
   // truth. The status poll (useApplicationStatus) flips this back when it ends.
   const deploying =
     startApp.isPending ||
-    startAppOnly.isPending ||
     deployInFlight ||
     application.status === 'DEPLOYING' ||
     application.status === 'BUILDING' ||
@@ -928,8 +925,7 @@ export function AppWorkspace({
               dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
               failure={failureReason}
               starting={starting}
-              // the checklist deploys this app, not every app of its project
-              onDeploy={() => void deploy(true)}
+              onDeploy={() => void deploy()}
               onEditHosts={() => setHostsOpen(true)}
               onEditEnv={() => setActiveTab("environment")}
               onEditBuild={() => setActiveTab("build")}
