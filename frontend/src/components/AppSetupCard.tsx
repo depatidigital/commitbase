@@ -40,6 +40,8 @@ interface AppSetupCardProps {
   onEditBuild: () => void;
   /** one line a step, in a small box — the project page's app cards */
   compact?: boolean;
+  /** compact: the deploy's whole log, in the card's dialog */
+  onShowLog?: () => void;
 }
 
 /**
@@ -145,7 +147,7 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact, onShowLog }: AppSetupCardProps) {
   const fixes = <DeployFailureFixes application={application} failure={failure} failedMigration={failedMigration} starting={starting} onDeploy={onDeploy} />;
   // Where it answers comes first: without a host there is nothing to reach, and
   // the env's own addresses (APP_URL, CORS_ORIGIN, VITE_API_URL) are these hosts
@@ -256,6 +258,12 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         )}
         {failure && (
           <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded border border-destructive/40 bg-destructive/5 p-2 font-mono text-destructive">{failure}</pre>
+        )}
+        {failure && onShowLog && (
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onShowLog}>
+            <Terminal className="mr-1 h-3 w-3" />
+            {t("Full log")}
+          </Button>
         )}
         {fixes}
       </div>

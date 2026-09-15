@@ -636,7 +636,10 @@ function AppQuickEdit({ appId }: { appId: string }) {
   // a deploy running: followed through its history (which polls itself while one runs),
   // its progress and build log shown on the card — as its page shows them
   const { data: history, refetch: refetchHistory } = useDeploymentHistory(appId);
-  const newestDeploy = history?.data?.[0];
+  // the history is the source's, every app of it: this app's newest
+  const newestDeploy = history?.data?.find((deployment) => deployment.applicationId === appId);
+  // its deploys and their logs — the live one's too — in a dialog, not on the card
+  const [logOpen, setLogOpen] = useState(false);
   // the click, the app (set DEPLOYING before the start answers), or its newest deployment — whichever says so first
   const inFlight =
     firstDeploy.isPending ||
@@ -700,30 +703,50 @@ function AppQuickEdit({ appId }: { appId: string }) {
     <div className="space-y-3 border-t border-border/60 p-4">
       {inFlight && (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-          {/* a pm2 build on the server runs to its end; the panel's own stops at its next step, the old release still live */}
-          {!application.runtime && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="float-right text-destructive hover:text-destructive"
-              disabled={cancelDeploy.isPending}
-              onClick={() => cancelDeploy.mutate()}
-            >
-              <Square className="h-3.5 w-3.5 mr-1.5" />
-              {t("Cancel deploy")}
-            </Button>
-          )}
+          <div className="float-right flex items-center gap-1">
+            {!uploadedSite && (
+              <Button variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
+                <Terminal className="h-3.5 w-3.5 mr-1.5" />
+                {t("Log")}
+              </Button>
+            )}
+            {/* a pm2 build on the server runs to its end; the panel's own stops at its next step, the old release still live */}
+            {!application.runtime && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                disabled={cancelDeploy.isPending}
+                onClick={() => cancelDeploy.mutate()}
+              >
+                <Square className="h-3.5 w-3.5 mr-1.5" />
+                {t("Cancel deploy")}
+              </Button>
+            )}
+          </div>
+          {/* where it is; its log in the dialog (Log) */}
           <DeployProgress
             appId={application.id}
             status={newestDeploy?.status}
             redeploy={hasBeenDeployed(application)}
             published={application.type === "STATIC" ? !!application.staticBucket : application.status === "RUNNING"}
-            // an imported app's build logs onto its deployment row
-            logText={application.runtime ? newestDeploy?.deployLogs ?? "" : undefined}
-            showLog={!uploadedSite}
+            showLog={false}
           />
         </div>
       )}
+      <Dialog open={logOpen} onOpenChange={setLogOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{t("Deployments")} — {application.name}</DialogTitle>
+          </DialogHeader>
+          {/* queued: build.log is still the previous deploy's — not shown as if it were this one's */}
+          {inFlight && !uploadedSite && newestDeploy?.status !== "PENDING" && (
+            // an imported app's build logs onto its deployment row
+            <LiveBuildLog appId={application.id} text={application.runtime ? newestDeploy?.deployLogs ?? "" : undefined} />
+          )}
+          <DeploymentHistory application={application} onlyApp={application.id} />
+        </DialogContent>
+      </Dialog>
       {/* bento: its hosts and how it is built and run side by side; under them what it is given,
           the full width, beside the actions — read at a glance, hosts managed here.
           Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
