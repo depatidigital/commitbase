@@ -1131,6 +1131,53 @@ export class DeploymentService {
         }
       }
 
+      // Migrations only go forward. Before the pre-deploy step runs them, the
+      // app's databases as they are — the way back when the deploy fails: put
+      // back on its own while nothing of the app is live yet (nothing else wrote
+      // meanwhile); once it is, offered on the history row instead — the live
+      // release kept writing during the build, and that is a person's call.
+      const wasLive = !!application.activeReleaseId || application.status === 'RUNNING';
+      const snapshots: Snapshot[] = [];
+      if (application.preDeployCommand) {
+        const databases = await prisma.database.findMany({
+          where: { applicationId: application.id, discovered: false, status: 'RUNNING' },
+          select: { id: true, dbName: true },
+        });
+        for (const db of databases) {
+          try {
+            const snapshot = await snapshotDatabase(db.id, deployment.id);
+            snapshots.push(snapshot);
+            await afs.appendFile(
+              buildLogPath,
+              `[${new Date().toISOString()}] DATABASE SNAPSHOT: ${db.dbName} (${Math.round(snapshot.bytes / 1024)} KB) — ` +
+                (wasLive ? 'restorable from this deploy in the history' : 'put back on its own if this deploy fails') + NL,
+            );
+          } catch (error: any) {
+            await afs.appendFile(
+              buildLogPath,
+              `[${new Date().toISOString()}] DATABASE SNAPSHOT of ${db.dbName} failed: ${error?.message ?? error} — no way back from the migrations` + NL,
+            );
+          }
+        }
+        throwIfCancelled(key);
+      }
+      undoMigrations = async () => {
+        if (wasLive || snapshots.length === 0) return;
+        for (const snapshot of snapshots) {
+          await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] RESTORING DATABASE from the snapshot taken before this deploy…` + NL);
+          const outcome = await restoreSnapshot(snapshot.databaseId, snapshot.file, deployment.userId, { wait: true }).catch((error: any) => ({
+            status: 'FAILED',
+            error: String(error?.message ?? error),
+          }));
+          await afs.appendFile(
+            buildLogPath,
+            outcome?.status === 'DONE'
+              ? `[${new Date().toISOString()}] DATABASE RESTORED — as it was before the migrations` + NL
+              : `[${new Date().toISOString()}] DATABASE RESTORE FAILED: ${outcome?.error ?? 'an import is already running there'} — restore it from the history row` + NL,
+          );
+        }
+      };
+
       // Same commit, build settings and env as a build still on disk: that tree
       // is this deploy's build — nothing to install or compile again. For a
       // monorepo, the same for every one of its apps.
@@ -1151,6 +1198,7 @@ export class DeploymentService {
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(key);
+      if (!buildResult.success) await undoMigrations();
       const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
       if (!buildResult.success) {
