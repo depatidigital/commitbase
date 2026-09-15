@@ -444,7 +444,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
   // Every name must: one answering from another server, or not at all, is the
   // app not serving there — said by name.
   const hosts = hostsOf(application);
-  const checkOf = (host: string) => checks?.find((check) => check.host === host);
+  // a binding's check: its host at its path; a host alone, its first
+  const checkOf = (host: string, path?: string) => checks?.find((check) => check.host === host && (path === undefined || (check.path ?? '') === path));
   const allLive = !!checks?.length && checks.every((check) => check.live);
   const strayCheck = checks?.find((check) => check.live && check.pointing?.state === 'elsewhere');
   const elsewhereHost = strayCheck?.host ?? (allLive && healthById?.[application.id]?.pointsElsewhere ? hosts[0] : undefined);
@@ -900,8 +901,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
               <CardContent className="pt-2 pb-2">
                 {/* One name: it, in full. Several: how many and how they are, the
                     ones that need attention in full — the list is the Domains tab */}
-                {(application.domains.length === 1 ? application.domains : application.domains.filter((name) => !hostOk(checkOf(name.host)))).map((name) => {
-                  const check = checkOf(name.host);
+                {(application.domains.length === 1 ? application.domains : application.domains.filter((name) => !hostOk(checkOf(name.host, name.path ?? '')))).map((name) => {
+                  const check = checkOf(name.host, name.path ?? '');
                   return (
                     <div key={name.host}>
                       <Field label={t("Domain")}>
@@ -939,12 +940,12 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                     </div>
                   );
                 })}
-                {application.domains.length > 1 && application.domains.some((name) => hostOk(checkOf(name.host))) && (
-                  <Field label={application.domains.every((name) => hostOk(checkOf(name.host))) ? t("Domain") : t("Other domains")}>
+                {application.domains.length > 1 && application.domains.some((name) => hostOk(checkOf(name.host, name.path ?? ''))) && (
+                  <Field label={application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("Domain") : t("Other domains")}>
                     {/* the healthy names, at a glance, each one opens; the ones in trouble are listed above */}
                     <span className="font-mono">
                       {application.domains
-                        .filter((name) => hostOk(checkOf(name.host)))
+                        .filter((name) => hostOk(checkOf(name.host, name.path ?? '')))
                         .map((name, i, list) => (
                           <span key={name.host} className="inline-flex items-center gap-1">
                             {name.host}
@@ -963,7 +964,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                     </span>
                     <span className="mt-0.5 flex items-center justify-end gap-1.5 text-xs">
                       <span className="text-success">
-                        {application.domains.every((name) => hostOk(checkOf(name.host))) ? t("all reachable") : t("reachable")}
+                        {application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("all reachable") : t("reachable")}
                       </span>
                       <button type="button" className="text-primary hover:underline" onClick={() => setActiveTab("domains")}>
                         {t("Manage")} →

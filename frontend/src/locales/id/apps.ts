@@ -685,6 +685,11 @@ export default {
   // an app's hostnames (AppDomainsCard)
   "Add a domain": "Tambah domain",
   "Add domain": "Tambah domain",
+  "path (optional), e.g. /api/*": "path (opsional), mis. /api/*",
+  "A path is like /api/* — or leave it empty for the whole name": "Path seperti /api/* — atau kosongkan untuk seluruh domain",
+  "strip prefix": "buang prefix",
+  "The app gets the path without this prefix: /api/users arrives as /users.": "Aplikasi menerima path tanpa prefix ini: /api/users sampai sebagai /users.",
+  "Could not change the binding": "Gagal mengubah binding",
   "{host} added": "{host} ditambahkan",
   "It serves this app, like its other names.": "Domain ini melayani aplikasi ini, sama seperti domain lainnya.",
   "Could not add the domain": "Gagal menambahkan domain",

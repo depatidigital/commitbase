@@ -214,6 +214,8 @@ export interface HostnameHealth {
   httpStatus: number | null;
   live: boolean;
   error: string | null;
+  /** the binding's path it was checked at ("" = the whole name) */
+  path?: string;
   /** its domain is a Cloudflare zone we run — only then can "point it here" write the record */
   dnsManaged?: boolean;
   /** what the registry says is wrong with the domain itself (e.g. semata.id), if anything */
