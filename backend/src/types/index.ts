@@ -125,6 +125,8 @@ export const CreateApplicationSchema = z.object({
   dnsConsent: z.boolean().optional(),
   // add it to this project (a Source) instead of starting a new one
   sourceId: z.string().min(1).optional(),
+  // a new project's own name, when its first app is named apart from it (a monorepo's drafts)
+  projectName: z.string().optional(),
 });
 
 export const UpdateApplicationSchema = z.object({

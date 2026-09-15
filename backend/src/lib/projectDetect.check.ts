@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { detectFromFiles, nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles } from './projectDetect';
+import { appFoldersOf, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -173,5 +173,30 @@ assert.strictEqual(
 );
 // nothing to inherit: unchanged, installs in the folder
 assert.deepStrictEqual(withRootFiles(webPkg, {}), { files: webPkg, installAtRoot: false });
+
+// The apps of a repository: folders with an app's marker, not a workspace root,
+// not a folder inside an app, not dependencies or build output
+const pkgs: Record<string, any> = {
+  '': { private: true, workspaces: ['apps/*'], scripts: { build: 'turbo build' } },
+  'apps/web': { dependencies: { next: '15' }, scripts: { build: 'next build' } },
+  'apps/api': { scripts: { start: 'node index.js' } },
+  'packages/config': { name: 'config' },
+};
+const tree = [
+  'package.json',
+  'apps/web/package.json',
+  'apps/web/public/index.html',
+  'apps/api/package.json',
+  'apps/admin/composer.json',
+  'packages/config/package.json',
+  'docs/index.html',
+  'node_modules/x/package.json',
+  'apps/web/.next/index.html',
+  'a/b/c/d/e/index.html',
+];
+assert.deepStrictEqual(appFoldersOf(tree, (dir) => pkgs[dir] ?? null), ['apps/admin', 'apps/api', 'apps/web', 'docs']);
+// a pnpm workspace root is not an app either; a plain repo is its root alone
+assert.deepStrictEqual(appFoldersOf(['package.json', 'pnpm-workspace.yaml', 'apps/api/package.json'], (dir) => (dir ? pkgs['apps/api'] : { scripts: { build: 'x' } })), ['apps/api']);
+assert.deepStrictEqual(appFoldersOf(['package.json', 'examples/demo/package.json'], () => ({ scripts: { dev: 'vite' } })), ['']);
 
 console.log('projectDetect: ok');

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -47,7 +49,9 @@ import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { PageLayout } from "@/components/PageLayout";
 import {
   CreateApplicationData,
+  DetectedApp,
   DetectedProject,
+  detectApps,
   detectProject,
   readDetectFiles,
   uploadApplicationSource,
@@ -156,12 +160,22 @@ export default function AddProject() {
   // the type shown as a confirmed chip until "Change"
   const [typeOpen, setTypeOpen] = useState(false);
 
+  // A new project from a monorepo: every app found in the repository, as a
+  // draft to tick. One app (or none found) keeps the single-app form.
+  const [drafts, setDrafts] = useState<Array<DetectedApp & { name: string; checked: boolean }>>([]);
+  const multi = drafts.length > 1;
+  const checkedDrafts = drafts.filter((d) => d.checked);
+  // the backend's rule: a static site cannot share its project with other apps yet
+  const staticMixed = checkedDrafts.length > 1 && checkedDrafts.some((d) => d.detected.type === "STATIC");
+  const updateDraft = (index: number, change: Partial<(typeof drafts)[number]>) =>
+    setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...change } : d)));
+
   // No host to decide the org: a new project is the caller's org's — only
   // someone with a choice of orgs (several, or a platform admin seeing all)
   // picks one. An app added to a project is the project's org's.
   const needsOrg = !projectId && (myOrgs?.pagination?.total ?? 0) > 1;
   // a new project is not asked its first app's type — detection's is used; asked only when it cannot tell
-  const typeAsked = !formData.type || !!detectError || detecting;
+  const typeAsked = !multi && (!formData.type || !!detectError || detecting);
 
   // The source's own name — the repo, or the picked folder (loose files have
   // none worth using) — as a DNS-safe label.
@@ -244,6 +258,8 @@ export default function AddProject() {
   // build settings. Everything stays editable.
   useEffect(() => {
     const isGit = sourceMode === "git";
+    // whatever another source (or folder) found no longer applies
+    setDrafts([]);
     // wait for the branch lookup — detecting "main" on a "master" repo just fails
     if (isGit && !projectId && branchesLoading) return;
     // a repository nobody could read yet would only fail detection too
@@ -260,17 +276,30 @@ export default function AddProject() {
       setDetectError("");
       try {
         const folder = rootDirectory.trim() || undefined;
-        const result = projectId
+        const repository = { repository: formData.repository.trim(), branch: formData.branch || "main", gitAccountId: manualAccountId || undefined };
+        // A new project's repository, no folder named: the root and every app in
+        // it, in one clone — a monorepo's apps become drafts. Git only: a project
+        // from an upload cannot have several apps.
+        const scan = !projectId && isGit && !folder ? await detectApps(repository) : null;
+        const result = scan
+          ? scan.root
+          : projectId
           ? await detectProject({ sourceId: projectId, rootDirectory: folder })
           : isGit
-          ? await detectProject({
-              repository: formData.repository.trim(),
-              branch: formData.branch || "main",
-              gitAccountId: (gitSource && manualAccountId) || undefined,
-              rootDirectory: folder,
-            })
+          ? await detectProject({ ...repository, rootDirectory: folder })
           : await detectProject({ files: await readDetectFiles(uploadFiles) });
         if (cancelled) return;
+        if (scan) {
+          const repoName = formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "");
+          // ticked: what is plainly an app (a framework); libraries and static sites are left to the user
+          const next = scan.apps.map((app) => ({
+            ...app,
+            name: slugify(app.rootDirectory.split("/").pop() || repoName),
+            checked: !["node", null].includes(app.detected.framework) && app.detected.type !== "STATIC",
+          }));
+          if (next.length && !next.some((d) => d.checked)) next[0].checked = true;
+          setDrafts(next);
+        }
         setDetected(result);
         setFormData((prev) => ({
           ...prev,
@@ -328,12 +357,31 @@ export default function AddProject() {
       // Prisma's migrations: the tables have to exist before the release goes live
       preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
     };
+    // a monorepo: the project with its first ticked app, then the rest added to it
+    const [first, ...rest] = multi ? checkedDrafts : [];
+    const fromDraft = (draft: (typeof drafts)[number]) => ({
+      name: draft.name,
+      type: draft.detected.type as CreateApplicationData["type"],
+      rootDirectory: draft.rootDirectory || undefined,
+      preDeployCommand: (draft.detected.type !== "STATIC" && draft.detected.preDeployCommand) || undefined,
+    });
 
     let createdId: string;
     try {
-      createdId = (await createApp.mutateAsync(applicationData)).id;
+      createdId = (
+        await createApp.mutateAsync(first ? { ...applicationData, ...fromDraft(first), projectName: formData.name } : applicationData)
+      ).id;
     } catch {
       return; // createApp reports its own failure
+    }
+
+    if (rest.length) {
+      for (const draft of rest) {
+        // the project's id is its first app's (Source shares it); a failure is toasted, the rest still go
+        await createApp.mutateAsync({ ...fromDraft(draft), sourceId: createdId }).catch(() => {});
+      }
+      navigate(`/project/${createdId}`);
+      return;
     }
 
     // Picked files are the app's source: they go up now (a static site's are
@@ -389,7 +437,12 @@ export default function AddProject() {
         ? uploadFiles.length > 0
         : // read, public or through an account, and has a branch to deploy
           !!remoteBranches?.length;
-    return !!formData.name && (!needsOrg || !!organizationId) && !!formData.type;
+    return (
+      !!formData.name &&
+      (!needsOrg || !!organizationId) &&
+      !detecting &&
+      (multi ? checkedDrafts.length > 0 && checkedDrafts.every((d) => d.name.trim()) && !staticMixed : !!formData.type)
+    );
   };
 
   // The OAuth round trip reloads the page; keep the pasted URL across it.
@@ -768,8 +821,8 @@ export default function AddProject() {
                         </p>
                       )}
                     </div>
-                    {/* a monorepo: the first app is one folder of it */}
-                    {remoteBranches.length > 0 && (
+                    {/* a monorepo: the first app is one folder of it — unless its apps were found, below */}
+                    {remoteBranches.length > 0 && !multi && (
                       <div className="space-y-1.5">
                         <Label htmlFor="rootDirectory" title={t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}>
                           {t("Folder in the repository")}
@@ -789,6 +842,51 @@ export default function AddProject() {
               </CardContent>
             </Card>
           </>
+        )}
+
+        {/* a monorepo's apps, found in it: each ticked one is created with the project */}
+        {multi && stepComplete(1) && (
+          <Card className="bg-gradient-card border-border/50 shadow-elegant">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{t("Apps detected")}</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {t("The ticked ones are created with the project. Each gets its hosts and env on its own page.")}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {drafts.map((draft, index) => {
+                const Icon = appTypeOptions.find((o) => o.value === draft.detected.type)?.icon ?? Server;
+                return (
+                  <div key={draft.rootDirectory} className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 px-3 py-2">
+                    <Checkbox
+                      checked={draft.checked}
+                      onCheckedChange={(value) => updateDraft(index, { checked: value === true })}
+                      aria-label={draft.rootDirectory || t("(repository root)")}
+                    />
+                    <Input
+                      value={draft.name}
+                      onChange={(e) => updateDraft(index, { name: e.target.value })}
+                      disabled={!draft.checked}
+                      aria-label={t("App Name")}
+                      className="h-8 w-40"
+                    />
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                      {draft.rootDirectory || t("(repository root)")}
+                    </span>
+                    <Badge variant="secondary" className="gap-1 font-normal">
+                      <Icon className="h-3 w-3" />
+                      {draft.detected.label}
+                    </Badge>
+                  </div>
+                );
+              })}
+              {staticMixed && (
+                <p className="text-xs text-destructive">
+                  {t("A static site cannot share its project with other apps yet — tick it on its own.")}
+                </p>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {stepComplete(1) && (projectId || typeAsked || superadmin) && (
@@ -967,10 +1065,14 @@ export default function AddProject() {
 
             <div className="flex flex-wrap items-center justify-end gap-3">
             {/* what the click will do, next to the click */}
-            {stepComplete(1) && stepComplete(2) && !createApp.isPending && !busy && (
-              <span className="text-right text-xs text-muted-foreground">
-                {t("Created now — add its hosts and env on its page, then deploy.")}
-              </span>
+            {detecting ? (
+              <span className="text-right text-xs text-muted-foreground">{t("Inspecting the project…")}</span>
+            ) : (
+              stepComplete(1) && stepComplete(2) && !createApp.isPending && !busy && (
+                <span className="text-right text-xs text-muted-foreground">
+                  {t("Created now — add its hosts and env on its page, then deploy.")}
+                </span>
+              )
             )}
             <Button
               type="submit"

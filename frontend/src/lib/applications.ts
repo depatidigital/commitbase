@@ -150,6 +150,8 @@ export interface CreateApplicationData {
   rootDirectory?: string;
   /** add it to this project instead of starting a new one */
   sourceId?: string;
+  /** a new project's name, when its first app is named apart from it */
+  projectName?: string;
 }
 
 export interface UpdateApplicationData {
@@ -360,6 +362,23 @@ export const detectProject = async (
     | { files: Record<string, string> }
 ): Promise<DetectedProject> => {
   const response = await apiRequest<DetectedProject>('/applications/detect', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not inspect the project"));
+};
+
+/** An app in a repository (monorepos): its folder ('' = the root) and what it is. */
+export type DetectedApp = { rootDirectory: string; detected: DetectedProject };
+
+/** A new project's repository in one clone: the root detected, and every app in it. */
+export const detectApps = async (input: {
+  repository: string;
+  branch?: string;
+  gitAccountId?: string;
+}): Promise<{ root: DetectedProject; apps: DetectedApp[] }> => {
+  const response = await apiRequest<{ root: DetectedProject; apps: DetectedApp[] }>('/applications/detect-apps', {
     method: 'POST',
     body: JSON.stringify(input),
   });

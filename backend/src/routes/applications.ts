@@ -34,7 +34,7 @@ import * as systemd from '../services/systemdService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE, sourceDirOf } from '../lib/appPaths';
 import { queueOrgNode } from '../services/orgProvisionService';
-import { detectFromFiles, detectFromRepo, detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
@@ -282,6 +282,32 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
     }
 
     return res.status(400).json({ success: false, error: 'Send files or a repository' } as ApiResponse);
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      error: `Could not inspect the project: ${error?.stderr || error?.message || String(error)}`.slice(0, 500),
+    } as ApiResponse);
+  }
+});
+
+/**
+ * A new project's repository in one clone: its root detected, and every app in
+ * it — a monorepo's project starts with them as drafts.
+ */
+router.post('/detect-apps', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { repository, branch } = req.body || {};
+    if (typeof repository !== 'string' || !repository.trim()) {
+      return res.status(400).json({ success: false, error: 'Send a repository' } as ApiResponse);
+    }
+    const gitAccountId = req.body?.gitAccountId ? String(req.body.gitAccountId) : null;
+    if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
+    const detected = await detectAppsFromRepo(
+      repository.trim(),
+      String(branch || 'main').trim() || 'main',
+      gitAccountId ? await gitAuthFor(gitAccountId) : undefined,
+    );
+    return res.json({ success: true, data: detected } as ApiResponse);
   } catch (error: any) {
     return res.status(400).json({
       success: false,
@@ -761,8 +787,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     const application = withSourceFields(
       joining
         ? await prisma.application.create({ data: { ...fields, sourceId: joining.id }, include: { source: true } })
-        : // a new project: the name typed is the project's (its first app starts with it too)
-          await createApplicationWithSource(fields, { repository, gitAccountId, branch, name: String(name).trim() || null }),
+        : // a new project: the name typed is the project's (its first app starts with it too, unless named apart)
+          await createApplicationWithSource(fields, { repository, gitAccountId, branch, name: String(req.body.projectName || name).trim() || null }),
     );
 
     // Provision the org on that node now, so the first deploy does not wait

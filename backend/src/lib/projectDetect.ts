@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFile } from 'child_process';
@@ -494,25 +495,38 @@ const remoteGit = (auth: RemoteAuth, args: string[]) => ({
   env: { ...GIT_ENV, ...auth.env },
 });
 
+/**
+ * A shallow blobless clone with the root-level files checked out, in a temp
+ * folder the caller removes. --sparse checks out the root-level files only —
+ * every detection file is one — and the clone fetches their blobs itself, in
+ * one batch: ~100 KB for a Next app. Not --no-checkout plus a checkout per file
+ * afterwards: those raced for index.lock, and a lazy blob fetch from a shallow
+ * blobless clone comes back without the blob, so detection never saw a package.json.
+ */
+async function sparseClone(repository: string, branch: string, auth: RemoteAuth): Promise<string> {
+  if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) throw new Error('Invalid branch name');
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-detect-'));
+  try {
+    const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', branch, repository, tmp]);
+    await execFileAsync('git', clone.argv, { timeout: 60000, env: clone.env });
+    return tmp;
+  } catch (error) {
+    await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 export async function detectFromRepo(
   repository: string,
   branch = 'main',
   auth: RemoteAuth = ANONYMOUS,
   rootDirectory: string | null = null,
 ): Promise<DetectedProject> {
-  if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
-  if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) throw new Error('Invalid branch name');
   if (rootDirectory !== null && !ROOT_DIRECTORY_RE.test(rootDirectory)) throw new Error('Invalid root directory');
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-detect-'));
+  const tmp = await sparseClone(repository, branch, auth);
   try {
-    // --sparse checks out the root-level files only — every detection file is
-    // one — and the clone fetches their blobs itself, in one batch: ~100 KB for
-    // a Next app. Not --no-checkout plus a checkout per file afterwards: those
-    // raced for index.lock, and a lazy blob fetch from a shallow blobless clone
-    // comes back without the blob, so detection never saw a package.json.
-    const clone = remoteGit(auth, ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', branch, repository, tmp]);
-    await execFileAsync('git', clone.argv, { timeout: 60000, env: clone.env });
     // an app's folder in a monorepo: that folder too, its blobs in one batch.
     // ponytail: the whole folder, not just its detection files — fine for app
     // code; a folder full of media would make this slow.
@@ -531,6 +545,105 @@ export async function detectFromRepo(
     const dir = path.join(tmp, rootDirectory);
     if (!(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) throw new Error(`No folder ${rootDirectory} in the repository`);
     return await detectProject(dir, undefined, migrations, tmp);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// never an app of its own: dependencies, build output, dot-folders
+const NOT_APP_DIR = /(^|\/)(node_modules|vendor|dist|build|out|\.[^/]+)(\/|$)/;
+const APP_MARKERS = ['package.json', 'composer.json', 'index.html'];
+
+/** Folders with an app marker file, 4 deep at most and capped: a repo of fixtures is not 200 apps. */
+function candidateDirsOf(paths: string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of paths) {
+    if (!APP_MARKERS.includes(path.posix.basename(file))) continue;
+    const dir = file.includes('/') ? path.posix.dirname(file) : '';
+    // ROOT_DIRECTORY_RE: only a folder an app could be created at
+    if (NOT_APP_DIR.test(dir) || dir.split('/').length > 4 || (dir && !ROOT_DIRECTORY_RE.test(dir))) continue;
+    dirs.add(dir);
+    if (dirs.size >= 50) break;
+  }
+  return [...dirs];
+}
+
+/**
+ * The folders of a repository that look like an app of their own, root ('')
+ * first: a package.json with a start/build/dev script, a composer.json, or an
+ * index.html alone (a static site). A workspace root is not one, and neither
+ * is a folder inside an app (CRA's public/index.html). Pure — `packageJson`
+ * reads a folder's parsed package.json, or null.
+ */
+export function appFoldersOf(paths: string[], packageJson: (dir: string) => any): string[] {
+  const files = new Set(paths);
+  const has = (dir: string, name: string) => files.has(dir ? `${dir}/${name}` : name);
+  const isApp = (dir: string) => {
+    if (has(dir, 'composer.json') || !has(dir, 'package.json')) return true;
+    const pkg = packageJson(dir) ?? {};
+    if (!dir && (pkg.workspaces || has('', 'pnpm-workspace.yaml'))) return false;
+    const scripts = pkg.scripts ?? {};
+    return !!(scripts.start || scripts.build || scripts.dev);
+  };
+  const apps = candidateDirsOf(paths).filter(isApp).sort((a, b) => a.localeCompare(b));
+  return apps.filter((dir) => !apps.some((other) => other !== dir && (other === '' || dir.startsWith(`${other}/`))));
+}
+
+export type DetectedApp = { rootDirectory: string; detected: DetectedProject };
+
+/**
+ * A new project's repository, detected in one clone: the root, and every app
+ * in it (a monorepo's). Reads the whole tree (no blobs), then checks out only
+ * the detection files of the root and the folders that look like apps, in one
+ * batch. Lockfiles and secret .env files are known from the tree, never downloaded.
+ */
+export async function detectAppsFromRepo(
+  repository: string,
+  branch = 'main',
+  auth: RemoteAuth = ANONYMOUS,
+): Promise<{ root: DetectedProject; apps: DetectedApp[] }> {
+  const tmp = await sparseClone(repository, branch, auth);
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', tmp, 'ls-tree', '-r', '--name-only', 'HEAD'], {
+      timeout: 30000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const paths = String(stdout).split('\n').filter(Boolean);
+    const tree = new Set(paths);
+    const inDir = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
+
+    // the root's files too, always: a workspace app inherits them (withRootFiles)
+    const wanted = [...new Set(['', ...candidateDirsOf(paths)])].flatMap((dir) =>
+      DETECT_FILES.filter((name) => !presenceOnly(name) && tree.has(inDir(dir, name))).map((name) => `/${inDir(dir, name)}`),
+    );
+    if (wanted.length) {
+      const set = remoteGit(auth, ['-C', tmp, 'sparse-checkout', 'set', '--no-cone', '--', ...wanted]);
+      await execFileAsync('git', set.argv, { timeout: 60000, env: set.env });
+    }
+
+    const packageJson = (dir: string) => {
+      try {
+        return JSON.parse(readFileSync(path.join(tmp, inDir(dir, 'package.json')), 'utf-8'));
+      } catch {
+        return null;
+      }
+    };
+    // presence-only files are in the tree but not on disk
+    const read: ReadText = async (file) => {
+      const rel = path.relative(tmp, file).split(path.sep).join('/');
+      if (!tree.has(rel)) throw new Error('absent');
+      return presenceOnly(path.posix.basename(rel)) ? '' : fs.readFile(file, 'utf-8');
+    };
+
+    const detectAt = (dir: string) =>
+      detectProject(path.join(tmp, dir), read, paths.some((file) => file.startsWith(inDir(dir, 'prisma/migrations/'))), dir ? tmp : undefined);
+
+    // the root as detectFromRepo would see it — the single-app form's — from the same clone
+    const [root, apps] = await Promise.all([
+      detectAt(''),
+      Promise.all(appFoldersOf(paths, packageJson).map(async (dir) => ({ rootDirectory: dir, detected: await detectAt(dir) }))),
+    ]);
+    return { root, apps };
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
