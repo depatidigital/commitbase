@@ -1611,7 +1611,7 @@ const settingsOf = (application: Application) => ({
   port: application?.port?.toString() || '',
 });
 
-function ApplicationSettingsForm({ application, detected }: ApplicationSettingsFormProps) {
+export function ApplicationSettingsForm({ application, detected }: ApplicationSettingsFormProps) {
   const [formData, setFormData] = useState(() => settingsOf(application));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();

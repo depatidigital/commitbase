@@ -8,7 +8,8 @@ import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
 import { AppSetupCard } from "@/components/AppSetupCard";
-import { envWarnings, requiredKeys } from "@/lib/env";
+import { envWarnings, parseDatabaseUrl, requiredKeys } from "@/lib/env";
+import { testDatabaseUrl } from "@/lib/databases";
 import { stripAnsi } from "@/lib/ansi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +34,7 @@ import { SourcePanel } from "@/components/SourcePanel";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
-import { AppWorkspace, Field } from "./ApplicationDetail";
+import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
 import { type Application, type DetectedProject, bindingLabel, deleteApplication, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
@@ -322,7 +323,7 @@ export default function ProjectDetail() {
                     <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </button>
                   </div>
-                  {isOpen(app.id) && <AppQuickEdit appId={app.id} onOpen={() => openApp(app.id)} />}
+                  {isOpen(app.id) && <AppQuickEdit appId={app.id} />}
                 </li>
               );
             })}
@@ -581,7 +582,7 @@ export default function ProjectDetail() {
  * allows — Stop and Restart while it runs, Start when it is stopped. The rest
  * is on its page — the card's › button.
  */
-function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page — where its build settings are edited */ onOpen: () => void }) {
+function AppQuickEdit({ appId }: { appId: string }) {
   const { data: application, isLoading } = useApplication(appId);
   const start = useStartExistingApplication();
   const firstDeploy = useStartApplication();
@@ -592,6 +593,8 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
   const [envOpen, setEnvOpen] = useState(false);
   // its hosts dialog: from the Host card, and from the checklist's Host step
   const [hostsOpen, setHostsOpen] = useState(false);
+  // its build settings, from the checklist's Build step — the form its page has
+  const [buildOpen, setBuildOpen] = useState(false);
   // never deployed, and ours to deploy: its setup checklist, as on its page
   const needsSetup =
     !!application && !(application.type === "STATIC" && !application.repository) && !application.runtime && !hasBeenDeployed(application);
@@ -601,6 +604,16 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
     queryFn: () => getAppDetection(appId),
     enabled: needsSetup,
     staleTime: 5 * 60_000,
+    retry: false,
+  });
+  // before the first deploy, the saved DATABASE_URL tried from the app's node — as its page does, same cache:
+  // a login that fails is said on the checklist, not found in a crashed app's logs
+  const savedDbUrl = application?.envVars?.DATABASE_URL ?? "";
+  const dbCheck = useQuery({
+    queryKey: ["db-check", appId, application?.updatedAt],
+    queryFn: () => testDatabaseUrl(appId, "DATABASE_URL"),
+    enabled: needsSetup && !!parseDatabaseUrl(savedDbUrl).engine,
+    staleTime: 60_000,
     retry: false,
   });
   if (isLoading || !application) {
@@ -646,11 +659,12 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
             detected={detection.data}
             detecting={detection.isLoading}
             env={{ missing, warnings, dirty: false }}
+            dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
             failure={lastFailed || undefined}
             starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
             onDeploy={() => firstDeploy.mutate(application.id)}
             onEditEnv={() => setEnvOpen(true)}
-            onEditBuild={onOpen}
+            onEditBuild={() => setBuildOpen(true)}
           />
         ) : (
         <MiniCard icon={Rocket} title={t("Deployments")}>
@@ -692,6 +706,14 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
           ) : (
             <FreshEnvironment appId={application.id} detected={detection.data} />
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={buildOpen} onOpenChange={setBuildOpen}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{t("Build Settings")} — {application.name}</DialogTitle>
+          </DialogHeader>
+          <ApplicationSettingsForm application={application} detected={detection.data} />
         </DialogContent>
       </Dialog>
       {!needsSetup && (

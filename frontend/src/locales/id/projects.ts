@@ -108,7 +108,7 @@ export default {
   "Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.":
     "Hanya untuk monorepo: folder aplikasi ini, mis. apps/web. Aplikasi lain dari repositori yang sama ditambahkan di halaman proyek.",
   "Apps detected": "Aplikasi terdeteksi",
-  "The start script needs a look — see Build on the app's page.": "Script start perlu dicek — lihat Build di halaman aplikasinya.",
+  "The start script needs a look — open Build.": "Script start perlu dicek — buka Build.",
   "The ticked ones are created with the project. Each gets its hosts and env on its own page.":
     "Yang dicentang dibuat bersama proyek. Host dan env tiap aplikasi diatur di halamannya sendiri.",
 };

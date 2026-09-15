@@ -103,8 +103,18 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
           <Mark done={envDone} warn={dbFailed || env.warnings.length > 0} />
           <span className="shrink-0 font-medium">{t("Environment")}</span>
-          {/* filled but likely wrong on the server: said here too, by count and name */}
-          {!detecting && !env.missing.length && env.warnings.length > 0 ? (
+          {/* tried from the app's node and refused: the one thing to say — the app would fail the same way */}
+          {!detecting && !env.missing.length && dbFailed ? (
+            <span className="min-w-0 truncate text-destructive" title={(dbCheck as { message: string }).message}>
+              {t("DATABASE_URL does not connect: {reason}", { reason: (dbCheck as { message: string }).message })}
+            </span>
+          ) : !detecting && !env.missing.length && dbCheck === "pending" ? (
+            <span className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground">
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+              {t("Testing DATABASE_URL from the app's server…")}
+            </span>
+          ) : /* filled but likely wrong on the server: said here too, by count and name */
+          !detecting && !env.missing.length && env.warnings.length > 0 ? (
             <span className="min-w-0 truncate text-amber-600 dark:text-amber-400" title={env.warnings.join(", ")}>
               {t("{count} to check: {keys}", { count: env.warnings.length, keys: env.warnings.join(", ") })}
               {unconfirmed && ` · ${t("not confirmed yet")}`}
@@ -124,13 +134,11 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           </span>
         </button>
         {/* what needs a look, one line each — the full story is on the app's page */}
-        {(dbFailed || suggestedPreDeploy || buildWarnings.length > 0) && (
+        {(suggestedPreDeploy || buildWarnings.length > 0) && (
           <p className="truncate text-amber-600 dark:text-amber-400">
-            {dbFailed
-              ? t("DATABASE_URL does not connect: {reason}", { reason: (dbCheck as { message: string }).message })
-              : suggestedPreDeploy
-                ? `${t("The repo uses Prisma — run its migrations before the release goes live:")} ${suggestedPreDeploy}`
-                : t("The start script needs a look — see Build on the app's page.")}
+            {suggestedPreDeploy
+              ? `${t("The repo uses Prisma — run its migrations before the release goes live:")} ${suggestedPreDeploy}`
+              : t("The start script needs a look — open Build.")}
           </p>
         )}
         {failure && (
