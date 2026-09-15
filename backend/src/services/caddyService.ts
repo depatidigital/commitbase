@@ -407,9 +407,10 @@ export function buildRoute(names: string | string[], target: Target): any {
       ],
     });
   } else {
+    // Caddy has no "redirect" handler: a redirect is a static response with a Location header
     route.handle.push({
-      handler: 'redirect',
-      location: target.redirectUrl,
+      handler: 'static_response',
+      headers: { Location: [target.redirectUrl] },
       status_code: 308,
     });
   }

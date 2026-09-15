@@ -63,7 +63,7 @@ const bucketRoute = {
 
 const redirectRoute = {
   match: [{ host: ['old.example.com'] }],
-  handle: [{ handler: 'redirect', location: 'https://new.example.com', status_code: 308 }],
+  handle: [{ handler: 'static_response', headers: { Location: ['https://new.example.com'] }, status_code: 308 }],
 };
 
 assert.deepStrictEqual(classifyRoute(runtimeRoute), { type: 'NODEJS', port: 20001 });
