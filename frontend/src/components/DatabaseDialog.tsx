@@ -68,9 +68,9 @@ function Choice<T extends string>({ value, options, onChange }: { value: T; opti
 /**
  * Give an app a database: a new one on a server of your choice, or one the
  * organization already has — a database another app of its project uses comes
- * first, picked when there is one. What will be written is summed up before
- * Connect; the login (a new one for this app, by default) is tucked in that
- * summary. Its URL lands in the app's env server-side (DATABASE_URL); the
+ * first, picked when there is one. Every app connects as the organization's one
+ * login on that server (org_<slug>). What will be written is summed up before
+ * Connect. Its URL lands in the app's env server-side (DATABASE_URL); the
  * password never reaches this page.
  */
 export function DatabaseDialog({ open, onOpenChange, application, currentUrl, alsoKeys = [], onConnected }: DatabaseDialogProps) {
