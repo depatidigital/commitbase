@@ -3,7 +3,6 @@ import { createWriteStream } from 'fs';
 import * as path from 'path';
 import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { uploadBuildLog } from './s3Service';
 import { staticRouteError } from './caddyService';
 import { serveApp, serveStatic } from './hostRouteService';
 import { appBuild, ensureOrgOnNode, sourceTreeUnit } from './orgProvisionService';
@@ -375,8 +374,6 @@ export class DeploymentService {
     await afs.mkdir(logsDir);
     const buildLogPath = join(logsDir, 'build.log');
     const log = (line: string) => afs.appendFile(buildLogPath, line + NL);
-    const uploadLog = () =>
-      afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, deployment.applicationId, deployment.id)).catch(() => {});
     // the release this build is making — removed again if it fails
     let madeRelease: string | null = null;
     // log lines say which app when there are several
@@ -559,12 +556,10 @@ export class DeploymentService {
       }
 
       await log(NL + `[${new Date().toISOString()}] BUILD COMPLETED`);
-      await uploadLog();
       return { success: true, releaseDir, docroots };
     } catch (error: any) {
       const message = error.stderr || error.message || String(error);
       await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message).catch(() => {});
-      await uploadLog();
       // a failed build is never switched to, and node_modules is only ever
       // reused from the live release — its tree is dead weight. The log stays.
       if (madeRelease) await afs.rm(madeRelease, { recursive: true, force: true }).catch(() => {});
@@ -1044,8 +1039,6 @@ export class DeploymentService {
       const sourcesDir = sourcesDirFor(appDir);
       const readLog = (file: string, missing: string) =>
         afs.readText(file).then((text) => (text.trim() ? text : missing), () => missing);
-      const uploadLog = () =>
-        afs.readFile(buildLogPath).then((body) => uploadBuildLog(body, application.id, deployment.id)).catch(() => {});
 
       // Fresh logs for a fresh deployment — each app's start log too, where it has its own
       await afs.writeFile(buildLogPath, '');
@@ -1089,7 +1082,6 @@ export class DeploymentService {
 
       // a source of static sites alone: nothing runs on a node — they switch now
       if (!group.length) {
-        await uploadLog();
         const buildLogs = await readLog(buildLogPath, 'Build logs not available');
         sitesLive = true;
         const deployLogs = await this.switchSites(builtSites);
@@ -1107,7 +1099,6 @@ export class DeploymentService {
 
         if (prebuilt) {
           await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] UPLOADED SOURCES — no build step` + NL);
-          await uploadLog();
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           // no origin = the files never made it to a bucket (the upload failed
@@ -1155,8 +1146,6 @@ export class DeploymentService {
             data: { sourceId: application.sourceId, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
           });
           const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), source: { update: { activeReleaseId: release.id } } };
-
-          await uploadLog();
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           try {
@@ -1185,7 +1174,6 @@ export class DeploymentService {
         } catch (error: any) {
           const message = error.stderr || error.message || String(error);
           await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD FAILED:` + NL + message + NL + NL).catch(() => {});
-          await uploadLog();
 
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
