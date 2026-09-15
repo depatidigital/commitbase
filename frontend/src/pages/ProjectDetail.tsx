@@ -694,7 +694,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
           Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
       {/* items-start: each card as tall as its content — a short host list is not stretched to the checklist */}
       <div className="grid items-start gap-3 md:grid-cols-2">
-        <RoutingCard application={application} compact editOpen={hostsOpen} onEditOpenChange={setHostsOpen} />
+        <RoutingCard application={application} compact editOpen={hostsOpen} onEditOpenChange={setHostsOpen} onChange={() => void refetchApp()} />
         {/* while it deploys, the progress above says what the checklist would */}
         {needsSetup && !inFlight ? (
           <AppSetupCard
@@ -707,7 +707,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
             dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
             failure={lastFailed || undefined}
             starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
-            onDeploy={() => firstDeploy.mutate(application.id)}
+            onDeploy={() => startDeploy(application.id)}
             onEditEnv={() => setEnvOpen(true)}
             onEditBuild={() => setBuildOpen(true)}
           />

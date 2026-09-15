@@ -45,6 +45,7 @@ export function RoutingCard({
   compact = false,
   editOpen: controlledOpen,
   onEditOpenChange,
+  onChange,
 }: {
   application: Application;
   pending?: boolean;
@@ -56,6 +57,8 @@ export function RoutingCard({
   /** the hosts dialog, opened from outside too (the setup checklist's Host step) */
   editOpen?: boolean;
   onEditOpenChange?: (open: boolean) => void;
+  /** after a host is added or removed: the owner reads its app again — its own query, not only the cache's */
+  onChange?: () => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -82,6 +85,7 @@ export function RoutingCard({
         .findAll({ queryKey: ["application", application.id] })
         .map((q) => ({ hash: q.queryHash, observers: q.getObserversCount(), status: q.state.status, fetch: q.state.fetchStatus, domains: (q.state.data as Application | undefined)?.domains?.length })),
     );
+    onChange?.();
     // exact: not its repository detection (a clone) — a host changes nothing there
     await queryClient.invalidateQueries({ queryKey: ["application", application.id], exact: true });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
