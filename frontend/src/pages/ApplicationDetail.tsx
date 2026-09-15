@@ -904,10 +904,10 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                 {(application.domains.length === 1 ? application.domains : application.domains.filter((name) => !hostOk(checkOf(name.host, name.path ?? '')))).map((name) => {
                   const check = checkOf(name.host, name.path ?? '');
                   return (
-                    <div key={name.host}>
+                    <div key={`${name.host}${name.path ?? ""}`}>
                       <Field label={t("Domain")}>
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          <span className="font-mono">{name.host}</span>
+                          <span className="font-mono">{name.host}{name.path && <span className="text-muted-foreground">{name.path}</span>}</span>
                           <a
                             href={`https://${name.host}`}
                             target="_blank"
@@ -947,8 +947,8 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
                       {application.domains
                         .filter((name) => hostOk(checkOf(name.host, name.path ?? '')))
                         .map((name, i, list) => (
-                          <span key={name.host} className="inline-flex items-center gap-1">
-                            {name.host}
+                          <span key={`${name.host}${name.path ?? ""}`} className="inline-flex items-center gap-1">
+                            {name.host}{name.path}
                             <a
                               href={`https://${name.host}`}
                               target="_blank"

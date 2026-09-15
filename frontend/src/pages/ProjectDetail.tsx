@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Trash2, Upload } from "lucide-react";
+import { GitBranch, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Route, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { AppWorkspace } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { deleteApplication, hostList, hostsOf, isPublicHost, repoName } from "@/lib/applications";
+import { bindingLabel, deleteApplication, hostList, hostsOf, isPublicHost, repoName } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
@@ -84,6 +84,15 @@ export default function ProjectDetail() {
     const app = apps.find((a) => a.id === appId)!;
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
   };
+  // every hostname of the project with who answers at which path — the ones split by path, or shared by apps
+  const byHost = new Map<string, Array<{ path: string; app: (typeof apps)[number] }>>();
+  for (const app of apps) for (const d of app.domains) byHost.set(d.host, [...(byHost.get(d.host) ?? []), { path: d.path ?? "", app }]);
+  const longest = (p: string) => p.replace(/\*+$/, "").replace(/\/+$/, "").length;
+  const routedHosts = [...byHost]
+    .filter(([, bindings]) => bindings.length > 1 || bindings.some((b) => b.path))
+    .map(([host, bindings]) => [host, [...bindings].sort((a, b) => (!a.path !== !b.path ? (a.path ? -1 : 1) : longest(b.path) - longest(a.path)))] as const)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const sharedHosts = new Set(routedHosts.map(([host]) => host));
   const live = apps.filter((app) => !app.disabled);
   const online = live.filter((app) => statusOf(app.id).tone === "up").length;
   const imported = project.kind === "IMPORTED";
@@ -216,9 +225,11 @@ export default function ProjectDetail() {
                 <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
                 <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
                 <span className="min-w-0">
-                  <span className="block truncate font-medium" title={hostList(app)}>
-                    {/* every name it answers on, none first */}
-                    {app.domains.every((d) => !isPublicHost(d.host)) ? app.name : hostList(app)}
+                  <span className="block truncate font-medium" title={app.domains.map(bindingLabel).join(", ")}>
+                    {/* its name when it shares a hostname by path (two apps on one name need their names), else its names */}
+                    {app.domains.every((d) => !isPublicHost(d.host)) || app.domains.some((d) => d.path) || sharedHosts.has(app.domains[0]?.host ?? "")
+                      ? app.name
+                      : hostList(app)}
                   </span>
                   {/* a hostname split by path: its other parts */}
                   {parts.length > 1 && (
@@ -233,6 +244,38 @@ export default function ProjectDetail() {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* one hostname, several apps by path: which path goes where, in the order Caddy tries them */}
+      {routedHosts.length > 0 && (
+        <div className="rounded-lg border border-border/60 bg-card p-4">
+          <p className="mb-2 flex items-center gap-2 text-sm font-medium">
+            <Route className="h-4 w-4 text-primary" />
+            {t("Routing")}
+          </p>
+          <div className="space-y-3">
+            {routedHosts.map(([host, bindings]) => (
+              <div key={host} className="text-sm">
+                <p className="font-mono">{host}</p>
+                <ul className="mt-1 space-y-0.5 pl-4">
+                  {bindings.map(({ path, app }) => (
+                    <li key={`${path}${app.id}`} className="flex flex-wrap items-center gap-2 font-mono text-xs">
+                      <span className="w-40 shrink-0 text-muted-foreground">{path || t("everything else")}</span>
+                      <span className="text-muted-foreground">→</span>
+                      <button
+                        type="button"
+                        className={`truncate font-sans text-sm hover:text-primary hover:underline ${app.id === picked?.id ? "font-medium text-primary" : ""}`}
+                        onClick={() => setSearchParams({ app: app.id }, { replace: true })}
+                      >
+                        {app.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

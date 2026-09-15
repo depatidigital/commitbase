@@ -688,6 +688,7 @@ export default {
   "path (optional), e.g. /api/*": "path (opsional), mis. /api/*",
   "A path is like /api/* — or leave it empty for the whole name": "Path seperti /api/* — atau kosongkan untuk seluruh domain",
   "strip prefix": "buang prefix",
+  "everything else": "selain itu",
   "The app gets the path without this prefix: /api/users arrives as /users.": "Aplikasi menerima path tanpa prefix ini: /api/users sampai sebagai /users.",
   "Could not change the binding": "Gagal mengubah binding",
   "{host} added": "{host} ditambahkan",
