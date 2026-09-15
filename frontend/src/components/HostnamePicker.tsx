@@ -46,6 +46,7 @@ export function HostnamePicker({
   organizationId,
   onBlockedChange,
   onConsentChange,
+  onMoveChange,
   root = false,
   onRoot,
   compact = false,
@@ -75,6 +76,8 @@ export function HostnamePicker({
   onBlockedChange?: (blocked: boolean) => void;
   /** true once the user agreed to the DNS change shown — sent with the save as dnsConsent */
   onConsentChange?: (consent: boolean) => void;
+  /** given: a name another visible app has can be moved here — true once agreed, sent as `move` */
+  onMoveChange?: (move: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const picked = choices.find((choice) => choice.name === domain);
@@ -101,9 +104,14 @@ export function HostnamePicker({
   const [agreedFor, setAgreedFor] = useState("");
   const needsConsent = dnsNeedsConsent(current);
   const agreed = needsConsent && agreedFor === host;
-  const blocked = !!host && (settled !== host || checking || !!current?.usedBy || (needsConsent && !agreed));
+  // another app of ours has it: moving it here is agreed to, for this very name
+  const [moveFor, setMoveFor] = useState("");
+  const canMove = !!onMoveChange && !!current?.usedBy?.id;
+  const moving = canMove && moveFor === host;
+  const blocked = !!host && (settled !== host || checking || (!!current?.usedBy && !moving) || (needsConsent && !agreed));
   useEffect(() => onBlockedChange?.(blocked), [blocked, onBlockedChange]);
   useEffect(() => onConsentChange?.(agreed), [agreed, onConsentChange]);
+  useEffect(() => onMoveChange?.(moving), [moving, onMoveChange]);
 
   // compact: just the address; the fields open on "Change" — or by themselves
   // when something needs fixing (a taken name, a missing one)
@@ -244,7 +252,24 @@ export function HostnamePicker({
           {t("Checking {host}…", { host })}
         </p>
       )}
-      {current?.usedBy && (
+      {canMove && current?.usedBy?.id && (
+        // ours to hand over: ticked on purpose, for this very name
+        <label className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
+          <Checkbox
+            checked={moving}
+            onCheckedChange={(checked) => setMoveFor(checked === true ? host : "")}
+            className="mt-0.5"
+          />
+          <span>
+            {t("{host} is already used by", { host })}{" "}
+            <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
+              {current.usedBy.name}
+            </Link>
+            . {t("Move it to this app — {app} stops answering on it.", { app: current.usedBy.name ?? "" })}
+          </span>
+        </label>
+      )}
+      {current?.usedBy && !canMove && (
         <p className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2.5 text-sm text-destructive">
           <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>

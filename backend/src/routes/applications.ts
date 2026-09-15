@@ -1198,12 +1198,32 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     if (at === null) return res.status(400).json({ success: false, error: 'A path is like /api/* — or leave it empty for the whole name' } as ApiResponse);
     const stripPrefix = at !== '' && req.body?.stripPrefix === true;
     const label = `${host}${at}`;
-    if (await appIdAt(host, at)) return res.status(400).json({ success: false, error: `${label} is already in use` } as ApiResponse);
     // a name and its paths belong to one organization
     const otherOrg = await hostRefused(host, application.organizationId);
     if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
 
     const node = await serverForApplication(application.id);
+    // held by another app: taken over only when asked (`move`), from an app of the same organization
+    const holderId = await appIdAt(host, at);
+    let movedFrom: { id: string; name: string } | null = null;
+    if (holderId) {
+      if (holderId === application.id || req.body?.move !== true) {
+        return res.status(400).json({ success: false, error: `${label} is already in use` } as ApiResponse);
+      }
+      const holder = await prisma.application.findFirst({
+        where: { id: holderId, AND: [{ organizationId: application.organizationId }, await orgScope(req)] },
+        select: { id: true, name: true, _count: { select: { domains: true } } },
+      });
+      if (!holder) return res.status(403).json({ success: false, error: `${label} belongs to an app you cannot manage` } as ApiResponse);
+      if (holder._count.domains === 1) {
+        return res.status(400).json({ success: false, error: `${label} is the last host of ${holder.name} — add another one to it first` } as ApiResponse);
+      }
+      // ponytail: same server only; across servers needs the old node's route dropped and DNS repointed
+      if ((await serverForApplication(holder.id)).id !== node.id) {
+        return res.status(400).json({ success: false, error: `${holder.name} runs on another server — ${label} can only move between apps on the same server` } as ApiResponse);
+      }
+      movedFrom = { id: holder.id, name: holder.name };
+    }
     // a name its organization already serves: its zone and DNS are settled; a new one is checked like on create
     const sibling = await prisma.appDomain.findFirst({ where: { host }, select: { domainId: true } });
     let domainId = sibling?.domainId ?? null;
@@ -1219,7 +1239,11 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       domainId = resolved.parent.id;
     }
 
-    await prisma.appDomain.create({ data: { host, path: at, stripPrefix, applicationId: application.id, domainId } });
+    if (movedFrom) {
+      await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { applicationId: application.id, stripPrefix } });
+    } else {
+      await prisma.appDomain.create({ data: { host, path: at, stripPrefix, applicationId: application.id, domainId } });
+    }
     try {
       if (readServe(application.serve)) {
         // known: the name's route composed with it, beside whatever else it serves
@@ -1235,7 +1259,13 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       }
       // else: never deployed — set up before the first deploy, which routes it (serveApp)
     } catch (error: any) {
-      await prisma.appDomain.delete({ where: { host_path: { host, path: at } } });
+      // nothing half-done: a moved name goes back to its app, a new one goes
+      if (movedFrom) {
+        await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { applicationId: movedFrom.id } });
+        await recomposeHosts(node, [host]).catch(() => {});
+      } else {
+        await prisma.appDomain.delete({ where: { host_path: { host, path: at } } });
+      }
       return res.status(502).json({ success: false, error: `${label} could not be routed: ${error?.message ?? error}` } as ApiResponse);
     }
 
@@ -1246,7 +1276,12 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
           (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
         );
     await prisma.log.create({
-      data: { level: 'INFO', message: `${label} added to ${application.name}`, userId: req.user!.userId, applicationId: application.id },
+      data: {
+        level: 'INFO',
+        message: movedFrom ? `${label} moved from ${movedFrom.name} to ${application.name}` : `${label} added to ${application.name}`,
+        userId: req.user!.userId,
+        applicationId: application.id,
+      },
     });
     return res.status(201).json({
       success: true,

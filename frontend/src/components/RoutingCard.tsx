@@ -337,6 +337,7 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   const [path, setPath] = useState("");
   const [hostBlocked, setHostBlocked] = useState(false);
   const [dnsConsent, setDnsConsent] = useState(false);
+  const [move, setMove] = useState(false);
   const [adding, setAdding] = useState(false);
   const picked = choices.find((choice) => choice.name === domain);
   const useRoot = root && !!picked && !picked.shared;
@@ -351,7 +352,11 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
     setAdding(true);
     const label = `${host}${nextPath}`;
     try {
-      const { dns } = await addAppDomain(application.id, { host, path: nextPath, dnsConsent: dnsConsent || undefined });
+      // a move only takes the whole host; a path beside another app's host needs none
+      const moving = move && !nextPath;
+      const { dns } = await addAppDomain(application.id, { host, path: nextPath, dnsConsent: dnsConsent || undefined, move: moving || undefined });
+      // the app it came from lost it
+      if (moving) void queryClient.invalidateQueries({ queryKey: ["application"] });
       const dnsProblem = ["conflict", "unavailable"].includes(dns.state);
       toast(
         dnsProblem
@@ -389,6 +394,7 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
         excludeAppId={application.id}
         onBlockedChange={setHostBlocked}
         onConsentChange={setDnsConsent}
+        onMoveChange={nextPath ? undefined : setMove}
         root={root}
         onRoot={setRoot}
         trailing={

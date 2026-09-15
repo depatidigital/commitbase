@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeftRight, Database as DatabaseIcon, Loader2, Save } from "lucide-react";
+import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
+import { DatabasePick, DatabaseSourceSwitch, type DatabaseSourceMode } from "@/components/DatabaseSource";
 import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
 import { getProject } from "@/lib/projects";
 import { useToast } from "@/hooks/use-toast";
@@ -83,9 +84,10 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   const [dbOpen, setDbOpen] = useState(false);
   // Save asked with something still empty or likely wrong: said before it is saved
   const [confirmSave, setConfirmSave] = useState(false);
-  // DATABASE_URL pointing at one of our databases shows its name, as on the
-  // Database tab — the URL carries the password. "Use a custom URL" edits it.
-  const [customDb, setCustomDb] = useState(false);
+  // The database variable (DATABASE_URL, else the app's first one): one of ours,
+  // picked in the database dialog and shown by name (its URL carries the
+  // password) — or a URL of its own, typed. null: as the value says.
+  const [dbMode, setDbMode] = useState<DatabaseSourceMode | null>(null);
   const { data: appDatabases } = useQuery({
     queryKey: ["databases", "application", application.id],
     queryFn: () => getAppDatabases(application.id),
@@ -121,8 +123,9 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
       return undefined;
     }
   };
-  const shownAsManaged = (row: EnvRow) =>
-    row.key === "DATABASE_URL" && !customDb ? managedDatabase(row.value) : undefined;
+  // as the value says: empty or one of ours → ours; any URL of its own (a local one too — it is
+  // shown, with its warning, not hidden behind a picker) → custom
+  const dbModeOf = (row: EnvRow) => dbMode ?? (!row.value.trim() || managedDatabase(row.value) ? "ours" : "custom");
   // A refetch (a database connected, another tab saved) resets only an untouched
   // form — on a change of what is saved, never on the form turning clean: right
   // after a save the page may still hold the old env, and resetting to it then
@@ -248,50 +251,33 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         required={new Set(missing)}
         locked={locked}
         hints={hints}
-        // the database is how DATABASE_URL gets its value — so it lives on that row;
-        // one of ours already shown by name is changed from its own icon instead
+        // the database variable's row: where its value comes from — one of ours, or a URL typed
         renderAction={(row) =>
-          row.key === databaseAnchor && !shownAsManaged(row) ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => setDbOpen(true)} disabled={saving}>
-              <DatabaseIcon className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">{row.value ? t("Change database") : t("Connect database")}</span>
-            </Button>
+          row.key === databaseAnchor ? (
+            <DatabaseSourceSwitch
+              mode={dbModeOf(row)}
+              disabled={saving}
+              onChange={(mode) => {
+                // one of ours carries its password in the URL: a custom one starts empty, not from it
+                if (mode === "custom" && row.key === "DATABASE_URL" && managedDatabase(row.value)) {
+                  setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, value: "" } : r)));
+                  setDirty(true);
+                }
+                setDbMode(mode);
+              }}
+            />
           ) : null
         }
-        renderValue={(row) => {
-          const db = shownAsManaged(row);
-          if (!db) return null;
-          return (
-            <div className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-muted/40 px-3 text-xs">
-              <DatabaseIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate font-mono">{db.dbName}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                disabled={saving}
-                onClick={() => setDbOpen(true)}
-                title={t("Change database")}
-                aria-label={t("Change database")}
-              >
-                <ArrowLeftRight className="h-3.5 w-3.5" />
-              </Button>
-              <button
-                type="button"
-                className="ml-auto shrink-0 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
-                disabled={saving}
-                onClick={() => {
-                  setCustomDb(true);
-                  setRows((prev) => prev.map((r) => (r.key === "DATABASE_URL" ? { ...r, value: "" } : r)));
-                  setDirty(true);
-                }}
-              >
-                {t("Use a custom URL")}
-              </button>
-            </div>
-          );
-        }}
+        // "ours": the database by name, or a button to pick one; "custom": the plain field
+        renderValue={(row) =>
+          row.key === databaseAnchor && dbModeOf(row) === "ours" ? (
+            <DatabasePick
+              dbName={row.key === "DATABASE_URL" ? managedDatabase(row.value)?.dbName : null}
+              disabled={saving}
+              onPick={() => setDbOpen(true)}
+            />
+          ) : null
+        }
         // the app's own https URL for NEXT_PUBLIC_BASE_URL and friends
         suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
         // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY…)
@@ -308,7 +294,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
       <div className="flex items-center justify-end gap-2">
         {dirty && (
-          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); setCustomDb(false); }} disabled={saving}>
+          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); setDbMode(null); }} disabled={saving}>
             {t("Reset")}
           </Button>
         )}
@@ -368,7 +354,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           const fresh = await getApplication(application.id).catch(() => null);
           const filled = keys.flatMap((key) => (fresh?.envVars?.[key] ? [{ key, value: fresh.envVars[key] }] : []));
           if (filled.length) setRows((prev) => mergeRows(prev, filled, true));
-          setCustomDb(false);
+          // connected to one of ours: shown as such again
+          setDbMode(null);
           await queryClient.invalidateQueries({ queryKey: ["application", application.id] });
           await queryClient.invalidateQueries({ queryKey: ["databases", "application", application.id] });
         }}
