@@ -1,7 +1,6 @@
 import { prisma } from '../lib/prisma';
 import type { SshTarget } from '../lib/runner';
 import { buildRoute, removeCaddySite, setHostRoute, type Target } from './caddyService';
-import { getStaticSiteBaseUrl } from './s3Service';
 
 /**
  * One Caddy route per hostname, composed from every app bound to it
@@ -17,7 +16,6 @@ export type Serve =
   | { kind: 'files'; root: string; spa?: boolean | undefined }
   | { kind: 'php'; root: string; socket: string }
   | { kind: 'bucket'; origin: string }
-  | { kind: 'redirect'; url: string }
   /** nothing deployed yet: the "ready, waiting for its first deploy" page */
   | { kind: 'placeholder' };
 
@@ -32,7 +30,6 @@ export function readServe(raw: unknown): Serve | null {
   if (s.kind === 'files' && typeof s.root === 'string' && s.root.startsWith('/')) return { kind: 'files', root: s.root, spa: s.spa === true };
   if (s.kind === 'php' && typeof s.root === 'string' && typeof s.socket === 'string') return { kind: 'php', root: s.root, socket: s.socket };
   if (s.kind === 'bucket' && typeof s.origin === 'string' && s.origin) return { kind: 'bucket', origin: s.origin };
-  if (s.kind === 'redirect' && typeof s.url === 'string' && s.url) return { kind: 'redirect', url: s.url };
   if (s.kind === 'placeholder') return { kind: 'placeholder' };
   return null;
 }
@@ -60,9 +57,7 @@ export function serveHandle(serve: Serve): any[] {
           ? { type: 'php', root: serve.root, socket: serve.socket }
           : serve.kind === 'bucket'
             ? { type: 'bucket', origin: serve.origin }
-            : serve.kind === 'placeholder'
-              ? { type: 'placeholder' }
-              : { type: 'static', redirectUrl: serve.url };
+            : { type: 'placeholder' };
   return buildRoute('_', target).handle;
 }
 
@@ -136,15 +131,11 @@ export async function serveApp(node: SshTarget, applicationId: string, serve: Se
 }
 
 /**
- * A static site's serve: its R2 bucket origin; else, for a site deployed
- * before R2, a redirect to its old S3 prefix; never deployed: the placeholder
- * page — an empty S3 prefix only answers AccessDenied.
+ * A static site's serve: its files in R2 (the object storage set in the admin
+ * settings); nothing published yet: the placeholder page.
  */
 export async function serveStatic(node: SshTarget, applicationId: string, origin: string | null | undefined): Promise<void> {
-  if (origin) return serveApp(node, applicationId, { kind: 'bucket', origin });
-  const deployed = await prisma.deployment.count({ where: { applicationId, status: 'SUCCESS' } });
-  const url = deployed ? getStaticSiteBaseUrl(applicationId) : null;
-  await serveApp(node, applicationId, url ? { kind: 'redirect', url } : { kind: 'placeholder' });
+  await serveApp(node, applicationId, origin ? { kind: 'bucket', origin } : { kind: 'placeholder' });
 }
 
 /** Hostnames no app but `applicationId` is bound to — the ones whose DNS record may go with it. */

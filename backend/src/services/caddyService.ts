@@ -1,5 +1,4 @@
 import * as http from 'http';
-import { getStaticSiteBaseUrl } from './s3Service';
 import { forwardTcp, type SshTarget } from '../lib/runner';
 
 /**
@@ -73,11 +72,6 @@ type RuntimeTarget = {
   upstreamPort: number;
 };
 
-type StaticTarget = {
-  type: 'static';
-  redirectUrl: string;
-};
-
 // R2-backed site: Caddy proxies the hostname to the bucket's public host and
 // Cloudflare caches the answers at the edge.
 type BucketTarget = {
@@ -121,7 +115,7 @@ type PlaceholderTarget = {
   type: 'placeholder';
 };
 
-export type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget | ComposedTarget | PlaceholderTarget;
+export type Target = RuntimeTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget | ComposedTarget | PlaceholderTarget;
 
 /** The page a host shows before its app's first deploy — self-contained, no assets to fetch. */
 const PLACEHOLDER_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{http.request.host}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a}main{text-align:center;padding:24px}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#64748b}span{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:8px}</style></head><body><main><h1><span></span>{http.request.host} is ready</h1><p>The site is set up and waiting for its first deploy.</p></main></body></html>`;
@@ -422,13 +416,6 @@ export function buildRoute(names: string | string[], target: Target): any {
         },
       ],
     });
-  } else {
-    // Caddy has no "redirect" handler: a redirect is a static response with a Location header
-    route.handle.push({
-      handler: 'static_response',
-      headers: { Location: [target.redirectUrl] },
-      status_code: 308,
-    });
   }
 
   return route;
@@ -551,32 +538,6 @@ async function changeRoutesUnlocked(node: SshTarget, change: RouteChange): Promi
 }
 
 const setRoute = (node: SshTarget, hosts: string[], target: Target) => changeRoutes(node, { set: hosts, target });
-
-export async function configureCaddyForStaticApplication(
-  node: SshTarget,
-  applicationId: string,
-  hosts: string[],
-  bucketOrigin?: string | null
-): Promise<void> {
-  // R2-backed sites are proxied; older ones still redirect to their S3 URL
-  if (bucketOrigin) {
-    await setRoute(node, hosts, {
-      type: 'bucket',
-      origin: bucketOrigin,
-    });
-    return;
-  }
-
-  const redirectUrl = getStaticSiteBaseUrl(applicationId);
-  if (!redirectUrl) {
-    return;
-  }
-
-  await setRoute(node, hosts, {
-    type: 'static',
-    redirectUrl,
-  });
-}
 
 /** A static site whose files uploaded but whose route did not: it is down. */
 export const staticRouteError = (error: any): string =>
