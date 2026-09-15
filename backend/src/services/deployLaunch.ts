@@ -74,7 +74,7 @@ export async function launchDeploy(
     application,
     deployment,
     envVars: readEnv(application.envVars),
-    resolveMigration,
+    ...(resolveMigration && { resolveMigration }),
   }).then(async (result) => {
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did
