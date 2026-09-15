@@ -73,14 +73,14 @@ export default function ProjectDetail() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ["project", id],
     queryFn: () => getProject(id),
-    refetchInterval: (q) => (q.state.data?.status === "DEPLOYING" ? 3_000 : 20_000),
+    refetchInterval: (q) => (q.state.data?.status === "DEPLOYING" ? 3_000 : 10_000),
   });
   const appIds = project?.applications.map((app) => app.id) ?? [];
   const { data: healthById = {} } = useQuery({
     queryKey: ["applications", "health", appIds],
     queryFn: () => getApplicationHealth(appIds),
     enabled: appIds.length > 0,
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
   });
 
   // delete the project = delete every app of it, one after the other

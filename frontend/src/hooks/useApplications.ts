@@ -48,6 +48,8 @@ export const useApplication = (id: string) => {
     queryFn: () => getApplication(id),
     enabled: !!id,
     staleTime: 30000, // 30 seconds
+    // its status moves on its own (a deploy ending, a crash, a restart): kept current while the page is open
+    refetchInterval: (q) => (['DEPLOYING', 'BUILDING'].includes(q.state.data?.status ?? '') ? 3_000 : 10_000),
   });
 };
 

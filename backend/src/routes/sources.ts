@@ -283,7 +283,7 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
     const managed = source.applications.find((app) => !app.runtime);
     const checkout = managed
       ? await sourceFsFor(managed.id)
-          .then((afs) => afs.run(['git', 'rev-parse', 'HEAD'], { cwd: afs.sourcesDir }))
+          .then((afs) => afs.run(['git', 'rev-parse', 'HEAD'], { cwd: afs.sourcesDir, timeout: 15_000 }))
           .then(({ stdout }) => stdout.trim() || null)
           .catch(() => null)
       : null;
