@@ -886,6 +886,33 @@ export class DeploymentService {
 
     await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);
 
+    // What the build leaves in the checkout goes once the output is in R2, built or
+    // not: node_modules (npm ci wipes and reinstalls it every time anyway — the npm
+    // cache keeps that fast) and the output folder. The checkout stays as cloned,
+    // so two sites of one project never trip over each other's install.
+    const leftovers = [join(workDir, 'node_modules'), ...(detected.installAtRoot ? [join(sourcesDir, 'node_modules')] : [])];
+    const sweep = () => Promise.all(leftovers.map((p) => afs.rm(p, { recursive: true, force: true }).catch(() => {})));
+    try {
+      return await this.buildAndUploadStatic(application, afs, deploymentId, envVars, buildLogPath, sourcesDir, workDir, detected, install, build, leftovers);
+    } finally {
+      await sweep();
+    }
+  }
+
+  private async buildAndUploadStatic(
+    application: AppWithOrg,
+    afs: AppFs,
+    deploymentId: string,
+    envVars: Record<string, string>,
+    buildLogPath: string,
+    sourcesDir: string,
+    workDir: string,
+    detected: DetectedProject,
+    install: string,
+    build: string,
+    leftovers: string[],
+  ): Promise<{ bucket: string; origin: string; folder: string }> {
+    const steps = [install, build].filter(Boolean);
     if (steps.length > 0) {
       // streamed into build.log as it prints, so the app page can follow it
       // ponytail: tenant build code on the panel as the backend user. Move
@@ -915,6 +942,8 @@ export class DeploymentService {
     if (!distDir) {
       throw new Error(`Static build directory not found (looked for ${distCandidates.join(', ')})`);
     }
+    // a build's output is a leftover too — not a repo published as-is, whose "output" is its files
+    if (steps.length > 0 && distDir !== workDir) leftovers.push(distDir);
 
     const { bucket, origin } = await siteStorage(application as any);
     // a release row for files from before releases, so there is something to roll back to
