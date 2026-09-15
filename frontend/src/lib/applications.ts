@@ -273,19 +273,33 @@ export const startPm2Build = async (id: string, consent: boolean): Promise<strin
   throw new Error(response.error || t("Could not start the build"));
 };
 
-/** One more name for the app, routed as its others. `dnsConsent`: the user agreed to the DNS change shown. */
-export const addAppDomain = async (id: string, host: string, dnsConsent?: boolean): Promise<{ host: string; dns: DnsOutcome; message?: string }> => {
-  const response = await apiRequest<{ host: string; dns: DnsOutcome }>(`/applications/${id}/domains`, {
+/**
+ * Bind the app to one more hostname, or a path under one (`/api/*`), routed
+ * beside whatever else answers on that name. `dnsConsent`: the user agreed to
+ * the DNS change shown (a name new to the platform).
+ */
+export const addAppDomain = async (
+  id: string,
+  binding: { host: string; path?: string; stripPrefix?: boolean; dnsConsent?: boolean },
+): Promise<{ host: string; path: string; dns: DnsOutcome; message?: string }> => {
+  const response = await apiRequest<{ host: string; path: string; dns: DnsOutcome }>(`/applications/${id}/domains`, {
     method: 'POST',
-    body: JSON.stringify({ host, dnsConsent }),
+    body: JSON.stringify(binding),
   });
   if (response.success && response.data) return { ...response.data, message: response.message };
   throw new Error(response.error || t("Could not add the domain"));
 };
 
-/** Take a name off the app: no longer routed, its record pointing here removed. Never the last one. */
-export const removeAppDomain = async (id: string, host: string): Promise<void> => {
-  const response = await apiRequest(`/applications/${id}/domains/${encodeURIComponent(host)}`, { method: 'DELETE' });
+/** Hand the app its path with or without the prefix (`/api/users` or `/users`). */
+export const setBindingStripPrefix = async (id: string, host: string, path: string, stripPrefix: boolean): Promise<void> => {
+  const response = await apiRequest(`/applications/${id}/domains`, { method: 'PATCH', body: JSON.stringify({ host, path, stripPrefix }) });
+  if (!response.success) throw new Error(response.error || t("Could not change the binding"));
+};
+
+/** Take a binding off the app: no longer routed; a name nothing else answers on loses its record. Never the last one. */
+export const removeAppDomain = async (id: string, host: string, path = ''): Promise<void> => {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  const response = await apiRequest(`/applications/${id}/domains/${encodeURIComponent(host)}${query}`, { method: 'DELETE' });
   if (!response.success) throw new Error(response.error || t("Could not remove the domain"));
 };
 
