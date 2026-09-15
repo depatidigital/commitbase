@@ -1,12 +1,7 @@
 import { ArrowLeftRight, Database as DatabaseIcon, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { databaseAddress } from "@/lib/env";
 import { t } from "@/lib/i18n";
-
-/** `postgresql://user:pass@db.host:5432/shop?x` → `db.host:5432/shop` — never the credentials. Pure. */
-export function databaseAddress(url: string): string {
-  const rest = url.split("://")[1] ?? url;
-  return rest.slice(rest.lastIndexOf("@") + 1).split(/[?#]/)[0] ?? "";
-}
 
 /**
  * DATABASE_URL's value, as what it is — one of the organization's databases

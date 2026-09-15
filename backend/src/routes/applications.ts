@@ -1242,8 +1242,14 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     } else {
       await prisma.appDomain.create({ data: { host, path: at, stripPrefix, applicationId: application.id, domainId } });
     }
+    // a panel app never deployed: nothing of it to serve yet (an imported one has a runtime, and its own route)
+    const neverDeployed =
+      !application.runtime && !(await prisma.deployment.count({ where: { applicationId: application.id, status: 'SUCCESS' } }));
     try {
-      if (readServe(application.serve)) {
+      if (neverDeployed) {
+        // the "ready, waiting for its first deploy" page until then — the deploy routes it for real (serveApp)
+        await serveApp(node, application.id, { kind: 'placeholder' });
+      } else if (readServe(application.serve)) {
         // known: the name's route composed with it, beside whatever else it serves
         await recomposeHosts(node, [host]);
       } else if (application.runtime) {
@@ -1254,9 +1260,6 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
         if (beside) await addCaddyHost(node, beside, host);
       } else if (application.status === 'RUNNING') {
         await deploymentService.applyCaddyRoute(application);
-      } else if (!(await prisma.deployment.count({ where: { applicationId: application.id, status: 'SUCCESS' } }))) {
-        // never deployed: the "ready, waiting for its first deploy" page until then — the deploy routes it for real (serveApp)
-        await serveApp(node, application.id, { kind: 'placeholder' });
       }
     } catch (error: any) {
       // nothing half-done: a moved name goes back to its app, a new one goes

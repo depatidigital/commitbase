@@ -498,6 +498,12 @@ export default {
   "Larika database": "Database Larika",
   Custom: "Kustom",
   "Pick a database…": "Pilih database…",
+  "Custom URL": "URL kustom",
+  "Connection URL": "URL koneksi",
+  "Use this URL": "Pakai URL ini",
+  "A postgresql:// or mysql:// URL.": "Isi URL postgresql:// atau mysql://.",
+  "Tried from the app's server. It goes in the form — saved with the rest of the environment.":
+    "Diuji dari server aplikasi. Masuk ke form — tersimpan bersama environment lainnya.",
   "Set by Larika when the app starts.": "Diisi oleh Larika saat aplikasi berjalan.",
   "Saved empty — on purpose": "Disimpan kosong — disengaja",
   "None yet — add one; the env's addresses are these.": "Belum ada — tambahkan dulu; alamat di env mengikuti host ini.",

@@ -107,6 +107,12 @@ export function databaseNameOf(url?: string): string | undefined {
   }
 }
 
+/** `postgresql://user:pass@db.host:5432/shop?x` → `db.host:5432/shop` — never the credentials. Pure. */
+export function databaseAddress(url: string): string {
+  const rest = url.split("://")[1] ?? url;
+  return rest.slice(rest.lastIndexOf("@") + 1).split(/[?#]/)[0] ?? "";
+}
+
 export function parseDatabaseUrl(url?: string): { engine?: "POSTGRESQL" | "MYSQL"; name?: string } {
   const scheme = (url ?? "").match(/^([a-z][a-z0-9+.-]*):\/\//i)?.[1]?.toLowerCase();
   if (!scheme) return {};
