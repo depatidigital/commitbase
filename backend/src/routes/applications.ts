@@ -28,7 +28,7 @@ import { hostsOnlyOf, normalizeBindingPath, readServe, recomposeHosts, serveApp,
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, healthPath, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
-import { forgetPointing, healthFor } from '../services/heartbeatService';
+import { forgetPointing, healthFor, isServing } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
