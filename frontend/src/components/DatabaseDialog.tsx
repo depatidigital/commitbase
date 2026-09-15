@@ -268,7 +268,10 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                     onChange={(e) => setName(e.target.value.toLowerCase())}
                   />
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">{t("Lowercase letters, digits and underscores.")}</p>
+                {/* the rule, only when it is broken */}
+                {name && !/^[a-z][a-z0-9_]{0,40}$/.test(name) && (
+                  <p className="mt-1 text-xs text-destructive">{t("Lowercase letters, digits and underscores.")}</p>
+                )}
               </div>
             </div>
           ) : existing.isLoading ? (
@@ -322,10 +325,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           {loginServerId && (
             <div className="grid gap-3 sm:grid-cols-[8.5rem_1fr] sm:items-center">
               <Label className="text-muted-foreground">{t("Login")}</Label>
-              <p className="text-sm">
-                <span className="font-mono">{orgLogin}</span>
-                <span className="text-muted-foreground"> · {t("the organization's login, shared by its apps")}</span>
-              </p>
+              <p className="font-mono text-sm">{orgLogin}</p>
             </div>
           )}
 

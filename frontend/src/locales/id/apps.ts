@@ -559,7 +559,6 @@ export default {
   "used by {apps} (this project)": "dipakai {apps} (proyek ini)",
   "What will be written": "Yang akan ditulis",
   "Connects as {login}.": "Tersambung sebagai {login}.",
-  "the organization's login, shared by its apps": "login organisasi, dipakai bersama aplikasinya",
   "Could not test the connection": "Koneksi tidak bisa dites",
   "Cancelling the deployment…": "Membatalkan deployment…",
   "Could not cancel the deployment": "Deployment tidak bisa dibatalkan",
