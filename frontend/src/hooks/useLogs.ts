@@ -70,24 +70,25 @@ const MAX_LIVE_LINES = 2000;
  * rather than EventSource, which cannot send the Authorization header. A stream
  * the server ends is reopened after 3s; a refused one (too many streams) is not.
  */
-export const useLiveLogs = (applicationId: string, logType: string, lines: number, enabled: boolean) => {
+export const useLiveLogs = (applicationId: string, logType: string, lines: number, enabled: boolean) =>
+  useLogStream(applicationId ? `/logs/application/${applicationId}/stream?type=${logType}&lines=${lines}` : null, enabled);
+
+/** Any log stream of the API (`path`, e.g. a project's), followed as above. */
+export const useLogStream = (path: string | null, enabled: boolean) => {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || !applicationId) return;
+    if (!enabled || !path) return;
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
 
     const connect = async () => {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/logs/application/${applicationId}/stream?type=${logType}&lines=${lines}`,
-          {
-            headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
-            signal: controller.signal,
-          }
-        );
+        const response = await fetch(`${API_BASE_URL}${path}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
+          signal: controller.signal,
+        });
         if (!response.ok || !response.body) {
           const body = await response.json().catch(() => null);
           setError(body?.error || t('Failed to fetch logs'));
@@ -121,7 +122,7 @@ export const useLiveLogs = (applicationId: string, logType: string, lines: numbe
       controller.abort();
       clearTimeout(retry);
     };
-  }, [applicationId, logType, lines, enabled]);
+  }, [path, enabled]);
 
   return { text, error };
 };

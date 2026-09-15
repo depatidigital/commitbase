@@ -190,39 +190,120 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
       return res.status(400).json({ success: false, error: 'Live logs are not available for this app' } as ApiResponse);
     }
 
-    const open = openStreams.get(server.id) ?? 0;
-    if (open >= MAX_STREAMS_PER_SERVER) {
-      return res.status(429).json({ success: false, error: 'Too many live log streams on this server — close another one' } as ApiResponse);
-    }
-    openStreams.set(server.id, open + 1);
-
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      // no-transform: compression() (and any proxy) would gzip-buffer the stream to nothing
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    // JSON-encoded so a chunk's own newlines cannot break the event framing
-    const send = (text: string) => res.write(`data: ${JSON.stringify(text)}\n\n`);
-
-    const controller = new AbortController();
-    res.on('close', () => controller.abort());
-    const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
-    const cap = setTimeout(() => controller.abort(), STREAM_MAX_MS);
-
-    try {
-      await follow(send, controller.signal);
-    } catch (err: any) {
-      if (!controller.signal.aborted) send(`\n[log stream ended: ${err?.message || err}]\n`);
-    } finally {
-      clearInterval(heartbeat);
-      clearTimeout(cap);
-      openStreams.set(server.id, (openStreams.get(server.id) ?? 1) - 1);
-    }
-    return res.end();
+    return await streamFollows(res, server, [follow]);
   } catch (error) {
     console.error('Error streaming logs:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+    return res.end();
+  }
+});
+
+type Follow = (send: (text: string) => void, signal: AbortSignal) => Promise<unknown>;
+
+/**
+ * Run `follows` on `server` as one Server-Sent Events response, each holding
+ * one SSH channel of it: refused when that would pass the server's cap, ended
+ * when the client leaves or after STREAM_MAX_MS.
+ */
+async function streamFollows(res: Response, server: SshTarget, follows: Follow[]) {
+  const open = openStreams.get(server.id) ?? 0;
+  if (open + follows.length > MAX_STREAMS_PER_SERVER) {
+    return res.status(429).json({ success: false, error: 'Too many live log streams on this server — close another one' } as ApiResponse);
+  }
+  openStreams.set(server.id, open + follows.length);
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    // no-transform: compression() (and any proxy) would gzip-buffer the stream to nothing
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  // JSON-encoded so a chunk's own newlines cannot break the event framing
+  const send = (text: string) => res.write(`data: ${JSON.stringify(text)}\n\n`);
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
+  const cap = setTimeout(() => controller.abort(), STREAM_MAX_MS);
+
+  try {
+    await Promise.all(
+      follows.map((follow) =>
+        follow(send, controller.signal).catch((err: any) => {
+          if (!controller.signal.aborted) send(`\n[log stream ended: ${err?.message || err}]\n`);
+        }),
+      ),
+    );
+  } finally {
+    clearInterval(heartbeat);
+    clearTimeout(cap);
+    openStreams.set(server.id, (openStreams.get(server.id) ?? follows.length) - follows.length);
+  }
+  return res.end();
+}
+
+/** Every whole line of a stream, as `name | line` — its app said on each, like pm2 does. */
+function tagLines(name: string, send: (text: string) => void) {
+  let partial = '';
+  return (text: string) => {
+    const lines = (partial + text).split('\n');
+    partial = lines.pop() ?? '';
+    if (lines.length) send(lines.map((line) => `${name} | ${line}\n`).join(''));
+  };
+}
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A project's log, live: every app of it that has one (or `?app=` for one),
+ * as Server-Sent Events. Its pm2 apps are followed as one — `pm2 logs` with a
+ * regex of their names, each line keeping pm2's `0|name |` — and each app the
+ * panel runs as a unit on its own, its lines tagged with its name. All on the
+ * project's one node.
+ */
+router.get('/project/:sourceId/stream', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const type = (['combined', 'out', 'error'] as const).find((t) => t === req.query.type) ?? 'combined';
+    const lines = Math.min(Math.max(parseInt(req.query.lines as string) || 100, 1), 2000);
+    const apps = await prisma.application.findMany({
+      where: { sourceId: req.params.sourceId as string, ...(await orgScope(req)) },
+      select: { id: true, name: true, type: true, runtime: true, processName: true, serverId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (apps.length === 0) return res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
+    const wanted = req.query.app ? apps.filter((app) => app.id === req.query.app) : apps;
+
+    const pm2Apps = wanted.filter((app) => app.runtime === 'PM2' && app.processName && app.serverId);
+    const unitApps = wanted.filter((app) => !app.runtime && systemd.needsUnit(app.type));
+    const follows: Follow[] = [];
+    let server: SshTarget | null = null;
+
+    if (pm2Apps.length) {
+      const pm2Server = await prisma.server.findUnique({ where: { id: pm2Apps[0]!.serverId! } });
+      if (!pm2Server) return res.status(409).json({ success: false, error: 'These pm2 apps are not linked to a server — re-sync them' } as ApiResponse);
+      server = pm2Server;
+      const names = [...new Set(pm2Apps.map((app) => app.processName!))];
+      // one name, or pm2's /regex/ form for several — anchored, so no other process of the server matches
+      const target = names.length === 1 ? names[0]! : `/^(${names.map(escapeRegex).join('|')})$/`;
+      follows.push((send, signal) => followPm2Logs(pm2Server, target, type, lines, send, signal));
+    }
+    for (const app of unitApps) {
+      const afs = await appFsFor(app.id);
+      if (!afs.node) continue;
+      server ??= afs.node;
+      const node = afs.node;
+      follows.push((send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, tagLines(app.name, send), signal));
+    }
+    if (!server || follows.length === 0) {
+      return res.status(400).json({ success: false, error: 'Live logs are not available for these apps' } as ApiResponse);
+    }
+
+    return await streamFollows(res, server, follows);
+  } catch (error) {
+    console.error('Error streaming project logs:', error);
     if (!res.headersSent) {
       return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
     }

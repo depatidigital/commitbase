@@ -684,7 +684,6 @@ export default {
   "Caddy (reverse proxy)": "Caddy (reverse proxy)",
   // routing: host (or host/path) → app (RoutingCard)
   "Add route": "Tambah rute",
-  "A host, or a path under one, that goes to {app}.": "Host, atau path di bawah host, yang diteruskan ke {app}.",
   "It goes to {app}.": "Diteruskan ke {app}.",
   "Could not add the route": "Gagal menambahkan rute",
   "Could not remove the route": "Gagal menghapus rute",

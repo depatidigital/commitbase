@@ -48,8 +48,11 @@ import {
   KeyRound,
   MoreHorizontal,
   Rocket,
-  Undo2
+  Undo2,
+  Pencil,
+  X
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -181,7 +184,7 @@ export function AppWorkspace({
   appId: string;
   embedded?: boolean;
   onProjectTab?: (tab: "deployments") => void;
-  /** the project's right panel: the app's state and actions render there */
+  /** in a project, beside the app's breadcrumb: its actions render there, without the status card */
   panelSlot?: HTMLElement | null;
 }) {
   const id = appId;
@@ -191,7 +194,24 @@ export function AppWorkspace({
 
   // State
   const [activeTab, setTab] = useState("overview");
-  const setActiveTab = (tab: string) => (onProjectTab && tab === "deployments" ? onProjectTab(tab) : setTab(tab));
+  // in a project the app is one page of sections, not tabs (the project has the tabs): "go to" scrolls there
+  const stacked = !!onProjectTab;
+  // stacked: env and build are shown read-only, edited in dialogs
+  const [envOpen, setEnvOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
+  const setActiveTab = (tab: string) => {
+    if (onProjectTab && tab === "deployments") onProjectTab(tab);
+    else if (stacked && tab === "environment") setEnvOpen(true);
+    else if (stacked && tab === "build") setBuildOpen(true);
+    else if (stacked) document.getElementById(`app-section-${tab}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    else setTab(tab);
+  };
+  // each section of the page: always rendered when stacked — a cell of the page's two-column grid
+  // (`wide`: both columns), reachable by its id
+  const section = (name: string, wide = true) =>
+    stacked
+      ? { forceMount: true as const, id: `app-section-${name}`, className: `mt-0 scroll-mt-4 space-y-6 ${wide ? "md:col-span-2" : ""}` }
+      : { className: "space-y-6" };
   const [selectedLogType, setSelectedLogType] = useState("combined");
   const [logLines, setLogLines] = useState(100);
   const [showRawLogs, setShowRawLogs] = useState(false);
@@ -487,6 +507,132 @@ export function AppWorkspace({
   const releases = releaseData?.releases ?? [];
   const servingAt = releases.findIndex((release) => release.id === releaseData?.activeReleaseId);
   const previousRelease = servingAt < 0 ? undefined : releases.slice(servingAt + 1).find((release) => release.status === 'READY');
+  // what it runs on: runtime, proxy target, hosting, directory — the overview's lines, in either layout
+  const runsOn = (
+    <>
+      <Field label={t("Runtime")}>
+        {/* decides how it stops and what removing it touches on the box */}
+        <span className="inline-flex flex-wrap items-center justify-end gap-2">
+          <Badge variant="outline" className={application.runtime ? "border-warning/50 text-warning" : undefined}>
+            {runtimeLabel(application.runtime)}
+          </Badge>
+          {application.processName && <span className="font-mono text-xs text-muted-foreground">{application.processName}</span>}
+        </span>
+        {application.configPath && <span className="block break-all font-mono text-xs text-muted-foreground">{application.configPath}</span>}
+      </Field>
+      {/* where Caddy sends the traffic — loopback on the node, never public */}
+      {application.port && (
+        <Field label={t("Proxy target")}>
+          <span className="font-mono text-xs">127.0.0.1:{application.port}</span>
+          {/* the sync's ERROR for a proxy means exactly this */}
+          {application.runtime === "CADDY_PROXY" && application.status === "ERROR" && (
+            <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive" title={t("Nothing was listening on this port at the last sync")}>
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              {t("Port not listening")}
+            </span>
+          )}
+        </Field>
+      )}
+      {isStatic && (
+        <Field label={t("Hosting")}>
+          {/* where the files actually are: an R2 bucket once uploaded, the old S3 prefix only for sites deployed before R2 */}
+          {application.staticBucket ? (
+            <>
+              Cloudflare R2 <span className="break-all font-mono text-xs text-muted-foreground">· {application.staticBucket}</span>
+            </>
+          ) : application.staticSiteUrl ? (
+            <span title={application.staticSiteUrl}>{t("Object storage (S3, legacy)")}</span>
+          ) : (
+            <span className="text-muted-foreground">{t("No files uploaded yet")}</span>
+          )}
+        </Field>
+      )}
+      {/* a bucket-served site has no directory on a node; a static site served from disk (imported) does */}
+      {(!isStatic || (!application.staticBucket && application.rootPath)) && (
+        <Field label={t("Directory")}>
+          <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
+          {folder.data?.exists === false && (
+            <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              {t("Not on the server")}
+            </span>
+          )}
+        </Field>
+      )}
+    </>
+  );
+  // how it is built and run
+  const commands = (
+    <>
+      {application.repository && (
+        <Field label={t("Build Command")}>
+          <span className="font-mono text-xs">{application.buildCommand || t("Not configured")}</span>
+        </Field>
+      )}
+      {!isStatic && (
+        <Field label={t("Start Command")}>
+          {application.runtime === "PM2" && application.processName ? (
+            // pm2 keeps the command: it is started and restarted by its name, which is what Restart here runs
+            <>
+              <span className="font-mono text-xs">pm2 restart {application.processName}</span>
+              {application.startCommand && (
+                <span className="block break-all font-mono text-[11px] text-muted-foreground" title={t("What pm2 runs")}>
+                  {t("runs")}: {application.startCommand}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="font-mono text-xs">{application.startCommand || t("Not configured")}</span>
+          )}
+        </Field>
+      )}
+    </>
+  );
+  // in a project, beside its cards: what it is, read-only — its hosts, type, and what it runs on
+  const summaryCard = (
+    <Card className="bg-gradient-card border-border/50">
+      <CardHeader className="pb-0">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Info className="h-4 w-4 text-primary" />
+          {t("Summary")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-2 pb-2">
+        <Field label={t("Host")}>
+          {application.domains.map((d) => (
+            <a
+              key={`${d.host}${d.path ?? ""}`}
+              href={`https://${d.host}${d.path ? d.path.replace(/\*+$/, "") : ""}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block break-all font-mono text-xs hover:text-primary"
+            >
+              {d.host}
+              {d.path && <span className="text-muted-foreground">{d.path}</span>}
+            </a>
+          ))}
+        </Field>
+        <Field label={t("Type")}>
+          <Badge variant="secondary" className="text-xs">
+            {isStatic ? t("Static Site") : application.type}
+          </Badge>
+        </Field>
+        {runsOn}
+      </CardContent>
+    </Card>
+  );
+  const dnsFix = elsewhere && (
+    <DnsFixCard
+      host={elsewhereHost ?? hosts[0] ?? ""}
+      pointing={checkOf(elsewhereHost ?? "")?.pointing ?? null}
+      dnsManaged={!!checkOf(elsewhereHost ?? "")?.dnsManaged}
+      portDead={application.runtime === "CADDY_PROXY" && application.status === "ERROR"}
+      port={application.port}
+      canManage={isAdmin()}
+      pending={setupDns.isPending}
+      onRepoint={() => setRepointHost(elsewhereHost ?? hosts[0] ?? null)}
+    />
+  );
 
   return (
     <TooltipProvider>
@@ -538,10 +684,10 @@ export function AppWorkspace({
 
         {/* the tabs, with a control panel beside them: what the app is doing
             and what can be done to it, always in view instead of stacked on top */}
-        {/* in a project the control panel goes to the project's right panel (`panelSlot`) — one column here */}
-        <div className={`grid items-start gap-6 ${panelSlot ? "" : "lg:grid-cols-[minmax(0,1fr)_18rem]"}`}>
-        {toPanel(
-        <aside className={panelSlot ? "space-y-4" : "space-y-4 lg:sticky lg:top-4 lg:order-last"}>
+        {/* in a project only its actions show, as a row beside the breadcrumb (`panelSlot`) — the
+            project's status card says how each app stands — and the page is one column */}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:order-last">
         <Card className={`bg-gradient-card ${failureReason ? "border-destructive/40" : "border-border/50"}`}>
           <CardContent className="space-y-4 p-4">
             <div className="flex min-w-0 items-start gap-3">
@@ -557,8 +703,6 @@ export function AppWorkspace({
                 )}
               </div>
               <div className="min-w-0">
-                {/* in the project's panel, beside any of its tabs: say which app this is */}
-                {panelSlot && <p className="text-xs font-medium text-muted-foreground">{application.name}</p>}
                 <h3 className="font-semibold">
                   {application.disabled
                     ? t("Disabled")
@@ -597,10 +741,11 @@ export function AppWorkspace({
               </div>
             </div>
 
-
           {/* no refresh button: the data refetches whenever the tab regains
-              focus, and polls while a deploy runs */}
-          <div className="flex flex-col gap-2 [&>button]:w-full [&>a]:w-full">
+              focus, and polls while a deploy runs. In a project the actions are
+              a row in the page's header (`panelSlot`), the state stays here */}
+          {toPanel(
+          <div className={panelSlot ? "flex flex-wrap items-center justify-end gap-2" : "flex flex-col gap-2 [&>button]:w-full [&>a]:w-full"}>
             {application.disabled && isAdmin() && (
               <Button variant="outline" disabled={toggleDisabled.isPending} onClick={() => toggleDisabled.mutate(false)}>
                 <Power className="h-4 w-4 mr-2" />
@@ -741,29 +886,20 @@ export function AppWorkspace({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-          </div>
+          </div>,
+          )}
           </CardContent>
         </Card>
+        {/* in a project: what it is, at a glance, beside its cards */}
+        {stacked && summaryCard}
         {/* answers from someone else's server: how to make it right, either way round */}
-        {elsewhere && (
-          <DnsFixCard
-            host={elsewhereHost ?? hosts[0] ?? ""}
-            pointing={checkOf(elsewhereHost ?? "")?.pointing ?? null}
-            dnsManaged={!!checkOf(elsewhereHost ?? "")?.dnsManaged}
-            portDead={application.runtime === "CADDY_PROXY" && application.status === "ERROR"}
-            port={application.port}
-            canManage={isAdmin()}
-            pending={setupDns.isPending}
-            onRepoint={() => setRepointHost(elsewhereHost ?? hosts[0] ?? null)}
-          />
-        )}
+        {dnsFix}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
         {application.repository && application.sourceId && !needsSetup && !onProjectTab && (
           <SourcePanel projectId={application.sourceId} onDeploy={deploy} starting={starting} deploying={deploying} />
         )}
-        </aside>,
-        )}
+        </aside>
 
         {/* Main Content */}
           {/* the main column: what the app is doing right now (deploy, setup, a
@@ -852,16 +988,19 @@ export function AppWorkspace({
               </CardContent>
             </Card>
           ) : null}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          {/* stacked: one grid for every card of the page — the overview's cards and the sections after them pair up */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className={stacked ? "grid items-start gap-4 md:grid-cols-2" : "space-y-6"}>
+          {/* in a project: no tabs — its sections are cards down one page */}
+          {!stacked && (
           <TabsList
             className="grid w-full"
             // overview, deployments, settings, plus files / environment + logs / database / build when they apply
-            style={{ gridTemplateColumns: `repeat(${(onProjectTab ? 2 : 3) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic || onProjectTab ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: `repeat(${(onProjectTab ? 2 : 3) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : onProjectTab ? 1 : 2) + (isStatic || onProjectTab ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
           >
             {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
             {!onProjectTab && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
-            {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
+            {!uploadedSite && !onProjectTab && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             {!isStatic && !onProjectTab && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {!uploadedSite && (
               <TabsTrigger value="environment" className="gap-1.5">
@@ -874,12 +1013,13 @@ export function AppWorkspace({
             {showBuild && <TabsTrigger value="build">Build</TabsTrigger>}
             <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
           </TabsList>
+          )}
 
           {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
+          <TabsContent value="overview" {...section("overview")} {...(stacked ? { className: "contents" } : {})}>
             {/* nothing to serve yet: the one thing to do is drop the build here */}
             {uploadedSite && !hasSiteFiles && (
-              <Card className="bg-gradient-card border-border/50">
+              <Card className="bg-gradient-card border-border/50 md:col-span-2">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Upload className="h-5 w-5 text-primary" />
@@ -905,8 +1045,59 @@ export function AppWorkspace({
               </Card>
             )}
 
-            {/* label/value lines in two cards: what visitors get, and what it
-                runs on — the whole picture without scrolling */}
+            {stacked ? (
+              // in a project: one card per concern — a read-only summary, its hosts (edited here), how it is built and run —
+              // cells of the page's grid, so Deployment sits beside Environment
+              <div className="contents">
+                {/* bento: Host and Deployment stacked tight down the left, Environment fills the right beside both */}
+                <div className="flex flex-col gap-4">
+                <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)} />
+
+                <Card className="bg-gradient-card border-border/50">
+                  <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-0">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Rocket className="h-4 w-4 text-primary" />
+                      {t("Deployments")}
+                    </CardTitle>
+                    <span className="flex items-center gap-1">
+                      {/* how it is built: the panel's own apps, in a dialog */}
+                      {showBuild && (
+                        <Button variant="outline" size="sm" onClick={() => setBuildOpen(true)}>
+                          <Pencil className="mr-2 h-3.5 w-3.5" />
+                          {t("Edit")}
+                        </Button>
+                      )}
+                      {/* the whole project's history is its Deployment tab */}
+                      <Button variant="ghost" size="sm" onClick={() => setActiveTab("deployments")}>
+                        {t("See all")} →
+                      </Button>
+                    </span>
+                  </CardHeader>
+                  <CardContent className="pt-2 pb-2">
+                    {commands}
+                    <Field label={t("Last Deployment")}>
+                      {(application.deployments ?? []).length === 0 ? (
+                        t("Never deployed")
+                      ) : (
+                        <ul className="space-y-0.5">
+                          {(application.deployments ?? []).slice(0, 5).map((d) => (
+                            <li key={d.id} className="flex items-center justify-end gap-2 text-xs">
+                              <span className="text-muted-foreground">{new Date(d.createdAt).toLocaleString(locale)}</span>
+                              <Badge variant={d.status === "FAILED" ? "destructive" : "outline"} className="text-[10px]">
+                                {deploymentStatusLabel(d.status)}
+                              </Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </Field>
+                  </CardContent>
+                </Card>
+                </div>
+              </div>
+            ) : (
+            /* label/value lines in two cards: what visitors get, and what it
+               runs on — the whole picture without scrolling */
             <div className="grid items-start gap-4 md:grid-cols-2">
             {/* what visitors get: the hosts it answers on — each checked, added and taken off right here */}
             <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)}>
@@ -1006,93 +1197,14 @@ export function AppWorkspace({
                 </Field>
                 </>
                 )}
-                <Field label={t("Runtime")}>
-                  {/* decides how it stops and what removing it touches on the box */}
-                  <span className="inline-flex flex-wrap items-center justify-end gap-2">
-                    <Badge variant="outline" className={application.runtime ? "border-warning/50 text-warning" : undefined}>
-                      {runtimeLabel(application.runtime)}
-                    </Badge>
-                    {application.processName && (
-                      <span className="font-mono text-xs text-muted-foreground">{application.processName}</span>
-                    )}
-                  </span>
-                  {application.configPath && (
-                    <span className="block break-all font-mono text-xs text-muted-foreground">{application.configPath}</span>
-                  )}
-                </Field>
-                {/* where Caddy sends the traffic — loopback on the node, never public */}
-                {application.port && (
-                  <Field label={t("Proxy target")}>
-                    <span className="font-mono text-xs">127.0.0.1:{application.port}</span>
-                    {/* the sync's ERROR for a proxy means exactly this */}
-                    {application.runtime === "CADDY_PROXY" && application.status === "ERROR" && (
-                      <span
-                        className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive"
-                        title={t("Nothing was listening on this port at the last sync")}
-                      >
-                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        {t("Port not listening")}
-                      </span>
-                    )}
-                  </Field>
-                )}
-                {isStatic && (
-                  <Field label={t("Hosting")}>
-                    {/* where the files actually are: an R2 bucket once uploaded,
-                        the old S3 prefix only for sites deployed before R2 */}
-                    {application.staticBucket ? (
-                      <>
-                        Cloudflare R2{" "}
-                        <span className="break-all font-mono text-xs text-muted-foreground">· {application.staticBucket}</span>
-                      </>
-                    ) : application.staticSiteUrl ? (
-                      <span title={application.staticSiteUrl}>{t("Object storage (S3, legacy)")}</span>
-                    ) : (
-                      <span className="text-muted-foreground">{t("No files uploaded yet")}</span>
-                    )}
-                  </Field>
-                )}
-                {/* a bucket-served site has no directory on a node; a static
-                    site served from disk (imported) does */}
-                {(!isStatic || (!application.staticBucket && application.rootPath)) && (
-                  <Field label={t("Directory")}>
-                    <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
-                    {folder.data?.exists === false && (
-                      <span className="mt-0.5 flex items-center justify-end gap-1 text-xs text-destructive">
-                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        {t("Not on the server")}
-                      </span>
-                    )}
-                  </Field>
-                )}
+                {runsOn}
                 {/* imported: the git checkout its folder sits in — where a pull, a branch switch and a build run */}
                 {!onProjectTab && application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
                   <Field label={t("Checkout")}>
                     <span className="break-all font-mono text-xs">{application.checkoutPath}</span>
                   </Field>
                 )}
-                {application.repository && (
-                  <Field label={t("Build Command")}>
-                    <span className="font-mono text-xs">{application.buildCommand || t("Not configured")}</span>
-                  </Field>
-                )}
-                {!isStatic && (
-                  <Field label={t("Start Command")}>
-                    {application.runtime === "PM2" && application.processName ? (
-                      // pm2 keeps the command: it is started and restarted by its name, which is what Restart here runs
-                      <>
-                        <span className="font-mono text-xs">pm2 restart {application.processName}</span>
-                        {application.startCommand && (
-                          <span className="block break-all font-mono text-[11px] text-muted-foreground" title={t("What pm2 runs")}>
-                            {t("runs")}: {application.startCommand}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="font-mono text-xs">{application.startCommand || t("Not configured")}</span>
-                    )}
-                  </Field>
-                )}
+                {commands}
                 {!uploadedSite && (
                   <Field label={t("Environment Variables")}>
                     {/* names only — values can be secrets, and this page is widely viewed */}
@@ -1125,6 +1237,7 @@ export function AppWorkspace({
               </CardContent>
             </Card>
             </div>
+            )}
           </TabsContent>
 
           {!isStatic && (
@@ -1141,18 +1254,40 @@ export function AppWorkspace({
           {/* Kept mounted while hidden: switching tabs must not throw away unsaved
               edits, and the checklist on Overview reads its status from here. */}
           {!uploadedSite && (
-            <TabsContent value="environment" forceMount className="space-y-6 data-[state=inactive]:hidden">
+            <TabsContent
+              value="environment"
+              forceMount
+              {...section("environment", false)}
+              // stacked: the right column beside Host and Deployment — at least as tall as the two
+              className={stacked ? `${section("environment", false).className} md:col-start-2 md:row-start-1 md:self-stretch [&>div]:h-full` : "space-y-6 data-[state=inactive]:hidden"}
+            >
               <Card className="bg-gradient-card border-border/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <KeyRound className="h-5 w-5 text-primary" />
+                <CardHeader className={stacked ? "flex flex-row items-center justify-between gap-3 space-y-0 pb-0" : undefined}>
+                  <CardTitle className={stacked ? "flex items-center gap-2 text-base" : "flex items-center space-x-2"}>
+                    <KeyRound className={stacked ? "h-4 w-4 text-primary" : "h-5 w-5 text-primary"} />
                     <span>{t("Environment Variables")}</span>
                   </CardTitle>
+                  {/* stacked: shown here, edited in a dialog — the panel's own apps only; an imported one's is its .env */}
+                  {stacked && !application.runtime && (
+                    <Button variant="outline" size="sm" onClick={() => setEnvOpen(true)}>
+                      <Pencil className="mr-2 h-3.5 w-3.5" />
+                      {t("Edit")}
+                      {(envStatus.missing.length > 0 || envStatus.dirty) && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+                    </Button>
+                  )}
                 </CardHeader>
-                <CardContent>
+                <CardContent className={stacked ? "pt-3" : undefined}>
                   {/* imported: its .env on the server is the truth — shown, not edited */}
                   {application.runtime ? (
                     <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
+                  ) : stacked ? (
+                    <>
+                      <ServerEnv env={application.envVars ?? {}} note={t("What the app gets at its next deploy.")} />
+                      {/* the form stays mounted while closed: its unsaved edits, the checklist and deploy's save-first live on */}
+                      <KeptModal open={envOpen} onClose={() => setEnvOpen(false)} title={t("Environment Variables")}>
+                        <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
+                      </KeptModal>
+                    </>
                   ) : (
                     <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
                   )}
@@ -1163,7 +1298,7 @@ export function AppWorkspace({
 
           {/* what the static site is serving — only once there is a bucket */}
           {hasSiteBucket && (
-            <TabsContent value="files" className="space-y-6">
+            <TabsContent value="files" {...section("files")}>
               <SiteFilesCard appId={application.id} />
             </TabsContent>
           )}
@@ -1281,8 +1416,19 @@ export function AppWorkspace({
           </TabsContent>
 
           {/* Build Tab */}
-          {showBuild && (
-            <TabsContent value="build" className="space-y-6">
+          {/* stacked: the same form, in the Deployment card's Edit dialog */}
+          {showBuild && stacked && (
+            <Dialog open={buildOpen} onOpenChange={setBuildOpen}>
+              <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
+                <DialogHeader>
+                  <DialogTitle>{t("Build Settings")}</DialogTitle>
+                </DialogHeader>
+                <ApplicationSettingsForm application={application} detected={detection.data} />
+              </DialogContent>
+            </Dialog>
+          )}
+          {showBuild && !stacked && (
+            <TabsContent value="build" {...section("build")}>
               <Card className="bg-gradient-card border-border/50">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -1298,7 +1444,7 @@ export function AppWorkspace({
           )}
 
           {/* Settings Tab */}
-          <TabsContent value="settings" className="space-y-6">
+          <TabsContent value="settings" {...section("settings")}>
             {/* a static site keeps its files in R2, not on a node; measured (du
                 over SSH) only while Settings is open — TabsContent unmounts */}
             {!isStatic && <AppStorageCard appId={application.id} deploying={deploying} />}
@@ -1394,6 +1540,40 @@ export function AppWorkspace({
         )}
       </div>
     </TooltipProvider>
+  );
+}
+
+/**
+ * A dialog whose content stays mounted while it is closed — a form in it keeps
+ * its unsaved edits, and whatever reads its state (the setup checklist, the
+ * deploy's save-first) keeps working. Radix's Dialog unmounts its content.
+ * ponytail: no focus trap; Escape and the backdrop close it.
+ */
+function KeptModal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  return (
+    <div className={open ? "fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" : "hidden"} onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border bg-background p-6 shadow-lg"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t("Close")} onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 

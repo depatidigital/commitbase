@@ -163,7 +163,8 @@ export function Layout() {
               </div>
             )}
           </header>
-          <main className="flex flex-1 flex-col min-h-0 overflow-y-auto p-6">
+          {/* the scrollbar's room kept even when nothing scrolls: a page that grows past the fold does not shift sideways */}
+          <main className="flex flex-1 flex-col min-h-0 overflow-y-auto p-6 [scrollbar-gutter:stable]">
             <Outlet />
           </main>
         </div>

@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,10 +32,11 @@ const PATH = /^\/[A-Za-z0-9._~\-/]*\*?$/;
 /**
  * The app's Host card, on its overview: the hosts it answers on, or paths
  * under one (`app.example.com/api/*`) — all alike, a route belongs to one app —
- * each checked where visitors reach it. Add one, take one off; the host's route
- * is composed again with every app on it, and the last route stays — an app
- * with none is nothing anyone can reach. Zones, DNS and expiry are the Domains
- * page's, not here. `children`: more lines under the hosts.
+ * each checked where visitors reach it. Read-only here; "Edit" opens a dialog
+ * to add, change and take them off. The host's route is composed again with
+ * every app on it, and the last route stays — an app with none is nothing
+ * anyone can reach. Zones, DNS and expiry are the Domains page's, not here.
+ * `children`: more lines under the hosts.
  */
 export function RoutingCard({
   application,
@@ -51,6 +54,7 @@ export function RoutingCard({
   const queryClient = useQueryClient();
   // each route checked at its own host and path — the same query the app page polls
   const { data: checks } = useApplicationHostname(application.id);
+  const [editOpen, setEditOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<AppDomain | null>(null);
 
@@ -98,9 +102,13 @@ export function RoutingCard({
           </CardTitle>
           <p className="mt-1.5 text-xs text-muted-foreground">{t("What visitors get")}</p>
         </div>
-        <AddRoute application={application} onAdded={refresh} />
+        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+          <Pencil className="mr-2 h-3.5 w-3.5" />
+          {t("Edit")}
+        </Button>
       </CardHeader>
       <CardContent className="space-y-2 pt-3 pb-2">
+        {/* read-only: where it answers, and whether each answers */}
         <ul className="divide-y divide-border/60 rounded-md border border-border/60">
           {routes.map((route) => {
             const label = bindingLabel(route);
@@ -117,21 +125,11 @@ export function RoutingCard({
                   {route.path && <span className="text-muted-foreground">{route.path}</span>}
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                 </a>
-                {/* a path: whether the app gets /api/users, or /users */}
-                {route.path && (
-                  <label
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                    title={t("The app gets the path without this prefix: /api/users arrives as /users.")}
-                  >
-                    <Checkbox
-                      checked={!!route.stripPrefix}
-                      disabled={busy === label}
-                      onCheckedChange={(checked) =>
-                        void change(route, () => setBindingStripPrefix(application.id, route.host, route.path ?? "", checked === true), t("Could not change the route"))
-                      }
-                    />
-                    {t("strip prefix")}
-                  </label>
+                {/* a path whose prefix is dropped says so */}
+                {route.path && route.stripPrefix && (
+                  <Badge variant="outline" className="font-mono text-[10px]" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
+                    {route.path} → /
+                  </Badge>
                 )}
                 <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
                   {/* reachable: a tick, nothing more. Anything else says what is wrong */}
@@ -146,17 +144,6 @@ export function RoutingCard({
                         {check.pointing?.state === "elsewhere" && <HostPointing check={check} />}
                       </>
                     ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                    disabled={last || !!busy}
-                    title={last ? t("An app needs at least one host — add another first") : t("Remove {host}", { host: label })}
-                    aria-label={t("Remove {host}", { host: label })}
-                    onClick={() => setConfirmRemove(route)}
-                  >
-                    {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  </Button>
                 </span>
               </li>
             );
@@ -164,6 +151,60 @@ export function RoutingCard({
         </ul>
         {children}
       </CardContent>
+
+      {/* everything that changes a route, in one place */}
+      <Dialog open={editOpen} onOpenChange={(open) => !busy && setEditOpen(open)}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{t("Edit hosts")}</DialogTitle>
+            <DialogDescription>{t("The hosts and paths that go to {app}.", { app: application.name })}</DialogDescription>
+          </DialogHeader>
+
+          <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+            {routes.map((route) => {
+              const label = bindingLabel(route);
+              return (
+                <li key={label} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+                  <span className="min-w-0 break-all font-mono text-sm">
+                    {route.host}
+                    {route.path && <span className="text-muted-foreground">{route.path}</span>}
+                  </span>
+                  {/* a path: whether the app gets /api/users, or /users */}
+                  {route.path && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      title={`${t("The app gets the path without this prefix: /api/users arrives as /users.")} ${t("Leave it off when the app itself serves under this path (routes like /api/users, a basePath, a websocket on /ws).")}`}
+                    >
+                      <Checkbox
+                        checked={!!route.stripPrefix}
+                        disabled={!!busy}
+                        onCheckedChange={(checked) =>
+                          void change(route, () => setBindingStripPrefix(application.id, route.host, route.path ?? "", checked === true), t("Could not change the route"))
+                        }
+                      />
+                      {t("strip prefix")}
+                    </label>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    disabled={last || !!busy}
+                    title={last ? t("An app needs at least one host — add another first") : t("Remove {host}", { host: label })}
+                    aria-label={t("Remove {host}", { host: label })}
+                    onClick={() => setConfirmRemove(route)}
+                  >
+                    {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <Separator />
+          <AddRouteForm application={application} onAdded={refresh} />
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!confirmRemove} onOpenChange={(open) => !busy && !open && setConfirmRemove(null)}>
         <AlertDialogContent>
@@ -209,11 +250,10 @@ export function RoutingCard({
   );
 }
 
-/** "Add route": a host, or a path under one, in a modal. */
-function AddRoute({ application, onAdded }: { application: Application; onAdded: () => Promise<void> }) {
+/** Adding a route, in the Edit dialog: a host, or a path under one. */
+function AddRouteForm({ application, onAdded }: { application: Application; onAdded: () => Promise<void> }) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const { data: allChoices = [], isLoading } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices, enabled: open });
+  const { data: allChoices = [], isLoading } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
   // a host keeps the app in its org: shared zones, and that org's own
   const choices = useMemo(
     () => allChoices.filter((choice) => choice.shared || choice.organizationId === application.organizationId),
@@ -250,7 +290,6 @@ function AddRoute({ application, onAdded }: { application: Application; onAdded:
       setSubdomain("");
       setPath("");
       setStripPrefix(false);
-      setOpen(false);
       await onAdded();
     } catch (error) {
       toast({ variant: "destructive", title: t("Could not add the route"), description: error instanceof Error ? error.message : "" });
@@ -259,62 +298,43 @@ function AddRoute({ application, onAdded }: { application: Application; onAdded:
     }
   };
 
+  if (isLoading) return <Loader2 className="h-5 w-5 animate-spin" />;
   return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Plus className="mr-2 h-4 w-4" />
-        {t("Add route")}
-      </Button>
-      <Dialog open={open} onOpenChange={(next) => !adding && setOpen(next)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("Add route")}</DialogTitle>
-            <DialogDescription>{t("A host, or a path under one, that goes to {app}.", { app: application.name })}</DialogDescription>
-          </DialogHeader>
-          {isLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <div className="space-y-4">
-              <HostnamePicker
-                choices={choices}
-                subdomain={subdomain}
-                domain={domain}
-                onSubdomain={setSubdomain}
-                onDomain={setDomain}
-                excludeAppId={application.id}
-                onBlockedChange={setHostBlocked}
-                onConsentChange={setDnsConsent}
-                root={root}
-                onRoot={setRoot}
-              />
-              {/* optional: a path under the host — other apps of the organization can have the rest */}
-              <div className="space-y-2">
-                <Input className="font-mono text-sm" value={path} placeholder={t("path (optional), e.g. /api/*")} onChange={(e) => setPath(e.target.value)} />
-                {nextPath && (
-                  <label className="flex items-center gap-1.5 text-sm" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
-                    <Checkbox checked={stripPrefix} onCheckedChange={(checked) => setStripPrefix(checked === true)} />
-                    {t("strip prefix")}
-                  </label>
-                )}
-                {pathProblem && <p className="text-xs text-destructive">{pathProblem}</p>}
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" disabled={adding} onClick={() => setOpen(false)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              onClick={() => void add()}
-              // a path on a host the organization already serves is not "blocked": the host is shared by path
-              disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}
-            >
-              {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              {t("Add route")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <div className="space-y-3">
+      <p className="text-sm font-medium">{t("Add route")}</p>
+      <HostnamePicker
+        choices={choices}
+        subdomain={subdomain}
+        domain={domain}
+        onSubdomain={setSubdomain}
+        onDomain={setDomain}
+        excludeAppId={application.id}
+        onBlockedChange={setHostBlocked}
+        onConsentChange={setDnsConsent}
+        root={root}
+        onRoot={setRoot}
+      />
+      {/* optional: a path under the host — other apps of the organization can have the rest */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Input className="w-56 font-mono text-sm" value={path} placeholder={t("path (optional), e.g. /api/*")} onChange={(e) => setPath(e.target.value)} />
+        {nextPath && (
+          <label className="flex items-center gap-1.5 text-sm" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
+            <Checkbox checked={stripPrefix} onCheckedChange={(checked) => setStripPrefix(checked === true)} />
+            {t("strip prefix")}
+          </label>
+        )}
+        {pathProblem && <span className="text-xs text-destructive">{pathProblem}</span>}
+      </div>
+      <div className="flex justify-end">
+        <Button
+          onClick={() => void add()}
+          // a path on a host the organization already serves is not "blocked": the host is shared by path
+          disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}
+        >
+          {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+          {t("Add route")}
+        </Button>
+      </div>
+    </div>
   );
 }
