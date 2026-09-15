@@ -62,10 +62,10 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const head = remote.data?.heads[branch];
   const live = remote.data?.liveCommit ?? null;
   // two states: the checkout behind the remote wants a pull; the live release behind the checkout wants a deploy
-  const checkout = remote.data?.checkoutCommit ?? live;
-  const needsPull = !changed && !!head && head !== checkout;
-  const needsDeploy = !changed && !needsPull && !!checkout && checkout !== live;
-  const upToDate = !changed && !!head && head === checkout && checkout === live;
+  const pulled = remote.data?.checkoutCommit ?? live;
+  const needsPull = !changed && !!head && head !== pulled;
+  const needsDeploy = !changed && !needsPull && !!pulled && pulled !== live;
+  const upToDate = !changed && !!head && head === pulled && pulled === live;
   // something to ship: another branch picked, or commits the live release lacks
   const shippable = !!head && (changed || needsPull || needsDeploy);
   // what runs is behind its branch — said by the card's outline too, not only a line of grey text
