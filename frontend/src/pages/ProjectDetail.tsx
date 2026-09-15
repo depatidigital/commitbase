@@ -1,4 +1,6 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
+import { useDeploymentHistory } from "@/hooks/useDeployments";
+import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Trash2, Upload } from "lucide-react";
@@ -616,6 +618,21 @@ function AppQuickEdit({ appId }: { appId: string }) {
     staleTime: 60_000,
     retry: false,
   });
+  // a deploy running: followed through its history (which polls itself while one runs),
+  // its progress and build log shown on the card — as its page shows them
+  const { data: history } = useDeploymentHistory(appId);
+  const newestDeploy = history?.data?.[0];
+  const inFlight = firstDeploy.isPending || ["PENDING", "BUILDING", "DEPLOYING"].includes(newestDeploy?.status ?? "");
+  // when it ends: the app again — its status, its first release, its checklist gone
+  const wasInFlight = useRef(false);
+  useEffect(() => {
+    if (inFlight) wasInFlight.current = true;
+    else if (wasInFlight.current) {
+      wasInFlight.current = false;
+      void queryClient.invalidateQueries({ queryKey: ["application", appId] });
+      void queryClient.invalidateQueries({ queryKey: ["project"] });
+    }
+  }, [inFlight, appId, queryClient]);
   if (isLoading || !application) {
     return (
       <div className="border-t border-border/60 p-4">
@@ -646,13 +663,27 @@ function AppQuickEdit({ appId }: { appId: string }) {
       : "";
   return (
     <div className="space-y-3 border-t border-border/60 p-4">
+      {inFlight && (
+        <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+          <DeployProgress
+            appId={application.id}
+            status={newestDeploy?.status}
+            redeploy={hasBeenDeployed(application)}
+            published={application.type === "STATIC" ? !!application.staticBucket : application.status === "RUNNING"}
+            // an imported app's build logs onto its deployment row
+            logText={application.runtime ? newestDeploy?.deployLogs ?? "" : undefined}
+            showLog={!uploadedSite}
+          />
+        </div>
+      )}
       {/* bento: its hosts and how it is built and run side by side; under them what it is given,
           the full width, beside the actions — read at a glance, hosts managed here.
           Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
       {/* items-start: each card as tall as its content — a short host list is not stretched to the checklist */}
       <div className="grid items-start gap-3 md:grid-cols-2">
         <RoutingCard application={application} compact editOpen={hostsOpen} onEditOpenChange={setHostsOpen} />
-        {needsSetup ? (
+        {/* while it deploys, the progress above says what the checklist would */}
+        {needsSetup && !inFlight ? (
           <AppSetupCard
             compact
             onEditHosts={() => setHostsOpen(true)}
