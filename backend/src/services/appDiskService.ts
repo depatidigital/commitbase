@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { sourceFsFor, type AppFs } from '../lib/appFs';
-import { currentDirFor, logsDirFor, releasesDirFor, sharedDirFor, sourcesDirFor } from '../lib/appPaths';
+import { currentDirFor, logsDirFor, releasesDirFor, sharedDirFor } from '../lib/appPaths';
 import { exec, type SshTarget } from '../lib/runner';
 import * as path from 'path';
 
@@ -79,7 +79,7 @@ export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES):
   const { releases } = await releasesOf(afs, applicationId, keep);
   const cache = join(sharedDirFor(afs.appDir), 'next-cache');
   const logs = logsDirFor(afs.appDir);
-  const sources = sourcesDirFor(afs.appDir);
+  const sources = afs.sourcesDir;
   const measured = await sizes(afs, [...releases.map((r) => r.path), cache, sources, logs]);
 
   const rows = releases.map((r) => ({ name: r.name, bytes: measured.get(r.path) ?? 0, state: r.state }));

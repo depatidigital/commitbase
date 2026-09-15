@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { Application } from '@prisma/client';
-import { sourcesDirFor, logsDirFor, currentDirFor, inRootDirectory, sourceDirOf } from '../lib/appPaths';
+import { logsDirFor, currentDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, remoteCommand, type AppFs } from '../lib/appFs';
 import { exec, type SshTarget } from '../lib/runner';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
@@ -61,9 +61,8 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
   // Run from the built release when there is one; apps deployed before the
   // releases layout existed still run from sources/. Both are the source's,
   // and a monorepo app runs from its own folder in them.
-  const sourceDir = sourceDirOf(appDir, application.sourceId);
-  const currentDir = currentDirFor(sourceDir);
-  const treeDir = (await afs.isDirectory(currentDir)) ? currentDir : sourcesDirFor(sourceDir);
+  const currentDir = currentDirFor(appDir);
+  const treeDir = (await afs.isDirectory(currentDir)) ? currentDir : afs.sourcesDir;
   const runDir = inRootDirectory(treeDir, application.rootDirectory);
 
   let startCommand: string | null = application.startCommand;

@@ -48,7 +48,14 @@ export function appDirFor(applicationId: string, orgSlug?: string | null): strin
   return path.posix.join(orgAppsDir(orgSlug), applicationId);
 }
 
-export const sourcesDirFor = (appDir: string) => path.posix.join(appDir, 'sources');
+/**
+ * The checkout an app builds from. One per project, in the tree of the app whose
+ * id the project shares (its first): `apps/<sourceId>/sources`, a sibling of the
+ * other apps' — pulled once for all of them, while each app builds and runs from
+ * its own releases/ and current. Without a source, the app's own.
+ */
+export const sourcesDirFor = (appDir: string, sourceId?: string | null) =>
+  path.posix.join(sourceId ? path.posix.join(path.posix.dirname(appDir), sourceId) : appDir, 'sources');
 export const logsDirFor = (appDir: string) => path.posix.join(appDir, 'logs');
 /**
  * Runtime apps build into an immutable copy per deploy and run from the

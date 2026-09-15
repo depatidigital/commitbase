@@ -10,7 +10,7 @@ import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
-import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
+import { releasesDirFor, currentDirFor, sharedDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
@@ -31,6 +31,8 @@ const BUILD_CONCURRENCY = Math.max(1, Number(process.env.BUILD_CONCURRENCY || 1)
 
 // ponytail: in-process locks. Fine for one backend; a DB row lock if the backend ever runs twice.
 const deploying = new Set<string>();
+// a pull in flight per checkout — a project's apps share one
+const syncing = new Map<string, Promise<string>>();
 // deploys a user asked to stop; checked between steps (cancelDeploy)
 const cancelling = new Set<string>();
 
@@ -203,7 +205,7 @@ export class DeploymentService {
     const afs = await sourceFsFor(applicationId);
     try {
       await afs.mkdir(logsDirFor(afs.appDir));
-      await afs.mkdir(sourcesDirFor(afs.appDir));
+      await afs.mkdir(afs.sourcesDir);
       return afs;
     } catch (error: any) {
       throw new Error(`Failed to prepare app directory: ${error?.stderr || error?.message || error}`);
@@ -211,7 +213,8 @@ export class DeploymentService {
   }
 
   /**
-   * Clone or pull the repository into sources/.
+   * Clone or pull the repository into the checkout. One project's apps share it,
+   * so two of them deploying at once pull one after the other, never together.
    */
   async syncRepository(
     afs: AppFs,
@@ -219,7 +222,19 @@ export class DeploymentService {
     branch: string = 'main',
     gitAccountId: string | null = null
   ): Promise<string> {
-    const sourcesDir = sourcesDirFor(afs.appDir);
+    const sourcesDir = afs.sourcesDir;
+    const previous = syncing.get(sourcesDir) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(() => this.syncRepositoryNow(afs, repository, branch, gitAccountId));
+    syncing.set(sourcesDir, run);
+    try {
+      return await run;
+    } finally {
+      if (syncing.get(sourcesDir) === run) syncing.delete(sourcesDir);
+    }
+  }
+
+  private async syncRepositoryNow(afs: AppFs, repository: string, branch: string, gitAccountId: string | null): Promise<string> {
+    const sourcesDir = afs.sourcesDir;
     try {
       // Private repositories need the connected account's token. It reaches git
       // as an environment variable read back by a one-shot credential helper,
@@ -362,9 +377,8 @@ export class DeploymentService {
     deployment: Deployment,
     envs: Map<string, Record<string, string>>,
   ): Promise<BuildResult> {
-    const { appDir } = afs;
+    const { appDir, sourcesDir } = afs;
     const first = group[0]!;
-    const sourcesDir = sourcesDirFor(appDir);
     const logsDir = logsDirFor(appDir);
     await afs.mkdir(logsDir);
     const buildLogPath = join(logsDir, 'build.log');
@@ -854,7 +868,7 @@ export class DeploymentService {
   ): Promise<{ bucket: string; origin: string; folder: string }> {
     // absolute: APPS_DIR may be relative (../apps_dir), and the build below starts in
     // the folder and then `cd`s to it by path — relative, that path is not there from inside it
-    const sourcesDir = path.resolve(sourcesDirFor(afs.appDir));
+    const sourcesDir = path.resolve(afs.sourcesDir);
     await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD STARTED` + NL);
 
     // Same detection the create screen showed: install before building,
@@ -942,12 +956,11 @@ export class DeploymentService {
       throwIfCancelled(key);
 
       const afs = await this.prepareAppDirectory(application.id);
-      const { appDir } = afs;
+      const { appDir, sourcesDir } = afs;
 
       const logsDir = logsDirFor(appDir);
       const buildLogPath = join(logsDir, 'build.log');
       const deployLogPath = join(logsDir, 'deploy.log');
-      const sourcesDir = sourcesDirFor(appDir);
       const readLog = (file: string, missing: string) =>
         afs.readText(file).then((text) => (text.trim() ? text : missing), () => missing);
       readBuildLog = () => afs.readText(buildLogPath);

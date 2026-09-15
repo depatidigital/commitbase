@@ -339,7 +339,7 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
         )
       : await (async () => {
           const afs = await sourceFsFor(application.id);
-          const sources = path.posix.join(afs.appDir, 'sources');
+          const sources = afs.sourcesDir;
           return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources);
         })();
 
@@ -981,7 +981,7 @@ router.post(
 
       // on the org's node when the app lives there (lib/appFs.ts)
       const afs = await deploymentService.prepareAppDirectory(application.id);
-      const sourcesDir = path.posix.join(afs.appDir, 'sources');
+      const sourcesDir = afs.sourcesDir;
 
       // a fresh upload replaces the previous one — leftovers would ship in the build
       await afs.rm(sourcesDir, { recursive: true, force: true });
@@ -1437,11 +1437,20 @@ router.get('/:id/folder', authenticateToken, async (req: AuthenticatedRequest, r
   }
 });
 
-/** A deleted app's files: its whole tree — sources, releases, current, run.sh, logs — is its own. */
-async function removeAppFiles(application: { id: string }): Promise<void> {
+/**
+ * A deleted app's files: its tree (releases, current, run.sh, logs). The project's
+ * checkout, a sibling of it, goes with the project's last app.
+ */
+async function removeAppFiles(application: { id: string; sourceId: string | null }): Promise<void> {
   const afs = await appFsFor(application.id).catch(() => null);
   if (!afs) return;
-  await afs.rm(afs.appDir, { recursive: true, force: true }).catch(() => {});
+  const rm = (p: string) => afs.rm(p, { recursive: true, force: true }).catch(() => {});
+  await rm(afs.appDir);
+  const others = application.sourceId
+    ? await prisma.application.count({ where: { sourceId: application.sourceId, id: { not: application.id } } })
+    : 0;
+  const checkoutTree = path.posix.dirname(afs.sourcesDir);
+  if (others === 0 && checkoutTree !== afs.appDir) await rm(checkoutTree);
 }
 
 // Delete an application

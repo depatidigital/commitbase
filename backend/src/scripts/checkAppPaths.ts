@@ -50,9 +50,12 @@ for (const bad of ['..', '.', 'apps/..', '../x', 'a/./b', 'a//b', 'a b', 'a;id',
 }
 assert.strictEqual(inRootDirectory('/r/1', 'apps/web'), '/r/1/apps/web');
 assert.strictEqual(inRootDirectory('/r/1', null), '/r/1');
-// every app's tree is its own — a monorepo's apps each clone and deploy alone
+// every app's tree is its own; the checkout is the project's, in its first app's tree
 assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app2', 'src1'), '/home/cb-acme/apps/app2');
 assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app1', 'app1'), '/home/cb-acme/apps/app1');
+assert.strictEqual(sourcesDirFor('/home/cb-acme/apps/app2', 'src1'), '/home/cb-acme/apps/src1/sources');
+assert.strictEqual(sourcesDirFor('/home/cb-acme/apps/app1', 'app1'), '/home/cb-acme/apps/app1/sources');
+assert.strictEqual(sourcesDirFor('/home/cb-acme/apps/app1', null), '/home/cb-acme/apps/app1/sources');
 assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app1', null), '/home/cb-acme/apps/app1');
 
 // run.sh env escaping — a value with a quote must not break out of the export

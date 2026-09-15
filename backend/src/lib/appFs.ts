@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as net from 'net';
 import { execFile } from 'child_process';
 import { prisma } from './prisma';
-import { appDirFor } from './appPaths';
+import { appDirFor, sourcesDirFor } from './appPaths';
 import { serverForApplication } from './servers';
 import { exec, forwardTcp, type SshTarget, type ExecResult } from './runner';
 import * as rfs from './remoteFs';
@@ -37,6 +37,8 @@ export interface AppFs {
   node: SshTarget | null;
   /** Root of this application's tree on that side. */
   appDir: string;
+  /** Its checkout — the project's, shared by its apps (lib/appPaths sourcesDirFor). */
+  sourcesDir: string;
 
   readFile(p: string): Promise<Buffer>;
   readText(p: string): Promise<string>;
@@ -61,10 +63,11 @@ export interface AppFs {
 
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 
-function localAppFs(appDir: string): AppFs {
+function localAppFs(appDir: string, sourcesDir: string): AppFs {
   return {
     node: null,
     appDir,
+    sourcesDir,
     readFile: (p) => fs.readFile(p),
     readText: (p) => fs.readFile(p, 'utf-8'),
     writeFile: (p, data, opts = {}) => fs.writeFile(p, data, opts.mode ? { mode: opts.mode } : {}),
@@ -122,10 +125,11 @@ export function remoteCommand(argv: string[], opts: RunOptions = {}): { argv: st
   };
 }
 
-function remoteAppFs(node: SshTarget, appDir: string): AppFs {
+function remoteAppFs(node: SshTarget, appDir: string, sourcesDir: string): AppFs {
   return {
     node,
     appDir,
+    sourcesDir,
     readFile: (p) => rfs.readFile(node, p),
     readText: (p) => rfs.readFile(node, p, 'utf-8'),
     writeFile: (p, data, opts) => rfs.writeFile(node, p, data, opts),
@@ -139,7 +143,7 @@ function remoteAppFs(node: SshTarget, appDir: string): AppFs {
     rename: (from, to) => rfs.rename(node, from, to),
     rm: (p, opts) => rfs.rm(node, p, opts),
     // through run, not remoteFs.mkdir: umask 002 keeps new dirs group-writable
-    mkdir: (p) => remoteAppFs(node, appDir).run(['mkdir', '-p', '--', p]).then(() => undefined),
+    mkdir: (p) => remoteAppFs(node, appDir, sourcesDir).run(['mkdir', '-p', '--', p]).then(() => undefined),
     run: async (argv, opts = {}) => {
       const wrapped = remoteCommand(argv, opts);
       return exec(node, wrapped.argv, {
@@ -163,17 +167,21 @@ function remoteAppFs(node: SshTarget, appDir: string): AppFs {
 export async function appFsFor(applicationId: string): Promise<AppFs> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { type: true, organization: { select: { slug: true } } },
+    select: { type: true, sourceId: true, organization: { select: { slug: true } } },
   });
   if (!app) throw new Error(`Unknown application: ${applicationId}`);
 
   // static: built on the panel, served from R2
-  if (app.type === 'STATIC') return localAppFs(appDirFor(applicationId, null));
+  if (app.type === 'STATIC') {
+    const appDir = appDirFor(applicationId, null);
+    return localAppFs(appDir, sourcesDirFor(appDir, app.sourceId));
+  }
 
   const slug = app.organization?.slug;
   if (!slug) throw new Error('Assign the app to an organization first — apps run on its node');
   // the app's own node — organizations span nodes (lib/servers.ts)
-  return remoteAppFs(await serverForApplication(applicationId), appDirFor(applicationId, slug));
+  const appDir = appDirFor(applicationId, slug);
+  return remoteAppFs(await serverForApplication(applicationId), appDir, sourcesDirFor(appDir, app.sourceId));
 }
 
 /**
