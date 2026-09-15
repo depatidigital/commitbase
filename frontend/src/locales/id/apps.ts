@@ -683,7 +683,6 @@ export default {
   "Caddy (static files)": "Caddy (file statis)",
   "Caddy (reverse proxy)": "Caddy (reverse proxy)",
   // routing: host (or host/path) → app (RoutingCard)
-  "The hosts and paths this app answers on": "Host dan path yang dilayani aplikasi ini",
   "Add route": "Tambah rute",
   "A host, or a path under one, that goes to {app}.": "Host, atau path di bawah host, yang diteruskan ke {app}.",
   "It goes to {app}.": "Diteruskan ke {app}.",

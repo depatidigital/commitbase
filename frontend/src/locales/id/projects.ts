@@ -22,8 +22,6 @@ export default {
   Routing: "Routing",
   "Apps & routes": "Aplikasi & rute",
   "no route": "tanpa rute",
-  directory: "direktori",
-  process: "proses",
   rest: "lainnya",
   files: "file",
   "everything else": "selain itu",

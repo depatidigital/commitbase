@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ExternalLink, Loader2, Plus, Route, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,21 +28,24 @@ import { t } from "@/lib/i18n";
 const PATH = /^\/[A-Za-z0-9._~\-/]*\*?$/;
 
 /**
- * An app's routing: the hosts it answers on, or paths under one
- * (`app.example.com/api/*`) — all alike, a route belongs to one app. Add one,
- * take one off; the host's route is composed again with every app on it, and
- * the last route stays — an app with none is nothing anyone can reach. Zones,
- * DNS and expiry are the Domains page's, not here.
+ * The app's Host card, on its overview: the hosts it answers on, or paths
+ * under one (`app.example.com/api/*`) — all alike, a route belongs to one app —
+ * each checked where visitors reach it. Add one, take one off; the host's route
+ * is composed again with every app on it, and the last route stays — an app
+ * with none is nothing anyone can reach. Zones, DNS and expiry are the Domains
+ * page's, not here. `children`: more lines under the hosts.
  */
 export function RoutingCard({
   application,
   pending,
   onRepoint,
+  children,
 }: {
   application: Application;
   pending?: boolean;
   /** "Point it here" on a host answered by another server */
   onRepoint?: (host: string) => void;
+  children?: React.ReactNode;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -87,17 +90,17 @@ export function RoutingCard({
 
   return (
     <Card className="bg-gradient-card border-border/50">
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-0">
         <div>
-          <CardTitle className="flex items-center gap-2">
-            <Route className="h-5 w-5 text-primary" />
-            {t("Routing")}
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Globe className="h-4 w-4 text-primary" />
+            {t("Host")}
           </CardTitle>
-          <p className="mt-1.5 text-sm text-muted-foreground">{t("The hosts and paths this app answers on")}</p>
+          <p className="mt-1.5 text-xs text-muted-foreground">{t("What visitors get")}</p>
         </div>
         <AddRoute application={application} onAdded={refresh} />
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-2 pt-3 pb-2">
         <ul className="divide-y divide-border/60 rounded-md border border-border/60">
           {routes.map((route) => {
             const label = bindingLabel(route);
@@ -159,6 +162,7 @@ export function RoutingCard({
             );
           })}
         </ul>
+        {children}
       </CardContent>
 
       <AlertDialog open={!!confirmRemove} onOpenChange={(open) => !busy && !open && setConfirmRemove(null)}>

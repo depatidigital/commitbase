@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,6 @@ import {
   Settings,
   Terminal,
   Activity,
-  Globe,
   HardDrive,
   Cpu,
   Clock,
@@ -81,7 +81,6 @@ import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { RoutingCard } from "@/components/RoutingCard";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ServerEnv } from "@/components/ServerEnv";
-import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { RepointDialog } from "@/components/RepointDialog";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
@@ -177,12 +176,16 @@ export function AppWorkspace({
   appId,
   embedded = false,
   onProjectTab,
+  panelSlot,
 }: {
   appId: string;
   embedded?: boolean;
   onProjectTab?: (tab: "deployments") => void;
+  /** the project's right panel: the app's state and actions render there */
+  panelSlot?: HTMLElement | null;
 }) {
   const id = appId;
+  const toPanel = (node: React.ReactNode) => (panelSlot ? createPortal(node, panelSlot) : node);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -535,8 +538,10 @@ export function AppWorkspace({
 
         {/* the tabs, with a control panel beside them: what the app is doing
             and what can be done to it, always in view instead of stacked on top */}
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:order-last">
+        {/* in a project the control panel goes to the project's right panel (`panelSlot`) — one column here */}
+        <div className={`grid items-start gap-6 ${panelSlot ? "" : "lg:grid-cols-[minmax(0,1fr)_18rem]"}`}>
+        {toPanel(
+        <aside className={panelSlot ? "space-y-4" : "space-y-4 lg:sticky lg:top-4 lg:order-last"}>
         <Card className={`bg-gradient-card ${failureReason ? "border-destructive/40" : "border-border/50"}`}>
           <CardContent className="space-y-4 p-4">
             <div className="flex min-w-0 items-start gap-3">
@@ -552,6 +557,8 @@ export function AppWorkspace({
                 )}
               </div>
               <div className="min-w-0">
+                {/* in the project's panel, beside any of its tabs: say which app this is */}
+                {panelSlot && <p className="text-xs font-medium text-muted-foreground">{application.name}</p>}
                 <h3 className="font-semibold">
                   {application.disabled
                     ? t("Disabled")
@@ -755,7 +762,8 @@ export function AppWorkspace({
         {application.repository && application.sourceId && !needsSetup && !onProjectTab && (
           <SourcePanel projectId={application.sourceId} onDeploy={deploy} starting={starting} deploying={deploying} />
         )}
-        </aside>
+        </aside>,
+        )}
 
         {/* Main Content */}
           {/* the main column: what the app is doing right now (deploy, setup, a
@@ -847,14 +855,13 @@ export function AppWorkspace({
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList
             className="grid w-full"
-            // overview, deployments, domains, settings, plus files / environment + logs / database / build when they apply
-            style={{ gridTemplateColumns: `repeat(${(onProjectTab ? 3 : 4) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic || onProjectTab ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
+            // overview, deployments, settings, plus files / environment + logs / database / build when they apply
+            style={{ gridTemplateColumns: `repeat(${(onProjectTab ? 2 : 3) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic || onProjectTab ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
           >
             {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
             {!onProjectTab && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
-            <TabsTrigger value="routing">{t("Routing")}</TabsTrigger>
             {!isStatic && !onProjectTab && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {!uploadedSite && (
               <TabsTrigger value="environment" className="gap-1.5">
@@ -901,105 +908,25 @@ export function AppWorkspace({
             {/* label/value lines in two cards: what visitors get, and what it
                 runs on — the whole picture without scrolling */}
             <div className="grid items-start gap-4 md:grid-cols-2">
-            <Card className="bg-gradient-card border-border/50">
-              <CardHeader className="pb-0">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Globe className="h-4 w-4 text-primary" />
-                  {t("Public")}
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">{t("What visitors get")}</p>
-              </CardHeader>
-              <CardContent className="pt-2 pb-2">
-                {/* One name: it, in full. Several: how many and how they are, the
-                    ones that need attention in full — the list is the Routing tab */}
-                {(application.domains.length === 1 ? application.domains : application.domains.filter((name) => !hostOk(checkOf(name.host, name.path ?? '')))).map((name) => {
-                  const check = checkOf(name.host, name.path ?? '');
-                  return (
-                    <div key={`${name.host}${name.path ?? ""}`}>
-                      <Field label={t("Host")}>
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          <span className="font-mono">{name.host}{name.path && <span className="text-muted-foreground">{name.path}</span>}</span>
-                          <a
-                            href={`https://${name.host}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label={t("Open {url}", { url: name.host })}
-                            className="text-muted-foreground hover:text-primary"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => copyToClipboard(name.host)}
-                            aria-label={t("Copy")}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                          {/* whether the hostname actually answers — RUNNING only ever meant the process started */}
-                          <HostBadge host={name.host} check={check} pending={setupDns.isPending} onRepoint={() => setRepointHost(name.host)} />
-                        </div>
-                      </Field>
-                      {/* answering is not enough: it has to answer from this app's server */}
-                      {check?.pointing && check.pointing.state !== "none" && (
-                        <Field label={t("DNS points to")}>
-                          <HostPointing check={check} />
-                        </Field>
-                      )}
-                    </div>
-                  );
-                })}
-                {application.domains.length > 1 && application.domains.some((name) => hostOk(checkOf(name.host, name.path ?? ''))) && (
-                  <Field label={application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("Host") : t("Other hosts")}>
-                    {/* the healthy names, at a glance, each one opens; the ones in trouble are listed above */}
-                    <span className="font-mono">
-                      {application.domains
-                        .filter((name) => hostOk(checkOf(name.host, name.path ?? '')))
-                        .map((name, i, list) => (
-                          <span key={`${name.host}${name.path ?? ""}`} className="inline-flex items-center gap-1">
-                            {name.host}{name.path}
-                            <a
-                              href={`https://${name.host}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={t("Open {url}", { url: name.host })}
-                              className="text-muted-foreground hover:text-primary"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                            {i < list.length - 1 && <span className="mr-1">,</span>}
-                          </span>
-                        ))}
-                    </span>
-                    <span className="mt-0.5 flex items-center justify-end gap-1.5 text-xs">
-                      <span className="text-success">
-                        {application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("all reachable") : t("reachable")}
-                      </span>
-                      <button type="button" className="text-primary hover:underline" onClick={() => setActiveTab("routing")}>
-                        {t("Manage")} →
-                      </button>
-                    </span>
-                  </Field>
-                )}
-                {/* the version visitors are getting */}
-                <Field label={t("Last Deployment")}>
-                  {lastDeployment ? (
-                    <>
-                      {new Date(lastDeployment.createdAt).toLocaleString(locale)}
-                      {" · "}
-                      {deploymentStatusLabel(lastDeployment.status)}
-                    </>
-                  ) : (
-                    t("Never deployed")
-                  )}
-                  <span className="text-muted-foreground">
+            {/* what visitors get: the hosts it answers on — each checked, added and taken off right here */}
+            <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)}>
+              {/* the version visitors are getting */}
+              <Field label={t("Last Deployment")}>
+                {lastDeployment ? (
+                  <>
+                    {new Date(lastDeployment.createdAt).toLocaleString(locale)}
                     {" · "}
-                    {t("{count} deployments", { count: application.deployments?.length || 0 })}
-                  </span>
-                </Field>
-              </CardContent>
-            </Card>
+                    {deploymentStatusLabel(lastDeployment.status)}
+                  </>
+                ) : (
+                  t("Never deployed")
+                )}
+                <span className="text-muted-foreground">
+                  {" · "}
+                  {t("{count} deployments", { count: application.deployments?.length || 0 })}
+                </span>
+              </Field>
+            </RoutingCard>
 
             <Card className="bg-gradient-card border-border/50">
               <CardHeader className="pb-0">
@@ -1198,10 +1125,6 @@ export function AppWorkspace({
               </CardContent>
             </Card>
             </div>
-          </TabsContent>
-
-          <TabsContent value="routing">
-            <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)} />
           </TabsContent>
 
           {!isStatic && (
