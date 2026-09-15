@@ -65,7 +65,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
@@ -357,14 +357,14 @@ export function AppWorkspace({
   const envSave = useRef<(() => Promise<boolean>) | null>(null);
   const connectDb = useRef<(() => void) | null>(null);
   const [savingForDeploy, setSavingForDeploy] = useState(false);
-  const deploy = async () => {
+  const deploy = async (options: StartOptions = {}) => {
     if (envStatus.dirty) {
       setSavingForDeploy(true);
       const saved = await envSave.current?.();
       setSavingForDeploy(false);
       if (!saved) return;
     }
-    startApp.mutate(id!);
+    startApp.mutate({ id: id!, ...options });
   };
   const starting = savingForDeploy || startApp.isPending;
 
@@ -924,8 +924,9 @@ export function AppWorkspace({
               env={envStatus}
               dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
               failure={failureReason}
+              failedMigration={lastDeployment?.status === 'FAILED' ? failedMigrationOf(lastDeployment.buildLogs) : null}
               starting={starting}
-              onDeploy={() => void deploy()}
+              onDeploy={(options) => void deploy(options)}
               onEditHosts={() => setHostsOpen(true)}
               onEditEnv={() => setActiveTab("environment")}
               onEditBuild={() => setActiveTab("build")}

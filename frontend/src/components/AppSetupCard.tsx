@@ -17,9 +17,11 @@ interface AppSetupCardProps {
   dbCheck?: "pending" | { ok: boolean; message: string } | null;
   /** why the last deploy failed — Deploy is then the retry */
   failure?: string;
+  /** the Prisma migration the last deploy found recorded as failed (P3009): offered to be cleared and retried */
+  failedMigration?: string | null;
   /** Deploy was clicked and is saving or starting */
   starting?: boolean;
-  onDeploy: () => void;
+  onDeploy: (options?: { resolveMigration?: string }) => void;
   /** the hosts dialog — the first step: the env's addresses follow from them */
   onEditHosts: () => void;
   onEditEnv: () => void;
@@ -33,7 +35,24 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+  // P3009: the migration's record is cleared, then the migrations run again — one click, nothing to type
+  const migrationFix = failedMigration ? (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-muted-foreground">{t("Migration {name} is recorded as failed and blocks the rest.", { name: failedMigration })}</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs"
+        disabled={starting}
+        onClick={() => onDeploy({ resolveMigration: failedMigration })}
+      >
+        <Database className="mr-1.5 h-3 w-3" />
+        {t("Clear it and deploy again")}
+      </Button>
+    </div>
+  ) : null;
   // Where it answers comes first: without a host there is nothing to reach, and
   // the env's own addresses (APP_URL, CORS_ORIGIN, VITE_API_URL) are these hosts
   const hosts = hostsOf(application).filter((host) => !host.endsWith(".local"));
@@ -90,7 +109,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             <Rocket className="h-3.5 w-3.5 text-primary" />
             {t("Set up and deploy")}
           </p>
-          <Button type="button" size="sm" className="h-7 bg-gradient-primary px-3 text-xs" onClick={onDeploy} disabled={!ready || starting}>
+          <Button type="button" size="sm" className="h-7 bg-gradient-primary px-3 text-xs" onClick={() => onDeploy()} disabled={!ready || starting}>
             {starting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Rocket className="mr-1.5 h-3.5 w-3.5" />}
             {failure ? t("Retry deploy") : t("Deploy")}
           </Button>
@@ -144,6 +163,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         {failure && (
           <pre className="max-h-16 overflow-auto whitespace-pre-wrap rounded border border-destructive/40 bg-destructive/5 p-1.5 font-mono text-destructive">{failure}</pre>
         )}
+        {migrationFix}
       </div>
     );
   }
@@ -294,6 +314,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           <div className="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">
             <p className="text-sm font-medium text-destructive">{t("The last deploy failed")}</p>
             <pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">{failure}</pre>
+            {migrationFix}
           </div>
         )}
 
@@ -310,7 +331,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           ) : null}
           <Button
             type="button"
-            onClick={onDeploy}
+            onClick={() => onDeploy()}
             // only once every expected variable has a value — an empty DATABASE_URL just fails
             disabled={!ready || starting}
             className="bg-gradient-primary"

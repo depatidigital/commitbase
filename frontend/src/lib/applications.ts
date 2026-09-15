@@ -687,10 +687,23 @@ export const startExistingApplication = async (id: string): Promise<Application 
 };
 
 // Start application (with redeploy)
+/**
+ * The Prisma migration a failed deploy's build log names as recorded failed
+ * (P3009) — it blocks every migration after it until its record is cleared. Pure.
+ */
+export const failedMigrationOf = (buildLogs?: string | null): string | null =>
+  buildLogs?.match(/The `(\d{14}_[A-Za-z0-9_-]+)` migration started at .* failed/)?.[1] ?? null;
+
+export type StartOptions = {
+  /** a migration recorded as failed, marked rolled back right before this deploy's migrations run */
+  resolveMigration?: string;
+};
+
 /** Deploy the app — it alone; a project deploy is each of its apps (deployProject). */
-export const startApplication = async (id: string): Promise<Application | boolean> => {
+export const startApplication = async (id: string, options: StartOptions = {}): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/start`, {
     method: 'POST',
+    ...(options.resolveMigration && { body: JSON.stringify({ resolveMigration: options.resolveMigration }) }),
   });
   
   if (response.success) {

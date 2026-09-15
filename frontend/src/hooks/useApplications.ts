@@ -226,16 +226,19 @@ export const useStartApplication = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: startApplication,
-    onSuccess: (data, variables) => {
+    // an id, or the id with options (a failed migration to clear first)
+    mutationFn: (input: string | ({ id: string } & StartOptions)) =>
+      typeof input === 'string' ? startApplication(input) : startApplication(input.id, input),
+    onSuccess: (data, input) => {
+      const id = typeof input === 'string' ? input : input.id;
       toast({
         title: t('Success'),
         description: t('App is starting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
-      queryClient.invalidateQueries({ queryKey: ['application', variables] });
+      queryClient.invalidateQueries({ queryKey: ['application', id] });
       // the new deploy's row — the history then polls itself until it settles
-      queryClient.invalidateQueries({ queryKey: ['deployments', variables] });
+      queryClient.invalidateQueries({ queryKey: ['deployments', id] });
     },
     onError: (error: Error) => {
       toast({

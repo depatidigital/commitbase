@@ -1678,7 +1678,12 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     const imported = refuseImported(application, res);
     if (imported) return imported;
 
-    const launched = await launchDeploy(application, req.user!.userId);
+    // resolveMigration: a Prisma migration recorded as failed (P3009), cleared before this deploy's migrations
+    const resolveMigration = typeof req.body?.resolveMigration === 'string' ? req.body.resolveMigration.trim() : '';
+    if (resolveMigration && !/^\d{14}_[A-Za-z0-9_-]{1,200}$/.test(resolveMigration)) {
+      return res.status(400).json({ success: false, error: 'Not a migration name' } as ApiResponse);
+    }
+    const launched = await launchDeploy(application, req.user!.userId, { resolveMigration: resolveMigration || undefined });
     if (!launched) {
       return res.status(409).json({
         success: false,
