@@ -221,3 +221,8 @@ assert.deepStrictEqual(
 );
 
 console.log('projectDetect: ok');
+
+// a chosen pnpm over npm's lockfile imports it first
+const chosenPnpm = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { express: '4' } }), 'package-lock.json': '' }, undefined, 'pnpm');
+assert.strictEqual(chosenPnpm.packageManager, 'pnpm');
+assert.strictEqual(chosenPnpm.installCommand, 'pnpm import && pnpm install --frozen-lockfile');
