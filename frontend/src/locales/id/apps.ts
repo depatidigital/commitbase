@@ -498,6 +498,8 @@ export default {
   Custom: "Kustom",
   "Pick a database…": "Pilih database…",
   "Custom URL": "URL kustom",
+  "Not live yet — deploy each app from its setup checklist first.": "Belum live — deploy tiap aplikasi dari checklist-nya dulu.",
+  "Pull & redeploy": "Pull & deploy ulang",
   "It is {app}'s only host: nobody reaches it until another one is added.":
     "Ini satu-satunya host {app}: aplikasi tidak bisa diakses sampai host lain ditambahkan.",
   "Connection URL": "URL koneksi",

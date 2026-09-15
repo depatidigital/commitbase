@@ -66,6 +66,9 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const shippable = !!head && (changed || head !== live);
   // what runs is behind its branch — said by the card's outline too, not only a line of grey text
   const behind = !changed && !!head && !!live && head !== live;
+  // Nothing has gone live yet: the first deploy is each app's, from its setup
+  // checklist (its host, env and build checked there) — not a project-wide one from here
+  const neverLive = !live && !project?.activeRelease;
 
   const saveBranch = useMutation({
     mutationFn: () => updateProject(projectId, { branch }),
@@ -337,17 +340,24 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                   <CheckCircle className="h-3.5 w-3.5 shrink-0" />
                   {t("Up to date — the newest commit is live.")}
                 </span>
+              ) : neverLive ? (
+                <span className="text-muted-foreground">{t("Not live yet — deploy each app from its setup checklist first.")}</span>
               ) : (
                 <span className="flex items-center gap-1.5 text-warning">
                   <GitCommit className="h-3.5 w-3.5 shrink-0" />
-                  {live
-                    ? t("New commits on {branch} — pull them to put them live.", { branch })
-                    : t("Deploy to put {branch} live.", { branch })}
+                  {t("New commits on {branch} — pull them to put them live.", { branch })}
                 </span>
               )}
             </p>
 
-            {shippable && !deploying && (
+            {/* before the first deploy only the branch can be saved: deploying is the apps' checklists' */}
+            {neverLive && changed && !deploying && (
+              <Button type="button" variant="outline" size="sm" className="w-full" disabled={saveBranch.isPending} onClick={() => saveBranch.mutate()}>
+                {t("Save branch only")}
+              </Button>
+            )}
+
+            {shippable && !deploying && !neverLive && (
               <div className="flex flex-col gap-2">
                 <Button
                   type="button"
@@ -357,13 +367,13 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 >
                   {starting || saveBranch.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : changed || !live ? (
+                  ) : changed ? (
                     <Rocket className="h-4 w-4 mr-2" />
                   ) : (
                     <Download className="h-4 w-4 mr-2" />
                   )}
-                  {/* same branch, newer commits: that is a pull. Another branch is a switch */}
-                  {changed || !live ? t("Deploy {branch}", { branch }) : t("Pull latest")}
+                  {/* same branch, newer commits: pulled, then every app built and switched. Another branch is a switch */}
+                  {changed ? t("Deploy {branch}", { branch }) : t("Pull & redeploy")}
                 </Button>
                 {changed && (
                   <Button type="button" variant="ghost" size="sm" disabled={saveBranch.isPending} onClick={() => saveBranch.mutate()}>
