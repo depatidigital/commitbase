@@ -37,7 +37,6 @@ interface DatabaseDialogProps {
 const nameFrom = (domain: string) => toDbName(domain.split(".")[0] || "app");
 
 const ENGINE = { POSTGRESQL: "PostgreSQL", MYSQL: "MySQL" } as const;
-const LOGIN_RE = /^[a-z][a-z0-9_]{0,30}$/;
 
 /** `pg-db-1 · PostgreSQL 16` — the major version is what matters, not the distro's build string */
 const serverLabel = (server: DatabaseServerChoice) => {
@@ -82,12 +81,6 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   const [serverId, setServerId] = useState("");
   const [existingId, setExistingId] = useState("");
   const [search, setSearch] = useState("");
-  // a login of its own per app by default: one app's credentials reach one database
-  const [loginMode, setLoginMode] = useState<"new" | "existing">("new");
-  const [loginName, setLoginName] = useState(() => nameFrom(application.name));
-  const [accountId, setAccountId] = useState("");
-  // the login is a detail: shown in the summary, opened with "Change"
-  const [loginOpen, setLoginOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const fromUrl = parseDatabaseUrl(currentUrl);
   // the name every ORM and driver reads by default; the app's code fixes it, not this dialog
@@ -101,10 +94,6 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
     setServerId("");
     setSearch("");
     setName(fromUrl.name || nameFrom(application.name));
-    setLoginMode("new");
-    setLoginName(nameFrom(application.name));
-    setAccountId("");
-    setLoginOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -171,49 +160,34 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existing.data, projectDbs.data]);
 
-  // logins live on a server: the one chosen, or the chosen database's
+  // One login per organization on each server — org_<slug>, made the first time it is
+  // needed — reaches every database of the organization's apps. Nothing to choose.
   const loginServerId = mode === "create" ? serverId : chosen?.databaseServerId ?? "";
   const logins = useQuery({
     queryKey: ["databases", "logins", orgId, loginServerId],
     queryFn: () => getDatabaseLogins(orgId, loginServerId),
     enabled: open && !!orgId && !!loginServerId,
   });
-  const loginList = logins.data?.logins ?? [];
   const prefix = logins.data?.prefix ?? "";
-  // an existing database: the login that already reaches it is the obvious pick
-  useEffect(() => {
-    if (mode !== "existing" || !existingId || !logins.data) return;
-    const reaching = loginList.find((login) => login.databases.some((db) => db.id === existingId));
-    setLoginMode(reaching ? "existing" : "new");
-    setAccountId(reaching?.id ?? "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, existingId, logins.data]);
-
-  const login: LoginChoice | null =
-    loginMode === "existing" ? (accountId ? { accountId } : null) : LOGIN_RE.test(loginName) ? { username: loginName } : null;
-  const valid = !!login && (mode === "create" ? /^[a-z][a-z0-9_]{0,40}$/.test(name) && !!serverId : !!existingId);
-  // an invalid login is not left hidden
-  const loginShown = loginOpen || (!!loginServerId && !login);
+  const orgLogin = logins.data?.logins.find((login) => login.username.startsWith("org_"))?.username ?? `org_${prefix.replace(/_+$/, "")}`;
+  const valid = mode === "create" ? /^[a-z][a-z0-9_]{0,40}$/.test(name) && !!serverId : !!existingId;
 
   const server = servers.data?.find((s) => s.id === serverId);
   const summaryDb = mode === "create" ? `${prefix}${name}` : chosen?.dbName || chosen?.name || "";
   const summaryServer = mode === "create" ? server?.name : chosen?.databaseServer?.name;
-  const summaryLogin =
-    loginMode === "new"
-      ? t("a new login {login}, for this database only", { login: `${prefix}${loginName}` })
-      : t("the login {login}", { login: loginList.find((l) => l.id === accountId)?.username ?? "…" });
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!valid || !login) return;
+    if (!valid) return;
     setBusy(true);
     try {
       let databaseId = existingId;
-      let connectAs: LoginChoice = login;
+      // no login given: the organization's own, on both ends
+      let connectAs: LoginChoice | undefined;
       if (mode === "create") {
-        const created = await createDatabase({ name, databaseServerId: serverId, applicationId: application.id, login });
+        const created = await createDatabase({ name, databaseServerId: serverId, applicationId: application.id });
         databaseId = created.id;
-        // made with that login already — attach by id so a new one is not made twice
+        // made with that login already — attach by id so it is not looked up twice
         if (created.accountId) connectAs = { accountId: created.accountId };
       }
       const { keys } = await attachDatabase(databaseId, application.id, envKey, alsoKeys, connectAs);
@@ -255,7 +229,8 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           />
 
           {mode === "create" ? (
-            <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-center">
+            // label column fixed, so the Login row below lines up with these
+            <div className="grid gap-3 sm:grid-cols-[8.5rem_1fr] sm:items-center">
               <Label className="text-muted-foreground">{t("Database server")}</Label>
               {servers.isLoading ? (
                 <p className="text-sm text-muted-foreground">{t("Loading…")}</p>
@@ -264,10 +239,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
               ) : (
                 <Select
                   value={serverId}
-                  onValueChange={(value) => {
-                    setServerId(value);
-                    setAccountId("");
-                  }}
+                  onValueChange={setServerId}
                 >
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder={t("Choose a server")} />
@@ -346,9 +318,20 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
             </div>
           )}
 
-          {/* what Connect will do — the login inside it, opened only to change it */}
+          {/* the login: the organization's one — said, not asked */}
+          {loginServerId && (
+            <div className="grid gap-3 sm:grid-cols-[8.5rem_1fr] sm:items-center">
+              <Label className="text-muted-foreground">{t("Login")}</Label>
+              <p className="text-sm">
+                <span className="font-mono">{orgLogin}</span>
+                <span className="text-muted-foreground"> · {t("the organization's login, shared by its apps")}</span>
+              </p>
+            </div>
+          )}
+
+          {/* what Connect will do, read before it is done */}
           {loginServerId && summaryDb && (
-            <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+            <div className="space-y-1 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("What will be written")}</p>
               <p>
                 <code className="font-mono text-xs">{envKey}</code>
@@ -357,57 +340,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                 <span className="font-mono">{summaryDb}</span>
                 {summaryServer && <span className="text-muted-foreground"> · {summaryServer}</span>}
               </p>
-              <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                <span>{t("Connects as {login}.", { login: summaryLogin })}</span>
-                <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => setLoginOpen((on) => !on)}>
-                  {loginShown ? t("Hide") : t("Change")}
-                </button>
-              </p>
-
-              {loginShown && (
-                <div className="space-y-2 border-t border-primary/20 pt-2">
-                  <Choice<"new" | "existing">
-                    value={loginMode}
-                    onChange={setLoginMode}
-                    options={[
-                      ["new", t("New login")],
-                      ["existing", t("Existing login")],
-                    ]}
-                  />
-                  {loginMode === "new" ? (
-                    <div className="flex h-9 items-center rounded-md border border-input bg-card focus-within:ring-2 focus-within:ring-ring">
-                      <span className="select-none pl-3 font-mono text-sm text-muted-foreground">{prefix}</span>
-                      <input
-                        aria-label={t("Login name")}
-                        className="h-full min-w-0 flex-1 bg-transparent pr-3 font-mono text-sm outline-none"
-                        value={loginName}
-                        onChange={(e) => setLoginName(e.target.value.toLowerCase())}
-                      />
-                    </div>
-                  ) : logins.isLoading ? (
-                    <p className="text-sm text-muted-foreground">{t("Loading…")}</p>
-                  ) : loginList.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{t("The organization has no logins on this server yet — make a new one.")}</p>
-                  ) : (
-                    <Select value={accountId} onValueChange={setAccountId}>
-                      <SelectTrigger className="h-9 bg-card">
-                        <SelectValue placeholder={t("Choose a login")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {loginList.map((account) => (
-                          <SelectItem key={account.id} value={account.id}>
-                            <span className="font-mono">{account.username}</span>
-                            {" · "}
-                            {account.databases.length === 1
-                              ? t("reaches 1 database")
-                              : t("reaches {count} databases", { count: account.databases.length })}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              )}
+              <p className="text-xs text-muted-foreground">{t("Connects as {login}.", { login: orgLogin })}</p>
             </div>
           )}
         </form>

@@ -508,12 +508,14 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
       return res.status(400).json({ success: false, error: 'That database belongs to another organization' } as ApiResponse);
     }
 
-    // which login the app connects as: one the org has, a new one, or (none
-    // given) the login the database already has
+    // Which login the app connects as: the one asked for — else the organization's
+    // own (org_<slug>, one per organization on each server), given access here if
+    // it has none yet. A database imported from a server keeps the login its app's
+    // .env names; one from before per-database owners, the login that owns it.
     const parsedLogin = CreateDatabaseSchema.shape.login.safeParse(req.body?.login);
     if (!parsedLogin.success) return res.status(400).json({ success: false, error: 'Invalid login' } as ApiResponse);
     let accountId: string | undefined;
-    if (parsedLogin.data) {
+    if (parsedLogin.data || !database.discovered) {
       const full = await prisma.database.findUnique({
         where: { id: database.id },
         include: { databaseServer: { include: { server: true } }, organization: { select: { id: true, slug: true } } },
@@ -521,10 +523,16 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
       if (!full?.databaseServer || !full.organization) {
         return res.status(400).json({ success: false, error: 'This database has no server or organization to add a login on' } as ApiResponse);
       }
-      accountId = (await resolveAccount(full.databaseServer, full.organization, parsedLogin.data)).id;
-      const granted = await grantAccess(database.id, accountId);
-      if (!granted.ok) {
-        return res.status(502).json({ success: false, error: `Could not give the login access on the server: ${granted.error}` } as ApiResponse);
+      const account = await resolveAccount(full.databaseServer, full.organization, parsedLogin.data);
+      try {
+        const granted = await grantAccess(database.id, account.id);
+        if (!granted.ok) {
+          return res.status(502).json({ success: false, error: `Could not give the login access on the server: ${granted.error}` } as ApiResponse);
+        }
+        accountId = account.id;
+      } catch (error) {
+        // only the organization's own login falls back: one asked for by name must work or say why
+        if (!(error instanceof ProvisionError) || parsedLogin.data) throw error;
       }
     }
 
