@@ -31,7 +31,7 @@ import { serverForApplication } from '../lib/servers';
 import { forgetPointing, healthFor } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
-import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE, sourceDirOf } from '../lib/appPaths';
+import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
 import { queueOrgNode } from '../services/orgProvisionService';
 import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
@@ -930,9 +930,9 @@ router.post(
         }
 
         const release = await prisma.release.create({
-          data: { sourceId: application.sourceId, status: 'READY', path: folder, deploymentId: deployment.id },
+          data: { applicationId: application.id, sourceId: application.sourceId, status: 'READY', path: folder, deploymentId: deployment.id },
         });
-        const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), source: { update: { activeReleaseId: release.id } } };
+        const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
 
         try {
           await serveStatic(await serverForApplication(application.id), application.id, pointer.staticOrigin);
@@ -1437,29 +1437,11 @@ router.get('/:id/folder', authenticateToken, async (req: AuthenticatedRequest, r
   }
 });
 
-/**
- * A deleted app's files. Its source's tree (sources, releases, current) goes
- * with the source's last app; while other apps of it remain, only what is this
- * app's own does — and when the tree is in this app's directory (the source
- * shares its id), that is its run.sh, runtime env and unit logs, nothing else.
- */
-async function removeAppFiles(application: { id: string; sourceId: string | null }): Promise<void> {
+/** A deleted app's files: its whole tree — sources, releases, current, run.sh, logs — is its own. */
+async function removeAppFiles(application: { id: string }): Promise<void> {
   const afs = await appFsFor(application.id).catch(() => null);
   if (!afs) return;
-  const others = application.sourceId
-    ? await prisma.application.count({ where: { sourceId: application.sourceId, id: { not: application.id } } })
-    : 0;
-  const rm = (p: string) => afs.rm(p, { recursive: true, force: true }).catch(() => {});
-  const sourceDir = sourceDirOf(afs.appDir, application.sourceId);
-
-  if (others === 0) {
-    await rm(afs.appDir);
-    if (sourceDir !== afs.appDir) await rm(sourceDir);
-  } else if (sourceDir === afs.appDir) {
-    for (const file of ['run.sh', '.env.runtime', 'logs/out.log', 'logs/error.log']) await rm(path.posix.join(afs.appDir, file));
-  } else {
-    await rm(afs.appDir);
-  }
+  await afs.rm(afs.appDir, { recursive: true, force: true }).catch(() => {});
 }
 
 // Delete an application
@@ -2015,9 +1997,6 @@ router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest,
         id,
         ...(await orgScope(req)),
       },
-      include: {
-        source: { select: { activeReleaseId: true } },
-      },
     });
 
     if (!application) {
@@ -2027,22 +2006,16 @@ router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest,
       } as ApiResponse);
     }
 
-    const releases = application.sourceId
-      ? await prisma.release.findMany({
-          where: {
-            sourceId: application.sourceId,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        })
-      : [];
+    const releases = await prisma.release.findMany({
+      where: { applicationId: application.id },
+      orderBy: { createdAt: 'desc' },
+    });
 
     return res.json({
       success: true,
       data: {
         applicationId: application.id,
-        activeReleaseId: application.source?.activeReleaseId ?? null,
+        activeReleaseId: application.activeReleaseId ?? null,
         releases,
       },
       message: 'Releases retrieved successfully',
@@ -2085,14 +2058,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
     const imported = refuseImported(application, res);
     if (imported) return imported;
 
-    const release = application.sourceId
-      ? await prisma.release.findFirst({
-          where: {
-            id: releaseId,
-            sourceId: application.sourceId,
-          },
-        })
-      : null;
+    const release = await prisma.release.findFirst({ where: { id: releaseId, applicationId: application.id } });
 
     if (!release) {
       return res.status(404).json({
@@ -2105,18 +2071,6 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       return res.status(400).json({
         success: false,
         error: 'Release is not in READY state',
-      } as ApiResponse);
-    }
-
-    // A site sharing its project with other apps keeps no releases of its own:
-    // the project's are theirs (services/deployment.ts switchSites)
-    if (
-      application.type === 'STATIC' &&
-      (await prisma.application.count({ where: { sourceId: application.sourceId, runtime: null, type: { not: 'STATIC' } } })) > 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "A static site in a project with other apps is not rolled back on its own — redeploy the project at the commit you want",
       } as ApiResponse);
     }
 
@@ -2136,7 +2090,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
 
       await prisma.application.update({
         where: { id: application.id },
-        data: { staticOrigin, source: { update: { activeReleaseId: release.id } }, status: 'RUNNING', lastDeployment: new Date() },
+        data: { staticOrigin, activeReleaseId: release.id, status: 'RUNNING', lastDeployment: new Date() },
       });
       // in the history too: "what changed at 14:02" should find the rollback
       await prisma.deployment.create({
@@ -2157,19 +2111,13 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       } as ApiResponse);
     }
 
-    await prisma.source.update({
-      where: { id: release.sourceId! },
-      data: { activeReleaseId: release.id },
-    });
-
     await deploymentService.stopApplication(application.id);
-
-    // every app of the source runs from the release just switched to
     const started = await deploymentService.startRelease(application, release);
 
-    await prisma.application.updateMany({
-      where: application.sourceId ? { sourceId: application.sourceId, runtime: null } : { id: application.id },
+    await prisma.application.update({
+      where: { id: application.id },
       data: {
+        activeReleaseId: release.id,
         status: started ? 'RUNNING' : 'ERROR',
         lastDeployment: new Date(),
       },

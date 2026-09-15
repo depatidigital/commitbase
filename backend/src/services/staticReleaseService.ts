@@ -62,24 +62,26 @@ async function deleteRelease(bucket: string, folder: string): Promise<void> {
  * something to roll back to.
  */
 export async function adoptRootFiles(app: {
+  id: string;
   sourceId: string | null;
   staticBucket: string | null;
   staticOrigin: string | null;
   lastDeployment: Date | null;
 }): Promise<void> {
-  if (!app.sourceId || !app.staticBucket || !app.staticOrigin || servingFolder(app.staticOrigin)) return;
-  if ((await prisma.release.count({ where: { sourceId: app.sourceId } })) > 0) return;
+  if (!app.staticBucket || !app.staticOrigin || servingFolder(app.staticOrigin)) return;
+  if ((await prisma.release.count({ where: { applicationId: app.id } })) > 0) return;
   if ((await listReleaseFiles(app.staticBucket, '')).length === 0) return;
 
   const release = await prisma.release.create({
     data: {
+      applicationId: app.id,
       sourceId: app.sourceId,
       status: 'READY',
       path: '',
       ...(app.lastDeployment && { createdAt: app.lastDeployment }),
     },
   });
-  await prisma.source.update({ where: { id: app.sourceId }, data: { activeReleaseId: release.id } });
+  await prisma.application.update({ where: { id: app.id }, data: { activeReleaseId: release.id } });
 }
 
 /** Remove a deploy that never finished — its files would only take up space. */
@@ -93,17 +95,17 @@ export async function discardFolder(bucket: string, folder: string): Promise<voi
 export async function pruneStaticReleases(applicationId: string): Promise<void> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { staticBucket: true, sourceId: true, source: { select: { activeReleaseId: true } } },
+    select: { staticBucket: true, activeReleaseId: true },
   });
-  if (!app?.staticBucket || !app.sourceId) return;
+  if (!app?.staticBucket) return;
 
   const releases = await prisma.release.findMany({
-    where: { sourceId: app.sourceId },
+    where: { applicationId },
     orderBy: { createdAt: 'desc' },
     select: { id: true, path: true },
   });
   for (const release of releases.slice(KEEP_STATIC_RELEASES)) {
-    if (release.id === app.source?.activeReleaseId) continue;
+    if (release.id === app.activeReleaseId) continue;
     try {
       await deleteRelease(app.staticBucket, release.path ?? '');
       await prisma.release.delete({ where: { id: release.id } });

@@ -120,22 +120,7 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
       text = `── ${provisioning.state === 'FAILED' ? 'provisioning failed' : 'provisioning the organization on this server'} ──\n${provisioning.log.slice(-16 * 1024)}\n`;
     }
 
-    // One deploy builds the whole project, so every app of it shows the same log:
-    // the one in the tree its node builds in (a static site of a project with other
-    // apps builds on the panel, into the deploy's log there too — services/deployment.ts)
-    const group = application.sourceId
-      ? await prisma.application.findMany({
-          where: { sourceId: application.sourceId, runtime: null },
-          select: { id: true, name: true, type: true, status: true },
-          orderBy: { createdAt: 'asc' },
-        })
-      : [];
-    // whose tree the running deploy writes in: the node's, when it builds any app there — a
-    // static site deployed on its own builds on the panel, in its own tree (deployScope)
-    const deploying = group.filter((app) => app.status === 'DEPLOYING' || app.status === 'BUILDING');
-    const builder =
-      deploying.find((app) => app.type !== 'STATIC') ?? deploying[0] ?? group.find((app) => app.type !== 'STATIC') ?? application;
-    const afs = await sourceFsFor(builder.id);
+    const afs = await sourceFsFor(application.id);
     const logFile = path.posix.join(afs.appDir, 'logs', 'build.log');
     const TAIL = 64 * 1024;
     try {
@@ -145,17 +130,6 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
       text += (start > 0 ? '…\n' : '') + buffer.subarray(start).toString('utf-8');
     } catch {
       // no build has run yet
-    }
-
-    // A static site building right now writes on the panel (site-build.log) and joins
-    // the deploy's log, under `==> name <==`, once it is done: the one not in it yet is
-    // the one building — its output so far goes under its header.
-    const sites = group.length > 1 ? deploying.filter((app) => app.type === 'STATIC') : [];
-    const building = sites.find((site) => !text.includes(`==> ${site.name} <==`));
-    if (building) {
-      const siteFs = await sourceFsFor(building.id);
-      const siteLog = await siteFs.readText(path.posix.join(siteFs.appDir, 'logs', 'site-build.log')).catch(() => '');
-      if (siteLog.trim()) text += `\n==> ${building.name} <==\n${siteLog.slice(-TAIL)}`;
     }
 
     // After BUILD COMPLETED the deploy goes on — switch, start, a health check of

@@ -18,6 +18,16 @@ export async function backfillSources(): Promise<number> {
       ON CONFLICT ("id") DO NOTHING`,
     prisma.$executeRaw`UPDATE "applications" SET "sourceId" = "id" WHERE "sourceId" IS NULL`,
     prisma.$executeRaw`UPDATE "releases" SET "sourceId" = "applicationId" WHERE "sourceId" IS NULL AND "applicationId" IS NOT NULL`,
+    // Releases and the active one are each app's again (a monorepo's apps deploy on
+    // their own). Rows from when they were the source's belong to its first app —
+    // the one whose id the source shares, whose directory the tree was in.
+    prisma.$executeRaw`
+      UPDATE "releases" r SET "applicationId" = r."sourceId"
+      WHERE r."applicationId" IS NULL AND r."sourceId" IS NOT NULL
+        AND EXISTS (SELECT 1 FROM "applications" a WHERE a."id" = r."sourceId")`,
+    prisma.$executeRaw`
+      UPDATE "applications" a SET "activeReleaseId" = s."activeReleaseId"
+      FROM "sources" s WHERE a."id" = s."id" AND a."activeReleaseId" IS NULL AND s."activeReleaseId" IS NOT NULL`,
     prisma.$executeRaw`
       UPDATE "deployments" d SET "sourceId" = a."sourceId"
       FROM "applications" a WHERE a."id" = d."applicationId" AND d."sourceId" IS NULL AND a."sourceId" IS NOT NULL`,
@@ -105,7 +115,10 @@ export function sourceName(
   );
 }
 
-type WithSource = { source?: { repository: string | null; branch: string | null; gitAccountId: string | null; activeReleaseId: string | null; path?: string | null } | null };
+type WithSource = {
+  activeReleaseId?: string | null;
+  source?: { repository: string | null; branch: string | null; gitAccountId: string | null; activeReleaseId: string | null; path?: string | null } | null;
+};
 
 /**
  * The app as the API has always answered it: repository, branch, clone account
@@ -118,7 +131,8 @@ export function withSourceFields<T extends WithSource>(app: T) {
     repository: app.source?.repository ?? null,
     branch: app.source?.branch ?? null,
     gitAccountId: app.source?.gitAccountId ?? null,
-    activeReleaseId: app.source?.activeReleaseId ?? null,
+    // the app's own; the source's for a row from before releases were each app's
+    activeReleaseId: app.activeReleaseId ?? app.source?.activeReleaseId ?? null,
     // an imported one: the git checkout its folder sits in (git rev-parse --show-toplevel, by the sync)
     checkoutPath: app.source?.path ?? null,
   };
