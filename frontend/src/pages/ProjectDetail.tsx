@@ -1,7 +1,7 @@
 ﻿import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
@@ -32,7 +32,9 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, bindingLabel, deleteApplication, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, bindingLabel, deleteApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { SiteFilesCard } from "@/components/SiteFilesCard";
+import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -596,6 +598,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
   const pending = start.isPending || stop.isPending || restart.isPending;
   const env = Object.keys(application.envVars ?? {});
   const lastDeployment = application.deployments?.[0];
+  // a site uploaded as files: nothing is built or run, and it is given no env — its files are what there is
+  const uploadedSite = application.type === "STATIC" && !application.repository;
   return (
     <div className="space-y-3 border-t border-border/60 p-4">
       {/* bento: its hosts and how it is built and run side by side; under them what it is given,
@@ -603,10 +607,16 @@ function AppQuickEdit({ appId }: { appId: string }) {
       <div className="grid items-stretch gap-3 md:grid-cols-2">
         <RoutingCard application={application} compact />
         <MiniCard icon={Rocket} title={t("Deployments")}>
-          <MiniLine label={t("Build Command")}>{application.buildCommand || "—"}</MiniLine>
-          <MiniLine label={t("Start Command")}>
-            {application.runtime === "PM2" && application.processName ? `pm2 restart ${application.processName}` : application.startCommand || "—"}
-          </MiniLine>
+          {!uploadedSite && (
+            <>
+              <MiniLine label={t("Build Command")}>{application.buildCommand || "—"}</MiniLine>
+              {application.type !== "STATIC" && (
+                <MiniLine label={t("Start Command")}>
+                  {application.runtime === "PM2" && application.processName ? `pm2 restart ${application.processName}` : application.startCommand || "—"}
+                </MiniLine>
+              )}
+            </>
+          )}
           <MiniLine label={t("Last Deployment")} mono={false}>
             {lastDeployment
               ? `${new Date(lastDeployment.createdAt).toLocaleString(locale)} · ${deploymentStatusLabel(lastDeployment.status)}`
@@ -616,6 +626,9 @@ function AppQuickEdit({ appId }: { appId: string }) {
       </div>
       <div className="flex flex-wrap items-center gap-3 md:flex-nowrap">
         <div className="min-w-0 flex-1">
+          {uploadedSite ? (
+            <SiteFilesMini appId={application.id} />
+          ) : (
           <MiniCard
             icon={KeyRound}
             title={`${t("Env")} (${env.length})`}
@@ -635,6 +648,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
               </p>
             )}
           </MiniCard>
+          )}
           {/* the panel's own apps: the env form. An imported one's is its .env on the server — read, searched, not edited */}
           <Dialog open={envOpen} onOpenChange={setEnvOpen}>
             <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
@@ -720,5 +734,44 @@ function MiniLine({ label, children, mono = true }: { label: string; children: R
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className={`min-w-0 text-right ${mono ? "break-all font-mono" : ""}`}>{children}</span>
     </p>
+  );
+}
+
+/** A site uploaded as files, in the quick edit's bento: how many and how big, a few of their names — managed in a dialog. */
+function SiteFilesMini({ appId }: { appId: string }) {
+  const [open, setOpen] = useState(false);
+  // the same list the dialog's card reads — one request between them
+  const { data, isLoading } = useQuery({ queryKey: ["site-files", appId], queryFn: () => getSiteFiles(appId) });
+  const files = data?.files ?? [];
+  const bytes = files.reduce((sum, file) => sum + (file.size ?? 0), 0);
+  return (
+    <MiniCard
+      icon={FolderOpen}
+      title={`${t("Site files")}${data ? ` (${files.length} · ${formatBytes(bytes, locale)})` : ""}`}
+      action={
+        <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setOpen(true)}>
+          <Pencil className="mr-1 h-3 w-3" />
+          {t("Manage")}
+        </Button>
+      }
+    >
+      {isLoading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+      ) : files.length === 0 ? (
+        <p className="text-muted-foreground">{t("No files uploaded yet")}</p>
+      ) : (
+        <p className="line-clamp-2 break-all font-mono" title={files.map((file) => file.key).join(", ")}>
+          {files.map((file) => file.key).join(", ")}
+        </p>
+      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{t("Site files")}</DialogTitle>
+          </DialogHeader>
+          <SiteFilesCard appId={appId} />
+        </DialogContent>
+      </Dialog>
+    </MiniCard>
   );
 }
