@@ -4,7 +4,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
+import DeploymentHistory, { LiveBuildLog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
@@ -39,7 +39,7 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -113,7 +113,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the project's tab (?tab=), or one of its apps opened a level deeper (?app=)
-  const tab = ["logs", "deployments", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   const openApp = (appId: string) => setSearchParams({ app: appId });
@@ -248,14 +248,13 @@ export default function ProjectDetail() {
       {appView ? (
         // rendered once the header's slot is there, so its actions go straight into it
         <div>
-          {panelSlot && <AppWorkspace key={appView.id} appId={appView.id} embedded onProjectTab={(next) => go(next)} panelSlot={panelSlot} />}
+          {panelSlot && <AppWorkspace key={appView.id} appId={appView.id} embedded inProject panelSlot={panelSlot} />}
         </div>
       ) : (
       <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
           <TabsTrigger value="apps">{t("Apps")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
-          <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
           <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
@@ -347,13 +346,6 @@ export default function ProjectDetail() {
         {/* every app's log in one live stream, or one app's — followed only while this tab is open */}
         <TabsContent value="logs">
           <ProjectLogs projectId={project.id} apps={apps} />
-        </TabsContent>
-
-        {/* one history for the project: a deploy builds every app of it */}
-        <TabsContent value="deployments">
-          {apps[0] && (
-            <DeploymentHistory application={{ id: apps[0].id, type: apps[0].type as Application["type"], repository: project.repository ?? undefined }} showApp />
-          )}
         </TabsContent>
 
         {/* the databases its apps share — connected from each app's Environment */}
@@ -598,6 +590,7 @@ export default function ProjectDetail() {
 function AppQuickEdit({ appId }: { appId: string }) {
   // refetched by hand after a change made here (a host, a deploy): its own query, whatever a cache-wide invalidation reaches
   const { data: application, isLoading, refetch: refetchApp } = useApplication(appId);
+  const { toast } = useToast();
   const start = useStartExistingApplication();
   // the checklist's Deploy: this app — every app deploys on its own
   const firstDeploy = useStartApplication();
@@ -769,9 +762,19 @@ function AppQuickEdit({ appId }: { appId: string }) {
             onDeploy={(options) => startDeploy(application.id, options)}
             onEditEnv={() => setEnvOpen(true)}
             onEditBuild={() => setBuildOpen(true)}
+            onShowLog={() => setLogOpen(true)}
           />
         ) : (
-        <MiniCard icon={Rocket} title={t("Deployments")}>
+        <MiniCard
+          icon={Rocket}
+          title={t("Deployments")}
+          action={
+            <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setLogOpen(true)}>
+              <Terminal className="mr-1 h-3 w-3" />
+              {t("Log")}
+            </Button>
+          }
+        >
           {!uploadedSite && (
             <>
               {/* what it is built and run with: its own commands, else detection's defaults */}

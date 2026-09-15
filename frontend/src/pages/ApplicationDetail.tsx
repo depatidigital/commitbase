@@ -166,19 +166,19 @@ export default function ApplicationDetail() {
 /**
  * One app: its state and actions beside its tabs. On its project's page
  * (`embedded`) the project's header stands above it instead of its own.
- * `onProjectTab`: the project shows the history, the source and the databases
- * (they are the whole project's — its apps share them) — this app has no tabs
- * or source panel for them, and sends "see the history" to the project's tab.
+ * `inProject`: the project shows the source and the databases (they are the
+ * whole project's — its apps share them) — this app has no tabs or source panel
+ * for them. Its own deploys are a section of its page.
  */
 export function AppWorkspace({
   appId,
   embedded = false,
-  onProjectTab,
+  inProject = false,
   panelSlot,
 }: {
   appId: string;
   embedded?: boolean;
-  onProjectTab?: (tab: "deployments") => void;
+  inProject?: boolean;
   /** in a project, beside the app's breadcrumb: its actions render there, without the status card */
   panelSlot?: HTMLElement | null;
 }) {
@@ -190,13 +190,12 @@ export function AppWorkspace({
   // State
   const [activeTab, setTab] = useState("overview");
   // in a project the app is one page of sections, not tabs (the project has the tabs): "go to" scrolls there
-  const stacked = !!onProjectTab;
+  const stacked = inProject;
   // stacked: env and build are shown read-only, edited in dialogs
   const [envOpen, setEnvOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
   const setActiveTab = (tab: string) => {
-    if (onProjectTab && tab === "deployments") onProjectTab(tab);
-    else if (stacked && tab === "environment") setEnvOpen(true);
+    if (stacked && tab === "environment") setEnvOpen(true);
     else if (stacked && tab === "build") setBuildOpen(true);
     else if (stacked) document.getElementById(`app-section-${tab}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
     else setTab(tab);
@@ -890,7 +889,7 @@ export function AppWorkspace({
         {dnsFix}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
-        {application.repository && application.sourceId && !needsSetup && !onProjectTab && (
+        {application.repository && application.sourceId && !needsSetup && !inProject && (
           <SourcePanel projectId={application.sourceId} onDeploy={() => void deploy()} starting={starting} deploying={deploying} />
         )}
         </aside>
@@ -980,13 +979,13 @@ export function AppWorkspace({
           <TabsList
             className="grid w-full"
             // overview, deployments, settings, plus files / environment + logs / database / build when they apply
-            style={{ gridTemplateColumns: `repeat(${(onProjectTab ? 2 : 3) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : onProjectTab ? 1 : 2) + (isStatic || onProjectTab ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: `repeat(${(inProject ? 2 : 3) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : inProject ? 1 : 2) + (isStatic || inProject ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
           >
             {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
-            {!onProjectTab && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
-            {!uploadedSite && !onProjectTab && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
-            {!isStatic && !onProjectTab && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
+            {!inProject && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
+            {!uploadedSite && !inProject && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
+            {!isStatic && !inProject && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {!uploadedSite && (
               <TabsTrigger value="environment" className="gap-1.5">
                 {t("Environment")}
@@ -1124,7 +1123,7 @@ export function AppWorkspace({
                 {/* where the code comes from says more than a type label twice:
                     an upload redeploys by uploading, a repository by building.
                     In a project, source, server and checkout are the project's — its Source tab */}
-                {onProjectTab ? (
+                {inProject ? (
                   <Field label={t("Type")}>
                     <Badge variant="secondary" className="text-xs">
                       {isStatic ? t("Static Site") : application.type}
@@ -1192,7 +1191,7 @@ export function AppWorkspace({
                 )}
                 {runsOn}
                 {/* imported: the git checkout its folder sits in — where a pull, a branch switch and a build run */}
-                {!onProjectTab && application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
+                {!inProject && application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
                   <Field label={t("Checkout")}>
                     <span className="break-all font-mono text-xs">{application.checkoutPath}</span>
                   </Field>
@@ -1411,8 +1410,9 @@ export function AppWorkspace({
           </TabsContent>
 
           {/* Deployments Tab */}
-          <TabsContent value="deployments" className="space-y-6">
-            <DeploymentHistory application={application} />
+          {/* in a project: a section of its page, only its own deploys (the history is the source's) */}
+          <TabsContent value="deployments" {...section("deployments")}>
+            <DeploymentHistory application={application} onlyApp={stacked ? application.id : undefined} />
           </TabsContent>
 
           {/* Build Tab */}
