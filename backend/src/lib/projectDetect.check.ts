@@ -23,7 +23,8 @@ assert.strictEqual(next.nodeVersion, '20.11');
 assert.strictEqual(next.port, 3000);
 
 const nextNoScripts = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { next: '15' } }), 'package-lock.json': '' });
-assert.strictEqual(nextNoScripts.installCommand, 'npm ci --no-audit --no-fund');
+// npm's lockfile: pnpm all the same, importing it — npm only when the app says so
+assert.strictEqual(nextNoScripts.installCommand, 'pnpm import && pnpm install --frozen-lockfile');
 assert.strictEqual(nextNoScripts.startCommand, NEXT_START);
 
 // a script that does more is kept — and said about when it pins a port or binds everywhere
@@ -67,7 +68,7 @@ assert.strictEqual(laravel.type, 'PHP');
 assert.strictEqual(laravel.framework, 'laravel');
 assert.strictEqual(laravel.outputDir, 'public');
 assert.ok(laravel.installCommand.startsWith('composer install'));
-assert.strictEqual(laravel.buildCommand, 'npm ci --no-audit --no-fund && npm run build');
+assert.strictEqual(laravel.buildCommand, 'pnpm import && pnpm install --frozen-lockfile && pnpm run build');
 
 const html = detectFromFiles({ 'index.html': '<html>' });
 assert.strictEqual(html.type, 'STATIC');
@@ -147,14 +148,14 @@ assert.strictEqual(next.generateCommand, null);
 
 // package.json's packageManager first, then text lockfiles; bun.lockb (binary, pre-1.2) only when it is alone
 const pmOf = (files: Record<string, string>) => detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { vite: '5' } }), ...files }).packageManager;
-assert.strictEqual(pmOf({ 'bun.lockb': '', 'package-lock.json': '' }), 'npm', 'a leftover bun.lockb beside package-lock.json');
+assert.strictEqual(pmOf({ 'bun.lockb': '', 'package-lock.json': '' }), 'pnpm', 'a leftover bun.lockb beside package-lock.json');
 assert.strictEqual(pmOf({ 'bun.lock': '', 'package-lock.json': '' }), 'bun');
 assert.strictEqual(pmOf({ 'bun.lockb': '' }), 'bun');
 assert.strictEqual(pmOf({ 'bun.lockb': '', 'yarn.lock': '' }), 'yarn');
 assert.strictEqual(
   detectFromFiles({ 'package.json': JSON.stringify({ packageManager: 'npm@10.0.0' }), 'yarn.lock': '' }).packageManager,
-  'npm',
-  'the declared manager wins over a lockfile',
+  'pnpm',
+  'the declared manager wins over a lockfile; npm itself is pnpm unless the app chose npm',
 );
 
 // Monorepo: a workspace package inherits the root's lockfile, node version and
@@ -177,7 +178,8 @@ assert.strictEqual(detectFromFiles(withRootFiles(webPkg, { 'package.json': JSON.
 const standalone = withRootFiles({ ...webPkg, 'package-lock.json': '' }, workspaceRoot);
 assert.strictEqual(standalone.installAtRoot, false);
 assert.strictEqual(standalone.files['pnpm-lock.yaml'], undefined);
-assert.strictEqual(detectFromFiles(standalone.files).installCommand, 'npm ci --no-audit --no-fund');
+assert.strictEqual(detectFromFiles(standalone.files).installCommand, 'pnpm import && pnpm install --frozen-lockfile');
+assert.strictEqual(detectFromFiles(standalone.files, undefined, 'npm').installCommand, 'npm ci --no-audit --no-fund');
 // its own packageManager wins over the root's
 assert.strictEqual(
   JSON.parse(withRootFiles({ 'package.json': JSON.stringify({ packageManager: 'bun@1.1.0' }) }, workspaceRoot).files['package.json']!).packageManager,

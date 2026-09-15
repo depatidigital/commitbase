@@ -1657,13 +1657,15 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
           <Select value={formData.packageManager || 'auto'} onValueChange={(v) => handleInputChange('packageManager', v === 'auto' ? '' : v)}>
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">{t("From the lockfile")}{detected?.packageManager ? ` (${detected.packageManager})` : ''}</SelectItem>
+              <SelectItem value="auto">{t("Automatic")}{detected?.packageManager ? ` (${detected.packageManager})` : ''}</SelectItem>
               {['npm', 'pnpm', 'yarn', 'bun'].map((pm) => <SelectItem key={pm} value={pm}>{pm}</SelectItem>)}
             </SelectContent>
           </Select>
-          {formData.packageManager === 'pnpm' && (
-            <p className="text-xs text-muted-foreground">{t("Without a pnpm-lock.yaml, the build runs pnpm import first — nothing to commit.")}</p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {formData.packageManager === 'pnpm' || !formData.packageManager
+              ? t("pnpm unless the repository uses yarn or bun. Pick npm to keep npm.") + " " + t("Without a pnpm-lock.yaml, the build runs pnpm import first — nothing to commit.")
+              : null}
+          </p>
         </div>
       )}
 

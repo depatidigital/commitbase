@@ -14,6 +14,8 @@ import { releasesDirFor, currentDirFor, sharedDirFor, logsDirFor, inRootDirector
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble, EXEC, type DetectedProject } from '../lib/projectDetect';
 
+// world-readable in /tmp: flock takes an exclusive lock on a read-only fd, whichever build user made it
+const NPM_LOCK = '/tmp/larika-npm.lock';
 const LOCKFILES = ['pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'package-lock.json', 'bun.lockb'];
 import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
@@ -505,7 +507,15 @@ export class DeploymentService {
             if (reusable && lock && (await this.reuseInstalled(afs, releaseDir, inFolder(lock), inFolder('node_modules')))) {
               await log(`${named(app)}node_modules: lockfile unchanged, hardlinked from the previous release`);
             } else {
-              installs.push(installCommand);
+              // npm installs on one machine take turns: two writing ~/.npm at once left tarballs
+              // "corrupted". pnpm's store is safe under concurrency, so it is not held up.
+              // ponytail: one lock per machine; the cache is shared and stays one copy.
+              installs.push(
+                detected.packageManager === 'npm'
+                  ? // made 0666 by whichever build user is first, so the others can open it too
+                    `( umask 000; : >> ${NPM_LOCK} ) 2>/dev/null || true; flock -w 1800 ${NPM_LOCK} sh -c ${q(installCommand)}`
+                  : installCommand,
+              );
             }
           }
         }

@@ -612,6 +612,8 @@ export default {
   "Install Command": "Perintah Instal",
   "Package Manager": "Manajer Paket",
   "From the lockfile": "Dari lockfile",
+  "Automatic": "Otomatis",
+  "pnpm unless the repository uses yarn or bun. Pick npm to keep npm.": "pnpm, kecuali repositori memakai yarn atau bun. Pilih npm untuk tetap memakai npm.",
   "Without a pnpm-lock.yaml, the build runs pnpm import first — nothing to commit.": "Tanpa pnpm-lock.yaml, build menjalankan pnpm import dulu — tidak perlu commit apa pun.",
   "Pre-deploy Command": "Perintah Pra-deploy",
   "Empty uses the detected one: {command}": "Kosong = memakai hasil deteksi: {command}",

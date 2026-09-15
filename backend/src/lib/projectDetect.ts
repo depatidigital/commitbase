@@ -139,8 +139,13 @@ export function lockfileManager(has: (name: string) => boolean): PackageManager 
 /** package.json's `packageManager` first — the repo's own word — then its lockfiles. */
 function packageManagerOf(files: DetectInput, pkg: any, chosen?: string | null): PackageManager {
   const declared = chosen || String(pkg?.packageManager || '').split('@')[0];
-  if (declared === 'npm' || declared === 'pnpm' || declared === 'yarn' || declared === 'bun') return declared;
-  return lockfileManager((name) => files[name as keyof DetectInput] !== undefined) ?? 'npm';
+  const pm =
+    declared === 'npm' || declared === 'pnpm' || declared === 'yarn' || declared === 'bun'
+      ? declared
+      : lockfileManager((name) => files[name as keyof DetectInput] !== undefined) ?? 'npm';
+  // npm only when the app's setting says so: pnpm's store keeps one copy of a package across
+  // apps and releases and takes parallel installs — package-lock.json is imported at build
+  return pm === 'npm' && chosen !== 'npm' ? 'pnpm' : pm;
 }
 
 function installCommandOf(pm: PackageManager, files: DetectInput): string {
