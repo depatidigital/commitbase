@@ -9,7 +9,7 @@ import Application from "./pages/Application";
 import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 import ApplicationDetail from "./pages/ApplicationDetail";
-import AddApp from "./pages/AddApp";
+import AddProject from "./pages/AddProject";
 import Database from "./pages/Database";
 import Domains from "./pages/Domains";
 import DomainRegister from "./pages/DomainRegister";
@@ -117,8 +117,8 @@ const App = () => (
             <Route path="project/:id" element={<ProjectDetail />} />
             <Route path="application/:id" element={<ApplicationDetail />} />
             {/* a new project (its source and first app), or one more app in a project */}
-            <Route path="add-project" element={<AddApp />} />
-            <Route path="project/:id/add-app" element={<AddApp />} />
+            <Route path="add-project" element={<AddProject />} />
+            <Route path="project/:id/add-app" element={<AddProject />} />
             <Route path="add-app" element={<LegacyAddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />

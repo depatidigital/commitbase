@@ -39,6 +39,8 @@ export async function backfillSources(): Promise<number> {
 export const dropOrphanSources = () => prisma.source.deleteMany({ where: { applications: { none: {} } } });
 
 export type SourceFields = {
+  /** what the UI calls it; null = derived (lib/sources sourceName) */
+  name?: string | null;
   repository?: string | null;
   branch?: string | null;
   gitAccountId?: string | null;

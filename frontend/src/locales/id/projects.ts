@@ -6,6 +6,17 @@ export default {
   Project: "Proyek",
   "Your code and the apps served from it.": "Kode Anda dan aplikasi yang berjalan darinya.",
   "Add project": "Tambah Proyek",
+  "Create project": "Buat proyek",
+  "Project name": "Nama proyek",
+  "Taken from its source — its first app starts with the same name. Both can be renamed later.":
+    "Diambil dari sumbernya — aplikasi pertamanya memakai nama yang sama. Keduanya bisa diganti nanti.",
+  "Create app": "Buat aplikasi",
+  Organization: "Organisasi",
+  "Point at the code — the type is detected. Its hosts and env are added once it exists, then it is deployed.":
+    "Pilih kodenya — tipenya terdeteksi otomatis. Host dan env ditambahkan setelah proyek dibuat, lalu di-deploy.",
+  "Created now — add its hosts and env on its page, then deploy.": "Dibuat sekarang — tambahkan host dan env di halamannya, lalu deploy.",
+  "Your label for the app, taken from its source. It stays when its hosts change.":
+    "Label aplikasi Anda, diambil dari sumbernya. Tetap sama walau host-nya berubah.",
   "{online} of {total} online": "{online} dari {total} online",
   "Delete project": "Hapus proyek",
   "Delete {name}?": "Hapus {name}?",

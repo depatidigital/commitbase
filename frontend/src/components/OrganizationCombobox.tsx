@@ -91,8 +91,8 @@ export function OrganizationCombobox({
           aria-expanded={open}
           disabled={disabled}
           className={cn(
-            // bg-card: the white field Input and Select use, not the outline button's page tint
-            "w-full justify-between bg-card font-normal",
+            // bg-card, h-9, px-3: a field like Input and Select beside it, not a button
+            "h-9 w-full justify-between bg-card px-3 font-normal",
             !selectedLabel && "text-muted-foreground",
             className
           )}

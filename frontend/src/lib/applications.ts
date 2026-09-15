@@ -128,7 +128,8 @@ export interface Log {
 
 export interface CreateApplicationData {
   name: string;
-  domain: string;
+  /** its first host — none: added on its page, before the first deploy */
+  domain?: string;
   type: Application['type'];
   repository?: string;
   /** Connected GitHub/GitLab account that can clone a private repository. */

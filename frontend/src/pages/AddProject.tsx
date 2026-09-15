@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { getProject } from "@/lib/projects";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,13 +28,8 @@ import {
   Server,
   Check,
   ChevronsUpDown,
-  ChevronDown,
-  ChevronRight,
-  Rocket,
   FolderGit2,
 } from "lucide-react";
-import { EnvEditor } from "@/components/EnvEditor";
-import { expectedRows, generateSecret, mergeRows, requiredKeys, rowsToEnv, suggestAppUrl, type EnvRow } from "@/lib/env";
 import {
   Command,
   CommandEmpty,
@@ -47,9 +42,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { SourcePicker } from "@/components/SourcePicker";
-import { getDomainChoices } from "@/lib/domains";
 import { getOrganizationsPage } from "@/lib/organizations";
-import { HostnamePicker, hostnameProblem, joinHost } from "@/components/HostnamePicker";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { PageLayout } from "@/components/PageLayout";
 import {
@@ -59,12 +52,11 @@ import {
   readDetectFiles,
   uploadApplicationSource,
   listRepositoryBranches,
-  startApplication,
   type UploadEntry,
 } from "@/lib/applications";
 import { getGithubAuthUrl, getGitlabAuthUrl, listGitRepositories, type GitRepositoryListing } from "@/lib/git";
 import { t } from "@/lib/i18n";
-import { isAdmin, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { getServers } from "@/lib/servers";
 
 const PENDING_REPOSITORY = "addApp.pendingRepository";
@@ -80,7 +72,13 @@ const slugify = (value?: string | null) =>
 // what the backend accepts as a repository (projectDetect.ts REPOSITORY_URL)
 const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
 
-export default function AddApp() {
+/**
+ * A new project — its name and where its code comes from; its first app's type
+ * is detected (asked only when it cannot be) — or (/project/:id/add-app) one
+ * more app in a project. Created first: hosts and env are added on its page,
+ * then it is deployed.
+ */
+export default function AddProject() {
   const navigate = useNavigate();
   // ?project=<id>: a new app in an existing project — its code is the
   // project's, so there is no source to pick, only the app's folder in it
@@ -162,6 +160,8 @@ export default function AddApp() {
   // someone with a choice of orgs (several, or a platform admin seeing all)
   // picks one. An app added to a project is the project's org's.
   const needsOrg = !projectId && (myOrgs?.pagination?.total ?? 0) > 1;
+  // a new project is not asked its first app's type — detection's is used; asked only when it cannot tell
+  const typeAsked = !formData.type || !!detectError || detecting;
 
   // The source's own name — the repo, or the picked folder (loose files have
   // none worth using) — as a DNS-safe label.
@@ -489,49 +489,65 @@ export default function AddApp() {
         {/* where the code comes from — the rest of the form opens once it is read */}
         {!projectId && sourceMode && (
           <>
+            {/* a project is a name and where its code comes from — one card, no scrolling */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <GitBranch className="h-5 w-5 text-primary" />
-                  <span>{t("Where does the code come from?")}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setSourceMode("git")}
-                    className={`rounded-lg border p-4 text-left transition-colors ${
-                      sourceMode === "git"
-                        ? "border-primary bg-primary/5"
-                        : "border-border/60 hover:border-primary/40"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-medium">
-                      <GitBranch className="h-4 w-4 text-primary" />
-                      {t("Git repository")}
+              <CardContent className="space-y-4 pt-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="name">
+                      {t("Project name")} <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="name"
+                      placeholder="my-project"
+                      value={formData.name}
+                      onChange={(e) => {
+                        setNameTouched(true);
+                        handleInputChange("name", e.target.value);
+                      }}
+                      required
+                    />
+                  </div>
+                  {/* whose it is: no host decides it here — its hosts are added on its page */}
+                  {needsOrg && (
+                    <div className="space-y-1.5">
+                      <Label>
+                        {t("Organization")} <span className="text-red-500">*</span>
+                      </Label>
+                      <OrganizationCombobox
+                        value={organizationId || null}
+                        onChange={(id) => setOrganizationId(id ?? "")}
+                        placeholder={t("Whose app is it?")}
+                      />
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("Clone from GitHub, GitLab, or any repository URL.")}
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSourceMode("upload")}
-                    className={`rounded-lg border p-4 text-left transition-colors ${
-                      sourceMode === "upload"
-                        ? "border-primary bg-primary/5"
-                        : "border-border/60 hover:border-primary/40"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-medium">
-                      <Upload className="h-4 w-4 text-primary" />
-                      {t("Upload files or folder")}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("Send files straight from this machine. No repository needed.")}
-                    </p>
-                  </button>
+                  )}
+                </div>
+
+                {/* where the code comes from: a repository, or files from this machine */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label>{t("Source")}</Label>
+                  <div className="inline-flex rounded-md border border-border/60 p-0.5 text-sm">
+                    {(
+                      [
+                        ["git", GitBranch, t("Git repository"), t("Clone from GitHub, GitLab, or any repository URL.")],
+                        ["upload", Upload, t("Upload files or folder"), t("Send files straight from this machine. No repository needed.")],
+                      ] as const
+                    ).map(([mode, Icon, label, hint]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        title={hint}
+                        aria-pressed={sourceMode === mode}
+                        onClick={() => setSourceMode(mode)}
+                        className={`flex items-center gap-1.5 rounded px-3 py-1 transition-colors ${
+                          sourceMode === mode ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {sourceMode === "upload" && (
@@ -554,8 +570,7 @@ export default function AddApp() {
 
                 {sourceMode === "git" && (
                   <>
-                    <div className="space-y-2">
-                      <Label htmlFor="repository">{t("Repository")}</Label>
+                    <div className="space-y-1.5">
                       {/* one field: pick from the connected accounts, or paste any URL into its search */}
                       <Popover
                         open={repoOpen}
@@ -571,7 +586,7 @@ export default function AddApp() {
                             variant="outline"
                             role="combobox"
                             aria-expanded={repoOpen}
-                            className="w-full justify-between bg-card font-normal"
+                            className="h-9 w-full justify-between bg-card px-3 font-normal"
                           >
                             <span className="flex min-w-0 items-center gap-2">
                               {pickedRepo ? (
@@ -719,9 +734,10 @@ export default function AddApp() {
                       </div>
                     )}
 
-                    {/* only once the repository has been read — the branches come from it */}
+                    {/* only once the repository has been read — the branches come from it; beside it, the folder (monorepos) */}
                     {remoteBranches && (
-                    <div className="space-y-2">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
                       <Label htmlFor="branch">{t("Branch")}</Label>
                       {remoteBranches.length > 0 ? (
                         <Select
@@ -752,22 +768,21 @@ export default function AddApp() {
                         </p>
                       )}
                     </div>
-                    )}
-
-                    {/* a monorepo: the app is one folder of it */}
-                    {remoteBranches && remoteBranches.length > 0 && (
-                      <div className="space-y-2">
-                        <Label htmlFor="rootDirectory">{t("Folder in the repository")}</Label>
+                    {/* a monorepo: the first app is one folder of it */}
+                    {remoteBranches.length > 0 && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="rootDirectory" title={t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}>
+                          {t("Folder in the repository")}
+                        </Label>
                         <Input
                           id="rootDirectory"
                           placeholder={t("(repository root)")}
                           value={rootDirectory}
                           onChange={(e) => setRootDirectory(e.target.value)}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          {t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}
-                        </p>
                       </div>
+                    )}
+                    </div>
                     )}
                   </>
                 )}
@@ -776,13 +791,15 @@ export default function AddApp() {
           </>
         )}
 
-        {stepComplete(1) && (
+        {stepComplete(1) && (projectId || typeAsked || superadmin) && (
           <>
-            {/* one card: the app's name (from its source), where it is
-                reached, then the type — which lives next to what detection
-                guessed, so a wrong guess is fixed where it is shown */}
+            {/* an app of a project: its name, then the type — next to what detection
+                guessed, so a wrong guess is fixed where it is shown. A new project
+                is not asked its type: detection's is used, asked only when it fails */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardContent className="space-y-5 pt-6">
+                {projectId && (
+                <>
                 <div className="space-y-2">
                   <Label htmlFor="name">
                     {t("App Name")} <span className="text-red-500">*</span>
@@ -798,7 +815,9 @@ export default function AddApp() {
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    {t("Your label for the app, taken from its source. It stays when its hosts change.")}
+                    {projectId
+                      ? t("Your label for the app, taken from its source. It stays when its hosts change.")
+                      : t("Taken from its source — its first app starts with the same name. Both can be renamed later.")}
                   </p>
                 </div>
 
@@ -815,7 +834,10 @@ export default function AddApp() {
                     />
                   </div>
                 )}
+                </>
+                )}
 
+                {(projectId || typeAsked) && (
                 <div className="space-y-2">
                   {/* what detection found sits on the heading line */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -905,6 +927,7 @@ export default function AddApp() {
                     </p>
                   ) : null}
                 </div>
+                )}
 
                 {/* the rare choices, out of the way: native details, no state */}
                 {superadmin && (

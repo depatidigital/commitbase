@@ -761,7 +761,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     const application = withSourceFields(
       joining
         ? await prisma.application.create({ data: { ...fields, sourceId: joining.id }, include: { source: true } })
-        : await createApplicationWithSource(fields, { repository, gitAccountId, branch }),
+        : // a new project: the name typed is the project's (its first app starts with it too)
+          await createApplicationWithSource(fields, { repository, gitAccountId, branch, name: String(name).trim() || null }),
     );
 
     // Provision the org on that node now, so the first deploy does not wait
