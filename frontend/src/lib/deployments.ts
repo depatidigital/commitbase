@@ -21,6 +21,8 @@ export interface Deployment {
   };
   /** who started it */
   user?: { name: string | null; email: string };
+  /** the app's databases as they were before this deploy's migrations — restorable */
+  snapshots?: Array<{ databaseId: string; dbName: string; file: string; createdAt: string }>;
 }
 
 export interface CreateDeploymentData {

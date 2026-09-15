@@ -270,6 +270,16 @@ export const getDatabaseTables = async (id: string): Promise<number> => {
   throw new Error(response.error || t('Could not reach the database'));
 };
 
+/** Put back a snapshot taken before a deploy's migrations — an import, followed like one. `confirm`: the database's name. */
+export const restoreDatabaseSnapshot = async (id: string, file: string, confirm: string): Promise<DatabaseImport> => {
+  const response = await apiRequest<DatabaseImport>(`/databases/${id}/snapshots/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ file, confirm }),
+  });
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not start the restore'));
+};
+
 export const getDatabaseImports = async (id: string): Promise<DatabaseImport[]> => {
   const response = await apiRequest<DatabaseImport[]>(`/databases/${id}/imports`);
   if (response.success && response.data) return response.data;

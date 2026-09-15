@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { restoreDatabaseSnapshot } from "@/lib/databases";
 import { History, CheckCircle, XCircle, AlertCircle, Loader2, RotateCcw, Undo2 } from "lucide-react";
 import {
   AlertDialog,
@@ -128,6 +131,18 @@ export default function DeploymentHistory({ application, showApp = false }: Depl
   const { data: deploymentData, isLoading, error } = useDeploymentHistory(application.id);
   const { data: releaseData } = useReleases(application.id);
   const [restoring, setRestoring] = useState<Release | null>(null);
+  // a database put back to before a deploy's migrations: asked by name — what came in since is lost
+  const [dbRestore, setDbRestore] = useState<{ databaseId: string; dbName: string; file: string; createdAt: string } | null>(null);
+  const [dbTyped, setDbTyped] = useState("");
+  const { toast } = useToast();
+  const restoreDb = useMutation({
+    mutationFn: (s: { databaseId: string; file: string; dbName: string }) => restoreDatabaseSnapshot(s.databaseId, s.file, s.dbName),
+    onSuccess: (_, s) => {
+      toast({ title: t("Restoring {db}", { db: s.dbName }), description: t("Follow it on the Database tab.") });
+      setDbRestore(null);
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the restore"), description: error.message }),
+  });
   const isStatic = application.type === "STATIC";
 
   const deployments = deploymentData?.data || [];
@@ -243,6 +258,18 @@ export default function DeploymentHistory({ application, showApp = false }: Depl
                       </div>
                     )}
                     {!hasLogs && done && <p className="text-xs text-muted-foreground">{t("No logs for this one.")}</p>}
+                    {/* the databases as they were before this deploy's migrations */}
+                    {!!deployment.snapshots?.length && done && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">{t("Database before this deploy:")}</span>
+                        {deployment.snapshots.map((s) => (
+                          <Button key={s.file} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => { setDbTyped(""); setDbRestore(s); }}>
+                            <Undo2 className="mr-1.5 h-3 w-3" />
+                            {t("Restore {db}", { db: s.dbName })}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </details>
               );
@@ -257,6 +284,31 @@ export default function DeploymentHistory({ application, showApp = false }: Depl
       </CardContent>
 
       <RestoreDialog appId={application.id} isStatic={isStatic} release={restoring} onClose={() => setRestoring(null)} />
+
+      <AlertDialog open={!!dbRestore} onOpenChange={(open) => !open && !restoreDb.isPending && setDbRestore(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Restore {db} to before this deploy?", { db: dbRestore?.dbName ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("The database goes back to its snapshot of {when}. Everything written since then is lost. Type the database's name to confirm.", {
+                when: dbRestore ? new Date(dbRestore.createdAt).toLocaleString(locale) : "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input value={dbTyped} onChange={(e) => setDbTyped(e.target.value)} placeholder={dbRestore?.dbName} disabled={restoreDb.isPending} />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoreDb.isPending}>{t("Cancel")}</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={!dbRestore || dbTyped.trim() !== dbRestore.dbName || restoreDb.isPending}
+              onClick={() => dbRestore && restoreDb.mutate(dbRestore)}
+            >
+              {restoreDb.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("Restore database")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
