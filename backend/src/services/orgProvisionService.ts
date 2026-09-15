@@ -40,7 +40,9 @@ const scripts = new Map<string, string>();
 function script(name: 'cb-provision-org' | 'cb-app-unit'): string {
   let text = scripts.get(name);
   if (!text) {
-    text = fs.readFileSync(path.join(RUNNER_DIR, `${name}.sh`), 'utf8');
+    // LF only: a checkout on Windows (git autocrlf) has CRLF, and bash on the node
+    // reads each \r as part of the line — `$'\r': command not found`, `pipefail: invalid option`
+    text = fs.readFileSync(path.join(RUNNER_DIR, `${name}.sh`), 'utf8').replace(/\r\n?/g, '\n');
     scripts.set(name, text);
   }
   return text;

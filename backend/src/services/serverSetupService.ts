@@ -80,7 +80,8 @@ export async function runServerSetup(serverId: string): Promise<void> {
 
       const { stdout, stderr } = await execRoot(
         server,
-        ['env', ...env, 'bash', '-c', fs.readFileSync(INSTALL_SH, 'utf8'), 'install.sh'],
+        // LF only: a Windows checkout (git autocrlf) has CRLF, which bash on the node reads as part of each line
+        ['env', ...env, 'bash', '-c', fs.readFileSync(INSTALL_SH, 'utf8').replace(/\r\n?/g, '\n'), 'install.sh'],
         { timeout: SETUP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, onOutput },
       );
 

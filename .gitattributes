@@ -1,0 +1,2 @@
+# Shell scripts run on Linux nodes: LF in every checkout, Windows included (autocrlf would make them CRLF)
+*.sh text eol=lf

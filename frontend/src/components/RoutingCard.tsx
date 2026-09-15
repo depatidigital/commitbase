@@ -73,6 +73,15 @@ export function RoutingCard({
   );
 
   const refresh = async () => {
+    // TEMP diagnostic: which cache entries this app has, and who watches them — remove once the stale-list bug is found
+    console.log(
+      "[hosts-debug] refresh",
+      application.id,
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["application", application.id] })
+        .map((q) => ({ hash: q.queryHash, observers: q.getObserversCount(), status: q.state.status, fetch: q.state.fetchStatus, domains: (q.state.data as Application | undefined)?.domains?.length })),
+    );
     // exact: not its repository detection (a clone) — a host changes nothing there
     await queryClient.invalidateQueries({ queryKey: ["application", application.id], exact: true });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
