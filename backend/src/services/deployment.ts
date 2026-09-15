@@ -963,6 +963,9 @@ export class DeploymentService {
     let commitSha: string | undefined;
     // the deploy's build log so far, for a failure thrown past every step's own handling
     let readBuildLog: (() => Promise<string>) | null = null;
+    // the app's databases put back as they were before the migrations — a failed
+    // deploy of an app nothing was live for (databaseSnapshotService); else a no-op
+    let undoMigrations: (() => Promise<void>) | null = null;
 
     try {
       console.log(`Starting deployment for application: ${application.name}`);
