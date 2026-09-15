@@ -820,7 +820,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
           )}
         </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-2 empty:hidden">
-      {controllable &&
+      {/* mid-deploy the process is the deploy's: not stopped or started by hand meanwhile */}
+      {controllable && !inFlight &&
         (running ? (
           <>
             <Button variant="outline" size="sm" disabled={pending} onClick={() => restart.mutate(application.id)}>
