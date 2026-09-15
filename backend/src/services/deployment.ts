@@ -383,7 +383,9 @@ export class DeploymentService {
       for (const app of group) if (systemd.needsUnit(app.type)) await this.allocatePort(app, afs);
       await this.removeOrphanReleases(afs, first.id);
 
-      await afs.writeFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
+      // appended: the deploy emptied build.log when it began, and what ran before this (the
+      // project's static sites) stays in it — one log for the whole deploy, not the last step's
+      await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
 
       const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
       const releaseDir = join(releasesDirFor(appDir), stamp);
@@ -878,7 +880,9 @@ export class DeploymentService {
     buildLogPath: string,
     shared: boolean,
   ): Promise<{ bucket: string; origin: string; folder: string }> {
-    const sourcesDir = sourcesDirFor(afs.appDir);
+    // absolute: APPS_DIR may be relative (../apps_dir), and the build below starts in
+    // the folder and then `cd`s to it by path — relative, that path is not there from inside it
+    const sourcesDir = path.resolve(sourcesDirFor(afs.appDir));
     await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD STARTED` + NL);
 
     // Same detection the create screen showed: install before building,
@@ -1004,6 +1008,8 @@ export class DeploymentService {
     // static sites of a shared source, uploaded but not serving yet — discarded unless the deploy goes live
     const builtSites: BuiltSite[] = [];
     let sitesLive = false;
+    // the deploy's build log so far, for a failure thrown past every step's own handling
+    let readBuildLog: (() => Promise<string>) | null = null;
 
     try {
       console.log(`Starting deployment for application: ${application.name}`);
@@ -1039,6 +1045,7 @@ export class DeploymentService {
       const sourcesDir = sourcesDirFor(appDir);
       const readLog = (file: string, missing: string) =>
         afs.readText(file).then((text) => (text.trim() ? text : missing), () => missing);
+      readBuildLog = () => afs.readText(buildLogPath);
 
       // Fresh logs for a fresh deployment — each app's start log too, where it has its own
       await afs.writeFile(buildLogPath, '');
@@ -1389,17 +1396,18 @@ export class DeploymentService {
         return { success: false, cancelled: true, error: 'Deployment cancelled' };
       }
 
+      // the log up to where it broke, then why — not the reason alone ("Build exited with code 1")
+      const soFar = readBuildLog ? (await readBuildLog().catch(() => '')).trimEnd() : '';
+      const buildLogs = soFar ? `${soFar}\n\n${error.message}` : error.message;
       await prisma.deployment.update({
         where: { id: deployment.id },
-        data: {
-          status: 'FAILED',
-          buildLogs: error.message,
-        },
+        data: { status: 'FAILED', buildLogs },
       });
 
       return {
         success: false,
         error: error.message,
+        buildLogs,
       };
     } finally {
       // a failed or cancelled deploy leaves every site on what it served before
