@@ -165,8 +165,7 @@ export function HostnamePicker({
               aria-expanded={open}
               aria-invalid={!domain}
               // red until picked — whatever saves it stays disabled without it
-              // h-9: level with the Input beside it (Button's default is h-10)
-              className={`h-9 w-full justify-between bg-card font-normal ${
+              className={`w-full justify-between bg-card font-normal ${
                 domain ? "" : "border-destructive text-destructive hover:text-destructive"
               }`}
             >
@@ -216,7 +215,7 @@ export function HostnamePicker({
           </PopoverContent>
         </Popover>
         {useRoot && onRoot && (
-          <Button type="button" variant="outline" className="h-9 shrink-0" onClick={() => onRoot(false)}>
+          <Button type="button" variant="outline" className="shrink-0" onClick={() => onRoot(false)}>
             <Plus className="mr-1 h-4 w-4" />
             {t("Subdomain")}
           </Button>

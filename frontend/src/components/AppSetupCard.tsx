@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, Circle, Database, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
 import { useToast } from "@/hooks/use-toast";
-import { Application, DetectedProject, updateApplication } from "@/lib/applications";
+import { Application, DetectedProject, hostsOf, updateApplication } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 interface AppSetupCardProps {
@@ -33,7 +33,12 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, starting, onDeploy, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+  // Where it answers comes first: without a host there is nothing to reach, and
+  // the env's own addresses (APP_URL, CORS_ORIGIN, VITE_API_URL) are these hosts
+  const hosts = hostsOf(application).filter((host) => !host.endsWith(".local"));
+  const hostsDone = hosts.length > 0;
+  const hostLine = hostsDone ? hosts.join(", ") : t("None yet — add one; the env's addresses are these.");
   const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -55,6 +60,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
   // "done" by itself. Unsaved edits count as looking: Deploy saves them first.
   const unconfirmed = application.envConfirmed === false && !env.dirty;
   const envDone = !detecting && env.missing.length === 0 && !unconfirmed;
+  const ready = hostsDone && envDone;
   const envLine = detecting
     ? t("Reading the repository…")
     : env.missing.length > 0
@@ -84,11 +90,16 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             <Rocket className="h-3.5 w-3.5 text-primary" />
             {t("Set up and deploy")}
           </p>
-          <Button type="button" size="sm" className="h-7 bg-gradient-primary px-3 text-xs" onClick={onDeploy} disabled={!envDone || starting}>
+          <Button type="button" size="sm" className="h-7 bg-gradient-primary px-3 text-xs" onClick={onDeploy} disabled={!ready || starting}>
             {starting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Rocket className="mr-1.5 h-3.5 w-3.5" />}
             {failure ? t("Retry deploy") : t("Deploy")}
           </Button>
         </div>
+        <button type="button" onClick={onEditHosts} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
+          <Mark done={hostsDone} />
+          <span className="shrink-0 font-medium">{t("Host")}</span>
+          <span className={`min-w-0 truncate ${hostsDone ? "font-mono text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}>{hostLine}</span>
+        </button>
         <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
           <Mark done={envDone} warn={dbFailed || env.warnings.length > 0} />
           <span className="shrink-0 font-medium">{t("Environment")}</span>
@@ -159,6 +170,19 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
       </CardHeader>
       <CardContent>
         <div className="divide-y">
+          <Step
+            done={hostsDone}
+            title={t("Host")}
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={onEditHosts}>
+                <Globe className="h-4 w-4 mr-2" />
+                {hostsDone ? t("Manage") : t("Add domain / host")}
+              </Button>
+            }
+          >
+            <p className={`text-xs ${hostsDone ? "break-all font-mono text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}>{hostLine}</p>
+          </Step>
+
           <Step
             done={envDone}
             warn={env.warnings.length > 0 || dbFailed}
@@ -266,7 +290,9 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4 mt-4">
-          {!envDone && !detecting ? (
+          {!hostsDone ? (
+            <span className="text-xs text-muted-foreground">{t("Add a host to deploy.")}</span>
+          ) : !envDone && !detecting ? (
             <span className="text-xs text-muted-foreground">
               {env.missing.length > 0 ? t("Fill in the empty variables to deploy.") : t("Confirm the environment to deploy.")}
             </span>
@@ -278,7 +304,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             type="button"
             onClick={onDeploy}
             // only once every expected variable has a value — an empty DATABASE_URL just fails
-            disabled={!envDone || starting}
+            disabled={!ready || starting}
             className="bg-gradient-primary"
           >
             {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}

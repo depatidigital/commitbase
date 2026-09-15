@@ -590,6 +590,8 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
   const restart = useRestartApplication();
   const [confirmStop, setConfirmStop] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
+  // its hosts dialog: from the Host card, and from the checklist's Host step
+  const [hostsOpen, setHostsOpen] = useState(false);
   // never deployed, and ours to deploy: its setup checklist, as on its page
   const needsSetup =
     !!application && !(application.type === "STATIC" && !application.repository) && !application.runtime && !hasBeenDeployed(application);
@@ -635,10 +637,11 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
           the full width, beside the actions — read at a glance, hosts managed here.
           Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
       <div className="grid items-stretch gap-3 md:grid-cols-2">
-        <RoutingCard application={application} compact />
+        <RoutingCard application={application} compact editOpen={hostsOpen} onEditOpenChange={setHostsOpen} />
         {needsSetup ? (
           <AppSetupCard
             compact
+            onEditHosts={() => setHostsOpen(true)}
             application={application}
             detected={detection.data}
             detecting={detection.isLoading}

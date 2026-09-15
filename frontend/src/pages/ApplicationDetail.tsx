@@ -344,6 +344,8 @@ export function AppWorkspace({
   }, [appDeploying, id, queryClient]);
   // the Environment tab's form, for the setup checklist on the Overview tab
   const [envStatus, setEnvStatus] = useState<EnvStatus>({ missing: [], warnings: [], dirty: false });
+  // the Host card's dialog — opened from the setup checklist's Host step too
+  const [hostsOpen, setHostsOpen] = useState(false);
   // Before the first deploy, the saved DATABASE_URL tried from the app's node:
   // a login that fails or a host it cannot reach is said on the checklist, not
   // found in the logs of a crashed app. Re-run whenever the app is saved.
@@ -950,6 +952,7 @@ export function AppWorkspace({
               failure={failureReason}
               starting={starting}
               onDeploy={deploy}
+              onEditHosts={() => setHostsOpen(true)}
               onEditEnv={() => setActiveTab("environment")}
               onEditBuild={() => setActiveTab("build")}
             />
@@ -1051,7 +1054,13 @@ export function AppWorkspace({
               <div className="contents">
                 {/* bento: Host and Deployment stacked tight down the left, Environment fills the right beside both */}
                 <div className="flex flex-col gap-4">
-                <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)} />
+                <RoutingCard
+                  application={application}
+                  pending={setupDns.isPending}
+                  onRepoint={(host) => setRepointHost(host)}
+                  editOpen={hostsOpen}
+                  onEditOpenChange={setHostsOpen}
+                />
 
                 <Card className="bg-gradient-card border-border/50">
                   <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-0">
@@ -1096,7 +1105,13 @@ export function AppWorkspace({
                runs on — the whole picture without scrolling */
             <div className="grid items-start gap-4 md:grid-cols-2">
             {/* what visitors get: the hosts it answers on — each checked, added and taken off right here */}
-            <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)}>
+            <RoutingCard
+              application={application}
+              pending={setupDns.isPending}
+              onRepoint={(host) => setRepointHost(host)}
+              editOpen={hostsOpen}
+              onEditOpenChange={setHostsOpen}
+            >
               {/* the version visitors are getting */}
               <Field label={t("Last Deployment")}>
                 {lastDeployment ? (

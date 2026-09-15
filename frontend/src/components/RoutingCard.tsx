@@ -390,7 +390,7 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
               />
             </div>
             <Button
-              className="h-9 shrink-0"
+              className="shrink-0"
               onClick={() => void add()}
               // a path on a host the organization already serves is not "blocked": the host is shared by path
               disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}
