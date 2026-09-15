@@ -701,6 +701,7 @@ export default {
   "strip prefix": "buang prefix",
   "Build all apps": "Build semua aplikasi",
   "Build every app of {name}?": "Build semua aplikasi {name}?",
+  "Redeploy every app of {name}?": "Deploy ulang semua aplikasi {name}?",
   "Each app is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.":
     "Setiap aplikasi di-install dan di-build di foldernya di server, satu per satu: file situs dulu, lalu proses yang di-restart pm2. Build dilakukan di folder yang sedang melayani, jadi situs bisa error selama proses ini.",
   "I understand the sites may err until every build is done.": "Saya mengerti situs bisa error sampai semua build selesai.",

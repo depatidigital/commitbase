@@ -1,7 +1,12 @@
 ﻿import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronRight, GitBranch, Hammer, HardDrive, Loader2, Plus, Route, Server, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Trash2, Upload } from "lucide-react";
+import { RoutingCard } from "@/components/RoutingCard";
+import { ServerEnv } from "@/components/ServerEnv";
+import { AppEnvironment } from "@/components/AppEnvironment";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useApplication, useRestartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,13 +25,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DeploymentHistory, { deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
+import { AppStorageCard } from "@/components/AppStorageCard";
 import { SourcePanel } from "@/components/SourcePanel";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, bindingLabel, deleteApplication, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, bindingLabel, deleteApplication, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -42,10 +48,10 @@ const DOT: Record<string, string> = {
 
 /**
  * A project ("Proyek") and its apps ("Aplikasi"), on one page: the project's
- * tabs — its apps and their routes, its history, its databases — beside its
- * source and server. An app opens from the list in place (?app=), with
- * everything that is per app: its state and actions, logs, hosts, environment,
- * settings; "All" goes back. A project of one app reads as that app's page.
+ * tabs — its apps and their routes, logs, history, databases, storage,
+ * settings — beside its state, source and server. An app card opens in the
+ * list for a quick edit, or a level deeper (?app=) with its own header and
+ * page; the back arrow returns. The same for a project of one app as of many.
  */
 export default function ProjectDetail() {
   const { id = "" } = useParams();
@@ -76,6 +82,14 @@ export default function ProjectDetail() {
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [buildConsent, setBuildConsent] = useState(false);
   const [building, setBuilding] = useState(false);
+  // the app cards opened in the list for a quick edit
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (appId: string) =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(appId)) next.add(appId);
+      return next;
+    });
   // where the opened app's actions render: its header's right side
   const [panelSlot, setPanelSlot] = useState<HTMLDivElement | null>(null);
   // a panel-managed project deploys as one, from its source panel
@@ -90,7 +104,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the project's tab (?tab=), or one of its apps opened a level deeper (?app=)
-  const tab = ["logs", "deployments", "database", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["logs", "deployments", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   const openApp = (appId: string) => setSearchParams({ app: appId });
@@ -107,9 +121,8 @@ export default function ProjectDetail() {
 
   const apps = project.applications;
   const opened = apps.find((app) => app.id === searchParams.get("app"));
-  const picked = opened ?? apps[0];
   // a level deeper: the app's own header and page instead of the project's header and tabs
-  const appView = apps.length > 1 ? opened : undefined;
+  const appView = opened;
   const statusOf = (appId: string) => {
     const app = apps.find((a) => a.id === appId)!;
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
@@ -117,6 +130,8 @@ export default function ProjectDetail() {
   const live = apps.filter((app) => !app.disabled);
   const online = live.filter((app) => statusOf(app.id).tone === "up").length;
   const imported = project.kind === "IMPORTED";
+  // releases and a build cache on its node: the panel's own projects, but for static sites (their files are in R2)
+  const hasStorage = !imported && !!apps[0] && !apps.every((app) => app.type === "STATIC");
 
   const origin = project.repository ? (
     <>
@@ -215,15 +230,8 @@ export default function ProjectDetail() {
         )
       }
     >
-      {/* one app: the page reads as that app's, its history and source included */}
-      {apps.length <= 1 ? (
-        picked ? (
-          <AppWorkspace key={picked.id} appId={picked.id} embedded />
-        ) : (
-          <p className="text-muted-foreground">{t("No apps")}</p>
-        )
-      ) : (
-      // the tabs with the project's panel beside them — or one app, a level deeper, with its own
+      {/* the tabs with the project's panel beside them — or one app, a level deeper, with its own.
+          The same for a project of one app as of many */}
       <div className={appView ? "" : "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]"}>
       {appView ? (
         // rendered once the header's slot is there, so its actions go straight into it
@@ -237,26 +245,30 @@ export default function ProjectDetail() {
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
-          {isAdmin() && <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>}
+          {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
+          <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
         </TabsList>
 
         {/* its apps and their routes — an app has many (host, host/path), a route belongs to one app.
             A card opens that app a level deeper */}
         <TabsContent value="apps">
+          {apps.length === 0 && <p className="py-8 text-center text-muted-foreground">{t("No apps")}</p>}
           <ul className="space-y-2">
             {apps.map((app) => {
               // what serves it on the box — its pm2 process, Caddy's files or proxy — as the projects list says it
               const runtime = `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`;
               const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
               return (
-                <li key={app.id}>
+                <li key={app.id} className={`rounded-lg border border-border/60 bg-card transition-colors hover:border-primary/40 ${app.disabled ? "opacity-50" : ""}`}>
+                  <div className="flex items-stretch">
+                  {/* the row opens it here for a quick edit — its hosts and actions — without leaving the list */}
                   <button
                     type="button"
-                    onClick={() => openApp(app.id)}
-                    className={`group flex w-full flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/30 ${
-                      app.disabled ? "opacity-50" : ""
-                    }`}
+                    aria-expanded={expanded.has(app.id)}
+                    onClick={() => toggle(app.id)}
+                    className="flex min-w-0 flex-1 flex-wrap items-center gap-x-6 gap-y-3 rounded-l-lg py-4 pl-3 pr-4 text-left transition-colors hover:bg-muted/30"
                   >
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded.has(app.id) ? "" : "-rotate-90"}`} />
                     <span className="min-w-0 space-y-1.5 sm:w-72">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
@@ -273,19 +285,37 @@ export default function ProjectDetail() {
                         </Badge>
                       </span>
                     </span>
-                    {/* where visitors reach it */}
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5 font-mono text-xs">
-                      {bindings.length === 0 && <span className="text-muted-foreground">{t("no route")}</span>}
-                      {bindings.map((d) => (
-                        <span key={bindingLabel(d)} className="flex min-w-0 items-center gap-1.5 break-all">
-                          <Route className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          {d.host}
-                          {d.path && <span className="-ml-1.5 text-muted-foreground">{d.path}</span>}
+                    {/* where visitors reach it — opened, the quick edit below lists them instead */}
+                    <span className={`min-w-0 flex-1 items-start gap-1.5 font-mono text-xs ${expanded.has(app.id) ? "hidden" : "flex"}`}>
+                      <Route className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+                      {bindings.length === 0 ? (
+                        <span className="text-muted-foreground">{t("no route")}</span>
+                      ) : (
+                        // one line, comma-separated, wrapping as it must
+                        <span className="min-w-0 break-words">
+                          {bindings.map((d, i) => (
+                            <span key={bindingLabel(d)}>
+                              {d.host}
+                              {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                              {i < bindings.length - 1 && <span className="text-muted-foreground">, </span>}
+                            </span>
+                          ))}
                         </span>
-                      ))}
+                      )}
                     </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                   </button>
+                  {/* its whole page, a level deeper */}
+                  <button
+                    type="button"
+                    aria-label={t("Open details")}
+                    title={t("Open details")}
+                    onClick={() => openApp(app.id)}
+                    className="group flex shrink-0 items-center rounded-r-lg border-l border-border/60 px-4 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  >
+                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                  </div>
+                  {expanded.has(app.id) && <AppQuickEdit appId={app.id} />}
                 </li>
               );
             })}
@@ -299,7 +329,9 @@ export default function ProjectDetail() {
 
         {/* one history for the project: a deploy builds every app of it */}
         <TabsContent value="deployments">
-          <DeploymentHistory application={{ id: apps[0].id, type: apps[0].type as Application["type"], repository: project.repository ?? undefined }} showApp />
+          {apps[0] && (
+            <DeploymentHistory application={{ id: apps[0].id, type: apps[0].type as Application["type"], repository: project.repository ?? undefined }} showApp />
+          )}
         </TabsContent>
 
         {/* the databases its apps share — connected from each app's Environment */}
@@ -307,9 +339,18 @@ export default function ProjectDetail() {
           <AppDatabasesTab projectId={project.id} />
         </TabsContent>
 
-        {/* the project as a whole: deleting it deletes every app of it */}
-        {isAdmin() && (
-          <TabsContent value="settings">
+        {/* the project as a whole: what its tree takes on its node (releases, build cache, checkout, logs —
+            measured on open), and deleting it, which deletes every app of it */}
+        {/* what its tree takes on its node — releases, build cache, checkout, logs. The panel's own projects
+            keep them; an imported one's files are whoever set it up's. Any app of it measures the source's tree */}
+        {hasStorage && (
+          <TabsContent value="storage">
+            <AppStorageCard appId={apps[0].id} deploying={project.status === "DEPLOYING"} />
+          </TabsContent>
+        )}
+
+        <TabsContent value="settings" className="space-y-6">
+          {isAdmin() && (
             <Card className="border-destructive/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-destructive">
@@ -340,8 +381,8 @@ export default function ProjectDetail() {
                 </Button>
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
+          )}
+        </TabsContent>
       </Tabs>
       )}
 
@@ -389,7 +430,7 @@ export default function ProjectDetail() {
             {imported && project.canSwitchBranch && (
               <Button variant="outline" className="w-full" onClick={() => setConfirmBuild(true)}>
                 <Hammer className="mr-2 h-4 w-4" />
-                {t("Build all apps")}
+                {t("Redeploy")}
               </Button>
             )}
           </CardContent>
@@ -435,7 +476,6 @@ export default function ProjectDetail() {
       </aside>
       )}
       </div>
-      )}
 
       <AlertDialog
         open={confirmBuild}
@@ -446,7 +486,7 @@ export default function ProjectDetail() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Build every app of {name}?", { name: project.name })}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Redeploy every app of {name}?", { name: project.name })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("Each app is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.")}
             </AlertDialogDescription>
@@ -476,7 +516,7 @@ export default function ProjectDetail() {
               }}
             >
               {building && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t("Build all apps")}
+              {t("Redeploy")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -520,5 +560,160 @@ export default function ProjectDetail() {
         </AlertDialogContent>
       </AlertDialog>
     </PageLayout>
+  );
+}
+
+/**
+ * An app card opened in the list, for a quick edit without leaving it: its
+ * hosts (each opens in a new tab; edited in their dialog) and what its state
+ * allows — Stop and Restart while it runs, Start when it is stopped. The rest
+ * is on its page — the card's › button.
+ */
+function AppQuickEdit({ appId }: { appId: string }) {
+  const { data: application, isLoading } = useApplication(appId);
+  const start = useStartExistingApplication();
+  const stop = useStopApplication();
+  const restart = useRestartApplication();
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [envOpen, setEnvOpen] = useState(false);
+  if (isLoading || !application) {
+    return (
+      <div className="border-t border-border/60 p-4">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  // a process the panel or pm2 starts and stops — not a PHP site or static files, nor someone else's.
+  // Started again from its built release: one never deployed is deployed from its page
+  const controllable =
+    (!application.runtime || application.runtime === "PM2") && !["STATIC", "PHP"].includes(application.type) && (!!application.runtime || hasBeenDeployed(application));
+  const running = application.status === "RUNNING";
+  const pending = start.isPending || stop.isPending || restart.isPending;
+  const env = Object.keys(application.envVars ?? {});
+  const lastDeployment = application.deployments?.[0];
+  return (
+    <div className="space-y-3 border-t border-border/60 p-4">
+      {/* bento: its hosts and how it is built and run side by side; under them what it is given,
+          the full width, beside the actions — read at a glance, hosts managed here */}
+      <div className="grid items-stretch gap-3 md:grid-cols-2">
+        <RoutingCard application={application} compact />
+        <MiniCard icon={Rocket} title={t("Deployments")}>
+          <MiniLine label={t("Build Command")}>{application.buildCommand || "—"}</MiniLine>
+          <MiniLine label={t("Start Command")}>
+            {application.runtime === "PM2" && application.processName ? `pm2 restart ${application.processName}` : application.startCommand || "—"}
+          </MiniLine>
+          <MiniLine label={t("Last Deployment")} mono={false}>
+            {lastDeployment
+              ? `${new Date(lastDeployment.createdAt).toLocaleString(locale)} · ${deploymentStatusLabel(lastDeployment.status)}`
+              : t("Never deployed")}
+          </MiniLine>
+        </MiniCard>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 md:flex-nowrap">
+        <div className="min-w-0 flex-1">
+          <MiniCard
+            icon={KeyRound}
+            title={`${t("Env")} (${env.length})`}
+            action={
+              <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setEnvOpen(true)}>
+                <Pencil className="mr-1 h-3 w-3" />
+                {t("Manage")}
+              </Button>
+            }
+          >
+            {env.length === 0 ? (
+              <p className="text-muted-foreground">{t("No environment variables configured")}</p>
+            ) : (
+              // names only, two lines at most — values can be secrets; all of them in Manage
+              <p className="line-clamp-2 break-all font-mono" title={env.join(", ")}>
+                {env.join(", ")}
+              </p>
+            )}
+          </MiniCard>
+          {/* the panel's own apps: the env form. An imported one's is its .env on the server — read, searched, not edited */}
+          <Dialog open={envOpen} onOpenChange={setEnvOpen}>
+            <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
+              <DialogHeader>
+                <DialogTitle>{t("Env")} — {application.name}</DialogTitle>
+              </DialogHeader>
+              {application.runtime ? (
+                <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
+              ) : (
+                <AppEnvironment application={application} />
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
+      <div className="flex shrink-0 flex-wrap justify-end gap-2 empty:hidden">
+      {controllable &&
+        (running ? (
+          <>
+            <Button variant="outline" size="sm" disabled={pending} onClick={() => restart.mutate(application.id)}>
+              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${restart.isPending ? "animate-spin" : ""}`} />
+              {t("Restart")}
+            </Button>
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={pending} onClick={() => setConfirmStop(true)}>
+              <Square className="mr-2 h-3.5 w-3.5" />
+              {t("Stop")}
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" disabled={pending} onClick={() => start.mutate(application.id)}>
+            {start.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-2 h-3.5 w-3.5" />}
+            {t("Start")}
+          </Button>
+        ))}
+      </div>
+      </div>
+      {/* stopping takes it offline: asked first, as on its page */}
+      <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Stop App")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: application.name })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                stop.mutate(application.id);
+                setConfirmStop(false);
+              }}
+            >
+              {t("Stop App")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+/** A small read-only card of the quick edit's bento. */
+function MiniCard({ icon: Icon, title, action, children }: { icon: typeof Rocket; title: string; /** a button beside the title */ action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0 space-y-1.5 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 font-medium text-muted-foreground">
+          <Icon className="h-3.5 w-3.5 text-primary" />
+          {title}
+        </p>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Label left, value right — a line of a MiniCard. */
+function MiniLine({ label, children, mono = true }: { label: string; children: React.ReactNode; /** commands: monospace */ mono?: boolean }) {
+  return (
+    <p className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className={`min-w-0 text-right ${mono ? "break-all font-mono" : ""}`}>{children}</span>
+    </p>
   );
 }

@@ -21,11 +21,23 @@ export default {
   Folder: "Folder",
   Routing: "Routing",
   "All online": "Semua online",
+  "Quick edit": "Ubah cepat",
+  "Pull only": "Pull saja",
+  "Pull and redeploy": "Pull dan deploy ulang",
+  "Get the newest code from {branch}?": "Ambil kode terbaru dari {branch}?",
+  "The server takes the newest commits of {branch}, for every app of this project.":
+    "Server mengambil commit terbaru dari {branch}, untuk semua aplikasi di proyek ini.",
+  "Only the code is updated. The sites keep running what was built before, until they are redeployed.":
+    "Hanya kodenya yang diperbarui. Situs tetap menjalankan hasil build sebelumnya sampai di-deploy ulang.",
+  "Then every app is installed, built and restarted. The sites may show errors until that is done.":
+    "Lalu setiap aplikasi di-install, di-build, dan dijalankan ulang. Situs bisa error sampai selesai.",
+  Env: "Env",
+  "/path (optional)": "/path (opsional)",
+  "Open details": "Buka detail",
   Summary: "Ringkasan",
-  "See all": "Lihat semua",
   "Filter variables…": "Cari variabel…",
   Close: "Tutup",
-  "Edit hosts": "Ubah host",
+  "Edit hosts": "Kelola host",
   "The hosts and paths that go to {app}.": "Host dan path yang diteruskan ke {app}.",
   "Leave it off when the app itself serves under this path (routes like /api/users, a basePath, a websocket on /ws).":
     "Biarkan mati kalau aplikasinya memang melayani di bawah path ini (route seperti /api/users, basePath, websocket di /ws).",

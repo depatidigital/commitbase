@@ -1067,10 +1067,6 @@ export function AppWorkspace({
                           {t("Edit")}
                         </Button>
                       )}
-                      {/* the whole project's history is its Deployment tab */}
-                      <Button variant="ghost" size="sm" onClick={() => setActiveTab("deployments")}>
-                        {t("See all")} →
-                      </Button>
                     </span>
                   </CardHeader>
                   <CardContent className="pt-2 pb-2">
@@ -1265,7 +1261,7 @@ export function AppWorkspace({
                 <CardHeader className={stacked ? "flex flex-row items-center justify-between gap-3 space-y-0 pb-0" : undefined}>
                   <CardTitle className={stacked ? "flex items-center gap-2 text-base" : "flex items-center space-x-2"}>
                     <KeyRound className={stacked ? "h-4 w-4 text-primary" : "h-5 w-5 text-primary"} />
-                    <span>{t("Environment Variables")}</span>
+                    <span>{stacked ? t("Env") : t("Environment Variables")}</span>
                   </CardTitle>
                   {/* stacked: shown here, edited in a dialog — the panel's own apps only; an imported one's is its .env */}
                   {stacked && !application.runtime && (
@@ -1284,7 +1280,7 @@ export function AppWorkspace({
                     <>
                       <ServerEnv env={application.envVars ?? {}} note={t("What the app gets at its next deploy.")} />
                       {/* the form stays mounted while closed: its unsaved edits, the checklist and deploy's save-first live on */}
-                      <KeptModal open={envOpen} onClose={() => setEnvOpen(false)} title={t("Environment Variables")}>
+                      <KeptModal open={envOpen} onClose={() => setEnvOpen(false)} title={t("Env")}>
                         <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
                       </KeptModal>
                     </>
@@ -1447,7 +1443,8 @@ export function AppWorkspace({
           <TabsContent value="settings" {...section("settings")}>
             {/* a static site keeps its files in R2, not on a node; measured (du
                 over SSH) only while Settings is open — TabsContent unmounts */}
-            {!isStatic && <AppStorageCard appId={application.id} deploying={deploying} />}
+            {/* in a project, storage is the project's (its releases, cache and checkout): its Settings tab */}
+            {!isStatic && !stacked && <AppStorageCard appId={application.id} deploying={deploying} />}
             <DangerZoneCard application={application} />
           </TabsContent>
         </Tabs>

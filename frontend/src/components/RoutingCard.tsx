@@ -4,7 +4,6 @@ import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Pencil, Plus,
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,7 +21,7 @@ import { HostnamePicker, hostnameProblem, joinHost } from "@/components/Hostname
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { useApplicationHostname } from "@/hooks/useApplications";
 import { useToast } from "@/hooks/use-toast";
-import { type AppDomain, type Application, addAppDomain, bindingLabel, removeAppDomain, setBindingStripPrefix } from "@/lib/applications";
+import { type AppDomain, type Application, addAppDomain, bindingLabel, removeAppDomain } from "@/lib/applications";
 import { getDomainChoices } from "@/lib/domains";
 import { t } from "@/lib/i18n";
 
@@ -43,12 +42,15 @@ export function RoutingCard({
   pending,
   onRepoint,
   children,
+  compact = false,
 }: {
   application: Application;
   pending?: boolean;
   /** "Point it here" on a host answered by another server */
   onRepoint?: (host: string) => void;
   children?: React.ReactNode;
+  /** one line — the hosts and Edit — for an app card opened in a list */
+  compact?: boolean;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -92,67 +94,25 @@ export function RoutingCard({
       .map(([key]) => key);
   const last = application.domains.length === 1;
 
-  return (
-    <Card className="bg-gradient-card border-border/50">
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-0">
-        <div>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Globe className="h-4 w-4 text-primary" />
-            {t("Host")}
-          </CardTitle>
-          <p className="mt-1.5 text-xs text-muted-foreground">{t("What visitors get")}</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-          <Pencil className="mr-2 h-3.5 w-3.5" />
-          {t("Edit")}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-2 pt-3 pb-2">
-        {/* read-only: where it answers, and whether each answers */}
-        <ul className="divide-y divide-border/60 rounded-md border border-border/60">
-          {routes.map((route) => {
-            const label = bindingLabel(route);
-            const check = checks?.find((c) => c.host === route.host && (c.path ?? "") === (route.path ?? ""));
-            return (
-              <li key={label} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-                <a
-                  href={`https://${route.host}${route.path ? route.path.replace(/\*+$/, "") : ""}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex min-w-0 items-center gap-1.5 break-all font-mono text-sm hover:text-primary"
-                >
-                  {route.host}
-                  {route.path && <span className="text-muted-foreground">{route.path}</span>}
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                </a>
-                {/* a path whose prefix is dropped says so */}
-                {route.path && route.stripPrefix && (
-                  <Badge variant="outline" className="font-mono text-[10px]" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
-                    {route.path} → /
-                  </Badge>
-                )}
-                <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                  {/* reachable: a tick, nothing more. Anything else says what is wrong */}
-                  {check &&
-                    (hostOk(check) ? (
-                      <span title={t("Points at this server")}>
-                        <CheckCircle className="h-4 w-4 text-success" aria-label={t("Points at this server")} />
-                      </span>
-                    ) : (
-                      <>
-                        <HostBadge host={route.host} check={check} pending={pending} onRepoint={onRepoint && (() => onRepoint(route.host))} />
-                        {check.pointing?.state === "elsewhere" && <HostPointing check={check} />}
-                      </>
-                    ))}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-        {children}
-      </CardContent>
+  // a status mark per route: a tick when it answers from here, else what is wrong
+  const status = (route: AppDomain) => {
+    const check = checks?.find((c) => c.host === route.host && (c.path ?? "") === (route.path ?? ""));
+    if (!check) return null;
+    return hostOk(check) ? (
+      <span title={t("Points at this server")}>
+        <CheckCircle className="h-3.5 w-3.5 text-success" aria-label={t("Points at this server")} />
+      </span>
+    ) : (
+      <>
+        {/* compact: the mark alone, what it means on hover */}
+        <HostBadge host={route.host} check={check} pending={pending} iconOnly={compact} onRepoint={onRepoint && (() => onRepoint(route.host))} />
+        {!compact && check.pointing?.state === "elsewhere" && <HostPointing check={check} />}
+      </>
+    );
+  };
 
-      {/* everything that changes a route, in one place */}
+  const editDialog = (
+    <>
       <Dialog open={editOpen} onOpenChange={(open) => !busy && setEditOpen(open)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
           <DialogHeader>
@@ -169,22 +129,6 @@ export function RoutingCard({
                     {route.host}
                     {route.path && <span className="text-muted-foreground">{route.path}</span>}
                   </span>
-                  {/* a path: whether the app gets /api/users, or /users */}
-                  {route.path && (
-                    <label
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                      title={`${t("The app gets the path without this prefix: /api/users arrives as /users.")} ${t("Leave it off when the app itself serves under this path (routes like /api/users, a basePath, a websocket on /ws).")}`}
-                    >
-                      <Checkbox
-                        checked={!!route.stripPrefix}
-                        disabled={!!busy}
-                        onCheckedChange={(checked) =>
-                          void change(route, () => setBindingStripPrefix(application.id, route.host, route.path ?? "", checked === true), t("Could not change the route"))
-                        }
-                      />
-                      {t("strip prefix")}
-                    </label>
-                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -246,6 +190,98 @@ export function RoutingCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </>
+  );
+
+  if (compact) {
+    return (
+      // a small card: Host and Manage on top, then one host a line — each opens in a new tab, with its status
+      <div className="min-w-0 space-y-1.5 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 font-medium text-muted-foreground">
+            <Globe className="h-3.5 w-3.5 text-primary" />
+            {t("Host")}
+          </p>
+          <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setEditOpen(true)}>
+            <Pencil className="mr-1 h-3 w-3" />
+            {t("Manage")}
+          </Button>
+        </div>
+        <ul className="space-y-1">
+          {routes.map((route) => (
+            <li key={bindingLabel(route)} className="flex min-w-0 items-center gap-1.5">
+              <a
+                href={`https://${route.host}${route.path ? route.path.replace(/\*+$/, "") : ""}`}
+                target="_blank"
+                rel="noreferrer"
+                title={bindingLabel(route)}
+                className="flex min-w-0 items-center gap-1 font-mono hover:text-primary"
+              >
+                <span className="truncate">
+                  {route.host}
+                  {route.path && <span className="text-muted-foreground">{route.path}</span>}
+                </span>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+              {status(route)}
+            </li>
+          ))}
+        </ul>
+        {editDialog}
+      </div>
+    );
+  }
+
+  return (
+    <Card className="bg-gradient-card border-border/50">
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-0">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Globe className="h-4 w-4 text-primary" />
+            {t("Host")}
+          </CardTitle>
+          <p className="mt-1.5 text-xs text-muted-foreground">{t("What visitors get")}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+          <Pencil className="mr-2 h-3.5 w-3.5" />
+          {t("Manage")}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-2 pt-3 pb-2">
+        {/* read-only: where it answers, and whether each answers */}
+        <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+          {routes.map((route) => {
+            const label = bindingLabel(route);
+            return (
+              <li key={label} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+                <a
+                  href={`https://${route.host}${route.path ? route.path.replace(/\*+$/, "") : ""}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-w-0 items-center gap-1.5 break-all font-mono text-sm hover:text-primary"
+                >
+                  {route.host}
+                  {route.path && <span className="text-muted-foreground">{route.path}</span>}
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                </a>
+                {/* a path whose prefix is dropped says so */}
+                {route.path && route.stripPrefix && (
+                  <Badge variant="outline" className="font-mono text-[10px]" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
+                    {route.path} → /
+                  </Badge>
+                )}
+                <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  {/* reachable: a tick, nothing more. Anything else says what is wrong */}
+                  {status(route)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        {children}
+      </CardContent>
+      {/* everything that changes a route, in one place */}
+      {editDialog}
     </Card>
   );
 }
@@ -264,7 +300,6 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   const [subdomain, setSubdomain] = useState("");
   const [root, setRoot] = useState(false);
   const [path, setPath] = useState("");
-  const [stripPrefix, setStripPrefix] = useState(false);
   const [hostBlocked, setHostBlocked] = useState(false);
   const [dnsConsent, setDnsConsent] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -280,7 +315,7 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
     setAdding(true);
     const label = `${host}${nextPath}`;
     try {
-      const { dns } = await addAppDomain(application.id, { host, path: nextPath, stripPrefix: !!nextPath && stripPrefix, dnsConsent: dnsConsent || undefined });
+      const { dns } = await addAppDomain(application.id, { host, path: nextPath, dnsConsent: dnsConsent || undefined });
       const dnsProblem = ["conflict", "unavailable"].includes(dns.state);
       toast(
         dnsProblem
@@ -289,7 +324,6 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
       );
       setSubdomain("");
       setPath("");
-      setStripPrefix(false);
       await onAdded();
     } catch (error) {
       toast({ variant: "destructive", title: t("Could not add the route"), description: error instanceof Error ? error.message : "" });
@@ -300,9 +334,11 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
 
   if (isLoading) return <Loader2 className="h-5 w-5 animate-spin" />;
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <p className="text-sm font-medium">{t("Add route")}</p>
+      {/* one line: subdomain . domain, an optional path under it, Add */}
       <HostnamePicker
+        bare
         choices={choices}
         subdomain={subdomain}
         domain={domain}
@@ -313,28 +349,23 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
         onConsentChange={setDnsConsent}
         root={root}
         onRoot={setRoot}
+        trailing={
+          <>
+            {/* optional: a path under the host — other apps of the organization can have the rest */}
+            <Input className="w-40 shrink-0 font-mono text-sm" value={path} placeholder={t("/path (optional)")} onChange={(e) => setPath(e.target.value)} />
+            <Button
+              className="shrink-0"
+              onClick={() => void add()}
+              // a path on a host the organization already serves is not "blocked": the host is shared by path
+              disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}
+            >
+              {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              {t("Add")}
+            </Button>
+          </>
+        }
       />
-      {/* optional: a path under the host — other apps of the organization can have the rest */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Input className="w-56 font-mono text-sm" value={path} placeholder={t("path (optional), e.g. /api/*")} onChange={(e) => setPath(e.target.value)} />
-        {nextPath && (
-          <label className="flex items-center gap-1.5 text-sm" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
-            <Checkbox checked={stripPrefix} onCheckedChange={(checked) => setStripPrefix(checked === true)} />
-            {t("strip prefix")}
-          </label>
-        )}
-        {pathProblem && <span className="text-xs text-destructive">{pathProblem}</span>}
-      </div>
-      <div className="flex justify-end">
-        <Button
-          onClick={() => void add()}
-          // a path on a host the organization already serves is not "blocked": the host is shared by path
-          disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}
-        >
-          {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-          {t("Add route")}
-        </Button>
-      </div>
+      {pathProblem && <p className="text-xs text-destructive">{pathProblem}</p>}
     </div>
   );
 }

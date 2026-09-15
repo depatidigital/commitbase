@@ -50,7 +50,13 @@ export function HostnamePicker({
   root = false,
   onRoot,
   compact = false,
+  bare = false,
+  trailing,
 }: {
+  /** no globe in front of the fields */
+  bare?: boolean;
+  /** more in the fields' row, after the domain — a path, a button */
+  trailing?: React.ReactNode;
   /** show only the resulting address with "Change" — for an address filled in automatically */
   compact?: boolean;
   choices: DomainChoice[];
@@ -126,8 +132,8 @@ export function HostnamePicker({
           </TabsList>
         </Tabs>
       )}
-      <div className="flex items-center gap-2">
-        <Globe className="min-w-4 min-h-4 text-muted-foreground" />
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+        {!bare && <Globe className="min-w-4 min-h-4 text-muted-foreground" />}
         {!useRoot && (<>
           <Input
             id="subdomain"
@@ -197,6 +203,7 @@ export function HostnamePicker({
             </Command>
           </PopoverContent>
         </Popover>
+        {trailing}
       </div>
       {/* the address it will have — or what is missing */}
       {host ? (

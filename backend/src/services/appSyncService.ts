@@ -64,6 +64,19 @@ export function identityKeys(app: { processName?: string | null | undefined; ser
 }
 
 /**
+ * An app's name from its folder: the project it is, not the web root inside it
+ * (`/srv/x/web/dist` → web, `/var/www/html/panelweb/public` → panelweb). A
+ * folder that names nothing (`/var/www/html`) gives null. Pure.
+ */
+export function folderName(dir: string | undefined): string | null {
+  if (!dir) return null;
+  const clean = dir.replace(/\/+$/, '');
+  const project = /\/(dist|build|out|public|public_html|htdocs|www)$/.test(clean) ? path.posix.dirname(clean) : clean;
+  const name = path.posix.basename(project);
+  return !name || ['html', 'www', 'htdocs', 'public_html', 'var', 'srv', 'home'].includes(name) ? null : name;
+}
+
+/**
  * Bindings served by the same thing — the same process port, the same folder
  * — are one app on several names and paths: a multi-site CMS behind five
  * domains, say. They become one app with all of them. Pure.
@@ -560,11 +573,12 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
               ? { kind: 'files', root: spec.rootPath, spa: !!spec.spa }
               : undefined;
 
-        // what it is called: its pm2 process; a part of a split's files, by the
-        // project they are built from (web/dist → web); else where it answers
-        const project = spec.rootPath ? path.posix.basename(/\/(dist|build|out|public)$/.test(spec.rootPath) ? path.posix.dirname(spec.rootPath) : spec.rootPath) : '';
+        // what it is called: its pm2 process; else its folder (web/dist → web,
+        // panelweb/public → panelweb) — one site's many hostnames share it, and
+        // the first of them in Caddy's file says nothing; else where it answers
+        const folder = folderName(knownRoot || guessedRoot);
         const app: DiscoveredApp = {
-          name: process?.name || (parts && project ? `${domain} · ${project}` : `${domain}${spec.path}`),
+          name: process?.name || folder || `${domain}${spec.path}`,
           bindings: [{ host: domain, path: spec.path }],
           runtime,
           type: spec.type,

@@ -28,14 +28,33 @@ export function HostBadge({
   check,
   pending,
   onRepoint,
+  iconOnly = false,
 }: {
   host: string;
   check?: HostnameHealth;
   pending?: boolean;
   /** overwrites whatever the record points at — the caller asks first */
   onRepoint?: () => void;
+  /** the mark alone, what it means on hover — for a compact list */
+  iconOnly?: boolean;
 }) {
   if (!check) return null;
+  if (iconOnly) {
+    // the same verdicts as below, as one coloured icon
+    const [Icon, color, label, detail] = check.domainProblem
+      ? [AlertCircle, "text-destructive", DOMAIN_PROBLEM[check.domainProblem](), check.registeredDomain ?? host]
+      : check.live && check.pointing?.state === "elsewhere"
+        ? [Wifi, "text-warning", t("reachable elsewhere"), t("DNS points to {ip}", { ip: check.pointing.origin ?? check.pointing.addresses.join(", ") })]
+        : check.live
+          ? [Wifi, "text-success", t("reachable"), ""]
+          : [WifiOff, "text-warning", check.resolves ? t("not serving yet") : check.dnsManaged ? t("no DNS") : t("not connected"), check.error ?? ""];
+    const text = detail ? `${label} — ${detail}` : label;
+    return (
+      <span title={text} aria-label={text} className="inline-flex shrink-0">
+        <Icon className={`h-3.5 w-3.5 ${color}`} />
+      </span>
+    );
+  }
   // the registration first: an expired domain can still "answer" — with a parking page
   if (check.domainProblem) {
     return (

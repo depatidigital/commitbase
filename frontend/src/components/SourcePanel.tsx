@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { repoName } from "@/lib/applications";
-import { checkoutProject, getProject, getProjectBranches, pullProject, updateProject } from "@/lib/projects";
+import { buildProject, checkoutProject, getProject, getProjectBranches, pullProject, updateProject } from "@/lib/projects";
 import { isSuperAdmin } from "@/lib/auth";
 import {
   AlertDialog,
@@ -64,6 +64,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const upToDate = !changed && !!head && head === live;
   // something to ship: another branch picked, or commits the live release lacks
   const shippable = !!head && (changed || head !== live);
+  // what runs is behind its branch — said by the card's outline too, not only a line of grey text
+  const behind = !changed && !!head && !!live && head !== live;
 
   const saveBranch = useMutation({
     mutationFn: () => updateProject(projectId, { branch }),
@@ -77,10 +79,28 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   });
 
   const [confirmPull, setConfirmPull] = useState(false);
+  // the pull dialog's choice: the code only, or the code and a redeploy of every app (the sites can err while they build)
+  const [redeploy, setRedeploy] = useState(false);
   const pull = useMutation({
-    mutationFn: () => pullProject(projectId),
-    onSuccess: ({ output }) => {
+    mutationFn: async (redeploy: boolean) => {
+      const pulled = await pullProject(projectId);
+      // the pull stands whatever the build does: its failure is said on its own
+      let built: string[] | null = null;
+      let buildError: string | null = null;
+      if (redeploy) {
+        try {
+          built = await buildProject(projectId, true);
+        } catch (error) {
+          buildError = (error as Error).message;
+        }
+      }
+      return { ...pulled, built, buildError };
+    },
+    onSuccess: ({ output, built, buildError }) => {
       toast({ title: t("Pulled on the server"), description: output.split("\n").slice(-3).join(" · ") });
+      if (built) toast({ title: t("Building {count} apps", { count: built.length }), description: built.join(", ") });
+      if (buildError) toast({ variant: "destructive", title: t("Could not start the build"), description: buildError });
+      void queryClient.invalidateQueries({ queryKey: ["application"] });
       // the server's HEAD moved, and the pull is in the history now
       void queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -114,7 +134,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   };
 
   return (
-    <Card className="bg-gradient-card border-border/50">
+    <Card className={`bg-gradient-card ${behind ? "border-warning ring-1 ring-warning/40" : "border-border/50"}`}>
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">{t("Source")}</h3>
@@ -218,7 +238,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
             {/* how the checkout stands on its own branch — another one picked says nothing about it */}
             {!changed && (
               <p
-                className="text-xs text-muted-foreground"
+                className={`text-xs ${behind ? "font-medium text-warning" : "text-muted-foreground"}`}
                 title={`${t("Live now")}: ${live?.slice(0, 7) ?? "—"} · ${t("Newest on {branch}", { branch: current })}: ${head?.slice(0, 7) ?? "—"}`}
               >
                 {!head || !live
@@ -235,28 +255,51 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 {t("Pull on server")}
               </Button>
             )}
-            <AlertDialog open={confirmPull} onOpenChange={setConfirmPull}>
+            <AlertDialog
+              open={confirmPull}
+              onOpenChange={(open) => {
+                setConfirmPull(open);
+                setRedeploy(false);
+              }}
+            >
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>{t("Pull {branch} on the server?", { branch: current })}</AlertDialogTitle>
+                  <AlertDialogTitle>{t("Get the newest code from {branch}?", { branch: current })}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {t("Runs git pull --ff-only in {dir}. Only the code changes: nothing is installed, built or restarted. It refuses if the server has local changes.", {
-                      dir: project?.path ?? "",
-                    })}
-                    {/* one checkout, several sites: say which ones change */}
-                    {apps.length > 1 && (
-                      <span className="mt-2 block">
-                        {t("It changes all {count} apps of this project: {apps}.", {
-                          count: apps.length,
-                          apps: apps.flatMap((app) => app.domains.map((d) => d.host)).join(", "),
-                        })}
-                      </span>
-                    )}
+                    {t("The server takes the newest commits of {branch}, for every app of this project.", { branch: current })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                {/* two plain choices, one button: what happens to the running sites is said on each */}
+                <div className="space-y-2" role="radiogroup">
+                  {[
+                    { value: false, title: t("Pull only"), detail: t("Only the code is updated. The sites keep running what was built before, until they are redeployed.") },
+                    ...(project?.canSwitchBranch
+                      ? [{ value: true, title: t("Pull and redeploy"), detail: t("Then every app is installed, built and restarted. The sites may show errors until that is done.") }]
+                      : []),
+                  ].map((option) => (
+                    <button
+                      key={String(option.value)}
+                      type="button"
+                      role="radio"
+                      aria-checked={redeploy === option.value}
+                      onClick={() => setRedeploy(option.value)}
+                      className={`flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors ${
+                        redeploy === option.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${redeploy === option.value ? "border-primary" : "border-muted-foreground/50"}`}>
+                        {redeploy === option.value && <span className="h-2 w-2 rounded-full bg-primary" />}
+                      </span>
+                      <span>
+                        <span className="block font-medium">{option.title}</span>
+                        <span className="block text-muted-foreground">{option.detail}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 <AlertDialogFooter>
                   <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => pull.mutate()}>{t("Pull on server")}</AlertDialogAction>
+                  <AlertDialogAction onClick={() => pull.mutate(redeploy)}>{redeploy ? t("Pull and redeploy") : t("Pull only")}</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

@@ -2,7 +2,15 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, bindingLabel, identityKeys, type DiscoveredApp } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, bindingLabel, identityKeys, folderName, type DiscoveredApp } from './appSyncService';
+
+// an app is named by its folder — the project, not the web root inside it — never by a folder that names nothing
+assert.strictEqual(folderName('/var/www/html/panelweb.empatlawangkab.go.id/public'), 'panelweb.empatlawangkab.go.id');
+assert.strictEqual(folderName('/var/www/html/arusflow_9200/web/dist'), 'web');
+assert.strictEqual(folderName('/var/www/html/simadani-platform/ehadir/'), 'ehadir');
+assert.strictEqual(folderName('/var/www/html'), null);
+assert.strictEqual(folderName('/var/www'), null);
+assert.strictEqual(folderName(undefined), null);
 import { parentDomainOf } from '../lib/scope';
 import { buildRoute } from './caddyService';
 
