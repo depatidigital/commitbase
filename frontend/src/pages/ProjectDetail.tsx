@@ -35,7 +35,7 @@ import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
 import { SourcePanel } from "@/components/SourcePanel";
 import { PageLayout } from "@/components/PageLayout";
-import { RenameProjectDialog } from "@/components/RenameProjectDialog";
+import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
@@ -323,7 +323,9 @@ export default function ProjectDetail() {
                     </span>
                   </button>
                   {/* the opened card's start/stop/restart, icons only, up here by the name (AppQuickEdit portals them in) */}
-                  <div id={`app-actions-${app.id}`} className="flex items-center gap-1 pr-2 empty:hidden" />
+                  <div id={`app-actions-${app.id}`} className="flex items-center gap-1 pr-2">
+                    <RenameAppDialog app={app} />
+                  </div>
                   {/* its whole page, a level deeper */}
                   <button
                     type="button"

@@ -20,6 +20,7 @@ import { hostsOf, isPublicHost, repoName, runtimeLabel } from "@/lib/application
 import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
 import { getServers } from "@/lib/servers";
 import { appParts, assignProjects, getProjects, projectPath, type AppPart, type Project, type ProjectApp } from "@/lib/projects";
+import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
 const ALL = "__all__";
@@ -178,6 +179,10 @@ export default function Projects() {
           <div className="min-w-0">
             <span className="flex h-6 min-w-0 items-center gap-1.5">
               <span className="truncate font-medium">{project.name}</span>
+              {/* the row opens the project: the pencil (and its dialog, bubbling through the portal) must not */}
+              <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                <RenameProjectDialog project={project} />
+              </span>
               {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">{t("{count} down", { count: down })}</span>}
             </span>
             <span

@@ -63,7 +63,12 @@ export function DeployProgress({
         </ol>
       </div>
       {published && <p className="mt-1 text-xs text-muted-foreground">{t("The current release keeps serving until the new one answers.")}</p>}
-      {showLog && <LiveBuildLog appId={appId} text={logText} />}
+      {/* queued: build.log is still the previous deploy's — not shown as if it were this one's */}
+      {showLog && status === "PENDING" ? (
+        <p className="mt-3 text-sm text-muted-foreground">{t("Waiting for its turn — the log appears once the build starts.")}</p>
+      ) : (
+        showLog && <LiveBuildLog appId={appId} text={logText} />
+      )}
     </div>
   );
 }
