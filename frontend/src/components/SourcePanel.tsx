@@ -90,7 +90,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
       // the pull stands whatever the build does: its failure is said on its own
       let built: string[] | null = null;
       let buildError: string | null = null;
-      if (redeploy) {
+      if (redeploy && !readOnly) onDeploy();
+      else if (redeploy) {
         try {
           built = await buildProject(projectId, true);
         } catch (error) {
@@ -258,54 +259,6 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 {t("Pull on server")}
               </Button>
             )}
-            <AlertDialog
-              open={confirmPull}
-              onOpenChange={(open) => {
-                setConfirmPull(open);
-                setRedeploy(false);
-              }}
-            >
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t("Get the newest code from {branch}?", { branch: current })}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t("The server takes the newest commits of {branch}, for every app of this project.", { branch: current })}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                {/* two plain choices, one button: what happens to the running sites is said on each */}
-                <div className="space-y-2" role="radiogroup">
-                  {[
-                    { value: false, title: t("Pull only"), detail: t("Only the code is updated. The sites keep running what was built before, until they are redeployed.") },
-                    ...(project?.canSwitchBranch
-                      ? [{ value: true, title: t("Pull and redeploy"), detail: t("Then every app is installed, built and restarted. The sites may show errors until that is done.") }]
-                      : []),
-                  ].map((option) => (
-                    <button
-                      key={String(option.value)}
-                      type="button"
-                      role="radio"
-                      aria-checked={redeploy === option.value}
-                      onClick={() => setRedeploy(option.value)}
-                      className={`flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors ${
-                        redeploy === option.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
-                      }`}
-                    >
-                      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${redeploy === option.value ? "border-primary" : "border-muted-foreground/50"}`}>
-                        {redeploy === option.value && <span className="h-2 w-2 rounded-full bg-primary" />}
-                      </span>
-                      <span>
-                        <span className="block font-medium">{option.title}</span>
-                        <span className="block text-muted-foreground">{option.detail}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => pull.mutate(redeploy)}>{redeploy ? t("Pull and redeploy") : t("Pull only")}</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
           </>
         ) : (
           <>
@@ -363,7 +316,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                   type="button"
                   className="w-full bg-gradient-primary"
                   disabled={starting || saveBranch.isPending}
-                  onClick={() => void deployBranch()}
+                  onClick={() => (changed ? void deployBranch() : setConfirmPull(true))}
                 >
                   {starting || saveBranch.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -373,7 +326,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                     <Download className="h-4 w-4 mr-2" />
                   )}
                   {/* same branch, newer commits: pulled, then every app built and switched. Another branch is a switch */}
-                  {changed ? t("Deploy {branch}", { branch }) : t("Pull & redeploy")}
+                  {changed ? t("Deploy {branch}", { branch }) : t("Pull")}
                 </Button>
                 {changed && (
                   <Button type="button" variant="ghost" size="sm" disabled={saveBranch.isPending} onClick={() => saveBranch.mutate()}>
@@ -384,6 +337,54 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
             )}
           </>
         )}
+        <AlertDialog
+          open={confirmPull}
+          onOpenChange={(open) => {
+            setConfirmPull(open);
+            setRedeploy(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Get the newest code from {branch}?", { branch: current })}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("The server takes the newest commits of {branch}, for every app of this project.", { branch: current })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {/* two plain choices, one button: what happens to the running sites is said on each */}
+            <div className="space-y-2" role="radiogroup">
+              {[
+                { value: false, title: t("Pull only"), detail: t("Only the code is updated. The sites keep running what was built before, until they are redeployed.") },
+                ...(project?.canSwitchBranch
+                  ? [{ value: true, title: t("Pull and redeploy"), detail: t("Then every app is installed, built and restarted. The sites may show errors until that is done.") }]
+                  : []),
+              ].map((option) => (
+                <button
+                  key={String(option.value)}
+                  type="button"
+                  role="radio"
+                  aria-checked={redeploy === option.value}
+                  onClick={() => setRedeploy(option.value)}
+                  className={`flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors ${
+                    redeploy === option.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${redeploy === option.value ? "border-primary" : "border-muted-foreground/50"}`}>
+                    {redeploy === option.value && <span className="h-2 w-2 rounded-full bg-primary" />}
+                  </span>
+                  <span>
+                    <span className="block font-medium">{option.title}</span>
+                    <span className="block text-muted-foreground">{option.detail}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => pull.mutate(redeploy)}>{redeploy ? t("Pull and redeploy") : t("Pull only")}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

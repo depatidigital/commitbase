@@ -11,6 +11,10 @@ import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
 import { isBranchName, setSourceOrganization, sourceName } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
 import { buildProject, notOwner } from '../services/pm2DeployService';
+import { DeploymentService } from '../services/deployment';
+import { sourceFsFor } from '../lib/appFs';
+
+const deploymentService = new DeploymentService();
 
 /**
  * Sources — what the UI lists as "Proyek": a repository checkout or an upload,
@@ -299,6 +303,19 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
   try {
     const source = await findSource(req, res);
     if (!source) return;
+    const managed = source.applications.find((app) => !app.runtime);
+    if (!source.path && source.repository && managed) {
+      // the platform's own checkout: the code only — what runs is the last build until a deploy
+      const branch = source.branch || 'main';
+      const afs = await sourceFsFor(managed.id);
+      try {
+        const dir = await deploymentService.syncRepository(afs, source.repository, branch, source.gitAccountId);
+        const { stdout } = await afs.run(['git', 'log', '-1', '--format=%h %s'], { cwd: dir });
+        return res.json({ success: true, data: { output: `${branch} is at ${stdout.trim()}`, apps: [] }, message: `Pulled ${branch}` } as ApiResponse);
+      } catch (error: any) {
+        return res.status(502).json({ success: false, error: String(error?.message || error).slice(0, 500) } as ApiResponse);
+      }
+    }
     if (!source.path || !source.serverId || !source.repository) {
       return res.status(400).json({ success: false, error: 'Only a project checked out on its server from git can be pulled' } as ApiResponse);
     }
