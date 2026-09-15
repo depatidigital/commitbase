@@ -120,6 +120,8 @@ interface DeploymentHistoryProps {
   application: Pick<Application, "id" | "type" | "repository">;
   /** several apps share the history: each row names the one it was started from */
   showApp?: boolean;
+  /** only the deploys of this app — the history is its source's, every app of it */
+  onlyApp?: string;
 }
 
 /**
@@ -127,7 +129,7 @@ interface DeploymentHistoryProps {
  * that is still kept, Restore. The technical part (commit, duration, logs)
  * opens on a click, for whoever needs it.
  */
-export default function DeploymentHistory({ application, showApp = false }: DeploymentHistoryProps) {
+export default function DeploymentHistory({ application, showApp = false, onlyApp }: DeploymentHistoryProps) {
   const { data: deploymentData, isLoading, error } = useDeploymentHistory(application.id);
   const { data: releaseData } = useReleases(application.id);
   const [restoring, setRestoring] = useState<Release | null>(null);
@@ -145,7 +147,7 @@ export default function DeploymentHistory({ application, showApp = false }: Depl
   });
   const isStatic = application.type === "STATIC";
 
-  const deployments = deploymentData?.data || [];
+  const deployments = (deploymentData?.data || []).filter((deployment) => !onlyApp || deployment.applicationId === onlyApp);
   const releaseOf = (deploymentId: string) => releaseData?.releases.find((release) => release.deploymentId === deploymentId);
 
   const formatDuration = (startTime: string, endTime: string) => {
