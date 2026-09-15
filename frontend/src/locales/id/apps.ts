@@ -688,6 +688,12 @@ export default {
   "path (optional), e.g. /api/*": "path (opsional), mis. /api/*",
   "A path is like /api/* — or leave it empty for the whole name": "Path seperti /api/* — atau kosongkan untuk seluruh domain",
   "strip prefix": "buang prefix",
+  "Build all apps": "Build semua aplikasi",
+  "Build every app of {name}?": "Build semua aplikasi {name}?",
+  "Each app is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.":
+    "Setiap aplikasi di-install dan di-build di foldernya di server, satu per satu: file situs dulu, lalu proses yang di-restart pm2. Build dilakukan di folder yang sedang melayani, jadi situs bisa error selama proses ini.",
+  "I understand the sites may err until every build is done.": "Saya mengerti situs bisa error sampai semua build selesai.",
+  "Building {count} apps": "Build {count} aplikasi berjalan",
   "everything else": "selain itu",
   "The app gets the path without this prefix: /api/users arrives as /users.": "Aplikasi menerima path tanpa prefix ini: /api/users sampai sebagai /users.",
   "Could not change the binding": "Gagal mengubah binding",

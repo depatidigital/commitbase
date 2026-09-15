@@ -113,7 +113,10 @@ export function RestoreDialog({ appId, isStatic, release, onClose }: { appId: st
 }
 
 interface DeploymentHistoryProps {
-  application: Application;
+  /** any app of the project: the history is its whole source's */
+  application: Pick<Application, "id" | "type" | "repository">;
+  /** several apps share the history: each row names the one it was started from */
+  showApp?: boolean;
 }
 
 /**
@@ -121,7 +124,7 @@ interface DeploymentHistoryProps {
  * that is still kept, Restore. The technical part (commit, duration, logs)
  * opens on a click, for whoever needs it.
  */
-export default function DeploymentHistory({ application }: DeploymentHistoryProps) {
+export default function DeploymentHistory({ application, showApp = false }: DeploymentHistoryProps) {
   const { data: deploymentData, isLoading, error } = useDeploymentHistory(application.id);
   const { data: releaseData } = useReleases(application.id);
   const [restoring, setRestoring] = useState<Release | null>(null);
@@ -188,6 +191,7 @@ export default function DeploymentHistory({ application }: DeploymentHistoryProp
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium" title={title}>{title}</p>
                       <p className="truncate text-xs text-muted-foreground">
+                        {showApp && deployment.application && <>{deployment.application.name} · </>}
                         {new Date(deployment.createdAt).toLocaleString(locale)}
                         {who && <> · {who}</>}
                         {reason && <span className="text-destructive"> · {reason}</span>}

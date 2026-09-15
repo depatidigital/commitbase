@@ -10,7 +10,7 @@ import { gitAuthFor } from '../lib/gitCredentials';
 import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
 import { isBranchName, setSourceOrganization, sourceName } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
-import { notOwner } from '../services/pm2DeployService';
+import { buildProject, notOwner } from '../services/pm2DeployService';
 
 /**
  * Sources — what the UI lists as "Proyek": a repository checkout or an upload,
@@ -422,6 +422,32 @@ router.post('/:id/checkout', authenticateToken, async (req: AuthenticatedRequest
     }
   } catch (error) {
     console.error('Error switching branch:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Build every imported app of the project where it lives — sites' files
+ * first, then the processes, one after the other (pm2DeployService). The sites
+ * can err while they build, so only on an explicit yes, and only by the
+ * organization's owner or admin. Answers with the apps it builds; each writes
+ * its own deployment row.
+ */
+router.post('/:id/build', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!(await maySwitchBranch(req, source))) {
+      return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can build it" } as ApiResponse);
+    }
+    if (req.body?.consent !== true) {
+      return res.status(400).json({ success: false, error: 'Confirm that the sites may err while they build' } as ApiResponse);
+    }
+    const apps = await buildProject(source.id, req.user!.userId);
+    if (apps.length === 0) return res.status(400).json({ success: false, error: 'Nothing in this project is built on its server' } as ApiResponse);
+    return res.status(202).json({ success: true, data: { apps }, message: `Building ${apps.length} app(s)` } as ApiResponse);
+  } catch (error) {
+    console.error('Error building the project:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

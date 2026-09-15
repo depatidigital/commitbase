@@ -170,14 +170,18 @@ export default function ApplicationDetail() {
 /**
  * One app: its state and actions beside its tabs. On its project's page
  * (`embedded`) the project's header stands above it instead of its own.
+ * `onDeployments`: the project shows the history and the source (they are the
+ * whole project's) — this app has no Deployments tab or source panel, and
+ * sends "see the history" there.
  */
-export function AppWorkspace({ appId, embedded = false }: { appId: string; embedded?: boolean }) {
+export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId: string; embedded?: boolean; onDeployments?: () => void }) {
   const id = appId;
   const navigate = useNavigate();
   const { toast } = useToast();
-  
+
   // State
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setTab] = useState("overview");
+  const setActiveTab = (tab: string) => (tab === "deployments" && onDeployments ? onDeployments() : setTab(tab));
   const [selectedLogType, setSelectedLogType] = useState("combined");
   const [logLines, setLogLines] = useState(100);
   const [showRawLogs, setShowRawLogs] = useState(false);
@@ -741,7 +745,7 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
         )}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
-        {application.repository && application.sourceId && !needsSetup && (
+        {application.repository && application.sourceId && !needsSetup && !onDeployments && (
           <SourcePanel projectId={application.sourceId} onDeploy={deploy} starting={starting} deploying={deploying} />
         )}
         </aside>
@@ -837,11 +841,11 @@ export function AppWorkspace({ appId, embedded = false }: { appId: string; embed
           <TabsList
             className="grid w-full"
             // overview, deployments, domains, settings, plus files / environment + logs / database / build when they apply
-            style={{ gridTemplateColumns: `repeat(${4 + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: `repeat(${(onDeployments ? 3 : 4) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
           >
             {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
-            <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+            {!onDeployments && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
             <TabsTrigger value="domains">{t("Domains")}</TabsTrigger>
             {!isStatic && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}

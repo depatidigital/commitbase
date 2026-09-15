@@ -101,6 +101,13 @@ export const checkoutProject = async (id: string, branch: string, consent: boole
   throw new Error(response.error || t('Could not switch the branch'));
 };
 
+/** Build every imported app of a project where it lives, one after the other. `consent`: the user ticked that the sites may err meanwhile. */
+export const buildProject = async (id: string, consent: boolean): Promise<string[]> => {
+  const response = await apiRequest<{ apps: string[] }>(`/sources/${id}/build`, { method: 'POST', body: JSON.stringify({ consent }) });
+  if (response.success && response.data) return response.data.apps;
+  throw new Error(response.error || t('Could not start the build'));
+};
+
 /** Build and release every app of a panel-managed project. */
 export const deployProject = async (id: string): Promise<string> => {
   const response = await apiRequest<{ deploymentId: string }>(`/sources/${id}/deploy`, { method: 'POST' });

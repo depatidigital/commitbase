@@ -90,6 +90,11 @@ export class Pm2DeployError extends Error {}
  * Pm2DeployError), then returns the deployment row's id while the steps run.
  */
 export async function startPm2Deploy(applicationId: string, userId: string): Promise<string> {
+  return (await startPm2DeployTracked(applicationId, userId)).deploymentId;
+}
+
+/** The same, with the run to wait on — true when every step went through. */
+export async function startPm2DeployTracked(applicationId: string, userId: string): Promise<{ deploymentId: string; done: Promise<boolean> }> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
     select: {
@@ -143,8 +148,34 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
   running.add(`${server.id}:${dir}`);
   // the page follows a deploying app; what it was comes back if the build fails
   await prisma.application.update({ where: { id: app.id }, data: { status: 'DEPLOYING' } });
-  void run(server, dir, nodeVersion, app, steps, deployment.id).finally(() => running.delete(`${server.id}:${dir}`));
-  return deployment.id;
+  const done = run(server, dir, nodeVersion, app, steps, deployment.id).finally(() => running.delete(`${server.id}:${dir}`));
+  return { deploymentId: deployment.id, done };
+}
+
+/**
+ * Build every imported app of a project where it lives, one after the other:
+ * its sites' files first, then the processes — so an API restarts onto a
+ * front end that is already built. A failed one does not stop the rest; each
+ * has its own row. Returns the apps it will build, while it runs.
+ * ponytail: two processes from one folder build it twice — group by folder if that time matters.
+ */
+export async function buildProject(sourceId: string, userId: string): Promise<string[]> {
+  const apps = await prisma.application.findMany({
+    where: { sourceId, rootPath: { not: null }, OR: [{ runtime: 'CADDY_STATIC' }, { runtime: 'PM2', processName: { not: null } }] },
+    select: { id: true, name: true, runtime: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const ordered = [...apps.filter((a) => a.runtime === 'CADDY_STATIC'), ...apps.filter((a) => a.runtime === 'PM2')];
+  void (async () => {
+    for (const app of ordered) {
+      try {
+        await (await startPm2DeployTracked(app.id, userId)).done;
+      } catch (error: any) {
+        console.error(`Project build: ${app.name} not started:`, error?.message ?? error);
+      }
+    }
+  })();
+  return ordered.map((a) => a.name);
 }
 
 async function run(
@@ -154,7 +185,7 @@ async function run(
   app: { id: string; status: string },
   steps: Array<{ label: string; argv: string[] }>,
   deploymentId: string,
-): Promise<void> {
+): Promise<boolean> {
   let log = `Build and restart in ${dir}${nodeVersion ? ` with node ${nodeVersion} (as pm2 runs it)` : ''}\n`;
   let dirty = false;
   // the row follows the log every couple of seconds, not every chunk
@@ -178,6 +209,7 @@ async function run(
     clearInterval(flush);
     await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'SUCCESS', deployLogs: log.slice(-200_000) } });
     await prisma.application.update({ where: { id: app.id }, data: { status: 'RUNNING', lastDeployment: new Date() } });
+    return true;
   } catch (error: any) {
     clearInterval(flush);
     // the step's output is in the log already, streamed — only why it stopped
@@ -187,6 +219,7 @@ async function run(
     await prisma.deployment.update({ where: { id: deploymentId }, data: { status: 'FAILED', deployLogs: log.slice(-200_000) } });
     // pm2 still runs what it ran before
     await prisma.application.update({ where: { id: app.id }, data: { status: app.status as AppStatus } }).catch(() => {});
+    return false;
   }
 }
 

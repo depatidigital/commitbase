@@ -1,10 +1,11 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Route, Trash2, Upload } from "lucide-react";
+import { GitBranch, Hammer, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Route, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -20,11 +21,11 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { AppWorkspace } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { bindingLabel, deleteApplication, hostList, hostsOf, isPublicHost, repoName } from "@/lib/applications";
+import { bindingLabel, deleteApplication, hostList, repoName } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
-import { appParts, getProject } from "@/lib/projects";
+import { buildProject, getProject } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
   up: "bg-success",
@@ -66,6 +67,10 @@ export default function ProjectDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  // build every imported app where it lives — asked first, with a tick
+  const [confirmBuild, setConfirmBuild] = useState(false);
+  const [buildConsent, setBuildConsent] = useState(false);
+  const [building, setBuilding] = useState(false);
 
   if (isLoading) {
     return (
@@ -84,15 +89,6 @@ export default function ProjectDetail() {
     const app = apps.find((a) => a.id === appId)!;
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
   };
-  // every hostname of the project with who answers at which path — the ones split by path, or shared by apps
-  const byHost = new Map<string, Array<{ path: string; app: (typeof apps)[number] }>>();
-  for (const app of apps) for (const d of app.domains) byHost.set(d.host, [...(byHost.get(d.host) ?? []), { path: d.path ?? "", app }]);
-  const longest = (p: string) => p.replace(/\*+$/, "").replace(/\/+$/, "").length;
-  const routedHosts = [...byHost]
-    .filter(([, bindings]) => bindings.length > 1 || bindings.some((b) => b.path))
-    .map(([host, bindings]) => [host, [...bindings].sort((a, b) => (!a.path !== !b.path ? (a.path ? -1 : 1) : longest(b.path) - longest(a.path)))] as const)
-    .sort(([a], [b]) => a.localeCompare(b));
-  const sharedHosts = new Set(routedHosts.map(([host]) => host));
   const live = apps.filter((app) => !app.disabled);
   const online = live.filter((app) => statusOf(app.id).tone === "up").length;
   const imported = project.kind === "IMPORTED";
@@ -181,7 +177,7 @@ export default function ProjectDetail() {
               </Link>
             </Button>
           )}
-          {isAdmin() && (
+          {(isAdmin() || (imported && project.canSwitchBranch)) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" aria-label={t("More actions")}>
@@ -189,6 +185,14 @@ export default function ProjectDetail() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {/* imported: every app built where it lives — the sites' files, then the processes */}
+                {imported && project.canSwitchBranch && (
+                  <DropdownMenuItem onClick={() => setConfirmBuild(true)}>
+                    <Hammer className="mr-2 h-4 w-4" />
+                    {t("Build all apps")}
+                  </DropdownMenuItem>
+                )}
+                {isAdmin() && (
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={() => {
@@ -199,91 +203,74 @@ export default function ProjectDetail() {
                   <Trash2 className="mr-2 h-4 w-4" />
                   {t("Delete project")}
                 </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
         </div>
       }
     >
-      {/* the apps: pick one, the rest of the page is about it */}
-      {apps.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          {apps.map((app) => {
-            const parts = appParts(app);
-            const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
-            const TypeIcon = type.icon;
-            const active = app.id === picked?.id;
-            return (
-              <button
-                key={app.id}
-                type="button"
-                onClick={() => setSearchParams({ app: app.id }, { replace: true })}
-                className={`flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                  active ? "border-primary bg-primary/5" : "border-border/60 hover:border-primary/40"
-                } ${app.disabled ? "opacity-50" : ""}`}
-              >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
-                <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium" title={app.domains.map(bindingLabel).join(", ")}>
-                    {/* its name when it shares a hostname by path (two apps on one name need their names), else its names */}
-                    {app.domains.every((d) => !isPublicHost(d.host)) || app.domains.some((d) => d.path) || sharedHosts.has(app.domains[0]?.host ?? "")
-                      ? app.name
-                      : hostList(app)}
-                  </span>
-                  {/* a hostname split by path: its other parts */}
-                  {parts.length > 1 && (
-                    <span className="block truncate font-mono text-xs text-muted-foreground">
-                      {parts.filter((part) => !part.main).map((part) => part.label.slice(hostsOf(app)[0]?.length ?? 0)).join(" · ")}
-                    </span>
-                  )}
-                  {!imported && app.rootDirectory && (
-                    <span className="block truncate font-mono text-xs text-muted-foreground">{app.rootDirectory}</span>
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* one hostname, several apps by path: which path goes where, in the order Caddy tries them */}
-      {routedHosts.length > 0 && (
-        <div className="rounded-lg border border-border/60 bg-card p-4">
-          <p className="mb-2 flex items-center gap-2 text-sm font-medium">
-            <Route className="h-4 w-4 text-primary" />
-            {t("Routing")}
-          </p>
-          <div className="space-y-3">
-            {routedHosts.map(([host, bindings]) => (
-              <div key={host} className="text-sm">
-                <p className="font-mono">{host}</p>
-                <ul className="mt-1 space-y-0.5 pl-4">
-                  {bindings.map(({ path, app }) => (
-                    <li key={`${path}${app.id}`} className="flex flex-wrap items-center gap-2 font-mono text-xs">
-                      <span className="w-40 shrink-0 text-muted-foreground">{path || t("everything else")}</span>
-                      <span className="text-muted-foreground">→</span>
-                      <button
-                        type="button"
-                        className={`truncate font-sans text-sm hover:text-primary hover:underline ${app.id === picked?.id ? "font-medium text-primary" : ""}`}
-                        onClick={() => setSearchParams({ app: app.id }, { replace: true })}
-                      >
-                        {app.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {picked ? (
-        <AppWorkspace key={picked.id} appId={picked.id} embedded />
+      {/* one app: the page reads as that app's, its history and source included */}
+      {apps.length <= 1 ? (
+        picked ? (
+          <AppWorkspace key={picked.id} appId={picked.id} embedded />
+        ) : (
+          <p className="text-muted-foreground">{t("No apps")}</p>
+        )
       ) : (
-        <p className="text-muted-foreground">{t("No apps")}</p>
-      )}
+      <Tabs value={tab} onValueChange={(next) => go(next)} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
+          <TabsTrigger value="apps">{t("Apps")}</TabsTrigger>
+          <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+        </TabsList>
+
+@@BLOCK@@
+
+      <AlertDialog
+        open={confirmBuild}
+        onOpenChange={(open) => {
+          setConfirmBuild(open);
+          setBuildConsent(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Build every app of {name}?", { name: project.name })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Each app is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={buildConsent} onCheckedChange={(checked) => setBuildConsent(checked === true)} className="mt-0.5" />
+            <span>{t("I understand the sites may err until every build is done.")}</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <Button
+              disabled={!buildConsent || building}
+              onClick={async () => {
+                const consent = buildConsent;
+                setBuilding(true);
+                try {
+                  const built = await buildProject(project.id, consent);
+                  toast({ title: t("Building {count} apps", { count: built.length }), description: built.join(", ") });
+                  setConfirmBuild(false);
+                  void queryClient.invalidateQueries({ queryKey: ["project", id] });
+                  void queryClient.invalidateQueries({ queryKey: ["application"] });
+                } catch (error) {
+                  toast({ variant: "destructive", title: t("Could not start the build"), description: (error as Error).message });
+                } finally {
+                  setBuilding(false);
+                }
+              }}
+            >
+              {building && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("Build all apps")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={(open) => !deleting && setConfirmDelete(open)}>
         <AlertDialogContent>
