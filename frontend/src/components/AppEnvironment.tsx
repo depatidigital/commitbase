@@ -8,13 +8,22 @@ import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, getApplication, hasBeenDeployed, hostsOf, updateApplication } from "@/lib/applications";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DATABASE_KEYS,
-  PLATFORM_KEYS,
+  envWarnings,
   expectedRows,
   generateSecret,
   mergeRows,
   parseDatabaseUrl,
-  pointsAtLocalhost,
   requiredKeys,
   rowsToEnv,
   suggestAppUrl,
@@ -68,6 +77,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dbOpen, setDbOpen] = useState(false);
+  // Save asked with something still empty or likely wrong: said before it is saved
+  const [confirmSave, setConfirmSave] = useState(false);
   // DATABASE_URL pointing at one of our databases shows its name, as on the
   // Database tab — the URL carries the password. "Use a custom URL" edits it.
   const [customDb, setCustomDb] = useState(false);
@@ -103,17 +114,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   // a database URL can be tried from the app's node (verify below) — whether
   // localhost works there is for that test to say, not for its text
   const isDatabaseUrl = (row: EnvRow) => !!parseDatabaseUrl(row.value).engine;
-  const warnings = useMemo(
-    () =>
-      rows
-        .filter(
-          (row) =>
-            row.value.trim() &&
-            ((pointsAtLocalhost(row.value) && !isDatabaseUrl(row)) || PLATFORM_KEYS[row.key] === "ignored"),
-        )
-        .map((row) => row.key),
-    [rows],
-  );
+  const warnings = useMemo(() => envWarnings(rows), [rows]);
   useEffect(() => {
     onStatus?.({ missing, warnings, dirty });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,12 +144,14 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
       // way round, the form resets to the stale "saved" env for a render and
       // what was just saved appears to have reverted.
       queryClient.setQueryData<Application>(["application", application.id], (prev) =>
-        prev ? { ...prev, envVars: updated.envVars ?? rowsToEnv(rows) } : prev,
+        prev ? { ...prev, envVars: updated.envVars ?? rowsToEnv(rows), envConfirmed: true } : prev,
       );
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
       // which database is "in use" follows the env
       void queryClient.invalidateQueries({ queryKey: ["databases", "application", application.id] });
+      // the project page's cards and setup checklists read it too
+      void queryClient.invalidateQueries({ queryKey: ["project"] });
       if (!quiet)
         toast(
           hasBeenDeployed(application)
@@ -251,11 +254,49 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
             {t("Reset")}
           </Button>
         )}
-        <Button type="button" onClick={() => save()} disabled={!dirty || saving}>
+        {/* never saved: saving it as it stands is the confirmation the setup checklist waits for.
+            Anything still empty or likely wrong is said first — saved only once that was read */}
+        <Button
+          type="button"
+          onClick={() => (missing.length || warnings.length ? setConfirmSave(true) : void save())}
+          disabled={(!dirty && application.envConfirmed !== false) || saving}
+        >
           {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-          {t("Save environment")}
+          {!dirty && application.envConfirmed === false ? t("Confirm environment") : t("Save environment")}
         </Button>
       </div>
+
+      <AlertDialog open={confirmSave} onOpenChange={setConfirmSave}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Save with these left as they are?")}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                {missing.length > 0 && (
+                  <p className="text-destructive">{t("{count} still empty: {keys}", { count: missing.length, keys: missing.join(", ") })}</p>
+                )}
+                {warnings.length > 0 && (
+                  <p className="text-amber-600 dark:text-amber-400">
+                    {t("{count} to check: {keys}", { count: warnings.length, keys: warnings.join(", ") })}
+                  </p>
+                )}
+                <p>{t("The app may not work on the server with them. You can fix them later — they stay flagged on its checklist.")}</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Fix them first")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmSave(false);
+                void save();
+              }}
+            >
+              {t("Save anyway")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <DatabaseDialog
         open={dbOpen}

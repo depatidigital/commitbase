@@ -665,7 +665,14 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
         )}
       </div>
       {/* the panel's own apps: the env form. An imported one's is its .env on the server — read, searched, not edited */}
-      <Dialog open={envOpen} onOpenChange={setEnvOpen}>
+      <Dialog
+        open={envOpen}
+        onOpenChange={(open) => {
+          setEnvOpen(open);
+          // closed: read it again, so the card and its checklist show what is saved now
+          if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
           <DialogHeader>
             <DialogTitle>{t("Env")} — {application.name}</DialogTitle>

@@ -485,6 +485,9 @@ export default {
   "Needs a look ({count})": "Perlu dicek ({count})",
   "Nothing needs a look.": "Tidak ada yang perlu dicek.",
   "Add domain / host": "Tambah domain / host",
+  "Confirm environment": "Konfirmasi environment",
+  "Not confirmed yet — check it, then save.": "Belum dikonfirmasi — cek, lalu simpan.",
+  "Confirm the environment to deploy.": "Konfirmasi environment dulu untuk deploy.",
   "Paste .env": "Tempel .env",
   Import: "Impor",
   "Every KEY=value line becomes a variable. Nothing is removed; if a name already has a different value, you choose whether to overwrite it.":

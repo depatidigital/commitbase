@@ -49,8 +49,19 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
   const install = application.installCommand || detected?.installCommand;
   const build = application.buildCommand || detected?.buildCommand;
   const start = application.startCommand || detected?.startCommand;
-  // unsaved edits do not hold it back: Deploy saves them first
-  const envDone = !detecting && env.missing.length === 0;
+  // Never saved: nobody has looked at it — an env with nothing expected is not
+  // "done" by itself. Unsaved edits count as looking: Deploy saves them first.
+  const unconfirmed = application.envConfirmed === false && !env.dirty;
+  const envDone = !detecting && env.missing.length === 0 && !unconfirmed;
+  const envLine = detecting
+    ? t("Reading the repository…")
+    : env.missing.length > 0
+      ? t("{count} still empty: {keys}", { count: env.missing.length, keys: env.missing.join(", ") })
+      : unconfirmed
+        ? t("Not confirmed yet — check it, then save.")
+        : env.dirty
+          ? t("Unsaved changes — saved when you deploy.")
+          : t("Every expected variable has a value.");
   // about the repo's start script — an app with its own start command has taken that over
   const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
 
@@ -79,12 +90,8 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
           <Mark done={envDone} warn={dbFailed} />
           <span className="shrink-0 font-medium">{t("Environment")}</span>
-          <span className={`min-w-0 truncate ${env.missing.length ? "text-destructive" : "text-muted-foreground"}`}>
-            {detecting
-              ? t("Reading the repository…")
-              : env.missing.length
-                ? t("{count} still empty: {keys}", { count: env.missing.length, keys: env.missing.join(", ") })
-                : t("Every expected variable has a value.")}
+          <span className={`min-w-0 truncate ${env.missing.length ? "text-destructive" : unconfirmed ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+            {envLine}
           </span>
         </button>
         <button type="button" onClick={onEditBuild} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
@@ -159,14 +166,10 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
                   <Loader2 className="h-3 w-3 animate-spin" />
                   {t("Reading the repository…")}
                 </span>
-              ) : env.missing.length > 0 ? (
-                <span className="text-destructive">
-                  {t("{count} still empty: {keys}", { count: env.missing.length, keys: env.missing.join(", ") })}
-                </span>
-              ) : env.dirty ? (
-                <span className="text-muted-foreground">{t("Unsaved changes — saved when you deploy.")}</span>
               ) : (
-                <span className="text-muted-foreground">{t("Every expected variable has a value.")}</span>
+                <span className={env.missing.length > 0 ? "text-destructive" : unconfirmed ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
+                  {envLine}
+                </span>
               )}
             </p>
             {/* filled, but likely wrong on the server — said, not blocking: localhost can be deliberate */}
@@ -254,7 +257,9 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4 mt-4">
           {!envDone && !detecting ? (
-            <span className="text-xs text-muted-foreground">{t("Fill in the empty variables to deploy.")}</span>
+            <span className="text-xs text-muted-foreground">
+              {env.missing.length > 0 ? t("Fill in the empty variables to deploy.") : t("Confirm the environment to deploy.")}
+            </span>
           ) : dbFailed ? (
             // said, not blocking: the database may come up by the time the app starts
             <span className="text-xs text-destructive">{t("The app will not reach its database with this DATABASE_URL.")}</span>
