@@ -1,6 +1,6 @@
 ﻿import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitBranch, Hammer, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Route, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,16 +16,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import DeploymentHistory from "@/components/DeploymentHistory";
+import { AppDatabasesTab } from "@/components/AppDatabasesTab";
+import { SourcePanel } from "@/components/SourcePanel";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { AppWorkspace } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { bindingLabel, deleteApplication, hostList, repoName } from "@/lib/applications";
+import { type Application, bindingLabel, deleteApplication, hostList, repoName } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { t } from "@/lib/i18n";
-import { buildProject, getProject } from "@/lib/projects";
+import { buildProject, deployProject, getProject } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
   up: "bg-success",
@@ -71,7 +75,20 @@ export default function ProjectDetail() {
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [buildConsent, setBuildConsent] = useState(false);
   const [building, setBuilding] = useState(false);
-
+  // a panel-managed project deploys as one, from its source panel
+  const deploy = useMutation({
+    mutationFn: () => deployProject(id),
+    onSuccess: () => {
+      toast({ title: t("Deploying") });
+      void queryClient.invalidateQueries({ queryKey: ["project", id] });
+      void queryClient.invalidateQueries({ queryKey: ["deployments"] });
+      void queryClient.invalidateQueries({ queryKey: ["application"] });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
+  });
+  // the project's tab (?tab=), and the app the Apps tab shows (?app=)
+  const tab = searchParams.get("tab") ?? (searchParams.get("app") ? "apps" : "overview");
+  const go = (next: string, app = searchParams.get("app")) => setSearchParams({ tab: next, ...(app ? { app } : {}) }, { replace: true });
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -223,9 +240,103 @@ export default function ProjectDetail() {
           <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
           <TabsTrigger value="apps">{t("Apps")}</TabsTrigger>
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+          <TabsTrigger value="database">{t("Database")}</TabsTrigger>
         </TabsList>
 
-@@BLOCK@@
+        {/* what the project is: its apps and their domains, where its code comes from */}
+        <TabsContent value="overview">
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+            {/* app → its domains: an app has many (host, host/path), a domain belongs to one app.
+                A row opens that app; its routes are edited in its Routing tab */}
+            <div className="rounded-lg border border-border/60 bg-card">
+              <p className="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-medium">
+                <Route className="h-4 w-4 text-primary" />
+                {t("Apps & routes")}
+              </p>
+              <ul className="divide-y divide-border/60">
+                {apps.map((app) => {
+                  const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
+                  const TypeIcon = type.icon;
+                  // a directory Caddy serves as files, or a process it proxies to
+                  const directory = app.runtime === "CADDY_STATIC" || app.type === "STATIC";
+                  const where = directory ? app.rootPath ?? app.rootDirectory : app.port ? `:${app.port}` : app.processName;
+                  const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
+                  return (
+                    <li key={app.id}>
+                      <button
+                        type="button"
+                        onClick={() => go("apps", app.id)}
+                        className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/40 ${
+                          app.disabled ? "opacity-50" : ""
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center gap-2 sm:w-64">
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
+                          <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
+                          <span className="truncate font-medium">{app.name}</span>
+                          <Badge variant="outline" className="shrink-0 font-normal" title={where ?? undefined}>
+                            {directory ? t("directory") : t("process")}
+                          </Badge>
+                        </span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-0.5 font-mono text-xs">
+                          {bindings.length === 0 && <span className="text-muted-foreground">{t("no route")}</span>}
+                          {bindings.map((d) => (
+                            <span key={bindingLabel(d)} className="break-all">
+                              {d.host}
+                              {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                            </span>
+                          ))}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+            {/* the project's: a pull, a branch switch or a deploy changes every app of it */}
+            {project.repository && (
+              <SourcePanel
+                projectId={project.id}
+                onDeploy={() => deploy.mutate()}
+                starting={deploy.isPending}
+                deploying={project.status === "DEPLOYING"}
+              />
+            )}
+          </div>
+        </TabsContent>
+
+        {/* one app at a time — kept mounted, so unsaved edits in its tabs survive a look at the history */}
+        <TabsContent value="apps" forceMount className="space-y-6 data-[state=inactive]:hidden">
+          <div className="flex flex-wrap gap-2">
+            {apps.map((app) => (
+              <button
+                key={app.id}
+                type="button"
+                onClick={() => go("apps", app.id)}
+                className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                  app.id === picked?.id ? "border-primary bg-primary/5 font-medium text-primary" : "border-border/60 hover:border-primary/40"
+                } ${app.disabled ? "opacity-50" : ""}`}
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
+                {app.name}
+              </button>
+            ))}
+          </div>
+          {picked && <AppWorkspace key={picked.id} appId={picked.id} embedded onProjectTab={(next) => go(next)} />}
+        </TabsContent>
+
+        {/* one history for the project: a deploy builds every app of it */}
+        <TabsContent value="deployments">
+          <DeploymentHistory application={{ id: apps[0].id, type: apps[0].type as Application["type"], repository: project.repository ?? undefined }} showApp />
+        </TabsContent>
+
+        {/* the databases its apps share — connected from each app's Environment */}
+        <TabsContent value="database">
+          <AppDatabasesTab projectId={project.id} />
+        </TabsContent>
+      </Tabs>
+      )}
 
       <AlertDialog
         open={confirmBuild}

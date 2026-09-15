@@ -92,6 +92,11 @@ export default {
   "A backup downloaded here, a .sql file, or a PostgreSQL backup (e.g. from DBeaver).":
     "Backup yang diunduh dari sini, berkas .sql, atau backup PostgreSQL (mis. dari DBeaver).",
   "What this app stores its data in": "Tempat aplikasi ini menyimpan datanya",
+  "What the apps of this project store their data in": "Tempat aplikasi-aplikasi proyek ini menyimpan datanya",
+  "No app of this project uses a database yet — connect one from an app's Environment tab.":
+    "Belum ada aplikasi di proyek ini yang memakai database — hubungkan dari tab Environment aplikasi.",
+  "Used by {apps}": "Dipakai oleh {apps}",
+  "No app's environment names it": "Tidak disebut di environment aplikasi mana pun",
   "Named in this app's environment variables": "Disebut di variabel lingkungan aplikasi ini",
   "in use": "dipakai",
   "Could not reach the database": "Tidak bisa menjangkau database",

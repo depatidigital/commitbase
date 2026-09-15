@@ -682,7 +682,20 @@ export default {
   "Managed by {appName}": "Dikelola {appName}",
   "Caddy (static files)": "Caddy (file statis)",
   "Caddy (reverse proxy)": "Caddy (reverse proxy)",
-  // an app's hostnames (AppDomainsCard)
+  // routing: host (or host/path) → app (RoutingCard)
+  "The hosts and paths this app answers on": "Host dan path yang dilayani aplikasi ini",
+  "Add route": "Tambah rute",
+  "A host, or a path under one, that goes to {app}.": "Host, atau path di bawah host, yang diteruskan ke {app}.",
+  "It goes to {app}.": "Diteruskan ke {app}.",
+  "Could not add the route": "Gagal menambahkan rute",
+  "Could not remove the route": "Gagal menghapus rute",
+  "Could not change the route": "Gagal mengubah rute",
+  "A path is like /api/* — or leave it empty for the whole host": "Path seperti /api/* — atau kosongkan untuk seluruh host",
+  "An app needs at least one host — add another first": "Aplikasi perlu minimal satu host — tambahkan host lain dulu",
+  "{host} stops going to {app}. When nothing else answers on the host, its DNS record pointing here is removed too. Links and bookmarks to it break.":
+    "{host} berhenti diteruskan ke {app}. Jika tidak ada aplikasi lain di host itu, record DNS-nya yang mengarah ke sini ikut dihapus. Tautan dan bookmark ke sana tidak berfungsi lagi.",
+  Host: "Host",
+  "Other hosts": "Host lain",
   "Add a domain": "Tambah domain",
   "Add domain": "Tambah domain",
   "path (optional), e.g. /api/*": "path (opsional), mis. /api/*",

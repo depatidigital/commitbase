@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatabaseImportDialog } from "@/components/DatabaseImportDialog";
 import { useToast } from "@/hooks/use-toast";
-import { type AppDatabase, downloadDatabaseBackup, getAppDatabases } from "@/lib/databases";
+import { type AppDatabase, downloadDatabaseBackup, getAppDatabases, getProjectDatabases } from "@/lib/databases";
 import { locale, t } from "@/lib/i18n";
 
 const ENGINE_LABEL: Record<string, string> = { POSTGRESQL: "PostgreSQL", MYSQL: "MySQL" };
@@ -31,19 +31,23 @@ const size = (bytes?: number | null) => {
 };
 
 /**
- * The app's Database tab: the databases it uses — linked to it, or named by
- * its env (`inUse`, the one its code talks to) — and restoring one from a
- * .sql dump. Connecting opens the Environment form's dialog (`onConnect`), so
- * the URL merges with any unsaved env edits.
+ * The Database tab, of an app or (`projectId`) of a project: the databases
+ * used — linked, or named by the env (`inUse`, the one the code talks to; a
+ * project's say which of its apps use each, often all of them) — and restoring
+ * one from a .sql dump. Connecting opens the app's Environment form dialog
+ * (`onConnect`), so the URL merges with any unsaved env edits; a project
+ * connects from each app's Environment.
  */
 export function AppDatabasesTab({
   applicationId,
   applicationName,
+  projectId,
   onConnect,
 }: {
-  applicationId: string;
-  applicationName: string;
-  onConnect: () => void;
+  applicationId?: string;
+  applicationName?: string;
+  projectId?: string;
+  onConnect?: () => void;
 }) {
   const [restoring, setRestoring] = useState<AppDatabase | null>(null);
   const { toast } = useToast();
@@ -52,12 +56,13 @@ export function AppDatabasesTab({
     onError: (error: Error) => toast({ variant: "destructive", title: t("Backup failed"), description: error.message }),
   });
   const { data: databases, isLoading, error } = useQuery({
-    queryKey: ["databases", "application", applicationId],
-    queryFn: () => getAppDatabases(applicationId),
+    queryKey: projectId ? ["databases", "project", projectId] : ["databases", "application", applicationId],
+    queryFn: () => (projectId ? getProjectDatabases(projectId) : getAppDatabases(applicationId!)),
   });
 
-  // the one its code talks to first
-  const sorted = [...(databases ?? [])].sort((a, b) => Number(b.inUse) - Number(a.inUse));
+  // the ones the code talks to first
+  const used = (db: AppDatabase) => (db.usedBy ? db.usedBy.length : Number(!!db.inUse));
+  const sorted = [...(databases ?? [])].sort((a, b) => used(b) - used(a));
 
   return (
     <Card className="bg-gradient-card border-border/50">
@@ -67,9 +72,11 @@ export function AppDatabasesTab({
             <DatabaseIcon className="h-5 w-5 text-primary" />
             {t("Database")}
           </CardTitle>
-          <p className="text-sm text-muted-foreground">{t("What this app stores its data in")}</p>
+          <p className="text-sm text-muted-foreground">
+            {projectId ? t("What the apps of this project store their data in") : t("What this app stores its data in")}
+          </p>
         </div>
-        {!!sorted.length && (
+        {!!sorted.length && onConnect && (
           <Button variant="outline" size="sm" onClick={onConnect}>
             {t("Change database")}
           </Button>
@@ -82,15 +89,23 @@ export function AppDatabasesTab({
           <p className="text-sm text-destructive">{(error as Error).message}</p>
         ) : !sorted.length ? (
           <div className="rounded-md border border-dashed p-6 text-center">
-            <p className="mb-3 text-sm text-muted-foreground">{t("No database connected to this app yet.")}</p>
-            <Button variant="outline" onClick={onConnect}>
-              {t("Connect a database")}
-            </Button>
+            {projectId ? (
+              <p className="text-sm text-muted-foreground">{t("No app of this project uses a database yet — connect one from an app's Environment tab.")}</p>
+            ) : (
+              <>
+                <p className="mb-3 text-sm text-muted-foreground">{t("No database connected to this app yet.")}</p>
+                {onConnect && (
+                  <Button variant="outline" onClick={onConnect}>
+                    {t("Connect a database")}
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         ) : (
           sorted.map((db) => {
-            // one found on its server is reached as the login this app's .env names — so only once it is this app's
-            const restorable = db.status === "RUNNING" && (!db.discovered || db.applicationId === applicationId);
+            // one found on its server is reached as the login its app's .env names — so only once it is linked to an app (this one)
+            const restorable = db.status === "RUNNING" && (!db.discovered || (projectId ? !!db.applicationId : db.applicationId === applicationId));
             return (
               <div key={db.id} className="rounded-md border p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -106,6 +121,14 @@ export function AppDatabasesTab({
                         </Badge>
                       )}
                     </div>
+                    {/* a project's: which of its apps talk to it — named in their env */}
+                    {db.usedBy && (
+                      <p className="text-xs text-muted-foreground">
+                        {db.usedBy.length
+                          ? t("Used by {apps}", { apps: db.usedBy.map((app) => app.name).join(", ") })
+                          : t("No app's environment names it")}
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <span className={`h-2 w-2 rounded-full ${STATUS_DOT[db.status] ?? "bg-muted-foreground"}`} />
@@ -149,7 +172,7 @@ export function AppDatabasesTab({
       </CardContent>
 
       <DatabaseImportDialog
-        database={restoring && { ...restoring, application: { name: applicationName } }}
+        database={restoring && { ...restoring, application: { name: applicationName ?? restoring.usedBy?.[0]?.name ?? "" } }}
         onClose={() => setRestoring(null)}
       />
     </Card>

@@ -78,11 +78,10 @@ import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { DnsFixCard } from "@/components/DnsFixCard";
 import { testDatabaseUrl } from "@/lib/databases";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
-import { AppDomainsCard } from "@/components/AppDomainsCard";
+import { RoutingCard } from "@/components/RoutingCard";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ServerEnv } from "@/components/ServerEnv";
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
-import { DomainExpiryBadge } from "@/components/DomainExpiryBadge";
 import { RepointDialog } from "@/components/RepointDialog";
 import { parseDatabaseUrl } from "@/lib/env";
 import { parseAnsi, stripAnsi } from "@/lib/ansi";
@@ -170,18 +169,26 @@ export default function ApplicationDetail() {
 /**
  * One app: its state and actions beside its tabs. On its project's page
  * (`embedded`) the project's header stands above it instead of its own.
- * `onDeployments`: the project shows the history and the source (they are the
- * whole project's) — this app has no Deployments tab or source panel, and
- * sends "see the history" there.
+ * `onProjectTab`: the project shows the history, the source and the databases
+ * (they are the whole project's — its apps share them) — this app has no tabs
+ * or source panel for them, and sends "see the history" to the project's tab.
  */
-export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId: string; embedded?: boolean; onDeployments?: () => void }) {
+export function AppWorkspace({
+  appId,
+  embedded = false,
+  onProjectTab,
+}: {
+  appId: string;
+  embedded?: boolean;
+  onProjectTab?: (tab: "deployments") => void;
+}) {
   const id = appId;
   const navigate = useNavigate();
   const { toast } = useToast();
 
   // State
   const [activeTab, setTab] = useState("overview");
-  const setActiveTab = (tab: string) => (tab === "deployments" && onDeployments ? onDeployments() : setTab(tab));
+  const setActiveTab = (tab: string) => (onProjectTab && tab === "deployments" ? onProjectTab(tab) : setTab(tab));
   const [selectedLogType, setSelectedLogType] = useState("combined");
   const [logLines, setLogLines] = useState(100);
   const [showRawLogs, setShowRawLogs] = useState(false);
@@ -745,7 +752,7 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
         )}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
-        {application.repository && application.sourceId && !needsSetup && !onDeployments && (
+        {application.repository && application.sourceId && !needsSetup && !onProjectTab && (
           <SourcePanel projectId={application.sourceId} onDeploy={deploy} starting={starting} deploying={deploying} />
         )}
         </aside>
@@ -841,14 +848,14 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
           <TabsList
             className="grid w-full"
             // overview, deployments, domains, settings, plus files / environment + logs / database / build when they apply
-            style={{ gridTemplateColumns: `repeat(${(onDeployments ? 3 : 4) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: `repeat(${(onProjectTab ? 3 : 4) + (hasSiteBucket ? 1 : 0) + (uploadedSite ? 0 : 2) + (isStatic || onProjectTab ? 0 : 1) + (showBuild ? 1 : 0)}, minmax(0, 1fr))` }}
           >
             {/* what is live, then where it is reached, then what it is made of */}
             <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
-            {!onDeployments && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
+            {!onProjectTab && <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>}
             {!uploadedSite && <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>}
-            <TabsTrigger value="domains">{t("Domains")}</TabsTrigger>
-            {!isStatic && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
+            <TabsTrigger value="routing">{t("Routing")}</TabsTrigger>
+            {!isStatic && !onProjectTab && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
             {!uploadedSite && (
               <TabsTrigger value="environment" className="gap-1.5">
                 {t("Environment")}
@@ -904,12 +911,12 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
               </CardHeader>
               <CardContent className="pt-2 pb-2">
                 {/* One name: it, in full. Several: how many and how they are, the
-                    ones that need attention in full — the list is the Domains tab */}
+                    ones that need attention in full — the list is the Routing tab */}
                 {(application.domains.length === 1 ? application.domains : application.domains.filter((name) => !hostOk(checkOf(name.host, name.path ?? '')))).map((name) => {
                   const check = checkOf(name.host, name.path ?? '');
                   return (
                     <div key={`${name.host}${name.path ?? ""}`}>
-                      <Field label={t("Domain")}>
+                      <Field label={t("Host")}>
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="font-mono">{name.host}{name.path && <span className="text-muted-foreground">{name.path}</span>}</span>
                           <a
@@ -921,7 +928,6 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
                           >
                             <ExternalLink className="h-3 w-3" />
                           </a>
-                          <DomainExpiryBadge domain={name.parentDomain} />
                           <Button
                             variant="ghost"
                             size="sm"
@@ -945,7 +951,7 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
                   );
                 })}
                 {application.domains.length > 1 && application.domains.some((name) => hostOk(checkOf(name.host, name.path ?? ''))) && (
-                  <Field label={application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("Domain") : t("Other domains")}>
+                  <Field label={application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("Host") : t("Other hosts")}>
                     {/* the healthy names, at a glance, each one opens; the ones in trouble are listed above */}
                     <span className="font-mono">
                       {application.domains
@@ -970,7 +976,7 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
                       <span className="text-success">
                         {application.domains.every((name) => hostOk(checkOf(name.host, name.path ?? ''))) ? t("all reachable") : t("reachable")}
                       </span>
-                      <button type="button" className="text-primary hover:underline" onClick={() => setActiveTab("domains")}>
+                      <button type="button" className="text-primary hover:underline" onClick={() => setActiveTab("routing")}>
                         {t("Manage")} →
                       </button>
                     </span>
@@ -1183,14 +1189,8 @@ export function AppWorkspace({ appId, embedded = false, onDeployments }: { appId
             </div>
           </TabsContent>
 
-          <TabsContent value="domains">
-            <AppDomainsCard
-              application={application}
-              checks={checks}
-              pending={setupDns.isPending}
-              onRepoint={(host) => setRepointHost(host)}
-            />
-
+          <TabsContent value="routing">
+            <RoutingCard application={application} pending={setupDns.isPending} onRepoint={(host) => setRepointHost(host)} />
           </TabsContent>
 
           {!isStatic && (

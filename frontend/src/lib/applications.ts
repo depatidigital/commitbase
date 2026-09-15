@@ -295,7 +295,7 @@ export const addAppDomain = async (
 /** Hand the app its path with or without the prefix (`/api/users` or `/users`). */
 export const setBindingStripPrefix = async (id: string, host: string, path: string, stripPrefix: boolean): Promise<void> => {
   const response = await apiRequest(`/applications/${id}/domains`, { method: 'PATCH', body: JSON.stringify({ host, path, stripPrefix }) });
-  if (!response.success) throw new Error(response.error || t("Could not change the binding"));
+  if (!response.success) throw new Error(response.error || t("Could not change the route"));
 };
 
 /** Take a binding off the app: no longer routed; a name nothing else answers on loses its record. Never the last one. */

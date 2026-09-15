@@ -47,7 +47,22 @@ async function databaseScope(req: AuthenticatedRequest) {
   return 'organizationId' in scope ? { OR: [scope, { application: scope }] } : {};
 }
 
-// Get databases for an application
+/** The database names an app's env points at: its URLs' paths, Laravel's and libpq's names. */
+function envDatabaseNames(envVars: unknown): Set<string> {
+  const env = readEnv(envVars);
+  const names = new Set<string>();
+  for (const key of ['DATABASE_URL', 'DIRECT_URL']) {
+    try {
+      const name = decodeURIComponent(new URL(env[key] ?? '').pathname.replace(/^\/+/, ''));
+      if (name) names.add(name);
+    } catch {
+      // not a URL
+    }
+  }
+  for (const key of ['DB_DATABASE', 'PGDATABASE']) if (env[key]) names.add(env[key]!);
+  return names;
+}
+
 // All databases across the caller's organizations
 router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -118,17 +133,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 
     // The databases the app's env points at, by name — a database shared by two
     // apps stays linked to the first one only, and this is how the second finds it.
-    const env = readEnv(application.envVars);
-    const names = new Set<string>();
-    for (const key of ['DATABASE_URL', 'DIRECT_URL']) {
-      try {
-        const name = decodeURIComponent(new URL(env[key] ?? '').pathname.replace(/^\/+/, ''));
-        if (name) names.add(name);
-      } catch {
-        // not a URL
-      }
-    }
-    for (const key of ['DB_DATABASE', 'PGDATABASE']) if (env[key]) names.add(env[key]!);
+    const names = envDatabaseNames(application.envVars);
 
     const databases = await prisma.database.findMany({
       where: {
@@ -154,6 +159,48 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
+  }
+});
+
+/**
+ * A project's databases: the ones its apps use — linked to one of them, or
+ * named by one's env. A project's apps often share one; `usedBy` says which
+ * apps' env names it (the ones whose code talks to it).
+ */
+router.get('/project/:sourceId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const apps = await prisma.application.findMany({
+      where: { sourceId: req.params.sourceId as string, ...(await orgScope(req)) },
+      select: { id: true, name: true, organizationId: true, envVars: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (apps.length === 0) return res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
+
+    const namesOf = new Map(apps.map((app) => [app.id, envDatabaseNames(app.envVars)]));
+    const named = [...new Set(apps.flatMap((app) => [...namesOf.get(app.id)!]))];
+    // one organization per project: its apps' names are looked up there only
+    const organizationId = apps[0]!.organizationId;
+    const databases = await prisma.database.findMany({
+      where: {
+        OR: [
+          { applicationId: { in: apps.map((app) => app.id) } },
+          ...(named.length && organizationId ? [{ dbName: { in: named }, organizationId }] : []),
+        ],
+      },
+      include: { databaseServer: { select: { id: true, name: true, engine: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.json({
+      success: true,
+      data: databases.map(({ connectionString: _, ...db }) => ({
+        ...db,
+        usedBy: apps.filter((app) => !!db.dbName && namesOf.get(app.id)!.has(db.dbName)).map(({ id, name }) => ({ id, name })),
+      })),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Get project databases error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 

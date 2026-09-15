@@ -227,9 +227,19 @@ export const attachDatabase = async (
 /** A database an app uses: linked to it, or named by its env (`inUse`) — the one its code talks to. */
 export interface AppDatabase extends Database {
   status: DatabaseWithApplication['status'];
-  inUse: boolean;
+  /** an app's list: its env names it */
+  inUse?: boolean;
+  /** a project's list: the apps whose env names it */
+  usedBy?: Array<{ id: string; name: string }>;
   databaseServer?: { id: string; name: string; engine: string } | null;
 }
+
+/** The databases a project's apps use — often one, shared. */
+export const getProjectDatabases = async (projectId: string): Promise<AppDatabase[]> => {
+  const response = await apiRequest<AppDatabase[]>(`/databases/project/${projectId}`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Failed to fetch databases'));
+};
 
 export const getAppDatabases = async (applicationId: string): Promise<AppDatabase[]> => {
   const response = await apiRequest<AppDatabase[]>(`/databases/application/${applicationId}`);
