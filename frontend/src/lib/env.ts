@@ -88,19 +88,31 @@ export const toDbName = (raw: string) => raw.toLowerCase().replace(/[^a-z0-9_]/g
  * Usually the URL from .env.example or a local setup — its host is not
  * reachable from the node, but its engine and database name are the app's.
  */
-export function parseDatabaseUrl(url?: string): { engine?: "POSTGRESQL" | "MYSQL"; name?: string } {
+/**
+ * The database a connection URL names: the path after its host. By hand, not
+ * `new URL`: for a scheme it does not know (postgresql:, mysql:) older browsers
+ * leave the whole `//user:pass@host/db` as the path. The last `@` ends the
+ * credentials, whatever the password holds. Pure.
+ */
+export function databaseNameOf(url?: string): string | undefined {
+  const rest = (url ?? "").split("://")[1];
+  if (!rest) return undefined;
+  const hostAndPath = rest.slice(rest.lastIndexOf("@") + 1);
+  const slash = hostAndPath.indexOf("/");
+  if (slash < 0) return undefined;
   try {
-    const parsed = new URL(url ?? "");
-    const engine = /^postgres(ql)?:$/.test(parsed.protocol)
-      ? "POSTGRESQL"
-      : /^mysql2?:$/.test(parsed.protocol)
-        ? "MYSQL"
-        : undefined;
-    const name = toDbName(decodeURIComponent(parsed.pathname.replace(/^\/+/, "")));
-    return { engine, name: name || undefined };
+    return decodeURIComponent(hostAndPath.slice(slash + 1).split(/[?#]/)[0] ?? "") || undefined;
   } catch {
-    return {};
+    return undefined;
   }
+}
+
+export function parseDatabaseUrl(url?: string): { engine?: "POSTGRESQL" | "MYSQL"; name?: string } {
+  const scheme = (url ?? "").match(/^([a-z][a-z0-9+.-]*):\/\//i)?.[1]?.toLowerCase();
+  if (!scheme) return {};
+  const engine = /^postgres(ql)?$/.test(scheme) ? "POSTGRESQL" : /^mysql2?$/.test(scheme) ? "MYSQL" : undefined;
+  const name = toDbName(databaseNameOf(url) ?? "");
+  return { engine, name: name || undefined };
 }
 
 /**

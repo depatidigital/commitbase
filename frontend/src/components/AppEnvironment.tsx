@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   DATABASE_KEYS,
+  databaseNameOf,
   envWarnings,
   expectedRows,
   generateSecret,
@@ -115,13 +116,10 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     ],
     [project, application],
   );
+  // one of ours, by the database the URL names (databaseNameOf — not `new URL`, which some browsers misread)
   const managedDatabase = (url: string) => {
-    try {
-      const name = decodeURIComponent(new URL(url).pathname.replace(/^\/+/, ""));
-      return appDatabases?.find((db) => !db.discovered && db.dbName === name);
-    } catch {
-      return undefined;
-    }
+    const name = databaseNameOf(url);
+    return name ? appDatabases?.find((db) => !db.discovered && db.dbName === name) : undefined;
   };
   // as the value says: empty or one of ours → ours; any URL of its own (a local one too — it is
   // shown, with its warning, not hidden behind a picker) → custom
