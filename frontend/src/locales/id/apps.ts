@@ -605,6 +605,9 @@ export default {
   Connect: "Hubungkan",
   // settings: commands
   "Install Command": "Perintah Instal",
+  "Package Manager": "Manajer Paket",
+  "From the lockfile": "Dari lockfile",
+  "Without a pnpm-lock.yaml, the build runs pnpm import first — nothing to commit.": "Tanpa pnpm-lock.yaml, build menjalankan pnpm import dulu — tidak perlu commit apa pun.",
   "Pre-deploy Command": "Perintah Pra-deploy",
   "Empty uses the detected one: {command}": "Kosong = memakai hasil deteksi: {command}",
   "Empty uses the detected one.": "Kosong = memakai hasil deteksi.",

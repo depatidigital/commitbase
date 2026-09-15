@@ -137,8 +137,8 @@ export function lockfileManager(has: (name: string) => boolean): PackageManager 
 }
 
 /** package.json's `packageManager` first — the repo's own word — then its lockfiles. */
-function packageManagerOf(files: DetectInput, pkg: any): PackageManager {
-  const declared = String(pkg?.packageManager || '').split('@')[0];
+function packageManagerOf(files: DetectInput, pkg: any, chosen?: string | null): PackageManager {
+  const declared = chosen || String(pkg?.packageManager || '').split('@')[0];
   if (declared === 'npm' || declared === 'pnpm' || declared === 'yarn' || declared === 'bun') return declared;
   return lockfileManager((name) => files[name as keyof DetectInput] !== undefined) ?? 'npm';
 }
@@ -147,7 +147,9 @@ function installCommandOf(pm: PackageManager, files: DetectInput): string {
   const locked = files['package-lock.json'] !== undefined;
   switch (pm) {
     case 'pnpm':
-      return 'pnpm install --frozen-lockfile';
+      // chosen over another manager's lockfile: pnpm-lock.yaml is derived from it at build
+      if (files['pnpm-lock.yaml'] === undefined && (locked || files['yarn.lock'] !== undefined)) return 'pnpm import && pnpm install --frozen-lockfile';
+      return files['pnpm-lock.yaml'] === undefined ? 'pnpm install' : 'pnpm install --frozen-lockfile';
     case 'yarn':
       return 'yarn install --frozen-lockfile';
     case 'bun':
@@ -247,8 +249,8 @@ function usesPrisma(files: DetectInput): boolean {
  * Pure: takes file contents, returns the preset. Same logic for upload, git and
  * deploy. `prismaMigrations`: whether the repo has prisma/migrations, when known.
  */
-export function detectFromFiles(files: DetectInput, prismaMigrations?: boolean): DetectedProject {
-  const preset = presetFromFiles(files);
+export function detectFromFiles(files: DetectInput, prismaMigrations?: boolean, packageManager?: string | null): DetectedProject {
+  const preset = presetFromFiles(files, packageManager);
   return {
     ...preset,
     env: repoEnvOf(files),
@@ -279,7 +281,7 @@ function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'w
   return warnings;
 }
 
-function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'> {
+function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'> {
   const nodeVersion = (files['.nvmrc'] || files['.node-version'] || '').trim().replace(/^v/, '') || null;
 
   // PHP first: Laravel ships a package.json for its assets, which must not
@@ -301,7 +303,7 @@ function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'war
     } catch {
       pkg = {};
     }
-    const pm = packageManagerOf(files, pkg);
+    const pm = packageManagerOf(files, pkg, chosen);
     const assets = pkg.scripts?.build ? `${installCommandOf(pm, files)} && ${runScript(pm, 'build')}` : null;
 
     return base({
@@ -335,7 +337,7 @@ function presetFromFiles(files: DetectInput): Omit<DetectedProject, 'env' | 'war
   }
   const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
   const scripts = pkg.scripts || {};
-  const pm = packageManagerOf(files, pkg);
+  const pm = packageManagerOf(files, pkg, chosen);
   const installCommand = installCommandOf(pm, files);
   const engines = String(pkg.engines?.node || '').trim() || null;
 
@@ -474,12 +476,18 @@ export const NEXT_START_WORKSPACE = `node "$(node -p "require.resolve('next/dist
  * Detect the project in `dir`. With `root` (the repository, when `dir` is an
  * app's folder in it) the folder inherits the workspace's files — withRootFiles.
  */
-export async function detectProject(dir: string, read?: ReadText, prismaMigrations?: boolean, root?: string): Promise<DetectedProject> {
+export async function detectProject(
+  dir: string,
+  read?: ReadText,
+  prismaMigrations?: boolean,
+  root?: string,
+  packageManager?: string | null,
+): Promise<DetectedProject> {
   const own = await readDetectFiles(dir, read);
-  if (!root || path.posix.normalize(root) === path.posix.normalize(dir)) return detectFromFiles(own, prismaMigrations);
+  if (!root || path.posix.normalize(root) === path.posix.normalize(dir)) return detectFromFiles(own, prismaMigrations, packageManager);
 
   const { files, installAtRoot } = withRootFiles(own, await readDetectFiles(root, read));
-  const detected = detectFromFiles(files, prismaMigrations);
+  const detected = detectFromFiles(files, prismaMigrations, packageManager);
   return {
     ...detected,
     installAtRoot,

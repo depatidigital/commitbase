@@ -1579,6 +1579,7 @@ interface ApplicationSettingsFormProps {
 }
 
 const settingsOf = (application: Application) => ({
+  packageManager: application?.packageManager || '',
   installCommand: application?.installCommand || '',
   buildCommand: application?.buildCommand || '',
   preDeployCommand: application?.preDeployCommand || '',
@@ -1611,6 +1612,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
     try {
       const updateData: UpdateApplicationData = {
         // '' is sent on purpose: it clears back to the detected install / no pre-deploy
+        packageManager: formData.packageManager,
         installCommand: formData.installCommand,
         buildCommand: formData.buildCommand || undefined,
         preDeployCommand: formData.preDeployCommand,
@@ -1648,6 +1650,23 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Package manager — the lockfile's unless chosen; pnpm over npm's lockfile runs pnpm import */}
+      {!isStatic && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">{t("Package Manager")}</label>
+          <Select value={formData.packageManager || 'auto'} onValueChange={(v) => handleInputChange('packageManager', v === 'auto' ? '' : v)}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t("From the lockfile")}{detected?.packageManager ? ` (${detected.packageManager})` : ''}</SelectItem>
+              {['npm', 'pnpm', 'yarn', 'bun'].map((pm) => <SelectItem key={pm} value={pm}>{pm}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {formData.packageManager === 'pnpm' && (
+            <p className="text-xs text-muted-foreground">{t("Without a pnpm-lock.yaml, the build runs pnpm import first — nothing to commit.")}</p>
+          )}
+        </div>
+      )}
+
       {/* Install Command — Node/PHP only; a static upload never installs */}
       {!isStatic && (
         <div className="space-y-2">

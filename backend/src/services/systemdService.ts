@@ -68,7 +68,7 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
   let startCommand: string | null = application.startCommand;
   let nodeVersion: string | null = null;
   if (application.type === 'NODEJS') {
-    const detected = await detectProject(runDir, afs.readText, undefined, treeDir);
+    const detected = await detectProject(runDir, afs.readText, undefined, treeDir, application.packageManager);
     nodeVersion = detected.nodeVersion;
     if (!startCommand) startCommand = detected.startCommand;
   }

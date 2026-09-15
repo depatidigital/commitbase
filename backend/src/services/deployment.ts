@@ -13,6 +13,8 @@ import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFo
 import { releasesDirFor, currentDirFor, sharedDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble, EXEC, type DetectedProject } from '../lib/projectDetect';
+
+const LOCKFILES = ['pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'package-lock.json', 'bun.lockb'];
 import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
@@ -421,7 +423,7 @@ export class DeploymentService {
         const workDir = inRootDirectory(releaseDir, app.rootDirectory);
         if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${app.rootDirectory} in the repository (${app.name})`);
 
-        const detected = await detectProject(workDir, afs.readText, undefined, releaseDir);
+        const detected = await detectProject(workDir, afs.readText, undefined, releaseDir, app.packageManager);
         // a workspace installs at the root; composer.lock is always the folder's own
         const installDir = detected.installAtRoot && detected.type !== 'PHP' ? releaseDir : workDir;
         await log(`${named(app)}Detected: ${detected.label} (${detected.packageManager})${installDir !== workDir ? ', installing at the repository root' : ''}`);
@@ -490,10 +492,10 @@ export class DeploymentService {
           }
 
           if (firstInstall(installCommand)) {
-            const lock =
-              detected.packageManager === 'bun'
-                ? (await has('bun.lock')) ? 'bun.lock' : 'bun.lockb'
-                : { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock' }[detected.packageManager];
+            // the lockfile the repo has — a chosen pnpm may still be installing from package-lock.json
+            const present = new Set<string>();
+            for (const f of LOCKFILES) if (await has(f)) present.add(f);
+            const lock = LOCKFILES.find((f) => present.has(f));
             // ponytail: node_modules is reused only for a folder with its own
             // lockfile — a workspace install also fills every package's node_modules.
             const reusable = installDir === workDir;
@@ -539,7 +541,9 @@ export class DeploymentService {
               CI: '1',
               NEXT_TELEMETRY_DISABLED: '1',
               // pnpm's switch only: npm warns about every npm_config_* it does not know
-              ...(detected.packageManager === 'pnpm' && { npm_config_dangerously_allow_all_builds: 'true' }),
+              // pnpm's switches only: npm warns about every npm_config_* it does not know.
+              // package_manager_strict: pnpm chosen over a package.json that names npm
+              ...(detected.packageManager === 'pnpm' && { npm_config_dangerously_allow_all_builds: 'true', npm_config_package_manager_strict: 'false' }),
             },
             installDir,
             installs,
@@ -692,7 +696,7 @@ export class DeploymentService {
     } else if (app.type === 'PHP') {
       const afs = await sourceFsFor(app.id);
       const current = currentDirFor(afs.appDir);
-      const detected = await detectProject(inRootDirectory(current, app.rootDirectory), afs.readText, undefined, current);
+      const detected = await detectProject(inRootDirectory(current, app.rootDirectory), afs.readText, undefined, current, app.packageManager);
       if (!(await this.publishPhp(app, afs, join(app.rootDirectory ?? '', detected.outputDir || '.')))) throw new Error('no FPM socket');
     } else if (app.port) {
       await serveApp(node, app.id, { kind: 'proxy', port: app.port });
@@ -887,7 +891,7 @@ export class DeploymentService {
     // installs at the repository root.
     const workDir = inRootDirectory(sourcesDir, application.rootDirectory);
     if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${application.rootDirectory} in the repository`);
-    const detected = await detectProject(workDir, afs.readText, undefined, sourcesDir);
+    const detected = await detectProject(workDir, afs.readText, undefined, sourcesDir, application.packageManager);
     const hasPackageJson = await afs.exists(join(workDir, 'package.json'));
     const install = hasPackageJson ? detected.installCommand : '';
     const build = application.buildCommand || detected.buildCommand || '';

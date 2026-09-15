@@ -219,6 +219,7 @@ CREATE TABLE "applications" (
     "branch" TEXT DEFAULT 'main',
     "domain" TEXT,
     "domainId" TEXT,
+    "packageManager" TEXT,
     "installCommand" TEXT,
     "buildCommand" TEXT,
     "preDeployCommand" TEXT,

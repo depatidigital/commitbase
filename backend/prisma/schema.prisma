@@ -366,6 +366,8 @@ model Application {
   parentDomain Domain?  @relation("DomainApplications", fields: [domainId], references: [id])
 
   // Build & runtime config
+  /// npm | pnpm | yarn | bun; null = the lockfile's. pnpm without its lockfile runs pnpm import first.
+  packageManager   String?
   /// null = the detected one (pnpm install --frozen-lockfile, npm ci, …)
   installCommand   String?
   buildCommand     String?

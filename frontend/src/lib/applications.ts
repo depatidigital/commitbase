@@ -61,6 +61,8 @@ export interface Application {
   sourceId?: string | null;
   /** its folder in the repository (monorepos); null = the root */
   rootDirectory?: string | null;
+  /** npm | pnpm | yarn | bun; null = the lockfile's */
+  packageManager?: string | null;
   /** null = the detected install */
   installCommand?: string | null;
   buildCommand?: string;
@@ -162,6 +164,8 @@ export interface UpdateApplicationData {
   /** null clears it, undefined leaves it alone. */
   gitAccountId?: string | null;
   branch?: string;
+  /** '' goes back to the lockfile's */
+  packageManager?: string;
   /** '' goes back to the detected install */
   installCommand?: string;
   buildCommand?: string;

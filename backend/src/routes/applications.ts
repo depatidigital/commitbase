@@ -325,7 +325,7 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await orgScope(req)) },
-      select: { id: true, rootDirectory: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
+      select: { id: true, rootDirectory: true, packageManager: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
@@ -340,7 +340,7 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
       : await (async () => {
           const afs = await sourceFsFor(application.id);
           const sources = afs.sourcesDir;
-          return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources);
+          return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources, application.packageManager);
         })();
 
     return res.json({ success: true, data: detected } as ApiResponse);
@@ -1093,8 +1093,11 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
     // hostnames are not edited here: POST/DELETE /:id/domains
-    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId, rootDirectory } =
+    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId, rootDirectory, packageManager } =
       req.body || {};
+    if (packageManager !== undefined && packageManager !== null && packageManager !== '' && !['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
+      return res.status(400).json({ success: false, error: 'packageManager must be npm, pnpm, yarn or bun' });
+    }
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -1143,6 +1146,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         ...(rootDirectory !== undefined && { rootDirectory: cleanRootDirectory(rootDirectory) }),
         // '' clears back to the detected install / no pre-deploy step
         ...(installCommand !== undefined && { installCommand: installCommand.trim() || null }),
+        // '' / null: back to the lockfile's
+        ...(packageManager !== undefined && { packageManager: packageManager || null }),
         buildCommand,
         ...(preDeployCommand !== undefined && { preDeployCommand: preDeployCommand.trim() || null }),
         startCommand,
