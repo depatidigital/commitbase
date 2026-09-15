@@ -131,9 +131,13 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
   // counted from what is on screen, not what is saved: a value just typed is no longer "empty"
   // an expected key that was removed is not missing — the app said it does not use it
+  // saved empty: kept that way on purpose (Save asked first, naming it) — some are
+  // meant to be empty (S3_ROOT_DIR=""). Not missing; said as such on its row.
+  const emptyOnPurpose = (key: string) => key in saved && saved[key] === "";
   const missing = useMemo(
-    () => [...required].filter((key) => rows.some((row) => row.key === key && !row.value.trim())),
-    [required, rows],
+    () => [...required].filter((key) => !emptyOnPurpose(key) && rows.some((row) => row.key === key && !row.value.trim())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [required, rows, JSON.stringify(saved)],
   );
   // what .env.example (or the ORM) expects that is not in the env — removed, or new in the repo since
   const absent = useMemo(() => expectedRows(detected).filter((row) => !rows.some((r) => r.key === row.key)), [detected, rows]);
@@ -157,9 +161,11 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     for (const { key } of detected?.env.example?.vars ?? []) from[key] = t("from {file}", { file: file ?? "" });
     if (detected?.env.needsDatabase && !from.DATABASE_URL) from.DATABASE_URL = t("the app uses a SQL database");
     for (const key of databaseKeys) if (key !== databaseAnchor) from[key] = t("filled by Connect database");
+    // an expected key that was saved empty — on purpose, it was asked
+    for (const key of required) if (emptyOnPurpose(key)) from[key] = t("Saved empty — on purpose");
     return from;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detected, databaseKeys.join(","), databaseAnchor]);
+  }, [detected, databaseKeys.join(","), databaseAnchor, JSON.stringify(saved)]);
 
   // quiet: saved as part of a deploy, which says what happens next itself
   const save = async (quiet = false) => {
@@ -197,7 +203,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
 
   return (
-    <div className="space-y-4">
+    // a flex column down to the table: in a dialog the table scrolls, the dialog does not
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {!!detected?.env.committed.length && (
         <p className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -233,7 +240,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
       <EnvEditor
         rows={rows}
-        required={required}
+        // only what is still to fill: a key saved empty on purpose is not flagged
+        required={new Set(missing)}
         locked={locked}
         hints={hints}
         // the database is how DATABASE_URL gets its value — so it lives on that row;

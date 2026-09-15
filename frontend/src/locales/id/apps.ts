@@ -491,6 +491,10 @@ export default {
   "Needs a value — or remove it if unused": "Perlu diisi — atau hapus bila tidak dipakai",
   "In {file} but not set: {keys}": "Ada di {file} tapi tidak diisi: {keys}",
   "Add them": "Tambahkan",
+  "The project's hosts": "Host di proyek ini",
+  "Saved empty — on purpose": "Disimpan kosong — disengaja",
+  "None yet — add one; the env's addresses are these.": "Belum ada — tambahkan dulu; alamat di env mengikuti host ini.",
+  "Add a host to deploy.": "Tambahkan host dulu untuk deploy.",
   "Save with these left as they are?": "Simpan dengan kondisi ini?",
   "The app may not work on the server with them. You can fix them later — they stay flagged on its checklist.":
     "Aplikasi mungkin tidak jalan di server dengan nilai ini. Bisa diperbaiki nanti — tetap ditandai di checklist-nya.",

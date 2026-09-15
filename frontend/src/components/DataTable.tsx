@@ -131,6 +131,8 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   /** Bounds the rows' box (e.g. "max-h-[55vh]") where no page does — in a dialog. They scroll under a sticky header. */
   bodyClassName?: string;
+  /** on the whole table — "min-h-0 flex-1" to take what a flex column (a dialog) leaves */
+  className?: string;
 }
 
 // what a click inside a clickable row should leave alone — menu items too: a
@@ -150,6 +152,7 @@ export function DataTable<T>({
   toolbar,
   onRowClick,
   bodyClassName = "",
+  className = "",
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
     query;
@@ -170,7 +173,7 @@ export function DataTable<T>({
   return (
     // data-fill: PageLayout bounds its height when it holds this. The floor keeps
     // a few rows visible when there is a lot above it; past that main scrolls.
-    <div data-fill className="flex min-h-[20rem] flex-col gap-4">
+    <div data-fill className={`flex min-h-[20rem] flex-col gap-4 ${className}`}>
       {/* search leads — it is how a row is found; filters sit right after it */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">

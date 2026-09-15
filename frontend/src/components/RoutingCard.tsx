@@ -73,7 +73,8 @@ export function RoutingCard({
   );
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["application", application.id] });
+    // exact: not its repository detection (a clone) — a host changes nothing there
+    await queryClient.invalidateQueries({ queryKey: ["application", application.id], exact: true });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
     void queryClient.invalidateQueries({ queryKey: ["projects"] });
     void queryClient.invalidateQueries({ queryKey: ["project"] });
@@ -127,7 +128,7 @@ export function RoutingCard({
             <DialogDescription>{t("The hosts and paths that go to {app}.", { app: application.name })}</DialogDescription>
           </DialogHeader>
 
-          <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+          <ul className="divide-y divide-border/60 rounded-md border border-border/60 empty:hidden">
             {routes.map((route) => {
               const label = bindingLabel(route);
               return (
@@ -185,7 +186,13 @@ export function RoutingCard({
                 const route = confirmRemove;
                 void change(
                   route,
-                  () => removeAppDomain(application.id, route.host, route.path ?? ""),
+                  async () => {
+                    await removeAppDomain(application.id, route.host, route.path ?? "");
+                    // off the list at once — the refetch only confirms it
+                    queryClient.setQueryData<Application>(["application", application.id], (prev) =>
+                      prev ? { ...prev, domains: prev.domains.filter((d) => !(d.host === route.host && (d.path ?? "") === (route.path ?? ""))) } : prev,
+                    );
+                  },
                   t("Could not remove the route"),
                   t("{host} removed", { host: bindingLabel(route) }),
                 ).then(() => setConfirmRemove(null));
@@ -315,6 +322,7 @@ export function RoutingCard({
 /** Adding a route, in the Edit dialog: a host, or a path under one. */
 function AddRouteForm({ application, onAdded }: { application: Application; onAdded: () => Promise<void> }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: allChoices = [], isLoading } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
   // a host keeps the app in its org: shared zones, and that org's own
   const choices = useMemo(
@@ -352,6 +360,12 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
       );
       setSubdomain("");
       setPath("");
+      // in the list at once — the refetch below only confirms it
+      queryClient.setQueryData<Application>(["application", application.id], (prev) =>
+        prev && !prev.domains.some((d) => d.host === host && (d.path ?? "") === nextPath)
+          ? { ...prev, domains: [...prev.domains, { host, path: nextPath, stripPrefix: false, domainId: picked?.id ?? null } as AppDomain] }
+          : prev,
+      );
       await onAdded();
     } catch (error) {
       toast({ variant: "destructive", title: t("Could not add the route"), description: error instanceof Error ? error.message : "" });

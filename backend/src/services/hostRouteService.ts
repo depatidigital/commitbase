@@ -95,15 +95,19 @@ export class HostRouteError extends Error {}
  */
 export async function recomposeHosts(node: SshTarget, hosts: string[], { without }: { without?: string } = {}): Promise<void> {
   for (const host of [...new Set(hosts)]) {
-    const rows = await prisma.appDomain.findMany({
+    const bound = await prisma.appDomain.findMany({
       // `without`: as if that app were gone already — its delete removes the rows after
       where: { host, ...(without && { applicationId: { not: without } }) },
-      select: { path: true, stripPrefix: true, application: { select: { name: true, serve: true } } },
+      select: { path: true, stripPrefix: true, application: { select: { name: true, serve: true, runtime: true } } },
     });
-    if (rows.length === 0) {
+    if (bound.length === 0) {
       await removeCaddySite(node, host);
       continue;
     }
+    // A panel app not deployed yet has nothing to route: its hosts are set up
+    // before its first deploy, which routes them (serveApp). Left out until then.
+    const rows = bound.filter((row) => readServe(row.application.serve) || row.application.runtime);
+    if (rows.length === 0) continue;
     const unknown = rows.filter((row) => !readServe(row.application.serve));
     if (unknown.length) {
       if (rows.length === 1) continue;

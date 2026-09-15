@@ -621,10 +621,10 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
   // a site uploaded as files: nothing is built or run, and it is given no env — its files are what there is
   const uploadedSite = application.type === "STATIC" && !application.repository;
   // counted from the saved env: the form is in the Env dialog, saved before it closes
-  // before its first save every expected key counts; after it, only those it kept (a removed one is not used)
-  const missing = [...requiredKeys(detection.data)].filter((key) =>
-    application.envConfirmed === false ? !application.envVars?.[key]?.trim() : application.envVars?.[key] !== undefined && !application.envVars[key].trim(),
-  );
+  // Before its first save every expected key counts. After it, what was saved is
+  // the app's word: a key removed is not used, a key saved empty is empty on purpose.
+  const missing =
+    application.envConfirmed === false ? [...requiredKeys(detection.data)].filter((key) => !application.envVars?.[key]?.trim()) : [];
   // filled but likely wrong on the server (localhost…) — the same the Env dialog flags
   const warnings = envWarnings(Object.entries(application.envVars ?? {}).map(([key, value]) => ({ key, value })));
   const lastFailed =
@@ -681,7 +681,9 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
           if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
+        {/* a flex column bounded to the screen: the env table shrinks and scrolls, the dialog does not —
+            unless the screen is too short even for that, so Save is never cut off */}
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t("Env")} — {application.name}</DialogTitle>
           </DialogHeader>

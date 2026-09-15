@@ -125,6 +125,13 @@ export function HostnamePicker({
       {showFields && (<>
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
         {!bare && <Globe className="min-w-4 min-h-4 text-muted-foreground" />}
+        {/* where the subdomain goes: in front of the domain */}
+        {useRoot && onRoot && (
+          <Button type="button" variant="outline" className="shrink-0" onClick={() => onRoot(false)}>
+            <Plus className="mr-1 h-4 w-4" />
+            {t("Subdomain")}
+          </Button>
+        )}
         {/* the domain comes first; a subdomain only once there is one to go under */}
         {(picked || !onRoot) && !useRoot && (<>
           <div className="relative w-full">
@@ -214,12 +221,6 @@ export function HostnamePicker({
             </Command>
           </PopoverContent>
         </Popover>
-        {useRoot && onRoot && (
-          <Button type="button" variant="outline" className="shrink-0" onClick={() => onRoot(false)}>
-            <Plus className="mr-1 h-4 w-4" />
-            {t("Subdomain")}
-          </Button>
-        )}
         {trailing}
       </div>
       {/* the address it will have — or what is missing */}

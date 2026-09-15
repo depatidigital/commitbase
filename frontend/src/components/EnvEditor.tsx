@@ -1,5 +1,7 @@
-import { useId, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, ClipboardPaste, Eye, EyeOff, FileUp, Loader2, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
+import { useRef, useState } from "react";
+import { PopoverClose } from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AlertTriangle, Check, CheckCircle2, ChevronsUpDown, ClipboardPaste, Eye, EyeOff, Info, FileUp, Loader2, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,8 +64,6 @@ const URL_NAME = /(^|_)(URL|URI|ORIGIN)$/i;
  * arrive with their variables.
  */
 export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, generate, verify, urlOptions = [], disabled }: EnvEditorProps) {
-  // the browser's own combobox: a dropdown on click, and still free text
-  const urlListId = useId();
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [pasting, setPasting] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -174,24 +174,34 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
 
   const nameCell = ({ row, index }: Indexed) => {
     const { invalid, missing, fixed } = view(row, index);
+    const hint = hints?.[row.key];
     return (
       <div className="space-y-1">
-        <Input
-          {...NO_AUTOFILL}
-          name={`env-name-${index}`}
-          aria-label={t("Name")}
-          placeholder="DATABASE_URL"
-          className={`h-8 font-mono text-xs ${invalid ? "border-destructive" : ""} ${fixed ? "bg-muted/50 text-muted-foreground" : ""}`}
-          value={row.key}
-          readOnly={fixed}
-          title={fixed ? t("The code expects this name") : undefined}
-          disabled={disabled}
-          onChange={(e) => update(index, { key: e.target.value.replace(/\s/g, "") })}
-          onPaste={(e) => pasteInto(index, e)}
-        />
-        {(hints?.[row.key] || missing || invalid) && (
-          <p className={`text-[11px] ${missing || invalid ? "text-destructive" : "text-muted-foreground"}`}>
-            {invalid ? t("Letters, digits and _ only; not starting with a digit") : missing ? t("Needs a value — or remove it if unused") : hints?.[row.key]}
+        <div className="relative">
+          <Input
+            {...NO_AUTOFILL}
+            name={`env-name-${index}`}
+            aria-label={t("Name")}
+            placeholder="DATABASE_URL"
+            className={`h-8 font-mono text-xs ${hint ? "pr-7" : ""} ${invalid ? "border-destructive" : ""} ${fixed ? "bg-muted/50 text-muted-foreground" : ""}`}
+            value={row.key}
+            readOnly={fixed}
+            title={fixed ? t("The code expects this name") : undefined}
+            disabled={disabled}
+            onChange={(e) => update(index, { key: e.target.value.replace(/\s/g, "") })}
+            onPaste={(e) => pasteInto(index, e)}
+          />
+          {/* where it came from (.env.example…): a mark in the field, the words on hover — not a line of its own */}
+          {hint && (
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" title={hint} aria-label={hint}>
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          )}
+        </div>
+        {/* only what needs doing gets a line */}
+        {(missing || invalid) && (
+          <p className="text-[11px] text-destructive">
+            {invalid ? t("Letters, digits and _ only; not starting with a digit") : t("Needs a value — or remove it if unused")}
           </p>
         )}
       </div>
@@ -229,7 +239,6 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             type={shown || CSS_MASK ? "text" : "password"}
             autoComplete={shown || CSS_MASK ? "off" : "new-password"}
             style={!shown && CSS_MASK ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
-            list={!secret && urlOptions.length && URL_NAME.test(row.key) ? urlListId : undefined}
             className={`h-8 font-mono text-xs ${invalidValue ? "border-destructive" : local ? "border-amber-500" : ""}`}
             placeholder={missing ? t("required") : t("value")}
             value={multiline && !shown ? "••••••" : row.value}
@@ -239,6 +248,31 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
           />
         )}
         </div>
+        {/* the project's hosts, all of them whatever is typed (a datalist filters by the value) — picked, or typed over */}
+        {!customValue && !secret && urlOptions.length > 0 && URL_NAME.test(row.key) && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" title={t("The project's hosts")} disabled={disabled}>
+                <ChevronsUpDown className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto min-w-[16rem] p-1">
+              <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("The project's hosts")}</p>
+              {urlOptions.map((url) => (
+                <PopoverClose asChild key={url}>
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs hover:bg-muted ${row.value === url ? "text-primary" : ""}`}
+                    onClick={() => update(index, { value: url })}
+                  >
+                    <Check className={`h-3 w-3 shrink-0 ${row.value === url ? "opacity-100" : "opacity-0"}`} />
+                    {url}
+                  </button>
+                </PopoverClose>
+              ))}
+            </PopoverContent>
+          </Popover>
+        )}
         {/* the row's own control (the database dialog on DATABASE_URL) sits by the value it sets */}
         {action}
         </div>
@@ -340,8 +374,10 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   ];
 
   return (
-    <div className="space-y-2">
+    // a flex column: in a dialog the table takes the height left and scrolls alone, not the dialog
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <DataTable
+        className="min-h-[12rem] flex-1"
         columns={columns}
         rows={tableRows}
         rowKey={({ index }) => String(index)}
@@ -403,11 +439,6 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         />
         {notice && <span className="text-xs text-muted-foreground">{notice}</span>}
       </div>
-      <datalist id={urlListId}>
-        {urlOptions.map((url) => (
-          <option key={url} value={url} />
-        ))}
-      </datalist>
 
       <Dialog open={pasting !== null} onOpenChange={(open) => !open && setPasting(null)}>
         <DialogContent>

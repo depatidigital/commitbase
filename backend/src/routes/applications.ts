@@ -1224,15 +1224,16 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       if (readServe(application.serve)) {
         // known: the name's route composed with it, beside whatever else it serves
         await recomposeHosts(node, [host]);
-      } else if (at) {
-        throw new Error("the panel does not know what this app is served by yet — deploy it (or sync the apps) first");
       } else if (application.runtime) {
-        // someone else's route: served as its other names are, one more host on it
+        // someone else's route, whose shape the panel does not know: a path cannot be cut into it
+        if (at) throw new Error('the panel does not know what this app is served by yet — sync the apps first');
+        // served as its other names are, one more host on it
         const beside = hostsOf(application).find((name) => !name.endsWith('.pm2.local'));
         if (beside) await addCaddyHost(node, beside, host);
       } else if (application.status === 'RUNNING') {
         await deploymentService.applyCaddyRoute(application);
       }
+      // else: never deployed — set up before the first deploy, which routes it (serveApp)
     } catch (error: any) {
       await prisma.appDomain.delete({ where: { host_path: { host, path: at } } });
       return res.status(502).json({ success: false, error: `${label} could not be routed: ${error?.message ?? error}` } as ApiResponse);
