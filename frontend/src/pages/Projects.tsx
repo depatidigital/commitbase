@@ -127,9 +127,10 @@ export default function Projects() {
   const partsOf = (project: Project) =>
     project.applications.flatMap((app) => {
       const [main, ...paths] = appParts(app) as Array<AppPart & { repeat?: boolean }>;
+      // one line per binding — `app.arusflow.id/api/*` is where this app answers
       const hosts =
-        app.domains.length > 1
-          ? hostsOf(app).map((host, i) => ({ ...main!, key: `${app.id}:${host}`, label: host, repeat: i > 0 }))
+        app.domains.length > 1 || app.domains.some((d) => d.path)
+          ? app.domains.map((d, i) => ({ ...main!, key: `${app.id}:${d.host}${d.path ?? ""}`, label: `${d.host}${d.path ?? ""}`, href: d.host, repeat: i > 0 }))
           : [main!];
       return [...hosts, ...paths].map((part) => ({ app, part }));
     });
@@ -229,7 +230,7 @@ export default function Projects() {
                     <span className="truncate text-sm">{part.label}</span>
                     {!internal && (
                       <a
-                        href={`https://${part.label}`}
+                        href={`https://${(part as { href?: string }).href ?? part.label}`}
                         target="_blank"
                         rel="noreferrer"
                         className="shrink-0 text-muted-foreground hover:text-primary"

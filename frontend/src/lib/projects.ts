@@ -15,7 +15,7 @@ export interface ProjectApp {
   id: string;
   name: string;
   /** its hostnames, all alike */
-  domains: Array<{ host: string; domainId: string | null }>;
+  domains: Array<{ host: string; path?: string; domainId: string | null }>;
   type: string;
   status: string;
   runtime: string | null;

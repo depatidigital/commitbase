@@ -560,8 +560,11 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
               ? { kind: 'files', root: spec.rootPath, spa: !!spec.spa }
               : undefined;
 
+        // what it is called: its pm2 process; a part of a split's files, by the
+        // project they are built from (web/dist → web); else where it answers
+        const project = spec.rootPath ? path.posix.basename(/\/(dist|build|out|public)$/.test(spec.rootPath) ? path.posix.dirname(spec.rootPath) : spec.rootPath) : '';
         const app: DiscoveredApp = {
-          name: process?.name || `${domain}${spec.path}`,
+          name: process?.name || (parts && project ? `${domain} · ${project}` : `${domain}${spec.path}`),
           bindings: [{ host: domain, path: spec.path }],
           runtime,
           type: spec.type,
@@ -627,7 +630,12 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
     if (app.rootPath) app.checkout = state?.checkout ?? app.rootPath;
   }
 
-  return mergeSameSite(apps);
+  const merged = mergeSameSite(apps);
+  // one process behind two ports (an app and its socket server) is two apps: told apart by port
+  const byName = new Map<string, number>();
+  for (const app of merged) byName.set(app.name, (byName.get(app.name) ?? 0) + 1);
+  for (const app of merged) if ((byName.get(app.name) ?? 0) > 1 && app.port) app.name = `${app.name} :${app.port}`;
+  return merged;
 }
 
 /** Every node, so the inventory is the whole estate rather than one box. */
@@ -704,17 +712,34 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
   // process, or the same target. A site split into apps keeps its row where the
   // process (with its env and databases) is — the front end gets a new one,
   // however the names were held before.
+  // Strongest first, for every app, before a weaker one is tried: two processes
+  // from one folder (an app and its socket server) are told apart by name,
+  // never matched by the folder they share.
   const nodeRows = await prisma.application.findMany({ where: { serverId: node.id, runtime: { not: null } }, include });
   const identity = new Map<number, Row>();
   const claimedRow = new Set<string>();
-  for (const [i, app] of discovered.entries()) {
-    const keys = new Set(identityKeys(app));
-    const row = nodeRows.find((candidate) => !isPanels(candidate) && !claimedRow.has(candidate.id) && identityKeys(candidate).some((key) => keys.has(key)));
-    if (row) {
-      identity.set(i, row);
-      claimedRow.add(row.id);
+  for (const level of ['pm2 ', 'serve ', 'dir ']) {
+    for (const [i, app] of discovered.entries()) {
+      if (identity.has(i)) continue;
+      const key = identityKeys(app).find((k) => k.startsWith(level));
+      if (!key) continue;
+      const row = nodeRows.find((candidate) => !isPanels(candidate) && !claimedRow.has(candidate.id) && identityKeys(candidate).includes(key));
+      if (row) {
+        identity.set(i, row);
+        claimedRow.add(row.id);
+      }
     }
   }
+  // the project already serving a hostname — for a part of it with no folder of its own
+  const hostSources = new Map<string, { id: string; organizationId: string | null }>();
+  // the app on the whole name leads: its project is the name's
+  for (const { host, path: at, application } of [...holding].sort((a, b) => a.path.length - b.path.length)) {
+    if (application.sourceId && !hostSources.has(host) && (at === '' || !holding.some((h) => h.host === host && h.path === ''))) {
+      hostSources.set(host, { id: application.sourceId, organizationId: application.organizationId });
+    }
+  }
+  const sourceOfHost = (bindings: SyncBinding[]) => bindings.map((b) => hostSources.get(b.host)).find(Boolean);
+
   // otherwise, the found app a holding row shares the most bindings with
   const overlap = new Map<string, Map<number, number>>();
   for (const [key, row] of holders) {
@@ -800,10 +825,20 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         await setSourceOrganization([shared!.id], owner);
       }
 
+      const sibling = sourceOfHost(app.bindings);
       if (existing) {
+        // named by the sync after a hostname: renamed as what it is now (a split's
+        // part, a process); a name someone gave it stays
+        const autoNamed = holding.some((h) => h.application.id === existing.id && h.host === existing.name) || app.bindings.some((b) => b.host === existing.name);
         await prisma.application.update({
           where: { id: existing.id },
-          data: { ...fields, ...(joins && { sourceId: shared!.id }) },
+          data: {
+            ...fields,
+            ...(joins && { sourceId: shared!.id }),
+            // no folder of its own: with the project serving its name, if that is its org's
+            ...(!shared && sibling && sibling.id !== existing.sourceId && (!sibling.organizationId || !existing.organizationId || sibling.organizationId === existing.organizationId) && { sourceId: sibling.id }),
+            ...(autoNamed && existing.name !== app.name && { name: app.name }),
+          },
         });
         // exactly the bindings it is served on now
         await setAppBindings(existing.id, names);
@@ -830,6 +865,12 @@ export async function syncServerApps(userId: string, node?: SshTarget): Promise<
         });
         result.created += 1;
         result.apps.push({ ...app, bindings: free, action: 'created' });
+      } else if (!shared && sourceOfHost(app.bindings)) {
+        // no folder to go by, on a name another app already serves: the same project
+        const sibling = sourceOfHost(app.bindings)!;
+        await prisma.application.create({
+          data: { name: app.name, type: app.type, userId, ...fields, domains: { create: names }, sourceId: sibling.id, organizationId: sibling.organizationId },
+        });
       } else {
         await createApplicationWithSource(
           { name: app.name, type: app.type, userId, ...fields, domains: { create: names } },
