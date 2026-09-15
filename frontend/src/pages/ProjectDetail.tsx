@@ -34,7 +34,7 @@ import { AppWorkspace, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
 import { type Application, bindingLabel, deleteApplication, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
-import { isAdmin, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
 import { buildProject, deployProject, getProject } from "@/lib/projects";
 
@@ -349,8 +349,9 @@ export default function ProjectDetail() {
           </TabsContent>
         )}
 
+        {/* as the API allows it: the panel's own apps, anyone who manages them; apps set up on the server, a superadmin only */}
         <TabsContent value="settings" className="space-y-6">
-          {isAdmin() && (
+          {apps.length > 0 && (
             <Card className="border-destructive/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-destructive">
@@ -367,10 +368,14 @@ export default function ProjectDetail() {
                       ? t("They were set up on the server: their process, Caddy route, DNS record and folder are removed from it too.")
                       : t("This cannot be undone.")}
                   </p>
+                  {imported && !superAdmin && (
+                    <p className="mt-1 text-xs text-muted-foreground">{t("Only a superadmin can remove things from the server.")}</p>
+                  )}
                 </div>
                 <Button
                   variant="outline"
                   className="text-destructive hover:text-destructive"
+                  disabled={imported && !superAdmin}
                   onClick={() => {
                     setTyped("");
                     setConfirmDelete(true);

@@ -1294,7 +1294,14 @@ export function AppWorkspace({
 
           {/* what the static site is serving — only once there is a bucket */}
           {hasSiteBucket && (
-            <TabsContent value="files" {...section("files")}>
+            <TabsContent
+              value="files"
+              {...section("files")}
+              // stacked, a site uploaded as files has no env: its files take the right column instead
+              {...(stacked && uploadedSite
+                ? { className: `${section("files", false).className} md:col-start-2 md:row-start-1 md:self-stretch [&>div]:h-full` }
+                : {})}
+            >
               <SiteFilesCard appId={application.id} />
             </TabsContent>
           )}
