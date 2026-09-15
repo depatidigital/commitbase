@@ -475,7 +475,6 @@ export default function ProjectDetail() {
                 ) : (
                   project.server.name
                 )}
-                {project.server.publicIp && <span className="w-full font-mono text-xs text-muted-foreground">{project.server.publicIp}</span>}
               </span>
             ) : (
               <span className="text-muted-foreground">—</span>
