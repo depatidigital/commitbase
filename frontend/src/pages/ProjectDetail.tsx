@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -321,6 +322,8 @@ export default function ProjectDetail() {
                       )}
                     </span>
                   </button>
+                  {/* the opened card's start/stop/restart, icons only, up here by the name (AppQuickEdit portals them in) */}
+                  <div id={`app-actions-${app.id}`} className="flex items-center gap-1 pr-2 empty:hidden" />
                   {/* its whole page, a level deeper */}
                   <button
                     type="button"
@@ -655,6 +658,9 @@ function AppQuickEdit({ appId }: { appId: string }) {
       void queryClient.invalidateQueries({ queryKey: ["project"] });
     }
   }, [inFlight, refetchApp, queryClient]);
+  // the row header's slot for the controls: in the DOM once the row is
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => setActionsSlot(document.getElementById(`app-actions-${appId}`)), [appId]);
   const cancelDeploy = useMutation({
     mutationFn: () => cancelDeployment(appId),
     onSuccess: () => toast({ title: t("Cancelling the deployment…") }),
@@ -819,27 +825,27 @@ function AppQuickEdit({ appId }: { appId: string }) {
           </MiniCard>
           )}
         </div>
-      <div className="flex shrink-0 flex-wrap justify-end gap-2 empty:hidden">
       {/* mid-deploy the process is the deploy's: not stopped or started by hand meanwhile */}
-      {controllable && !inFlight &&
-        (running ? (
-          <>
-            <Button variant="outline" size="sm" disabled={pending} onClick={() => restart.mutate(application.id)}>
-              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${restart.isPending ? "animate-spin" : ""}`} />
-              {t("Restart")}
+      {actionsSlot &&
+        controllable &&
+        !inFlight &&
+        createPortal(
+          running ? (
+            <>
+              <Button variant="ghost" size="icon" className="h-8 w-8" title={t("Restart")} aria-label={t("Restart")} disabled={pending} onClick={() => restart.mutate(application.id)}>
+                <RefreshCw className={`h-4 w-4 ${restart.isPending ? "animate-spin" : ""}`} />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title={t("Stop")} aria-label={t("Stop")} disabled={pending} onClick={() => setConfirmStop(true)}>
+                <Square className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title={t("Start")} aria-label={t("Start")} disabled={pending} onClick={() => start.mutate(application.id)}>
+              {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             </Button>
-            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={pending} onClick={() => setConfirmStop(true)}>
-              <Square className="mr-2 h-3.5 w-3.5" />
-              {t("Stop")}
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" disabled={pending} onClick={() => start.mutate(application.id)}>
-            {start.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-2 h-3.5 w-3.5" />}
-            {t("Start")}
-          </Button>
-        ))}
-      </div>
+          ),
+          actionsSlot,
+        )}
       </div>
       )}
       {/* stopping takes it offline: asked first, as on its page */}
