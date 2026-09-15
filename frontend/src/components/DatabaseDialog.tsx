@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Database as DatabaseIcon, Loader2, Search, Star } from "lucide-react";
+import { CheckCircle2, Database as DatabaseIcon, Loader2, PlugZap, Search, Star, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ import {
   getDatabaseLogins,
   getDatabaseServerChoices,
   getProjectDatabases,
+  testDatabaseUrl,
 } from "@/lib/databases";
 import { parseDatabaseUrl, toDbName } from "@/lib/env";
 import { t } from "@/lib/i18n";

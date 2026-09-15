@@ -116,7 +116,15 @@ type ComposedTarget = {
   handle: any[];
 };
 
-export type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget | ComposedTarget;
+// Nothing deployed yet: a small page saying the site is set up and waits for its first deploy
+type PlaceholderTarget = {
+  type: 'placeholder';
+};
+
+export type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget | ComposedTarget | PlaceholderTarget;
+
+/** The page a host shows before its app's first deploy — self-contained, no assets to fetch. */
+const PLACEHOLDER_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{http.request.host}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a}main{text-align:center;padding:24px}h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#64748b}span{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:8px}</style></head><body><main><h1><span></span>{http.request.host} is ready</h1><p>The site is set up and waiting for its first deploy.</p></main></body></html>`;
 
 /** What one part does: proxy to the port, or serve the folder. */
 function partHandle(part: SplitPart): any[] {
@@ -329,6 +337,14 @@ export function buildRoute(names: string | string[], target: Target): any {
   if (target.type === 'php') return buildPhpRoute(hosts, target);
   if (target.type === 'split') return { match: [{ host: hosts }], handle: buildSplitHandle(target.parts), terminal: true };
   if (target.type === 'composed') return { match: [{ host: hosts }], handle: target.handle, terminal: true };
+  if (target.type === 'placeholder') {
+    return {
+      match: [{ host: hosts }],
+      // 503 + Retry-After: monitors and crawlers see "not live yet", people see the page
+      handle: [{ handler: 'static_response', status_code: 503, headers: { 'Content-Type': ['text/html; charset=utf-8'], 'Retry-After': ['300'] }, body: PLACEHOLDER_HTML }],
+      terminal: true,
+    };
+  }
 
   if (target.type === 'files') {
     return {

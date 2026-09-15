@@ -1254,8 +1254,10 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
         if (beside) await addCaddyHost(node, beside, host);
       } else if (application.status === 'RUNNING') {
         await deploymentService.applyCaddyRoute(application);
+      } else if (!(await prisma.deployment.count({ where: { applicationId: application.id, status: 'SUCCESS' } }))) {
+        // never deployed: the "ready, waiting for its first deploy" page until then — the deploy routes it for real (serveApp)
+        await serveApp(node, application.id, { kind: 'placeholder' });
       }
-      // else: never deployed — set up before the first deploy, which routes it (serveApp)
     } catch (error: any) {
       // nothing half-done: a moved name goes back to its app, a new one goes
       if (movedFrom) {

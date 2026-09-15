@@ -17,7 +17,9 @@ export type Serve =
   | { kind: 'files'; root: string; spa?: boolean | undefined }
   | { kind: 'php'; root: string; socket: string }
   | { kind: 'bucket'; origin: string }
-  | { kind: 'redirect'; url: string };
+  | { kind: 'redirect'; url: string }
+  /** nothing deployed yet: the "ready, waiting for its first deploy" page */
+  | { kind: 'placeholder' };
 
 /** An app on a hostname: its path ("" = the rest of the name), whether the prefix is dropped, and its serve. */
 export type Binding = { path: string; stripPrefix: boolean; serve: Serve };
@@ -31,6 +33,7 @@ export function readServe(raw: unknown): Serve | null {
   if (s.kind === 'php' && typeof s.root === 'string' && typeof s.socket === 'string') return { kind: 'php', root: s.root, socket: s.socket };
   if (s.kind === 'bucket' && typeof s.origin === 'string' && s.origin) return { kind: 'bucket', origin: s.origin };
   if (s.kind === 'redirect' && typeof s.url === 'string' && s.url) return { kind: 'redirect', url: s.url };
+  if (s.kind === 'placeholder') return { kind: 'placeholder' };
   return null;
 }
 
@@ -57,7 +60,9 @@ export function serveHandle(serve: Serve): any[] {
           ? { type: 'php', root: serve.root, socket: serve.socket }
           : serve.kind === 'bucket'
             ? { type: 'bucket', origin: serve.origin }
-            : { type: 'static', redirectUrl: serve.url };
+            : serve.kind === 'placeholder'
+              ? { type: 'placeholder' }
+              : { type: 'static', redirectUrl: serve.url };
   return buildRoute('_', target).handle;
 }
 
@@ -131,13 +136,15 @@ export async function serveApp(node: SshTarget, applicationId: string, serve: Se
 }
 
 /**
- * A static site's serve: its R2 bucket origin, else (sites from before R2)
- * a redirect to its old S3 prefix. Neither: nothing to route yet, a no-op.
+ * A static site's serve: its R2 bucket origin; else, for a site deployed
+ * before R2, a redirect to its old S3 prefix; never deployed: the placeholder
+ * page — an empty S3 prefix only answers AccessDenied.
  */
 export async function serveStatic(node: SshTarget, applicationId: string, origin: string | null | undefined): Promise<void> {
-  const url = origin ? null : getStaticSiteBaseUrl(applicationId);
-  if (!origin && !url) return;
-  await serveApp(node, applicationId, origin ? { kind: 'bucket', origin } : { kind: 'redirect', url: url! });
+  if (origin) return serveApp(node, applicationId, { kind: 'bucket', origin });
+  const deployed = await prisma.deployment.count({ where: { applicationId, status: 'SUCCESS' } });
+  const url = deployed ? getStaticSiteBaseUrl(applicationId) : null;
+  await serveApp(node, applicationId, url ? { kind: 'redirect', url } : { kind: 'placeholder' });
 }
 
 /** Hostnames no app but `applicationId` is bound to — the ones whose DNS record may go with it. */

@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
-import { DatabasePick, DatabaseSourceSwitch, type DatabaseSourceMode } from "@/components/DatabaseSource";
+import { DatabaseValue } from "@/components/DatabaseSource";
 import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
 import { getProject } from "@/lib/projects";
 import { useToast } from "@/hooks/use-toast";
@@ -85,10 +85,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   const [dbOpen, setDbOpen] = useState(false);
   // Save asked with something still empty or likely wrong: said before it is saved
   const [confirmSave, setConfirmSave] = useState(false);
-  // The database variable (DATABASE_URL, else the app's first one): one of ours,
-  // picked in the database dialog and shown by name (its URL carries the
-  // password) — or a URL of its own, typed. null: as the value says.
-  const [dbMode, setDbMode] = useState<DatabaseSourceMode | null>(null);
+  // DATABASE_URL is one of ours (shown by name — its URL carries the password) or a
+  // URL of its own (shown by its host); either is chosen in the database dialog
   const { data: appDatabases } = useQuery({
     queryKey: ["databases", "application", application.id],
     queryFn: () => getAppDatabases(application.id),
@@ -121,9 +119,6 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     const name = databaseNameOf(url);
     return name ? appDatabases?.find((db) => !db.discovered && db.dbName === name) : undefined;
   };
-  // as the value says: empty or one of ours → ours; any URL of its own (a local one too — it is
-  // shown, with its warning, not hidden behind a picker) → custom
-  const dbModeOf = (row: EnvRow) => dbMode ?? (!row.value.trim() || managedDatabase(row.value) ? "ours" : "custom");
   // A refetch (a database connected, another tab saved) resets only an untouched
   // form — on a change of what is saved, never on the form turning clean: right
   // after a save the page may still hold the old env, and resetting to it then
@@ -249,31 +244,19 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         required={new Set(missing)}
         locked={locked}
         hints={hints}
-        // the database variable's row: where its value comes from — one of ours, or a URL typed
+        // an app without DATABASE_URL (Laravel's DB_*): its first database variable stays a field, the dialog beside it
         renderAction={(row) =>
-          row.key === databaseAnchor ? (
-            <DatabaseSourceSwitch
-              mode={dbModeOf(row)}
-              disabled={saving}
-              onChange={(mode) => {
-                // one of ours carries its password in the URL: a custom one starts empty, not from it
-                if (mode === "custom" && row.key === "DATABASE_URL" && managedDatabase(row.value)) {
-                  setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, value: "" } : r)));
-                  setDirty(true);
-                }
-                setDbMode(mode);
-              }}
-            />
+          row.key === databaseAnchor && row.key !== "DATABASE_URL" ? (
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDbOpen(true)} disabled={saving}>
+              <DatabaseIcon className="h-3.5 w-3.5 sm:mr-2" />
+              <span className="hidden sm:inline">{t("Connect database")}</span>
+            </Button>
           ) : null
         }
-        // "ours": the database by name, or a button to pick one; "custom": the plain field
+        // DATABASE_URL: what it is — one of ours by name, a custom URL by its host, or none — changed in the dialog only
         renderValue={(row) =>
-          row.key === databaseAnchor && dbModeOf(row) === "ours" ? (
-            <DatabasePick
-              dbName={row.key === "DATABASE_URL" ? managedDatabase(row.value)?.dbName : null}
-              disabled={saving}
-              onPick={() => setDbOpen(true)}
-            />
+          row.key === "DATABASE_URL" ? (
+            <DatabaseValue value={row.value} dbName={managedDatabase(row.value)?.dbName} disabled={saving} onOpen={() => setDbOpen(true)} />
           ) : null
         }
         // the app's own https URL for NEXT_PUBLIC_BASE_URL and friends
