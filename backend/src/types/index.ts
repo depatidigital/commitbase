@@ -103,7 +103,8 @@ const rootDirectorySchema = z
 
 export const CreateApplicationSchema = z.object({
   name: z.string().min(1, 'Application name is required'),
-  domain: z.string().min(1, 'Domain is required'),
+  // its first host — optional: an app is created first, its hosts added (and it deployed) later
+  domain: z.string().optional(),
   type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA']),
   repository: z.string().optional(),
   // Which connected GitHub/GitLab account clones a private repository

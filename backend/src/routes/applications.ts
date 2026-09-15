@@ -668,30 +668,47 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       }
     }
 
-    // one name, one app — whichever of its names it is
-    if (await appIdAt(domain)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Domain already in use',
-      } as ApiResponse);
-    }
+    // With a host: the host decides the org. Without one — an app created first,
+    // its hosts added from its page later — the project's org, the one asked
+    // for, or the caller's only one; a member's either way.
+    let parentDomain: Extract<Awaited<ReturnType<typeof resolveAppHost>>, { parent: unknown }>['parent'] | null = null;
+    let organizationId: string | null;
+    if (domain) {
+      // one name, one app — whichever of its names it is
+      if (await appIdAt(domain)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Domain already in use',
+        } as ApiResponse);
+      }
 
-    // Ownership boundary: the hostname sits under a domain owned by one of the
-    // caller's organizations (the app inherits that org), or under a shared
-    // platform domain (the app belongs to the caller's org).
-    const resolved = await resolveAppHost(req, domain, joining?.organizationId ?? req.body.organizationId);
-    if ('error' in resolved) {
-      return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
-    }
-    const { parent: parentDomain, organizationId } = resolved;
-    // a name another organization's app already answers on (at a path) is theirs
-    const otherOrg = await hostRefused(domain, organizationId);
-    if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
-    if (joining?.organizationId && organizationId !== joining.organizationId) {
-      return res.status(403).json({
-        success: false,
-        error: "That domain belongs to another organization — pick one of this project's organization",
-      } as ApiResponse);
+      // Ownership boundary: the hostname sits under a domain owned by one of the
+      // caller's organizations (the app inherits that org), or under a shared
+      // platform domain (the app belongs to the caller's org).
+      const resolved = await resolveAppHost(req, domain, joining?.organizationId ?? req.body.organizationId);
+      if ('error' in resolved) {
+        return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
+      }
+      parentDomain = resolved.parent;
+      organizationId = resolved.organizationId;
+      // a name another organization's app already answers on (at a path) is theirs
+      const otherOrg = await hostRefused(domain, organizationId);
+      if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
+      if (joining?.organizationId && organizationId !== joining.organizationId) {
+        return res.status(403).json({
+          success: false,
+          error: "That domain belongs to another organization — pick one of this project's organization",
+        } as ApiResponse);
+      }
+    } else {
+      const orgIds = await getOrgIds(req);
+      organizationId = joining?.organizationId ?? req.body.organizationId ?? (orgIds.length === 1 ? orgIds[0]! : null);
+      if (!organizationId) {
+        return res.status(400).json({ success: false, error: 'Pick the organization this app belongs to' } as ApiResponse);
+      }
+      if (!isPlatformAdmin(req) && !orgIds.includes(organizationId)) {
+        return res.status(403).json({ success: false, error: 'You are not a member of that organization' } as ApiResponse);
+      }
     }
 
     // Which node it runs on: a superadmin may pick one, everyone else gets the
