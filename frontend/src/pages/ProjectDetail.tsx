@@ -690,7 +690,7 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
           {application.runtime ? (
             <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
           ) : (
-            <AppEnvironment application={application} detected={detection.data} />
+            <FreshEnvironment appId={application.id} detected={detection.data} />
           )}
         </DialogContent>
       </Dialog>
@@ -768,6 +768,23 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
       </AlertDialog>
     </div>
   );
+}
+
+/**
+ * The env form in the card's dialog, on the app as the server has it now: read
+ * again each time it opens, and shown once that answer is in — never a copy the
+ * page held from before a save.
+ */
+function FreshEnvironment({ appId, detected }: { appId: string; detected?: DetectedProject | null }) {
+  const { data: application, isFetchedAfterMount } = useQuery({
+    queryKey: ["application", appId],
+    queryFn: () => getApplication(appId),
+    refetchOnMount: "always",
+  });
+  if (!application || !isFetchedAfterMount) {
+    return <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" />;
+  }
+  return <AppEnvironment application={application} detected={detected} />;
 }
 
 /** A small read-only card of the quick edit's bento. */
