@@ -517,7 +517,7 @@ export class DeploymentService {
               // errors otherwise (ERR_PNPM_IGNORED_BUILDS): said in the workspace file it reads in every version
               if (detected.packageManager === 'pnpm') {
                 installs.push(
-                  `grep -qs dangerouslyAllowAllBuilds pnpm-workspace.yaml || printf '\ndangerouslyAllowAllBuilds: true\npackageManagerStrict: false\n' >> pnpm-workspace.yaml`,
+                  `grep -qs dangerouslyAllowAllBuilds pnpm-workspace.yaml || printf '\ndangerouslyAllowAllBuilds: true\n' >> pnpm-workspace.yaml`,
                 );
               }
               installs.push(

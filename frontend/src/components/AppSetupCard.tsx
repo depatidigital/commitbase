@@ -43,11 +43,12 @@ interface AppSetupCardProps {
 }
 
 /**
- * An app that has never deployed: what it still needs, then Deploy. The first
- * deploy is where a missing DATABASE_URL or secret would fail, so it waits
- * for the environment — which is edited in its own tab.
+ * What a failed deploy's migrations can be met with, under the failure: the
+ * failed record cleared and run again (P3009), recorded as applied (a baseline),
+ * or the database emptied after a snapshot. Same on the setup checklist and the
+ * app page's failure card.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+export function DeployFailureFixes({ application, failure, failedMigration, starting, onDeploy }: Pick<AppSetupCardProps, "application" | "failure" | "failedMigration" | "starting" | "onDeploy">) {
   // P3009: the migration's record is cleared, then the migrations run again — one click, nothing to type
   // the last resort for a database whose migration history no longer matches the code: emptied, after a snapshot
   const [confirmReset, setConfirmReset] = useState(false);
@@ -126,6 +127,21 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
       </span>
     </div>
   ) : null;
+  return (
+    <>
+      {migrationFix}
+      {resetOffer}
+    </>
+  );
+}
+
+/**
+ * An app that has never deployed: what it still needs, then Deploy. The first
+ * deploy is where a missing DATABASE_URL or secret would fail, so it waits
+ * for the environment — which is edited in its own tab.
+ */
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
+  const fixes = <DeployFailureFixes application={application} failure={failure} failedMigration={failedMigration} starting={starting} onDeploy={onDeploy} />;
   // Where it answers comes first: without a host there is nothing to reach, and
   // the env's own addresses (APP_URL, CORS_ORIGIN, VITE_API_URL) are these hosts
   const hosts = hostsOf(application).filter((host) => !host.endsWith(".local"));
@@ -236,8 +252,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         {failure && (
           <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded border border-destructive/40 bg-destructive/5 p-2 font-mono text-destructive">{failure}</pre>
         )}
-        {migrationFix}
-        {resetOffer}
+        {fixes}
       </div>
     );
   }
@@ -388,8 +403,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           <div className="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">
             <p className="text-sm font-medium text-destructive">{t("The last deploy failed")}</p>
             <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">{failure}</pre>
-            {migrationFix}
-            {resetOffer}
+            {fixes}
           </div>
         )}
 
