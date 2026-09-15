@@ -700,7 +700,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
             {!uploadedSite && (
               <Button variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
                 <Terminal className="h-3.5 w-3.5 mr-1.5" />
-                {t("Log")}
+                {t("Logs")}
               </Button>
             )}
             {/* a pm2 build on the server runs to its end; the panel's own stops at its next step, the old release still live */}
@@ -771,7 +771,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
           action={
             <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setLogOpen(true)}>
               <Terminal className="mr-1 h-3 w-3" />
-              {t("Log")}
+              {t("Logs")}
             </Button>
           }
         >
