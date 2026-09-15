@@ -538,7 +538,8 @@ export class DeploymentService {
               PORT: String(app.port || ''),
               CI: '1',
               NEXT_TELEMETRY_DISABLED: '1',
-              npm_config_dangerously_allow_all_builds: 'true',
+              // pnpm's switch only: npm warns about every npm_config_* it does not know
+              ...(detected.packageManager === 'pnpm' && { npm_config_dangerously_allow_all_builds: 'true' }),
             },
             installDir,
             installs,
