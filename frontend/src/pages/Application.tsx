@@ -598,7 +598,7 @@ export default function Application() {
                 {syncApps.isPending ? t("Syncing…") : t("Sync Apps")}
               </Button>
             )}
-            <Link to="/add-app">
+            <Link to="/add-project">
             <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
               <Plus className="mr-2 h-4 w-4" />
               {t("Add App")}

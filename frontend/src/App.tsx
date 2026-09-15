@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { AuthGuard } from "./components/AuthGuard";
 import Application from "./pages/Application";
@@ -75,6 +75,15 @@ const UserRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// /add-app from before the split, links and bookmarks: ?project= to that project's, else a new project
+const LegacyAddApp = () => {
+  const params = new URLSearchParams(useLocation().search);
+  const project = params.get("project");
+  params.delete("project");
+  const rest = params.toString();
+  return <Navigate to={`${project ? `/project/${project}/add-app` : "/add-project"}${rest ? `?${rest}` : ""}`} replace />;
+};
+
 const SuperAdminRoute = ({ children }: { children: React.ReactNode }) => {
   if (!isSuperAdmin()) {
     return <Navigate to="/" replace />;
@@ -107,7 +116,10 @@ const App = () => (
             <Route path="applications" element={<Application />} />
             <Route path="project/:id" element={<ProjectDetail />} />
             <Route path="application/:id" element={<ApplicationDetail />} />
-            <Route path="add-app" element={<AddApp />} />
+            {/* a new project (its source and first app), or one more app in a project */}
+            <Route path="add-project" element={<AddApp />} />
+            <Route path="project/:id/add-app" element={<AddApp />} />
+            <Route path="add-app" element={<LegacyAddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
             <Route

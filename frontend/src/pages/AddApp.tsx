@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { getProject } from "@/lib/projects";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,8 +84,7 @@ export default function AddApp() {
   const navigate = useNavigate();
   // ?project=<id>: a new app in an existing project — its code is the
   // project's, so there is no source to pick, only the app's folder in it
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get("project");
+  const { id: projectId = null } = useParams();
   const { data: joining, error: joiningError } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId!),
@@ -95,27 +94,16 @@ export default function AddApp() {
   const [rootDirectory, setRootDirectory] = useState("");
   const { toast } = useToast();
   const createApp = useCreateApplication();
-  // the org's own domains and the shared platform ones (shared first)
-  const {
-    data: domains,
-    isLoading: domainsLoading,
-    error: domainsError,
-  } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
+  // Created first, deployed later: its hosts and its env are added on its page.
   // two is enough to know whether there is a choice of org to make
   const { data: myOrgs } = useQuery({
     queryKey: ["organizations", "mine"],
     queryFn: () => getOrganizationsPage({ page: 1, limit: 2, search: "" }),
   });
   const [organizationId, setOrganizationId] = useState("");
-  // the hostname belongs to another app, or is still being checked
-  const [hostBlocked, setHostBlocked] = useState(false);
-  // the user ticked the DNS change the picker listed
-  const [dnsConsent, setDnsConsent] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
-    selectedDomain: "",
-    subdomain: "",
     type: "",
     repository: "",
     branch: "main",
@@ -167,37 +155,13 @@ export default function AddApp() {
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState("");
 
-  // The variables the code expects, filled here so the app can deploy straight
-  // from this page. A new detection brings its own rows; what was typed stays.
-  const [envRows, setEnvRows] = useState<EnvRow[]>([]);
-  useEffect(() => {
-    setEnvRows((prev) => mergeRows(expectedRows(detected), prev.filter((row) => row.value.trim()), true));
-  }, [detected]);
-  const requiredEnv = useMemo(() => requiredKeys(detected), [detected]);
-  const lockedEnv = useMemo(() => new Set(expectedRows(detected).map((row) => row.key)), [detected]);
-  const missingEnv = [...requiredEnv].filter((key) => !envRows.find((row) => row.key === key)?.value.trim());
-  // env folded unless something is required; the type shown as a confirmed chip until "Change"
-  const [envOpen, setEnvOpen] = useState(false);
-  const envShown = envOpen || missingEnv.length > 0;
+  // the type shown as a confirmed chip until "Change"
   const [typeOpen, setTypeOpen] = useState(false);
 
-  const availableDomains = domains ?? [];
-  const sharedChoices = availableDomains.filter((domain) => domain.shared);
-  const ownChoices = availableDomains.filter((domain) => !domain.shared);
-  // A shared platform domain gives every app a free address, as on Vercel or
-  // Render: nothing to decide here, a custom domain comes later on the app's
-  // Domains tab. Without one, the org's own domain is the only way in.
-  const addressMode: "free" | "own" = sharedChoices.length > 0 ? "free" : "own";
-  // the free address follows the name until the user edits the address itself
-  const [subdomainTouched, setSubdomainTouched] = useState(false);
-  // the bare domain, only when ticked — an empty subdomain alone never means it
-  const [root, setRoot] = useState(false);
-  const pickedDomain = availableDomains.find((domain) => domain.name === formData.selectedDomain);
-  const useRoot = root && !!pickedDomain && !pickedDomain.shared;
-  const fullDomain = joinHost(formData.subdomain, formData.selectedDomain, useRoot);
-  // Under a shared domain the app is the caller's org's; only someone with a
-  // choice of orgs (several, or a platform admin seeing all) has to pick one.
-  const needsOrg = !!pickedDomain?.shared && (myOrgs?.pagination?.total ?? 0) > 1;
+  // No host to decide the org: a new project is the caller's org's — only
+  // someone with a choice of orgs (several, or a platform admin seeing all)
+  // picks one. An app added to a project is the project's org's.
+  const needsOrg = !projectId && (myOrgs?.pagination?.total ?? 0) > 1;
 
   // The source's own name — the repo, or the picked folder (loose files have
   // none worth using) — as a DNS-safe label.
@@ -216,26 +180,12 @@ export default function AddApp() {
   );
 
   // The name is the app's own label, not its address (as on Vercel, Netlify,
-  // Fly): it comes from the source and stays when the domain changes. Loose
-  // files have no source name: under an own domain the hostname stands in;
-  // under a free address it cannot (the address follows the name), so it is typed.
+  // Fly): it comes from the source and stays when its hosts change. Loose files
+  // have no source name, so it is typed.
   const [nameTouched, setNameTouched] = useState(false);
-  const fallbackName = addressMode === "own" ? fullDomain : "";
   useEffect(() => {
-    if (!nameTouched) setFormData((prev) => ({ ...prev, name: sourceLabel || fallbackName }));
-  }, [sourceLabel, fallbackName, nameTouched]);
-
-  // The free address: the app's name under the shared domain (the first one;
-  // more are a "Change" away). It follows the name until the address is edited.
-  useEffect(() => {
-    if (addressMode !== "free") return;
-    setFormData((prev) => ({
-      ...prev,
-      selectedDomain: prev.selectedDomain || sharedChoices[0].name,
-      subdomain: subdomainTouched ? prev.subdomain : slugify(prev.name),
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addressMode, formData.name, subdomainTouched, sharedChoices[0]?.name]);
+    if (!nameTouched) setFormData((prev) => ({ ...prev, name: sourceLabel || "" }));
+  }, [sourceLabel, nameTouched]);
 
   // A pasted URL: read its branches and switch to the default one (not every
   // repo uses "main"). null = not read, which leaves the branch as free text.
@@ -358,12 +308,10 @@ export default function AddApp() {
     // Enter in a half-filled form must not fire the deploy
     if (!stepComplete(1) || !stepComplete(2)) return;
 
-    // Build commands are not asked here: detection's are the defaults, and
-    // they are edited on the app's page. The env is, so it can deploy now.
-    const envVars = wantsEnv ? rowsToEnv(envRows) : {};
+    // Created first, deployed later: build commands are detection's defaults,
+    // and its hosts and env are added on its page before the first deploy.
     const applicationData: CreateApplicationData = {
       name: formData.name,
-      domain: fullDomain,
       type: formData.type as CreateApplicationData["type"],
       rootDirectory: rootDirectory.trim() || undefined,
       sourceId: projectId || undefined,
@@ -376,9 +324,7 @@ export default function AddApp() {
       // an app of a project runs on the project's server
       serverId: (!projectId && serverId) || undefined,
       // with one org there is nothing to pick — but say which, for an admin who is not its member
-      organizationId: pickedDomain?.shared ? organizationId || myOrgs?.data[0]?.id : undefined,
-      dnsConsent: dnsConsent || undefined,
-      envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
+      organizationId: projectId ? undefined : organizationId || myOrgs?.data[0]?.id,
       // Prisma's migrations: the tables have to exist before the release goes live
       preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
     };
@@ -390,15 +336,13 @@ export default function AddApp() {
       return; // createApp reports its own failure
     }
 
-    // Picked files are the app's source: they go up now (a static upload is
-    // live straight away; anything else waits for the first deploy).
-    let uploaded = true;
+    // Picked files are the app's source: they go up now (a static site's are
+    // its files — served once it has a host; anything else waits for the first deploy).
     if (sourceMode === "upload" && uploadFiles.length > 0) {
       setBusy("uploading");
       try {
         await uploadApplicationSource(createdId, uploadFiles);
       } catch (error) {
-        uploaded = false;
         toast({
           variant: "destructive",
           title: t("Upload failed"),
@@ -406,18 +350,9 @@ export default function AddApp() {
         });
       }
     }
-
-    // Nothing left to fill in: the first deploy starts now and its page shows
-    // it running. An uploaded static site is already live — the upload was its deploy.
-    if (deployNow && uploaded && !staticUpload) {
-      setBusy("deploying");
-      await startApplication(createdId).catch((error: Error) =>
-        toast({ variant: "destructive", title: t("Could not start the deploy"), description: error.message }),
-      );
-    }
     setBusy("");
 
-    // its page takes it from here: the deploy's progress, or what it still needs
+    // its page takes it from here: its hosts and env, then the first deploy
     navigate(`/application/${createdId}`);
   };
 
@@ -447,12 +382,6 @@ export default function AddApp() {
   ];
 
 
-  // an uploaded static site is served as uploaded: nothing reads an env
-  const staticUpload = sourceMode === "upload" && formData.type === "STATIC";
-  const wantsEnv = !staticUpload;
-  // every expected variable has a value: Create goes on to the first deploy
-  const deployNow = !wantsEnv || missingEnv.length === 0;
-
   const stepComplete = (value: number) => {
     if (value === 1 && projectId) return !!joining?.repository;
     if (value === 1)
@@ -460,13 +389,7 @@ export default function AddApp() {
         ? uploadFiles.length > 0
         : // read, public or through an account, and has a branch to deploy
           !!remoteBranches?.length;
-    return (
-      !!formData.name &&
-      !hostnameProblem(formData.subdomain, pickedDomain, useRoot) &&
-      !hostBlocked &&
-      (!needsOrg || !!organizationId) &&
-      !!formData.type
-    );
+    return !!formData.name && (!needsOrg || !!organizationId) && !!formData.type;
   };
 
   // The OAuth round trip reloads the page; keep the pasted URL across it.
@@ -516,75 +439,15 @@ export default function AddApp() {
     }
   };
 
-  if (domainsLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-current border-t-transparent" />
-          <p className="text-sm text-muted-foreground">{t("Loading domains...")}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (domainsError) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">{t("Error Loading Domains")}</h3>
-          <p className="text-muted-foreground">
-            {t("Failed to load domains. Please try again.")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (availableDomains.length === 0) {
-    return (
-      <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="ghost"
-            onClick={() => navigate("/")}
-            className="hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            {t("Back to Apps")}
-          </Button>
-        </div>
-
-        <Card className="bg-gradient-card border-border/50">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Globe className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">{t("No Active Domains")}</h3>
-            <p className="text-muted-foreground text-center max-w-md mb-4">
-              {t(
-                "There is no domain to put an app under yet. An administrator can share a platform domain (every organization gets free addresses under it) or assign one to your organization.",
-              )}
-            </p>
-            <Button
-              onClick={() => navigate("/domains")}
-              className="bg-gradient-primary"
-            >
-              <Globe className="h-4 w-4 mr-2" />
-              {t("Manage Domains")}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <PageLayout
       backTo={projectId ? `/project/${projectId}` : "/"}
-      title={joining ? t("Add an app to {name}", { name: joining.name }) : t("Add App")}
+      // without ?project=, this makes a project: its source, and its first app
+      title={joining ? t("Add an app to {name}", { name: joining.name }) : t("Add project")}
       description={
         projectId
           ? t("It is built from the project's repository with its other apps, and deployed with them.")
-          : t("Point at the code, then name it — the type is detected.")
+          : t("Point at the code — the type is detected. Its hosts and env are added once it exists, then it is deployed.")
       }
     >
       <form onSubmit={handleSubmit} className="space-y-8">
@@ -935,50 +798,23 @@ export default function AddApp() {
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    {t("Your label for the app, taken from its source. It stays when the domain changes.")}
+                    {t("Your label for the app, taken from its source. It stays when its hosts change.")}
                   </p>
                 </div>
 
-                {/* where it is reached: a free address, filled in from the name
-                    (a custom domain is added later, on the app's Domains tab);
-                    only with no shared domain does the org's own come in here */}
-                <div className="space-y-2">
-                  <Label>
-                    {t("Address (URL)")} <span className="text-red-500">*</span>
-                  </Label>
-                  <HostnamePicker
-                    compact={addressMode === "free"}
-                    choices={addressMode === "free" ? sharedChoices : ownChoices}
-                    subdomain={formData.subdomain}
-                    domain={formData.selectedDomain}
-                    onSubdomain={(value) => {
-                      setSubdomainTouched(true);
-                      handleInputChange("subdomain", value);
-                    }}
-                    onDomain={(name) => handleInputChange("selectedDomain", name)}
-                    onBlockedChange={setHostBlocked}
-                    onConsentChange={setDnsConsent}
-                    serverId={serverId || undefined}
-                    organizationId={organizationId || undefined}
-                    root={root}
-                    onRoot={setRoot}
-                  />
-                  {addressMode === "own" && isAdmin() && (
-                    <p className="text-xs text-muted-foreground">
-                      {t("Want every new app to get a free address? Share a platform domain:")}{" "}
-                      <Link to="/domains" className="underline hover:text-primary">
-                        {t("Domains → Settings → Shared platform domain")}
-                      </Link>
-                    </p>
-                  )}
-                  {needsOrg && (
+                {/* whose it is: no host decides it here — its hosts are added on its page */}
+                {needsOrg && (
+                  <div className="space-y-2">
+                    <Label>
+                      {t("Organization")} <span className="text-red-500">*</span>
+                    </Label>
                     <OrganizationCombobox
                       value={organizationId || null}
                       onChange={(id) => setOrganizationId(id ?? "")}
                       placeholder={t("Whose app is it?")}
                     />
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   {/* what detection found sits on the heading line */}
@@ -1070,56 +906,6 @@ export default function AddApp() {
                   ) : null}
                 </div>
 
-                {wantsEnv && (
-                  <div className="space-y-2 border-t pt-5">
-                    {/* folded when nothing is required — open by itself when something is */}
-                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      {missingEnv.length > 0 ? (
-                        <Label>{t("Environment variables")}</Label>
-                      ) : (
-                        <button
-                          type="button"
-                          aria-expanded={envShown}
-                          onClick={() => setEnvOpen(!envOpen)}
-                          className="flex items-center gap-1.5 text-sm font-medium"
-                        >
-                          {envShown ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          {t("Environment variables")}
-                          <span className="font-normal text-muted-foreground">
-                            {envRows.some((row) => row.key.trim())
-                              ? t("({count})", { count: envRows.filter((row) => row.key.trim()).length })
-                              : t("(optional)")}
-                          </span>
-                        </button>
-                      )}
-                      {envShown && (
-                        <span className="text-xs text-muted-foreground">
-                          {missingEnv.length > 0
-                            ? t("{count} still empty — fill them to deploy now, or finish on the next page.", { count: missingEnv.length })
-                            : t("Paste a whole .env into any name field.")}
-                        </span>
-                      )}
-                    </div>
-                    {envShown && (<>
-                    {/* a database is created and connected from the app's page — it needs the app first */}
-                    {missingEnv.includes("DATABASE_URL") && (
-                      <p className="text-xs text-muted-foreground">
-                        {t("No database yet? Leave DATABASE_URL empty — the next page creates and connects one.")}
-                      </p>
-                    )}
-                    <EnvEditor
-                      rows={envRows}
-                      onChange={setEnvRows}
-                      required={requiredEnv}
-                      locked={lockedEnv}
-                      suggest={(row) => suggestAppUrl(row.key, row.value, fullDomain)}
-                      generate={(row) => (row.value ? null : generateSecret(row.key))}
-                      disabled={!!busy || createApp.isPending}
-                    />
-                    </>)}
-                  </div>
-                )}
-
                 {/* the rare choices, out of the way: native details, no state */}
                 {superadmin && (
                   <details className="border-t pt-5">
@@ -1160,9 +946,7 @@ export default function AddApp() {
             {/* what the click will do, next to the click */}
             {stepComplete(1) && stepComplete(2) && !createApp.isPending && !busy && (
               <span className="text-right text-xs text-muted-foreground">
-                {deployNow
-                  ? t("Goes live at {url}", { url: `https://${fullDomain}` })
-                  : t("Created now; fill the rest on its page, then deploy.")}
+                {t("Created now — add its hosts and env on its page, then deploy.")}
               </span>
             )}
             <Button
@@ -1173,17 +957,12 @@ export default function AddApp() {
               {createApp.isPending || busy ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent mr-2" />
-                  {busy === "uploading" ? t("Uploading…") : busy === "deploying" ? t("Starting deploy…") : t("Creating…")}
-                </>
-              ) : deployNow ? (
-                <>
-                  <Rocket className="h-4 w-4 mr-2" />
-                  {t("Deploy")}
+                  {busy === "uploading" ? t("Uploading…") : t("Creating…")}
                 </>
               ) : (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  {t("Create & finish setup")}
+                  {projectId ? t("Create app") : t("Create project")}
                 </>
               )}
             </Button>

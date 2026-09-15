@@ -5,7 +5,7 @@ import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Applicat
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
-import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
+import { canManageOrg, getOrgIds, isPlatformAdmin, orgScope } from '../lib/scope';
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { appHosts, appIdAt, atEach, hostList, hostRefused, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
@@ -736,16 +736,16 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     if (!node) {
       return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
     }
-    const taken = await sharedHostTaken(parentDomain, domain, node);
+    const taken = domain && parentDomain ? await sharedHostTaken(parentDomain, domain, node) : null;
     if (taken) {
       return res.status(409).json({ success: false, error: taken } as ApiResponse);
     }
 
-    // its first name; more are added from its Domains tab
-    const at = { host: domain, domainId: parentDomain.id };
+    // its first name, if it was given one; more (or the first) are added from its page
+    const at = domain && parentDomain ? { host: domain, domainId: parentDomain.id } : null;
     const fields = {
       name,
-      domains: { create: [at] },
+      domains: { create: at ? [at] : [] },
       type,
       rootDirectory,
       installCommand,
@@ -779,15 +779,25 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // dnsConsent: the user agreed on the form to replace what the name points at
     // (and to move a registrar domain to Cloudflare) — the form showed exactly what
     const consent = req.body.dnsConsent === true || req.query.force === '1';
-    const dns = await applyAppDns(req, { id: application.id, domain, domainId: parentDomain.id }, consent).catch(
-      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-    );
+    const dns =
+      domain && parentDomain
+        ? await applyAppDns(req, { id: application.id, domain, domainId: parentDomain.id }, consent).catch(
+            (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+          )
+        : null;
 
     return res.status(201).json({
       success: true,
-      data: { ...application, domains: [{ ...at, parentDomain: { id: parentDomain.id, name: parentDomain.name, expiresAt: parentDomain.expiresAt, shared: parentDomain.shared } }], dns },
+      data: {
+        ...application,
+        domains:
+          at && parentDomain
+            ? [{ ...at, parentDomain: { id: parentDomain.id, name: parentDomain.name, expiresAt: parentDomain.expiresAt, shared: parentDomain.shared } }]
+            : [],
+        dns,
+      },
       message:
-        dns.state === 'conflict' || dns.state === 'unavailable'
+        dns && (dns.state === 'conflict' || dns.state === 'unavailable')
           ? `Application created, but DNS was not set up: ${dns.detail}`
           : 'Application created successfully',
     } as ApiResponse);

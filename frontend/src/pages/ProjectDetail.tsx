@@ -224,7 +224,7 @@ export default function ProjectDetail() {
           <div ref={setPanelSlot} className="flex flex-wrap items-center gap-2" />
         ) : !imported && (
           <Button variant="outline" asChild>
-            <Link to={`/add-app?project=${project.id}`}>
+            <Link to={`/project/${project.id}/add-app`}>
               <Plus className="mr-2 h-4 w-4" />
               {t("Add app")}
             </Link>

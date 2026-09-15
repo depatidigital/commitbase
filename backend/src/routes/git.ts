@@ -437,7 +437,7 @@ router.get(
       const redirectTarget = `${frontendBase.replace(
         /\/$/,
         '',
-      )}/add-app?provider=github&status=connected`;
+      )}/add-project?provider=github&status=connected`;
 
       return res.redirect(302, redirectTarget);
     } catch (error: any) {
@@ -692,7 +692,7 @@ router.get(
       const redirectTarget = `${frontendBase.replace(
         /\/$/,
         '',
-      )}/add-app?provider=gitlab&status=connected`;
+      )}/add-project?provider=gitlab&status=connected`;
 
       return res.redirect(302, redirectTarget);
     } catch (error: any) {
