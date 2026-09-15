@@ -180,12 +180,6 @@ yarn db:studio
 | `CORS_ORIGIN` | CORS allowed origin | http://localhost:5173 |
 | `RATE_LIMIT_WINDOW_MS` | Rate limit window | 900000 |
 | `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | 100 |
-| `S3_ENDPOINT` | S3-compatible endpoint URL | Required for S3 features |
-| `S3_REGION` | S3 region | Required for S3 features |
-| `S3_ACCESS_KEY_ID` | S3 access key | Required for S3 features |
-| `S3_SECRET_ACCESS_KEY` | S3 secret key | Required for S3 features |
-| `S3_BUCKET_NAME` | S3 bucket name | Required for S3 features |
-| `S3_ROOT_DIR` | S3 base prefix for objects | Empty |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token | Optional |
 | `CLOUDFLARE_ZONE_ID` | Cloudflare zone ID for managed domains | Optional |
 | `CLOUDFLARE_API_BASE` | Cloudflare API base URL | https://api.cloudflare.com/client/v4 |

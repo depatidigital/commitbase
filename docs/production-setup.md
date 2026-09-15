@@ -353,8 +353,7 @@ defaults until per-org storage lands.
 | `JWT_EXPIRES_IN` | Token lifetime, default `7d` |
 | `SMTP_URL`, `MAIL_FROM` | Invite email. Unset = the link is only shown in the UI |
 | `APP_NAME` | Branding in emails, default `Larika` |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_PREFIX` | Static-site hosting on Cloudflare R2 |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `S3_ROOT_DIR` | Build-log archive |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_PREFIX` | Static-site hosting on Cloudflare R2 — fallback; the admin settings (R2) come first |
 | `CRON_ENABLED`, `CRON_DOMAIN_SYNC` | Scheduled domain sync, default `0 3 * * *` |
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS` | Defaults 15 min / 100 requests |
 | `CLOUDFLARE_DNS_TARGET`, `CLOUDFLARE_NS` | Override DNS target and expected nameservers |

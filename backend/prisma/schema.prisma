@@ -333,7 +333,7 @@ model Application {
   domains     AppDomain[]
   /// What Caddy sends its requests to — `{ kind: 'proxy', port }`, `{ kind:
   /// 'files', root, spa }`, `{ kind: 'php', root, socket }`, `{ kind: 'bucket',
-  /// origin }`, `{ kind: 'redirect', url }` (hostRouteService). Written by the
+  /// origin }`, `{ kind: 'placeholder' }` (hostRouteService). Written by the
   /// deploy for the panel's apps and by the sync for imported ones; a hostname's
   /// route is composed from the serve of every app bound to it.
   serve       Json?

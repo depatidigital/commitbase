@@ -438,7 +438,7 @@ export function AppWorkspace({
   // a static site deployed from an upload: the upload is the deploy — no
   // build, no process, so no start/stop/restart, logs or build settings
   const uploadedSite = isStatic && !application.repository;
-  const hasSiteFiles = !!(application.staticBucket || application.staticSiteUrl);
+  const hasSiteFiles = !!application.staticBucket;
   const hasSiteBucket = isStatic && !!application.staticBucket;
   // an uploaded site never builds, and an imported app is not deployed by us
   const showBuild = !uploadedSite && !application.runtime;
@@ -537,13 +537,11 @@ export function AppWorkspace({
       )}
       {isStatic && (
         <Field label={t("Hosting")}>
-          {/* where the files actually are: an R2 bucket once uploaded, the old S3 prefix only for sites deployed before R2 */}
+          {/* where the files are: the R2 bucket once uploaded */}
           {application.staticBucket ? (
             <>
               Cloudflare R2 <span className="break-all font-mono text-xs text-muted-foreground">· {application.staticBucket}</span>
             </>
-          ) : application.staticSiteUrl ? (
-            <span title={application.staticSiteUrl}>{t("Object storage (S3, legacy)")}</span>
           ) : (
             <span className="text-muted-foreground">{t("No files uploaded yet")}</span>
           )}
