@@ -31,6 +31,8 @@ interface DatabaseDialogProps {
   alsoKeys?: string[];
   /** after the values are in the app's env — the names that were written */
   onConnected: (keys: string[]) => void;
+  /** "Custom": the URL typed — put in the form (saved with it), not written by this dialog */
+  onCustom: (url: string) => void;
 }
 
 /** a database name from the app's hostname: `shop.acme.id` → `shop` */
@@ -73,9 +75,13 @@ function Choice<T extends string>({ value, options, onChange }: { value: T; opti
  * Connect. Its URL lands in the app's env server-side (DATABASE_URL); the
  * password never reaches this page.
  */
-export function DatabaseDialog({ open, onOpenChange, application, currentUrl, alsoKeys = [], onConnected }: DatabaseDialogProps) {
+export function DatabaseDialog({ open, onOpenChange, application, currentUrl, alsoKeys = [], onConnected, onCustom }: DatabaseDialogProps) {
   const { toast } = useToast();
   const orgId = application.organizationId ?? "";
+  // where the value comes from: one of the organization's databases, or a URL of its own
+  const [source, setSource] = useState<"ours" | "custom">("ours");
+  const [customUrl, setCustomUrl] = useState("");
+  const [customCheck, setCustomCheck] = useState<"pending" | { ok: boolean; message: string } | null>(null);
   const [mode, setMode] = useState<"create" | "existing">("create");
   const [name, setName] = useState(() => nameFrom(application.name));
   const [serverId, setServerId] = useState("");
@@ -89,6 +95,9 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   // each opening starts from what DATABASE_URL says, else from the hostname
   useEffect(() => {
     if (!open) return;
+    setSource("ours");
+    setCustomUrl(currentUrl ?? "");
+    setCustomCheck(null);
     setMode("create");
     setExistingId("");
     setServerId("");
@@ -144,21 +153,26 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   const shown = choices.filter((db) => !search.trim() || (db.dbName || db.name).toLowerCase().includes(search.trim().toLowerCase()));
   const chosen = choices.find((db) => db.id === existingId);
 
-  // Where to start: the database the URL names (<org>_umojati or umojati), else the
-  // one another app of the project uses — a monorepo's apps share one — else a new one
+  // Where to start: the database the URL names, when it is one of ours (the panel's,
+  // not one found on a server); a URL of anything else is a custom one, shown as such;
+  // with none, the one another app of the project uses — a monorepo's apps share one —
+  // else a new one. (A project's list that failed to load does not hold this up.)
   useEffect(() => {
-    if (!open || existingId || !existing.data || (application.sourceId && !projectDbs.data)) return;
+    if (!open || existingId || !existing.data || (application.sourceId && projectDbs.isLoading)) return;
     const named = fromUrl.name
-      ? choices.find((db) => db.name === fromUrl.name || db.dbName === fromUrl.name || db.dbName?.endsWith(`_${fromUrl.name}`))
+      ? choices.find((db) => !db.discovered && (db.dbName === fromUrl.name || db.name === fromUrl.name))
       : undefined;
-    const shared = choices.find((db) => siblingsOf(db.id).length > 0);
-    const pick = named ?? shared;
+    if (currentUrl?.trim() && !named) {
+      setSource("custom");
+      return;
+    }
+    const pick = named ?? choices.find((db) => siblingsOf(db.id).length > 0);
     if (pick) {
       setMode("existing");
       setExistingId(pick.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, existing.data, projectDbs.data]);
+  }, [open, existing.data, projectDbs.data, projectDbs.isLoading]);
 
   // One login per organization on each server — org_<slug>, made the first time it is
   // needed — reaches every database of the organization's apps. Nothing to choose.
@@ -169,8 +183,15 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
     enabled: open && !!orgId && !!loginServerId,
   });
   const prefix = logins.data?.prefix ?? "";
+  // a name taken from a URL of ours already carries the org's prefix — it is added once, not twice
+  useEffect(() => {
+    if (prefix && name.startsWith(prefix)) setName(name.slice(prefix.length));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefix]);
   const orgLogin = logins.data?.logins.find((login) => login.username.startsWith("org_"))?.username ?? `org_${prefix.replace(/_+$/, "")}`;
-  const valid = mode === "create" ? /^[a-z][a-z0-9_]{0,40}$/.test(name) && !!serverId : !!existingId;
+  const customEngine = parseDatabaseUrl(customUrl).engine;
+  const valid =
+    source === "custom" ? !!customEngine : mode === "create" ? /^[a-z][a-z0-9_]{0,40}$/.test(name) && !!serverId : !!existingId;
 
   const server = servers.data?.find((s) => s.id === serverId);
   const summaryDb = mode === "create" ? `${prefix}${name}` : chosen?.dbName || chosen?.name || "";
@@ -179,6 +200,12 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!valid) return;
+    // a URL of its own: into the form, saved with the rest of the env
+    if (source === "custom") {
+      onCustom(customUrl.trim());
+      onOpenChange(false);
+      return;
+    }
     setBusy(true);
     try {
       let databaseId = existingId;
@@ -219,6 +246,74 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
         </DialogHeader>
 
         <form id="database-connect" onSubmit={submit} className="space-y-4">
+          {/* where the value comes from — the first choice, a tab each */}
+          <div className="flex border-b border-border/60 text-sm" role="tablist">
+            {(
+              [
+                ["ours", t("Larika database")],
+                ["custom", t("Custom URL")],
+              ] as const
+            ).map(([option, label]) => (
+              <button
+                key={option}
+                type="button"
+                role="tab"
+                aria-selected={source === option}
+                onClick={() => setSource(option)}
+                className={`-mb-px border-b-2 px-3 py-2 transition-colors ${
+                  source === option ? "border-primary font-medium text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {source === "custom" ? (
+            // a database the panel does not manage: its URL, tried from the app's node before it is used
+            <div className="space-y-2">
+              <Label htmlFor="custom-url">{t("Connection URL")}</Label>
+              <Input
+                id="custom-url"
+                className="font-mono text-sm"
+                placeholder="postgresql://user:password@host:5432/database"
+                value={customUrl}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => {
+                  setCustomUrl(e.target.value);
+                  setCustomCheck(null);
+                }}
+              />
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  disabled={!customEngine || customCheck === "pending"}
+                  onClick={async () => {
+                    setCustomCheck("pending");
+                    setCustomCheck(
+                      await testDatabaseUrl(application.id, envKey, customUrl.trim()).catch((error: Error) => ({ ok: false, message: error.message })),
+                    );
+                  }}
+                >
+                  {customCheck === "pending" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <PlugZap className="mr-1.5 h-3.5 w-3.5" />}
+                  {t("Test connection")}
+                </Button>
+                {customCheck && customCheck !== "pending" && (
+                  <span className={`flex min-w-0 items-center gap-1 break-all ${customCheck.ok ? "text-green-600 dark:text-green-400" : "text-destructive"}`}>
+                    {customCheck.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+                    {customCheck.message}
+                  </span>
+                )}
+                {customUrl.trim() && !customEngine && <span className="text-destructive">{t("A postgresql:// or mysql:// URL.")}</span>}
+              </div>
+              <p className="text-xs text-muted-foreground">{t("Tried from the app's server. It goes in the form — saved with the rest of the environment.")}</p>
+            </div>
+          ) : (
+          <>
           <Choice<"create" | "existing">
             value={mode}
             onChange={setMode}
@@ -343,6 +438,8 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
               <p className="text-xs text-muted-foreground">{t("Connects as {login}.", { login: orgLogin })}</p>
             </div>
           )}
+          </>
+          )}
         </form>
 
         <DialogFooter>
@@ -351,7 +448,13 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           </Button>
           <Button type="submit" form="database-connect" disabled={!valid || busy}>
             {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {mode === "create" ? t("Create & connect") : chosen ? t("Connect to {name}", { name: chosen.dbName || chosen.name }) : t("Connect")}
+            {source === "custom"
+              ? t("Use this URL")
+              : mode === "create"
+                ? t("Create & connect")
+                : chosen
+                  ? t("Connect to {name}", { name: chosen.dbName || chosen.name })
+                  : t("Connect")}
           </Button>
         </DialogFooter>
       </DialogContent>
