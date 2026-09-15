@@ -20,6 +20,7 @@ import * as systemd from './systemdService';
 import * as http from 'http';
 import { cleanupAppReleases } from './appDiskService';
 import { buildKeyOf, groupBuildKey } from '../lib/buildKey';
+import { restoreSnapshot, snapshotDatabase, type Snapshot } from './databaseSnapshotService';
 
 // Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
 // it on localhost. Apps must listen on $PORT — the health check enforces it.
@@ -1360,6 +1361,8 @@ export class DeploymentService {
       };
 
     } catch (error: any) {
+      // a migration that ran before the failure (or the cancel) is undone with the rest
+      await undoMigrations?.().catch(() => {});
       if (error instanceof CancelledError) {
         // what was built so far stays in the build log; the reason goes first
         await prisma.deployment.update({

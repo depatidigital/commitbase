@@ -31,6 +31,7 @@ import {
   tableCount,
 } from '../services/databaseImportService';
 import { streamBackup } from '../services/databaseBackupService';
+import { listSnapshots, restoreSnapshot } from '../services/databaseSnapshotService';
 
 const router = Router();
 
@@ -748,6 +749,43 @@ router.post('/:id/import', authenticateToken, async (req: AuthenticatedRequest, 
       releaseImport(database.id);
       if (req.file) fs.promises.unlink(req.file.path).catch(() => {});
     }
+  }
+});
+
+// The snapshots taken before deploys' migrations (databaseSnapshotService).
+router.get('/:id/snapshots', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const database = await manageable(req, req.params.id as string);
+    if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
+    return res.json({ success: true, data: await listSnapshots(database.id) } as ApiResponse);
+  } catch (error) {
+    console.error('List database snapshots error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Put a snapshot back — an import of it, followed through GET /:id/imports.
+ * Everything written since it was taken is gone: the row says so, and this
+ * asks for `confirm: <dbName>` like a restore into a non-empty database.
+ */
+router.post('/:id/snapshots/restore', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const found = await importable(req, req.params.id as string);
+    if (!('database' in found)) return res.status(found.status).json({ success: false, error: found.error } as ApiResponse);
+    const { database } = found;
+    if (req.body?.confirm !== database.dbName) {
+      return res.status(400).json({ success: false, error: `Type ${database.dbName} to confirm — what was written since the snapshot is lost` } as ApiResponse);
+    }
+    const row = await restoreSnapshot(database.id, String(req.body?.file ?? ''), req.user!.userId);
+    if (!row) return res.status(409).json({ success: false, error: 'An import is already running in this database' } as ApiResponse);
+    return res.status(202).json({ success: true, data: row, message: 'Restore started' } as ApiResponse);
+  } catch (error: any) {
+    if (error instanceof ProvisionError || error instanceof ImportError) {
+      return res.status(400).json({ success: false, error: error.message } as ApiResponse);
+    }
+    console.error('Restore database snapshot error:', error);
+    return res.status(502).json({ success: false, error: `Could not start the restore: ${error?.message ?? 'failed'}` } as ApiResponse);
   }
 });
 

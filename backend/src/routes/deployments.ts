@@ -4,6 +4,7 @@ import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
+import { snapshotsOfDeployment } from '../services/databaseSnapshotService';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -62,10 +63,26 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 
     const total = await prisma.deployment.count({ where });
 
+    // the databases snapshotted before each deploy's migrations — restorable from its row
+    const databases = await prisma.database.findMany({
+      where: { applicationId: { in: [...new Set(deployments.map((d) => d.applicationId))] }, discovered: false },
+      select: { id: true, dbName: true, applicationId: true },
+    });
+    const withSnapshots = await Promise.all(
+      deployments.map(async (deployment) => {
+        const own = databases.filter((db) => db.applicationId === deployment.applicationId);
+        const snapshots = await snapshotsOfDeployment(deployment.id, own.map((db) => db.id));
+        return {
+          ...deployment,
+          snapshots: snapshots.map((s) => ({ databaseId: s.databaseId, dbName: own.find((db) => db.id === s.databaseId)?.dbName ?? '', file: s.file, createdAt: s.createdAt })),
+        };
+      }),
+    );
+
     return res.json({
       success: true,
       data: {
-        deployments,
+        deployments: withSnapshots,
         pagination: {
           page,
           limit,
