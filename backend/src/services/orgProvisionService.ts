@@ -145,7 +145,8 @@ export async function provisionOrgOnNode(
   if (!QUOTA_RE.test(memoryMax)) throw new Error(`Invalid memory max: ${memoryMax}`);
 
   const uid = await uidFor(org, node);
-  return sudo(node, 'cb-provision-org', [org.slug, diskQuota, cpuQuota, memoryMax, String(uid)], 60_000, opts.onOutput);
+  // minutes on a fresh node: the group, users, quota and PHP-FPM pool — a minute is not enough
+  return sudo(node, 'cb-provision-org', [org.slug, diskQuota, cpuQuota, memoryMax, String(uid)], 10 * 60_000, opts.onOutput);
 }
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown' | 'cancel-build';
@@ -336,7 +337,8 @@ export async function runOrgNode(orgNodeId: string): Promise<string> {
   }
 }
 
-const ENSURE_TIMEOUT_MS = 5 * 60_000;
+// longer than the provisioning's own timeout (10 min), so its outcome is what a deploy reports
+const ENSURE_TIMEOUT_MS = 12 * 60_000;
 
 /**
  * Make sure an organization is provisioned on a node before something runs

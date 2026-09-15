@@ -6,6 +6,7 @@ import { orgScope, logScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import * as path from 'path';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
+import { serverForApplication } from '../lib/servers';
 import { followPm2Logs } from '../services/appSyncService';
 import * as systemd from '../services/systemdService';
 import { logsDirFor } from '../lib/appPaths';
@@ -103,16 +104,31 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
 
+    // A first deploy provisions the organization on the node before anything is
+    // built (its OS user, home, slice) — minutes, with no build log yet. Its own
+    // live log goes first, until it is done.
+    let text = '';
+    const node = await serverForApplication(application.id).catch(() => null);
+    const provisioning =
+      node && application.organizationId
+        ? await prisma.orgNode.findUnique({
+            where: { organizationId_serverId: { organizationId: application.organizationId, serverId: node.id } },
+            select: { state: true, log: true },
+          })
+        : null;
+    if (provisioning && provisioning.state !== 'DONE' && provisioning.log?.trim()) {
+      text = `── ${provisioning.state === 'FAILED' ? 'provisioning failed' : 'provisioning the organization on this server'} ──\n${provisioning.log.slice(-16 * 1024)}\n`;
+    }
+
     // builds run in the source's tree, which is a monorepo app's shared one
     const afs = await sourceFsFor(application.id);
     const logFile = path.posix.join(afs.appDir, 'logs', 'build.log');
     const TAIL = 64 * 1024;
-    let text = '';
     try {
       // ponytail: whole file, then the tail. A ranged SFTP read if build logs get huge.
       const buffer = await afs.readFile(logFile);
       const start = Math.max(0, buffer.length - TAIL);
-      text = (start > 0 ? '…\n' : '') + buffer.subarray(start).toString('utf-8');
+      text += (start > 0 ? '…\n' : '') + buffer.subarray(start).toString('utf-8');
     } catch {
       // no build has run yet
     }
