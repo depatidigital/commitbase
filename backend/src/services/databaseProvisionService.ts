@@ -323,6 +323,29 @@ export async function provisionDatabase(id: string): Promise<{ ok: boolean; erro
 }
 
 /**
+ * Empty a database the panel created: dropped and made again, its logins and
+ * owner role kept — the app's DATABASE_URL still works. Everything in it is gone.
+ */
+export async function resetDatabase(id: string): Promise<void> {
+  const db = await loadDatabase(id);
+  if (!db) throw new ProvisionError('Database not found');
+  if (db.discovered) throw new ProvisionError("A database the sync found is not the panel's to reset");
+  const { dbs, dbName } = requireParts(db);
+  await withAdmin(dbs, async (session) => {
+    if (dbs.engine === 'POSTGRESQL') {
+      await session.query(`DROP DATABASE IF EXISTS ${pgIdent(dbName)} WITH (FORCE)`).catch(async (error: any) => {
+        if (error?.code !== '42601') throw error;
+        await session.query(`DROP DATABASE IF EXISTS ${pgIdent(dbName)}`);
+      });
+    } else {
+      await session.query(`DROP DATABASE IF EXISTS ${myIdent(dbName)}`);
+    }
+  });
+  const made = await provisionDatabase(id);
+  if (!made.ok) throw new Error(made.error ?? 'could not create the database again');
+}
+
+/**
  * Drop a database the panel created, with its owner role and every login that
  * reached nothing else. A database the sync found is someone else's data: it
  * is never dropped here. Throws on a server failure, leaving the row in place.

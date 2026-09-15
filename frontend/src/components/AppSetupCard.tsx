@@ -1,10 +1,22 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
 import { useToast } from "@/hooks/use-toast";
-import { Application, DetectedProject, hostsOf, updateApplication } from "@/lib/applications";
+import { Application, DetectedProject, hostsOf, updateApplication, type StartOptions } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 interface AppSetupCardProps {
@@ -21,7 +33,7 @@ interface AppSetupCardProps {
   failedMigration?: string | null;
   /** Deploy was clicked and is saving or starting */
   starting?: boolean;
-  onDeploy: (options?: { resolveMigration?: string }) => void;
+  onDeploy: (options?: StartOptions) => void;
   /** the hosts dialog — the first step: the env's addresses follow from them */
   onEditHosts: () => void;
   onEditEnv: () => void;
@@ -37,6 +49,42 @@ interface AppSetupCardProps {
  */
 export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
   // P3009: the migration's record is cleared, then the migrations run again — one click, nothing to type
+  // the last resort for a database whose migration history no longer matches the code: emptied, after a snapshot
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [typed, setTyped] = useState("");
+  const resetOffer =
+    failure && (failedMigration || /migrat|relation .* does not exist/i.test(failure)) ? (
+      <div className="text-xs">
+        <Button type="button" variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" disabled={starting} onClick={() => setConfirmReset(true)}>
+          <Database className="mr-1.5 h-3 w-3" />
+          {t("Reset the database and deploy")}
+        </Button>
+        <AlertDialog open={confirmReset} onOpenChange={(open) => { setConfirmReset(open); setTyped(""); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Empty every database of {name}?", { name: application.name })}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("Every table and row is dropped, then the deploy runs the migrations from nothing. A snapshot is taken first and can be restored from the deployment history.")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-1.5">
+              <p className="text-sm">{t("Type {name} to confirm", { name: application.name })}</p>
+              <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus className="font-mono" />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={typed !== application.name}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => onDeploy({ resetDatabase: true })}
+              >
+                {t("Reset and deploy")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    ) : null;
   const migrationFix = failedMigration ? (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="text-muted-foreground">{t("Migration {name} is recorded as failed and blocks the rest.", { name: failedMigration })}</span>
@@ -169,6 +217,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded border border-destructive/40 bg-destructive/5 p-2 font-mono text-destructive">{failure}</pre>
         )}
         {migrationFix}
+        {resetOffer}
       </div>
     );
   }
@@ -320,6 +369,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             <p className="text-sm font-medium text-destructive">{t("The last deploy failed")}</p>
             <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">{failure}</pre>
             {migrationFix}
+            {resetOffer}
           </div>
         )}
 

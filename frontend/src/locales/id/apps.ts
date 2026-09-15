@@ -650,6 +650,11 @@ export default {
   "Restore database": "Pulihkan database",
   "Migration {name} is recorded as failed and blocks the rest.": "Migrasi {name} tercatat gagal dan menghalangi migrasi lainnya.",
   "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
+  "Reset the database and deploy": "Reset database lalu deploy",
+  "Empty every database of {name}?": "Kosongkan semua database {name}?",
+  "Every table and row is dropped, then the deploy runs the migrations from nothing. A snapshot is taken first and can be restored from the deployment history.":
+    "Semua tabel dan baris dihapus, lalu deploy menjalankan migrasi dari nol. Snapshot diambil lebih dulu dan bisa dipulihkan dari riwayat deployment.",
+  "Reset and deploy": "Reset lalu deploy",
   "If that migration is no longer in the repository, delete its row yourself, then deploy again:": "Kalau migrasi itu sudah tidak ada di repositori, hapus barisnya sendiri di database, lalu deploy lagi:",
   "Restoring {db}": "Memulihkan {db}",
   "Follow it on the Database tab.": "Pantau di tab Database.",

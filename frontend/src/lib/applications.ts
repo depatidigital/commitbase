@@ -701,13 +701,15 @@ export const failedMigrationOf = (buildLogs?: string | null): string | null =>
 export type StartOptions = {
   /** a migration recorded as failed, marked rolled back right before this deploy's migrations run */
   resolveMigration?: string;
+  /** the app's databases emptied before the build, after a snapshot */
+  resetDatabase?: boolean;
 };
 
 /** Deploy the app — it alone; a project deploy is each of its apps (deployProject). */
 export const startApplication = async (id: string, options: StartOptions = {}): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/start`, {
     method: 'POST',
-    ...(options.resolveMigration && { body: JSON.stringify({ resolveMigration: options.resolveMigration }) }),
+    ...((options.resolveMigration || options.resetDatabase) && { body: JSON.stringify(options) }),
   });
   
   if (response.success) {

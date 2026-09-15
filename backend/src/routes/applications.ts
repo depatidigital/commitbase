@@ -1688,7 +1688,11 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     if (resolveMigration && !/^\d{14}_[A-Za-z0-9_-]{1,200}$/.test(resolveMigration)) {
       return res.status(400).json({ success: false, error: 'Not a migration name' } as ApiResponse);
     }
-    const launched = await launchDeploy(application, req.user!.userId, { resolveMigration: resolveMigration || undefined });
+    // resetDatabase: the app's databases emptied first (after a snapshot) — the UI has the person type the app's name
+    const launched = await launchDeploy(application, req.user!.userId, {
+      resolveMigration: resolveMigration || undefined,
+      ...(req.body?.resetDatabase === true && { resetDatabase: true }),
+    });
     if (!launched) {
       return res.status(409).json({
         success: false,

@@ -16,7 +16,7 @@ export async function launchDeploy(
   application: Application,
   userId: string,
   /** resolveMigration: a Prisma migration recorded as failed, cleared before this deploy's migrations */
-  { resolveMigration }: { resolveMigration?: string } = {},
+  { resolveMigration, resetDatabase }: { resolveMigration?: string; resetDatabase?: boolean } = {},
 ): Promise<{ deploymentId: string } | null> {
   // the app keeps its own status, from what it was before
   const group = await deploymentService.groupOf(application);
@@ -75,6 +75,7 @@ export async function launchDeploy(
     deployment,
     envVars: readEnv(application.envVars),
     ...(resolveMigration && { resolveMigration }),
+    ...(resetDatabase && { resetDatabase }),
   }).then(async (result) => {
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did

@@ -279,9 +279,17 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
     }
 
     const remote = await listRemoteBranches(source.repository, source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined);
+    // what the checkout has: a pull without a deploy counts as pulled. Before any checkout, the live release
+    const managed = source.applications.find((app) => !app.runtime);
+    const checkout = managed
+      ? await sourceFsFor(managed.id)
+          .then((afs) => afs.run(['git', 'rev-parse', 'HEAD'], { cwd: afs.sourcesDir }))
+          .then(({ stdout }) => stdout.trim() || null)
+          .catch(() => null)
+      : null;
     return res.json({
       success: true,
-      data: { ...remote, branch, liveCommit: source.activeRelease?.commitSha ?? null },
+      data: { ...remote, branch, liveCommit: checkout ?? source.activeRelease?.commitSha ?? null },
     } as ApiResponse);
   } catch (error: any) {
     return res.status(400).json({

@@ -23,6 +23,7 @@ import * as http from 'http';
 import { cleanupAppReleases } from './appDiskService';
 import { buildKeyOf, groupBuildKey } from '../lib/buildKey';
 import { restoreSnapshot, snapshotDatabase, type Snapshot } from './databaseSnapshotService';
+import { resetDatabase } from './databaseProvisionService';
 
 // Ports handed to runtime apps. Every app gets one for life; Caddy proxies to
 // it on localhost. Apps must listen on $PORT — the health check enforces it.
@@ -160,6 +161,8 @@ export interface DeploymentConfig {
   envVars?: Record<string, string>;
   /** a Prisma migration recorded as failed (P3009), cleared before the migrations run — runBuild */
   resolveMigration?: string;
+  /** the app's databases emptied before the build — after their snapshot, which is the way back */
+  resetDatabase?: boolean;
 }
 
 export interface BuildResult {
@@ -1151,7 +1154,7 @@ export class DeploymentService {
       // release kept writing during the build, and that is a person's call.
       const wasLive = !!application.activeReleaseId || application.status === 'RUNNING';
       const snapshots: Snapshot[] = [];
-      if (application.preDeployCommand) {
+      if (application.preDeployCommand || config.resetDatabase) {
         const databases = await prisma.database.findMany({
           where: { applicationId: application.id, discovered: false, status: 'RUNNING' },
           select: { id: true, dbName: true },
@@ -1170,6 +1173,12 @@ export class DeploymentService {
               buildLogPath,
               `[${new Date().toISOString()}] DATABASE SNAPSHOT of ${db.dbName} failed: ${error?.message ?? error} — no way back from the migrations` + NL,
             );
+            // asked to empty it: not without the way back
+            if (config.resetDatabase) throw new Error(`Could not snapshot ${db.dbName} before resetting it: ${error?.message ?? error}`);
+          }
+          if (config.resetDatabase) {
+            await resetDatabase(db.id);
+            await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] DATABASE RESET: ${db.dbName} emptied — the snapshot above is what it held` + NL);
           }
         }
         throwIfCancelled(key);
