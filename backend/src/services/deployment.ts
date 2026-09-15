@@ -163,6 +163,8 @@ export interface DeploymentConfig {
   envVars?: Record<string, string>;
   /** a Prisma migration recorded as failed (P3009), cleared before the migrations run — runBuild */
   resolveMigration?: string;
+  /** how: rolled back (the default — it runs again) or applied (a baseline: its tables already exist) */
+  resolveAs?: 'rolled-back' | 'applied';
   /** the app's databases emptied before the build — after their snapshot, which is the way back */
   resetDatabase?: boolean;
 }
@@ -386,8 +388,9 @@ export class DeploymentService {
     group: AppWithOrg[],
     deployment: Deployment,
     envs: Map<string, Record<string, string>>,
-    /** a failed Prisma migration to mark rolled back before the pre-deploy step */
+    /** a failed Prisma migration to mark rolled back (or applied) before the pre-deploy step */
     resolveMigration?: string,
+    resolveAs: 'rolled-back' | 'applied' = 'rolled-back',
   ): Promise<BuildResult> {
     const { appDir, sourcesDir } = afs;
     const first = group[0]!;
@@ -513,7 +516,9 @@ export class DeploymentService {
               // pnpm 10.9+ runs dependencies' build scripts (prisma engines, esbuild) only when allowed, and
               // errors otherwise (ERR_PNPM_IGNORED_BUILDS): said in the workspace file it reads in every version
               if (detected.packageManager === 'pnpm') {
-                installs.push(`grep -qs dangerouslyAllowAllBuilds pnpm-workspace.yaml || printf '\ndangerouslyAllowAllBuilds: true\n' >> pnpm-workspace.yaml`);
+                installs.push(
+                  `grep -qs dangerouslyAllowAllBuilds pnpm-workspace.yaml || printf '\ndangerouslyAllowAllBuilds: true\npackageManagerStrict: false\n' >> pnpm-workspace.yaml`,
+                );
               }
               installs.push(
                 detected.packageManager === 'npm'
@@ -533,7 +538,7 @@ export class DeploymentService {
         // failed leave the old release on the new schema.
         // a migration Prisma recorded as failed (P3009) blocks every one after it: asked
         // for from the history, its record is cleared right before the migrations run again
-        if (resolveMigration) steps.push(`${EXEC[detected.packageManager]} prisma migrate resolve --rolled-back ${resolveMigration}`);
+        if (resolveMigration) steps.push(`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`);
         if (app.preDeployCommand) steps.push(app.preDeployCommand);
         const buildCommand = app.buildCommand || detected.buildCommand;
         if (buildCommand) steps.push(buildCommand);
@@ -558,13 +563,10 @@ export class DeploymentService {
               PORT: String(app.port || ''),
               CI: '1',
               NEXT_TELEMETRY_DISABLED: '1',
-              // pnpm's switch only: npm warns about every npm_config_* it does not know
-              // pnpm's switches only: npm warns about every npm_config_* it does not know.
+              // pnpm's own prefix (11+); pnpm 10 gets the same from pnpm-workspace.yaml (the install step).
+              // Not npm_config_*: that reaches npx in the app's own commands, and npm warns about each.
               // package_manager_strict: pnpm chosen over a package.json that names npm
               ...(detected.packageManager === 'pnpm' && {
-                npm_config_dangerously_allow_all_builds: 'true',
-                npm_config_package_manager_strict: 'false',
-                // pnpm 11+ reads its own prefix
                 pnpm_config_dangerously_allow_all_builds: 'true',
                 pnpm_config_package_manager_strict: 'false',
               }),
@@ -1237,7 +1239,7 @@ export class DeploymentService {
       }
       const buildResult: BuildResult = reused
         ? { success: true, releaseDir: reused.path! }
-        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration);
+        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(key);

@@ -697,12 +697,17 @@ export const startExistingApplication = async (id: string): Promise<Application 
  * The Prisma migration a failed deploy's build log names as recorded failed
  * (P3009) — it blocks every migration after it until its record is cleared. Pure.
  */
+// P3009 (recorded as failed) or P3018 (failed to apply just now)
 export const failedMigrationOf = (buildLogs?: string | null): string | null =>
-  buildLogs?.match(/The `(\d{14}_[A-Za-z0-9_-]+)` migration started at .* failed/)?.[1] ?? null;
+  buildLogs?.match(/The `(\d{14}_[A-Za-z0-9_-]+)` migration started at .* failed/)?.[1] ??
+  buildLogs?.match(/Migration name: (\d{14}_[A-Za-z0-9_-]+)/)?.[1] ??
+  null;
 
 export type StartOptions = {
   /** a migration recorded as failed, marked rolled back right before this deploy's migrations run */
   resolveMigration?: string;
+  /** with resolveMigration: 'applied' marks it done without running it (its tables already exist) */
+  resolveAs?: 'rolled-back' | 'applied';
   /** the app's databases emptied before the build, after a snapshot */
   resetDatabase?: boolean;
 };

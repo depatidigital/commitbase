@@ -51,6 +51,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
   // P3009: the migration's record is cleared, then the migrations run again — one click, nothing to type
   // the last resort for a database whose migration history no longer matches the code: emptied, after a snapshot
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmApplied, setConfirmApplied] = useState(false);
   const [typed, setTyped] = useState("");
   const resetOffer =
     failure && (failedMigration || /migrat|relation .* does not exist/i.test(failure)) ? (
@@ -99,6 +100,25 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         <Database className="mr-1.5 h-3 w-3" />
         {t("Clear it and deploy again")}
       </Button>
+      {/* a baseline: the tables it would create are already there (a squashed history) — recorded as done, not run */}
+      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled={starting} onClick={() => setConfirmApplied(true)}>
+        <CheckCircle className="mr-1.5 h-3 w-3" />
+        {t("Mark it as applied and deploy")}
+      </Button>
+      <AlertDialog open={confirmApplied} onOpenChange={setConfirmApplied}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Mark {name} as applied?", { name: failedMigration })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Its SQL is not run — it is recorded as done and the later migrations go on. Only right when the database already has everything this migration would create, such as after the migrations were squashed. On an incomplete database the app fails later on a missing table.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => onDeploy({ resolveMigration: failedMigration, resolveAs: "applied" })}>{t("Mark as applied and deploy")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* the button resolves it through the repository's migrations: one no longer there is the person's to clear */}
       <span className="w-full text-muted-foreground">
         {t("If that migration is no longer in the repository, delete its row yourself, then deploy again:")}

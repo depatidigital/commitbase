@@ -1691,6 +1691,8 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     // resetDatabase: the app's databases emptied first (after a snapshot) — the UI has the person type the app's name
     const launched = await launchDeploy(application, req.user!.userId, {
       resolveMigration: resolveMigration || undefined,
+      // applied: a baseline — the migration's tables are already there, only its record is missing
+      ...(resolveMigration && req.body?.resolveAs === 'applied' && { resolveAs: 'applied' as const }),
       ...(req.body?.resetDatabase === true && { resetDatabase: true }),
     });
     if (!launched) {
