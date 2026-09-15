@@ -275,7 +275,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
       <div className="flex items-center justify-end gap-2">
         {dirty && (
-          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); setDbMode(null); }} disabled={saving}>
+          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); }} disabled={saving}>
             {t("Reset")}
           </Button>
         )}
@@ -335,10 +335,13 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           const fresh = await getApplication(application.id).catch(() => null);
           const filled = keys.flatMap((key) => (fresh?.envVars?.[key] ? [{ key, value: fresh.envVars[key] }] : []));
           if (filled.length) setRows((prev) => mergeRows(prev, filled, true));
-          // connected to one of ours: shown as such again
-          setDbMode(null);
           await queryClient.invalidateQueries({ queryKey: ["application", application.id] });
           await queryClient.invalidateQueries({ queryKey: ["databases", "application", application.id] });
+        }}
+        // a URL of its own: into the form, like anything typed — Save writes it
+        onCustom={(url) => {
+          setRows((prev) => mergeRows(prev, [{ key: "DATABASE_URL", value: url }], true));
+          setDirty(true);
         }}
       />
     </div>

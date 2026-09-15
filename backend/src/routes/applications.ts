@@ -25,7 +25,7 @@ import {
 } from '../services/staticReleaseService';
 import { Pm2DeployError, startPm2Deploy } from '../services/pm2DeployService';
 import { addCaddyHost, staticRouteError } from '../services/caddyService';
-import { hostsOnlyOf, normalizeBindingPath, readServe, recomposeHosts, serveStatic } from '../services/hostRouteService';
+import { hostsOnlyOf, normalizeBindingPath, readServe, recomposeHosts, serveApp, serveStatic } from '../services/hostRouteService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, healthPath, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';

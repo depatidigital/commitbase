@@ -50,6 +50,10 @@ assert.deepStrictEqual(readServe({ kind: 'proxy', port: 9200 }), { kind: 'proxy'
 assert.strictEqual(readServe({ kind: 'proxy', port: 'x' }), null);
 assert.strictEqual(readServe({ kind: 'files', root: 'relative' }), null);
 assert.strictEqual(readServe(null), null);
+// never deployed: the placeholder page, not a redirect to an empty bucket prefix
+assert.deepStrictEqual(readServe({ kind: 'placeholder' }), { kind: 'placeholder' });
+assert.strictEqual(serveHandle({ kind: 'placeholder' })[0].handler, 'static_response');
+assert.strictEqual(serveHandle({ kind: 'redirect', url: 'https://x' })[0].headers.Location[0], 'https://x');
 
 // a path as asked for: the whole name, or a prefix pattern
 assert.strictEqual(normalizeBindingPath(''), '');
