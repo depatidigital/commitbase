@@ -649,7 +649,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
       {/* bento: its hosts and how it is built and run side by side; under them what it is given,
           the full width, beside the actions — read at a glance, hosts managed here.
           Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
-      <div className="grid items-stretch gap-3 md:grid-cols-2">
+      {/* items-start: each card as tall as its content — a short host list is not stretched to the checklist */}
+      <div className="grid items-start gap-3 md:grid-cols-2">
         <RoutingCard application={application} compact editOpen={hostsOpen} onEditOpenChange={setHostsOpen} />
         {needsSetup ? (
           <AppSetupCard

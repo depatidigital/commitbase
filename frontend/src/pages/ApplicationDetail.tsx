@@ -68,7 +68,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release } from "@/lib/applications";
 import { AppSetupCard } from "@/components/AppSetupCard";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
-import DeploymentHistory, { LiveBuildLog, RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import DeploymentHistory, { RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import { DeployProgress } from "@/components/DeployProgress";
 import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { SourcePanel } from "@/components/SourcePanel";
 import { appStatus, getApplicationHealth } from "@/lib/health";
@@ -121,12 +122,6 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 /** A deploy's steps as its deployment row reports them. */
-const DEPLOY_PHASES = [
-  { status: 'PENDING', label: t("Queued") },
-  { status: 'BUILDING', label: t("Building") },
-  { status: 'DEPLOYING', label: t("Going live") },
-];
-
 const LOG_TYPE_LABELS: Record<string, string> = {
   combined: t("Combined Logs"),
   out: t("Output Logs"),
@@ -470,7 +465,6 @@ export function AppWorkspace({
 
   const deployed = hasBeenDeployed(application);
   // where the running deploy is, from its row's status (PENDING → BUILDING → DEPLOYING)
-  const phaseIndex = Math.max(0, DEPLOY_PHASES.findIndex((phase) => phase.status === (newestDeploy?.status ?? lastDeployment?.status)));
   // same verdict as the apps list's dot: the uptime checks win over the stored status
   const overall = appStatus(application.status, healthById?.[application.id], application.disabled);
   // answering now, and either expected to (published) or the checks agree — a
