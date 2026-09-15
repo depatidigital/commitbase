@@ -56,6 +56,8 @@ const SHORT_NAME = /(^|_)(URL|URI|HOST|HOSTNAME|PORT|NAME|ID|ORIGIN|DOMAIN|EMAIL
 const oneLine = (row: EnvRow) => SHORT_NAME.test(row.key) || /^(true|false|\d+)$/i.test(row.value.trim());
 // an address the app is given: where the project's hosts are offered
 const URL_NAME = /(^|_)(URL|URI|ORIGIN)$/i;
+// …unless it is a connection string, not a web address
+const CONNECTION_NAME = /(DATABASE|DB|POSTGRES|MYSQL|MONGO|REDIS|AMQP|RABBIT|KAFKA|SMTP|MAIL)/i;
 
 /**
  * Env vars as a table: searched by name, narrowed to the ones that need a look,
@@ -158,7 +160,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
       suggestion: suggest?.(row) ?? null,
       // whether it can be generated — the value itself is made on click, fresh
       generatable: !!generate?.(row),
-      platform: row.value.trim() ? PLATFORM_KEYS[row.key] : undefined,
+      // Larika's own at runtime always says so; one it only defaults (NODE_ENV) once a value replaces it
+      platform: PLATFORM_KEYS[row.key] === "ignored" || row.value.trim() ? PLATFORM_KEYS[row.key] : undefined,
       customValue: renderValue?.(row) ?? null,
     };
   };
@@ -218,6 +221,16 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         <div className="min-w-0 flex-1">
         {customValue ? (
           customValue
+        ) : PLATFORM_KEYS[row.key] === "ignored" ? (
+          // Larika's own at runtime (the port the proxy dials): not the app's to set — shown as what it becomes
+          <Input
+            aria-label={t("Value")}
+            className="h-8 cursor-default bg-muted/50 font-mono text-xs text-muted-foreground"
+            value={`{${row.key}}`}
+            readOnly
+            tabIndex={-1}
+            title={t("Set by Larika when the app starts.")}
+          />
         ) : shown && (multiline || (!secret && !oneLine(row))) ? (
           // grows with what is in it (field-sizing), a line at first — a masked secret stays an input
           <Textarea
@@ -248,17 +261,20 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
           />
         )}
         </div>
-        {/* the project's hosts, all of them whatever is typed (a datalist filters by the value) — picked, or typed over */}
-        {!customValue && !secret && urlOptions.length > 0 && URL_NAME.test(row.key) && (
+        {/* suggestions, all of them whatever is typed (a datalist filters by the value): the row's own
+            suggestion first, then the project's hosts — each alone and under its path. Picked, or typed over */}
+        {/* not where the row has a picker of its own (DATABASE_URL's database), nor on a connection
+            string — a database, a cache or a queue is never one of the project's web hosts */}
+        {!customValue && !action && !secret && !CONNECTION_NAME.test(row.key) && (urlOptions.length > 0 || suggestion) && URL_NAME.test(row.key) && (
           <Popover>
             <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" title={t("The project's hosts")} disabled={disabled}>
+              <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" title={t("Suggestions")} disabled={disabled}>
                 <ChevronsUpDown className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-auto min-w-[16rem] p-1">
-              <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("The project's hosts")}</p>
-              {urlOptions.map((url) => (
+              <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("Suggestions")}</p>
+              {[...new Set([...(suggestion ? [suggestion] : []), ...urlOptions])].map((url) => (
                 <PopoverClose asChild key={url}>
                   <button
                     type="button"
@@ -299,9 +315,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
               </>
             )}
             {platform && (
-              <span className={`flex items-center gap-1 ${platform === "ignored" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-                {platform === "ignored" && <AlertTriangle className="h-3 w-3 shrink-0" />}
-                {platform === "ignored" ? t("Set by Larika — this value is ignored.") : t("Larika already sets this to production; this value replaces it.")}
+              <span className="text-muted-foreground">
+                {platform === "ignored" ? t("Set by Larika when the app starts.") : t("Larika already sets this to production; this value replaces it.")}
               </span>
             )}
             {generatable && (

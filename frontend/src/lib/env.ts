@@ -170,15 +170,12 @@ export function parseEnv(text: string): EnvRow[] {
 /** Later rows win; blank keys dropped. What the API takes. */
 /**
  * Filled, but likely wrong on the server: a local address (not a database URL —
- * that one is tried from the app's node instead), or a key Larika sets itself.
+ * that one is tried from the app's node instead). A key Larika sets itself
+ * (PORT) is not one: it is shown as Larika's, read-only, whatever is saved.
  */
 export function envWarnings(rows: EnvRow[]): string[] {
   return rows
-    .filter(
-      (row) =>
-        row.value.trim() &&
-        ((pointsAtLocalhost(row.value) && !parseDatabaseUrl(row.value).engine) || PLATFORM_KEYS[row.key] === "ignored"),
-    )
+    .filter((row) => PLATFORM_KEYS[row.key] !== "ignored" && row.value.trim() && pointsAtLocalhost(row.value) && !parseDatabaseUrl(row.value).engine)
     .map((row) => row.key);
 }
 

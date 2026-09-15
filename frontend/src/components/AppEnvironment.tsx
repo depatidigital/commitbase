@@ -104,7 +104,11 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         (project?.applications ?? [{ domains: hostsOf(application).map((host) => ({ host, path: "" })) }])
           .flatMap((app) => app.domains)
           .filter((d) => !d.host.endsWith(".local"))
-          .map((d) => `https://${d.host}${(d.path ?? "").replace(/\*+$/, "").replace(/\/+$/, "")}`),
+          // the host alone (an origin: CORS_ORIGIN, APP_URL), and under its path when it has one (an API base)
+          .flatMap((d) => {
+            const path = (d.path ?? "").replace(/\*+$/, "").replace(/\/+$/, "");
+            return [`https://${d.host}`, ...(path ? [`https://${d.host}${path}`] : [])];
+          }),
       ),
     ],
     [project, application],
