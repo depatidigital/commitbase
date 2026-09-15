@@ -254,6 +254,7 @@ export function AppWorkspace({
     },
   });
   const startApp = useStartApplication();
+  const startAppOnly = useStartApplication({ only: true });
   const startExistingApp = useStartExistingApplication();
   const stopApp = useStopApplication();
   const restartApp = useRestartApplication();
@@ -357,16 +358,17 @@ export function AppWorkspace({
   const envSave = useRef<(() => Promise<boolean>) | null>(null);
   const connectDb = useRef<(() => void) | null>(null);
   const [savingForDeploy, setSavingForDeploy] = useState(false);
-  const deploy = async () => {
+  // `only`: this app alone (its setup checklist) — else its whole project (the Source panel)
+  const deploy = async (only = false) => {
     if (envStatus.dirty) {
       setSavingForDeploy(true);
       const saved = await envSave.current?.();
       setSavingForDeploy(false);
       if (!saved) return;
     }
-    startApp.mutate(id!);
+    (only ? startAppOnly : startApp).mutate(id!);
   };
-  const starting = savingForDeploy || startApp.isPending;
+  const starting = savingForDeploy || startApp.isPending || startAppOnly.isPending;
 
   // Update logs when data changes
   useEffect(() => {
@@ -458,6 +460,7 @@ export function AppWorkspace({
   // truth. The status poll (useApplicationStatus) flips this back when it ends.
   const deploying =
     startApp.isPending ||
+    startAppOnly.isPending ||
     deployInFlight ||
     application.status === 'DEPLOYING' ||
     application.status === 'BUILDING' ||
@@ -891,7 +894,7 @@ export function AppWorkspace({
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
         {application.repository && application.sourceId && !needsSetup && !onProjectTab && (
-          <SourcePanel projectId={application.sourceId} onDeploy={deploy} starting={starting} deploying={deploying} />
+          <SourcePanel projectId={application.sourceId} onDeploy={() => void deploy()} starting={starting} deploying={deploying} />
         )}
         </aside>
 
@@ -925,7 +928,8 @@ export function AppWorkspace({
               dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
               failure={failureReason}
               starting={starting}
-              onDeploy={deploy}
+              // the checklist deploys this app, not every app of its project
+              onDeploy={() => void deploy(true)}
               onEditHosts={() => setHostsOpen(true)}
               onEditEnv={() => setActiveTab("environment")}
               onEditBuild={() => setActiveTab("build")}

@@ -587,7 +587,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
   // refetched by hand after a change made here (a host, a deploy): its own query, whatever a cache-wide invalidation reaches
   const { data: application, isLoading, refetch: refetchApp } = useApplication(appId);
   const start = useStartExistingApplication();
-  const firstDeploy = useStartApplication();
+  // the checklist's Deploy: this app, not every app of the project (that is the Source panel's)
+  const firstDeploy = useStartApplication({ only: true });
   const queryClient = useQueryClient();
   const stop = useStopApplication();
   const restart = useRestartApplication();

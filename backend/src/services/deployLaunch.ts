@@ -11,11 +11,17 @@ const deploymentService = new DeploymentService();
  * in the background, and return its row. null when one is already running.
  * The caller has checked the app may be deployed (panel-managed, in scope).
  */
-export async function launchDeploy(application: Application, userId: string): Promise<{ deploymentId: string } | null> {
-  // A deploy builds the app's whole source, so every app of it (a monorepo's)
-  // goes out with it — each keeps its own status, from what it was before.
-  const group = await deploymentService.groupOf(application);
-  const before = new Map(group.map((app) => [app.id, app.status]));
+export async function launchDeploy(
+  application: Application,
+  userId: string,
+  /** the app's own deploy (its checklist's Deploy): it alone, not its whole project — DeploymentService.deployScope */
+  { only = false }: { only?: boolean } = {},
+): Promise<{ deploymentId: string } | null> {
+  // A project deploy builds its whole source, so every app of it (a monorepo's)
+  // goes out with it; an app's own, what deployScope says. Each app deployed keeps
+  // its own status, from what it was before.
+  const { whole: group, scoped } = await deploymentService.deployScope(application, only);
+  const before = new Map(scoped.map((app) => [app.id, app.status]));
   const setStatus = (status: (was: AppStatus) => AppStatus, extra: { lastDeployment?: Date } = {}) =>
     Promise.all(
       [...before].map(([appId, was]) => prisma.application.update({ where: { id: appId }, data: { status: status(was), ...extra } })),
@@ -47,9 +53,9 @@ export async function launchDeploy(application: Application, userId: string): Pr
   // and a deploy that finishes into a hostname that does not resolve is worse
   // than one that says so.
   let dnsWarning = '';
-  // every name of every app of the group
+  // every name of every app this deploy covers
   const names = await prisma.appDomain.findMany({
-    where: { applicationId: { in: group.map((app) => app.id) } },
+    where: { applicationId: { in: scoped.map((app) => app.id) } },
     select: { applicationId: true, host: true, domainId: true },
     orderBy: { host: 'asc' },
   });
@@ -68,6 +74,7 @@ export async function launchDeploy(application: Application, userId: string): Pr
     application,
     deployment,
     envVars: readEnv(application.envVars),
+    only,
   }).then(async (result) => {
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did

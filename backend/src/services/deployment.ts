@@ -156,6 +156,8 @@ export interface DeploymentConfig {
   application: Application;
   deployment: Deployment;
   envVars?: Record<string, string>;
+  /** an app's own deploy, not its whole project's — see deployScope */
+  only?: boolean;
 }
 
 export interface BuildResult {
@@ -784,6 +786,20 @@ export class DeploymentService {
     });
   }
 
+  /**
+   * What a deploy of `application` covers. The project's (only false): every app
+   * of its source. An app's own (only true, its setup checklist's Deploy): a static
+   * site alone — it builds on the panel into its own folder; an app on the node with
+   * the source's other node apps — they share one tree, release and `current`, so one
+   * cannot be built without the others — but never the static sites.
+   */
+  async deployScope(application: Application, only = false): Promise<{ whole: AppWithOrg[]; scoped: AppWithOrg[] }> {
+    const whole = await this.groupOf(application);
+    if (!only || whole.length === 1) return { whole, scoped: whole };
+    const scoped = whole.filter((app) => (application.type === 'STATIC' ? app.id === application.id : app.type !== 'STATIC'));
+    return { whole, scoped };
+  }
+
   async stopApplication(applicationId: string): Promise<boolean> {
     try {
       const application = await this.appWithOrg(applicationId);
@@ -1022,8 +1038,11 @@ export class DeploymentService {
       // Everything built from this source goes out together, from one commit.
       // Its static sites (in a source with other apps) build on the panel and
       // switch once the rest is up; `group` is what builds and runs on the node.
-      const all = await this.groupOf(application);
-      const sites = all.length > 1 ? all.filter((app) => app.type === 'STATIC') : [];
+      // what this deploy covers: the project, or (config.only) the app — alone, or with its node's apps
+      const { whole, scoped: all } = await this.deployScope(application, config.only);
+      // a static site of a source with other apps builds on the panel as one of `sites`,
+      // even when it is deployed alone: its source's Release rows are the other apps'
+      const sites = whole.length > 1 ? all.filter((app) => app.type === 'STATIC') : [];
       const group = all.filter((app) => !sites.includes(app));
       // whose tree the deploy works in: the app itself, else another of the node's — or, sites alone, the first
       const lead = group.find((app) => app.id === application.id) ?? group[0] ?? sites[0]!;

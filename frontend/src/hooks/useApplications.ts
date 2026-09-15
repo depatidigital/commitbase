@@ -221,12 +221,13 @@ export const useStartExistingApplication = () => {
   });
 };
 
-export const useStartApplication = () => {
+/** `only`: each start deploys the app alone, not its whole project (startApplication) */
+export const useStartApplication = ({ only = false }: { only?: boolean } = {}) => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: startApplication,
+    mutationFn: (id: string) => startApplication(id, only),
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
