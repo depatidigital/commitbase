@@ -146,3 +146,13 @@ export async function hostsOnlyOf(applicationId: string, hosts: string[]): Promi
   const taken = new Set(shared.map((row) => row.host));
   return hosts.filter((host) => !taken.has(host));
 }
+
+/**
+ * A binding's path as asked for: "" (or "/") for the whole name, else a Caddy
+ * prefix pattern — `/api/*`, `/ws*`, `/pos.apk`. null when it is not one. Pure.
+ */
+export function normalizeBindingPath(raw: unknown): string | null {
+  const value = String(raw ?? '').trim();
+  if (value === '' || value === '/' || value === '/*') return '';
+  return /^\/[A-Za-z0-9._~\-/]*\*?$/.test(value) && !value.includes('..') && !value.includes('//') ? value : null;
+}

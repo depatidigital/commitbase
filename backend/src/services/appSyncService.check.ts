@@ -4,7 +4,7 @@
 import assert from 'assert';
 import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, bindingLabel, identityKeys, type DiscoveredApp } from './appSyncService';
 import { parentDomainOf } from '../lib/scope';
-import { buildRoute, caddyfileFor, routingProblem } from './caddyService';
+import { buildRoute } from './caddyService';
 
 // --- live Caddy routes: the inventory reads the admin API, never a Caddyfile ---
 
@@ -234,21 +234,6 @@ assert.deepStrictEqual(merged.map((app) => app.bindings.map(bindingLabel)), [
     { path: '/api/*, /ws*', proxy: '127.0.0.1:9200' },
     { path: null, root: '/var/www/html/arusflow/web/dist', spa: true },
   ]);
-  assert.strictEqual(
-    caddyfileFor(['app.arusflow.id'], parts),
-    'app.arusflow.id {\n\thandle /api/* /ws* {\n\t\treverse_proxy 127.0.0.1:9200\n\t}\n\thandle {\n\t\troot * /var/www/html/arusflow/web/dist\n\t\ttry_files {path} /index.html\n\t\tfile_server\n\t}\n}',
-  );
-  // a tenant: its own ports and folder only
-  const limits = { ports: new Set([9200]), base: '/var/www/html/arusflow' };
-  assert.ok(Array.isArray(routingProblem(parts, limits)));
-  assert.match(String(routingProblem([{ path: null, port: 5432 }], limits)), /not one this app runs on/);
-  assert.match(String(routingProblem([{ path: null, root: '/var/www/html/other' }], limits)), /outside this app's folder/);
-  assert.match(String(routingProblem([{ path: null, root: '/var/www/html/arusflow/../other' }], limits)), /not an absolute folder/);
-  // the catch-all: exactly one, last
-  assert.match(String(routingProblem([{ path: null, port: 9200 }, { path: '/api/*', port: 9200 }], limits)), /comes last/);
-  assert.match(String(routingProblem([{ path: 'api', port: 9200 }], limits)), /not a path|comes last/);
-  // a platform admin: anywhere
-  assert.ok(Array.isArray(routingProblem([{ path: null, port: 5432 }], { ports: null, base: null })));
 }
 
 // --- what pm2 runs, as one would type it in the app's folder ---

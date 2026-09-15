@@ -2,7 +2,7 @@
  * Self-check for composing a hostname's route from its apps: npx tsx src/services/hostRouteService.check.ts
  */
 import assert from 'assert';
-import { byPrecedence, composeHostHandle, pathPrefix, readServe, serveHandle, type Binding } from './hostRouteService';
+import { byPrecedence, composeHostHandle, normalizeBindingPath, pathPrefix, readServe, serveHandle, type Binding } from './hostRouteService';
 import { buildRoute } from './caddyService';
 import { routeParts } from './appSyncService';
 
@@ -50,5 +50,14 @@ assert.deepStrictEqual(readServe({ kind: 'proxy', port: 9200 }), { kind: 'proxy'
 assert.strictEqual(readServe({ kind: 'proxy', port: 'x' }), null);
 assert.strictEqual(readServe({ kind: 'files', root: 'relative' }), null);
 assert.strictEqual(readServe(null), null);
+
+// a path as asked for: the whole name, or a prefix pattern
+assert.strictEqual(normalizeBindingPath(''), '');
+assert.strictEqual(normalizeBindingPath('/'), '');
+assert.strictEqual(normalizeBindingPath(' /api/* '), '/api/*');
+assert.strictEqual(normalizeBindingPath('/pos.apk'), '/pos.apk');
+assert.strictEqual(normalizeBindingPath('api'), null);
+assert.strictEqual(normalizeBindingPath('/a/../b'), null);
+assert.strictEqual(normalizeBindingPath('/a b'), null);
 
 console.log('hostRouteService: ok');

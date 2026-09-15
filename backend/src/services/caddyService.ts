@@ -118,40 +118,6 @@ type ComposedTarget = {
 
 export type Target = RuntimeTarget | StaticTarget | BucketTarget | PhpTarget | FilesTarget | SplitTarget | ComposedTarget;
 
-/**
- * The routing someone asked for, checked: paths like `/api/*`, each part to a
- * port or to a folder, the one part without a path last. `limits`: the ports
- * and the folder a tenant may use — null for a platform admin. Returns the
- * parts, or why not. Pure.
- */
-export function routingProblem(raw: unknown, limits: { ports: Set<number> | null; base: string | null }): string | SplitPart[] {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 20) return 'Give the routing one to twenty parts';
-  const parts: SplitPart[] = [];
-  for (const [i, item] of raw.entries()) {
-    const match = item?.path == null || String(item.path).trim() === '' ? null : String(item.path).trim();
-    // one path, or several for the same target: `/api/*, /ws*`
-    if (match !== null && !match.split(/,\s*/).every((one) => /^\/[A-Za-z0-9._~\-/]*\*?$/.test(one))) return `${match} is not a path like /api/*`;
-    // the catch-all answers whatever the paths before it did not — so exactly one, and last
-    if ((match === null) !== (i === raw.length - 1)) return 'The part without a path answers everything else: it comes last, and only once';
-
-    const port = item?.port != null && String(item.port).trim() !== '' ? Number(item.port) : undefined;
-    const folder: string | undefined = typeof item?.root === 'string' && item.root.trim() ? item.root.trim().replace(/\/+$/, '') || '/' : undefined;
-    if ((port === undefined) === (folder === undefined)) return `${match ?? 'Everything else'}: pick a port or a folder`;
-    if (port !== undefined) {
-      if (!Number.isInteger(port) || port < 1 || port > 65535) return `${item.port} is not a port`;
-      if (limits.ports && !limits.ports.has(port)) return `Port ${port} is not one this app runs on — a platform admin can route to it`;
-    }
-    if (folder !== undefined) {
-      if (!folder.startsWith('/') || folder.split('/').some((segment) => segment === '..' || segment === '.')) return `${folder} is not an absolute folder`;
-      if (limits.base && folder !== limits.base && !folder.startsWith(`${limits.base.replace(/\/+$/, '')}/`)) {
-        return `${folder} is outside this app's folder ${limits.base}`;
-      }
-    }
-    parts.push({ path: match, ...(port !== undefined ? { port } : { root: folder, spa: item?.spa === true }) });
-  }
-  return parts;
-}
-
 /** What one part does: proxy to the port, or serve the folder. */
 function partHandle(part: SplitPart): any[] {
   if (part.port) return [{ handler: 'reverse_proxy', upstreams: [{ dial: `127.0.0.1:${part.port}` }] }];
@@ -187,22 +153,6 @@ function buildSplitHandle(parts: SplitPart[]): any[] {
       })),
     },
   ];
-}
-
-/**
- * The same routing as Caddyfile text — to copy into the server's Caddyfile,
- * so a `caddy reload` from it keeps what the panel set. Pure.
- */
-export function caddyfileFor(hosts: string[], parts: SplitPart[]): string {
-  const block = (part: SplitPart) =>
-    part.port
-      ? [`\t\treverse_proxy 127.0.0.1:${part.port}`]
-      : [`\t\troot * ${part.root}`, ...(part.spa ? ['\t\ttry_files {path} /index.html'] : []), '\t\tfile_server'];
-  return [
-    `${hosts.join(', ')} {`,
-    ...parts.flatMap((part) => [`\thandle${part.path ? ` ${part.path.split(/,\s*/).join(' ')}` : ''} {`, ...block(part), '\t}']),
-    '}',
-  ].join('\n');
 }
 
 /**
@@ -637,14 +587,6 @@ export async function configureCaddyForPhpApplication(
   socket: string,
 ): Promise<void> {
   await setRoute(node, hosts, { type: 'php', root, socket });
-}
-
-/**
- * Route an app's names by path: its old route (an imported site's, as written)
- * is replaced by one built from `parts`.
- */
-export async function configureCaddyForSplit(node: SshTarget, hosts: string[], parts: SplitPart[]): Promise<void> {
-  await setRoute(node, hosts, { type: 'split', parts });
 }
 
 /** One hostname's route, composed from all the apps bound to it (hostRouteService). */

@@ -24,8 +24,8 @@ import {
   siteStorage,
 } from '../services/staticReleaseService';
 import { Pm2DeployError, startPm2Deploy } from '../services/pm2DeployService';
-import { addCaddyHost, caddyfileFor, configureCaddyForSplit, routingProblem, staticRouteError } from '../services/caddyService';
-import { hostsOnlyOf, readServe, recomposeHosts, serveStatic } from '../services/hostRouteService';
+import { addCaddyHost, staticRouteError } from '../services/caddyService';
+import { hostsOnlyOf, normalizeBindingPath, readServe, recomposeHosts, serveStatic } from '../services/hostRouteService';
 import { appDiskUsage, cleanupApp } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, healthPath, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
@@ -1126,10 +1126,11 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 });
 
 /**
- * Give an app one more hostname. All its names are alike: the new one is
- * routed exactly as the others (an imported app's own route gets the name
- * added to its host matcher, as written), then pointed at the app's node.
- * A route that cannot be set takes the name back off — no half-added name.
+ * Bind an app to one more hostname, or a path under one (`/api/*`). All its
+ * bindings are alike. The name's route is composed again with it — beside
+ * whatever other apps of the organization answer on that name — and a name
+ * new to the platform is pointed at the app's node. A route that cannot be set
+ * takes the binding back off: nothing half-added.
  */
 router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1141,30 +1142,38 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
 
     const host = normalizeHost(req.body?.host);
     if (!host) return res.status(400).json({ success: false, error: 'Hostname is required' } as ApiResponse);
-    if (await appIdAt(host)) return res.status(400).json({ success: false, error: 'Domain already in use' } as ApiResponse);
+    const at = normalizeBindingPath(req.body?.path);
+    if (at === null) return res.status(400).json({ success: false, error: 'A path is like /api/* — or leave it empty for the whole name' } as ApiResponse);
+    const stripPrefix = at !== '' && req.body?.stripPrefix === true;
+    const label = `${host}${at}`;
+    if (await appIdAt(host, at)) return res.status(400).json({ success: false, error: `${label} is already in use` } as ApiResponse);
     // a name and its paths belong to one organization
     const otherOrg = await hostRefused(host, application.organizationId);
     if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
 
-    // same ownership boundary as create — and a name never moves the app to
-    // another org: that is an admin's reassignment, not a hostname
-    const resolved = await resolveAppHost(req, host, application.organizationId);
-    if ('error' in resolved) return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
-    if (application.organizationId && resolved.organizationId !== application.organizationId) {
-      return res.status(403).json({
-        success: false,
-        error: "That domain belongs to another organization — pick one of this app's organization",
-      } as ApiResponse);
-    }
     const node = await serverForApplication(application.id);
-    const taken = await sharedHostTaken(resolved.parent, host, node);
-    if (taken) return res.status(409).json({ success: false, error: taken } as ApiResponse);
+    // a name its organization already serves: its zone and DNS are settled; a new one is checked like on create
+    const sibling = await prisma.appDomain.findFirst({ where: { host }, select: { domainId: true } });
+    let domainId = sibling?.domainId ?? null;
+    if (!sibling) {
+      // same ownership boundary as create — and a name never moves the app to another org
+      const resolved = await resolveAppHost(req, host, application.organizationId);
+      if ('error' in resolved) return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
+      if (application.organizationId && resolved.organizationId !== application.organizationId) {
+        return res.status(403).json({ success: false, error: "That domain belongs to another organization — pick one of this app's organization" } as ApiResponse);
+      }
+      const taken = await sharedHostTaken(resolved.parent, host, node);
+      if (taken) return res.status(409).json({ success: false, error: taken } as ApiResponse);
+      domainId = resolved.parent.id;
+    }
 
-    await prisma.appDomain.create({ data: { host, applicationId: application.id, domainId: resolved.parent.id } });
+    await prisma.appDomain.create({ data: { host, path: at, stripPrefix, applicationId: application.id, domainId } });
     try {
       if (readServe(application.serve)) {
         // known: the name's route composed with it, beside whatever else it serves
         await recomposeHosts(node, [host]);
+      } else if (at) {
+        throw new Error("the panel does not know what this app is served by yet — deploy it (or sync the apps) first");
       } else if (application.runtime) {
         // someone else's route: served as its other names are, one more host on it
         const beside = hostsOf(application).find((name) => !name.endsWith('.pm2.local'));
@@ -1173,32 +1182,59 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
         await deploymentService.applyCaddyRoute(application);
       }
     } catch (error: any) {
-      await prisma.appDomain.delete({ where: { host_path: { host, path: '' } } });
-      return res.status(502).json({ success: false, error: `${host} could not be routed: ${error?.message ?? error}` } as ApiResponse);
+      await prisma.appDomain.delete({ where: { host_path: { host, path: at } } });
+      return res.status(502).json({ success: false, error: `${label} could not be routed: ${error?.message ?? error}` } as ApiResponse);
     }
 
-    const dns = await applyAppDns(req, { id: application.id, domain: host, domainId: resolved.parent.id }, req.body?.dnsConsent === true).catch(
-      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-    );
+    // a name new to the platform gets its record; one already served has it
+    const dns = sibling
+      ? { state: 'exists' as const, detail: `${host} already points here` }
+      : await applyAppDns(req, { id: application.id, domain: host, domainId }, req.body?.dnsConsent === true).catch(
+          (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
+        );
     await prisma.log.create({
-      data: { level: 'INFO', message: `${host} added to ${application.name}`, userId: req.user!.userId, applicationId: application.id },
+      data: { level: 'INFO', message: `${label} added to ${application.name}`, userId: req.user!.userId, applicationId: application.id },
     });
     return res.status(201).json({
       success: true,
-      data: { host, dns },
-      message:
-        dns.state === 'conflict' || dns.state === 'unavailable' ? `${host} added, but DNS was not set up: ${dns.detail}` : `${host} added`,
+      data: { host, path: at, dns },
+      message: dns.state === 'conflict' || dns.state === 'unavailable' ? `${label} added, but DNS was not set up: ${dns.detail}` : `${label} added`,
     } as ApiResponse);
   } catch (error) {
-    console.error('Error adding a hostname:', error);
+    console.error('Error adding a binding:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** Hand the app its path with or without the prefix (`/api/users` or `/users`) — the name's route composed again. */
+router.patch('/:id/domains', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) }, include: withDomains });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const host = normalizeHost(req.body?.host);
+    const at = normalizeBindingPath(req.body?.path);
+    const binding = application.domains.find((d) => d.host === host && d.path === at);
+    if (!binding || !at) return res.status(404).json({ success: false, error: 'Only a path of one of its names can drop its prefix' } as ApiResponse);
+    const stripPrefix = req.body?.stripPrefix === true;
+    await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { stripPrefix } });
+    try {
+      await recomposeHosts(await serverForApplication(application.id), [host]);
+    } catch (error: any) {
+      await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { stripPrefix: binding.stripPrefix } });
+      return res.status(502).json({ success: false, error: `${host}${at} could not be routed: ${error?.message ?? error}` } as ApiResponse);
+    }
+    return res.json({ success: true, data: { host, path: at, stripPrefix } } as ApiResponse);
+  } catch (error) {
+    console.error('Error changing a binding:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 
 /**
- * Take a hostname off an app: it stops being routed (the app's other names in
- * the same route stay), its record pointing here goes, and it is free again.
- * The last one stays — an app with no name is nothing anyone can reach.
+ * Take a binding off an app (`?path=` for a path under the name): it stops
+ * being routed — the name's other apps keep theirs — and a name nothing else
+ * answers on loses its record here. The last binding stays: an app with none
+ * is nothing anyone can reach.
  */
 router.delete('/:id/domains/:host', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1209,33 +1245,35 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
     const host = normalizeHost(req.params.host);
-    const name = application.domains.find((d) => d.host === host);
-    if (!name) return res.status(404).json({ success: false, error: `${host} is not one of this app's names` } as ApiResponse);
+    const at = normalizeBindingPath(req.query.path) ?? '';
+    const label = `${host}${at}`;
+    const name = application.domains.find((d) => d.host === host && d.path === at);
+    if (!name) return res.status(404).json({ success: false, error: `${label} is not one of this app's names` } as ApiResponse);
     if (application.domains.length === 1) {
       return res.status(400).json({ success: false, error: 'An app needs at least one hostname — add another first' } as ApiResponse);
     }
 
     const node = await serverForApplication(application.id).catch(() => null);
-    const removed = await prisma.appDomain.delete({ where: { host_path: { host, path: '' } } });
-    // the name's route without this app: gone if nothing else is on it, the others' otherwise
+    const removed = await prisma.appDomain.delete({ where: { host_path: { host, path: at } } });
+    // the name's route without this binding: gone if nothing else is on it, the others' otherwise
     try {
       if (node) await recomposeHosts(node, [host]);
     } catch (error: any) {
-      // not routed as it should be: the name stays the app's, nothing half-done
+      // not routed as it should be: the binding stays, nothing half-done
       await prisma.appDomain.create({ data: removed });
-      return res.status(502).json({ success: false, error: `${host} could not be taken off: ${error?.message ?? error}` } as ApiResponse);
+      return res.status(502).json({ success: false, error: `${label} could not be taken off: ${error?.message ?? error}` } as ApiResponse);
     }
-    // its DNS record only when no other app answers on the name
-    if ((await hostsOnlyOf(application.id, [host])).length) {
+    // its DNS record only when nothing answers on the name any more
+    if (!(await prisma.appDomain.count({ where: { host } }))) {
       await removeAppHostname({ id: application.id, domain: host, domainId: name.domainId });
     }
     await prisma.log.create({
-      data: { level: 'INFO', message: `${host} removed from ${application.name}`, userId: req.user!.userId, applicationId: application.id },
+      data: { level: 'INFO', message: `${label} removed from ${application.name}`, userId: req.user!.userId, applicationId: application.id },
     });
-    return res.json({ success: true, data: { host }, message: `${host} removed` } as ApiResponse);
+    return res.json({ success: true, data: { host, path: at }, message: `${label} removed` } as ApiResponse);
   } catch (error: any) {
-    console.error('Error removing a hostname:', error);
-    return res.status(502).json({ success: false, error: error?.message || 'Could not remove the hostname' } as ApiResponse);
+    console.error('Error removing a binding:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not remove the binding' } as ApiResponse);
   }
 });
 
@@ -1266,71 +1304,6 @@ router.post('/:id/pm2-deploy', authenticateToken, async (req: AuthenticatedReque
     if (error instanceof Pm2DeployError) return res.status(409).json({ success: false, error: error.message } as ApiResponse);
     console.error('Error starting a pm2 build:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not start the build' } as ApiResponse);
-  }
-});
-
-/**
- * Route an imported app's names by path — `/api/*` to a port, the rest a
- * folder — rewriting its Caddy route through the admin API. Its organization's
- * owner or admin may, within the app's own ports and folder (a tenant must not
- * point its name at another tenant's process or files); a platform admin
- * anywhere on the box. Only on an explicit yes: it is live for visitors at once.
- * Answers with the Caddyfile text of the same routing, to keep the server's in step.
- */
-router.put('/:id/routing', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
-      include: { ...withDomains, source: { select: { path: true } } },
-    });
-    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    const platformAdmin = isPlatformAdmin(req);
-    if (!platformAdmin && !(application.organizationId && (await canManageOrg(req, application.organizationId)))) {
-      return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can change its routing" } as ApiResponse);
-    }
-    // a panel-managed app's route is rewritten by every deploy — its routing is the deploy's
-    if (!application.runtime || application.runtime === 'CADDY_PHP') {
-      return res.status(400).json({ success: false, error: 'Routing is set here only for imported Node or static sites' } as ApiResponse);
-    }
-    if (req.body?.consent !== true) {
-      return res.status(400).json({ success: false, error: 'Confirm that visitors get the new routing at once' } as ApiResponse);
-    }
-
-    // what this app already reaches: its own port and the ones its routing uses
-    const current = (Array.isArray(application.routing) ? application.routing : []) as Array<{ proxy?: string }>;
-    const ownPorts = new Set(
-      [application.port, ...current.map((part) => Number(String(part.proxy ?? '').match(/:(\d+)$/)?.[1]))].filter((port): port is number => !!port),
-    );
-    const base = application.source?.path ?? (application.rootPath ? path.posix.dirname(application.rootPath) : null);
-    const problem = routingProblem(req.body?.parts, {
-      ports: platformAdmin ? null : ownPorts,
-      base: platformAdmin ? null : base,
-    });
-    if (typeof problem === 'string') return res.status(400).json({ success: false, error: problem } as ApiResponse);
-    const parts = problem;
-
-    const hosts = hostsOf(application).filter((host) => !host.endsWith('.pm2.local'));
-    if (hosts.length === 0) return res.status(400).json({ success: false, error: 'This app has no hostname to route' } as ApiResponse);
-    const node = await serverForApplication(application.id);
-    await configureCaddyForSplit(node, hosts, parts);
-
-    // the same shape the sync reads back from Caddy (routeParts), so nothing changes on the next sync
-    const routing = parts.length > 1 ? parts.map((part) => ({ path: part.path, ...(part.port ? { proxy: `127.0.0.1:${part.port}` } : { root: part.root, ...(part.spa && { spa: true }) }) })) : null;
-    await prisma.application.update({ where: { id: application.id }, data: { routing: routing ?? Prisma.DbNull } });
-    const caddyfile = caddyfileFor(hosts, parts);
-    await prisma.deployment.create({
-      data: {
-        applicationId: application.id,
-        sourceId: application.sourceId,
-        userId: req.user!.userId,
-        status: 'SUCCESS',
-        deployLogs: `Routing changed in Caddy. The same, for the server's Caddyfile:\n\n${caddyfile}`,
-      },
-    });
-    return res.json({ success: true, data: { routing, caddyfile }, message: 'Routing updated' } as ApiResponse);
-  } catch (error: any) {
-    console.error('Error setting routing:', error);
-    return res.status(502).json({ success: false, error: error?.message || 'Could not update the routing' } as ApiResponse);
   }
 });
 
