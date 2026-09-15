@@ -34,13 +34,10 @@ const deploying = new Set<string>();
 // deploys a user asked to stop; checked between steps (cancelDeploy)
 const cancelling = new Set<string>();
 
-/** A static site of a shared source, uploaded to `folder` of its R2 location and not serving yet. */
-type BuiltSite = { site: AppWithOrg; bucket: string; origin: string; folder: string };
-
 /** A deploy stopped on request — recorded as CANCELLED, not FAILED. */
 class CancelledError extends Error {}
-/** What the locks are held on: the source, which all its apps build from together. */
-const lockKey = (application: { id: string; sourceId: string | null }) => application.sourceId ?? application.id;
+/** What the locks are held on: the app — each deploys on its own, in its own tree. */
+const lockKey = (application: { id: string }) => application.id;
 const throwIfCancelled = (key: string) => {
   if (cancelling.has(key)) throw new CancelledError('Deployment cancelled');
 };
@@ -156,8 +153,6 @@ export interface DeploymentConfig {
   application: Application;
   deployment: Deployment;
   envVars?: Record<string, string>;
-  /** an app's own deploy, not its whole project's — see deployScope */
-  only?: boolean;
 }
 
 export interface BuildResult {
@@ -318,17 +313,17 @@ export class DeploymentService {
   }
 
   /** A kept build with this key whose tree is still on disk, newest first — or null. */
-  private async reusableRelease(afs: AppFs, sourceId: string, buildKey: string): Promise<Release | null> {
+  private async reusableRelease(afs: AppFs, applicationId: string, buildKey: string): Promise<Release | null> {
     // an optimisation: whatever goes wrong looking (a schema not migrated yet,
     // an unreachable node) means build as usual, never a failed deploy
     try {
       const release = await prisma.release.findFirst({
-        where: { sourceId, buildKey, status: 'READY', path: { not: null } },
+        where: { applicationId, buildKey, status: 'READY', path: { not: null } },
         orderBy: { createdAt: 'desc' },
       });
       return release && (await afs.isDirectory(release.path!)) ? release : null;
     } catch (error: any) {
-      console.error(`Build cache lookup for source ${sourceId} failed, building instead:`, error?.message ?? error);
+      console.error(`Build cache lookup for ${applicationId} failed, building instead:`, error?.message ?? error);
       return null;
     }
   }
@@ -358,10 +353,8 @@ export class DeploymentService {
    * build there. The tree that is serving is never touched, and rollback is a
    * symlink away. The tree is handed to the tenant user by cb-app-unit install.
    *
-   * `afs` is the source's tree; `group` every app built from it (a monorepo's
-   * apps, else the one app). One release for all of them: each app is detected
-   * and built in its own folder with its own env; an install several share (a
-   * workspace's, at the repository root) runs once.
+   * `afs` is the app's tree; `group` is the app (a list from when a source's apps
+   * built together — each is detected and built in its own folder with its own env).
    */
   async runBuild(
     afs: AppFs,
@@ -385,8 +378,7 @@ export class DeploymentService {
       for (const app of group) if (systemd.needsUnit(app.type)) await this.allocatePort(app, afs);
       await this.removeOrphanReleases(afs, first.id);
 
-      // appended: the deploy emptied build.log when it began, and what ran before this (the
-      // project's static sites) stays in it — one log for the whole deploy, not the last step's
+      // appended: the deploy emptied build.log when it began — one log for the whole deploy
       await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
 
       const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
@@ -748,9 +740,8 @@ export class DeploymentService {
   }
 
   /**
-   * Activate a release. The sources tree already on disk is the release, so
-   * this is a unit reinstall and restart — of every app of the source, since
-   * they all run from its `current`. True when all of them came up.
+   * Activate a release. The tree already on disk is the release, so this is a
+   * unit reinstall and restart. True when it came up.
    */
   async startRelease(application: Application, release: Release): Promise<boolean> {
     const afs = await sourceFsFor(application.id);
@@ -762,42 +753,13 @@ export class DeploymentService {
       await this.activateRelease(afs, release.path);
     }
 
-    let started = true;
-    for (const app of await this.groupOf(application)) {
-      // PHP serves straight from `current`: the switch above is all it needs
-      if (systemd.needsUnit(app.type)) started = (await this.startApplication(app.id)) && started;
-    }
-    return started;
+    // PHP serves straight from `current`: the switch above is all it needs
+    return systemd.needsUnit(application.type) ? this.startApplication(application.id) : true;
   }
 
-  /**
-   * Every app one deploy builds and starts together: the apps of the source
-   * (a monorepo's), oldest first, else the app alone. Imported apps never share one.
-   */
+  /** The app with its organization's slug — what the build and the unit need. */
   async groupOf(application: Application): Promise<AppWithOrg[]> {
-    const include = { organization: { select: { slug: true } } } as const;
-    if (!application.sourceId) {
-      return [await prisma.application.findUniqueOrThrow({ where: { id: application.id }, include })];
-    }
-    return prisma.application.findMany({
-      where: { sourceId: application.sourceId, runtime: null },
-      include,
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  /**
-   * What a deploy of `application` covers. The project's (only false): every app
-   * of its source. An app's own (only true, its setup checklist's Deploy): a static
-   * site alone — it builds on the panel into its own folder; an app on the node with
-   * the source's other node apps — they share one tree, release and `current`, so one
-   * cannot be built without the others — but never the static sites.
-   */
-  async deployScope(application: Application, only = false): Promise<{ whole: AppWithOrg[]; scoped: AppWithOrg[] }> {
-    const whole = await this.groupOf(application);
-    if (!only || whole.length === 1) return { whole, scoped: whole };
-    const scoped = whole.filter((app) => (application.type === 'STATIC' ? app.id === application.id : app.type !== 'STATIC'));
-    return { whole, scoped };
+    return [await prisma.application.findUniqueOrThrow({ where: { id: application.id }, include: { organization: { select: { slug: true } } } })];
   }
 
   async stopApplication(applicationId: string): Promise<boolean> {
@@ -831,14 +793,14 @@ export class DeploymentService {
     return this.getApplicationLogsFromFiles(applicationId, 'out', lines);
   }
 
-  /** True while a deploy for this application — for any app of its source — is in flight. */
-  isDeploying(application: { id: string; sourceId: string | null }): boolean {
+  /** True while a deploy of this application is in flight. */
+  isDeploying(application: { id: string }): boolean {
     return deploying.has(lockKey(application));
   }
 
   /**
-   * Full deployment process. One deploy per source at a time (its apps build
-   * together), and at most BUILD_CONCURRENCY builds on the box.
+   * Full deployment process. One deploy per app at a time, and at most
+   * BUILD_CONCURRENCY builds on the box.
    */
   async deploy(config: DeploymentConfig): Promise<DeployResult> {
     const id = lockKey(config.application);
@@ -861,19 +823,15 @@ export class DeploymentService {
   async cancelDeploy(applicationId: string): Promise<boolean> {
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
-      select: { id: true, sourceId: true, type: true, organization: { select: { slug: true } } },
+      select: { id: true, type: true, organization: { select: { slug: true } } },
     });
     if (!app) return false;
     const key = lockKey(app);
     if (!deploying.has(key)) return false;
     cancelling.add(key);
-    // static builds run on the panel and stop at the next step instead — but a
-    // site sharing its source with other apps deploys with their build on the node
-    const nodeBuild =
-      app.type !== 'STATIC' ||
-      (!!app.sourceId && (await prisma.application.count({ where: { sourceId: app.sourceId, runtime: null, type: { not: 'STATIC' } } })) > 0);
-    if (nodeBuild && app.organization?.slug) {
-      // the build runs as the source's: cb-build-<slug>-<source id>
+    // static builds run on the panel and stop at the next step instead
+    if (app.type !== 'STATIC' && app.organization?.slug) {
+      // the build runs as the app's: cb-build-<slug>-<app id>
       await sourceTreeUnit('cancel-build', app.organization.slug, key, applicationId).catch((error: any) =>
         console.error(`Could not stop the build of ${applicationId}:`, error?.message ?? error),
       );
@@ -885,8 +843,7 @@ export class DeploymentService {
    * Build a static site from the checkout in `afs` (its tree on the panel) and
    * upload the output to a fresh release folder in its R2 location. Nothing
    * serves the folder yet: the serving one is untouched until the route moves
-   * (services/staticReleaseService.ts). `shared`: its source also holds other
-   * apps, whose releases are the source's Release rows — the site keeps none.
+   * (services/staticReleaseService.ts).
    */
   private async buildStaticRelease(
     application: AppWithOrg,
@@ -894,7 +851,6 @@ export class DeploymentService {
     deploymentId: string,
     envVars: Record<string, string>,
     buildLogPath: string,
-    shared: boolean,
   ): Promise<{ bucket: string; origin: string; folder: string }> {
     // absolute: APPS_DIR may be relative (../apps_dir), and the build below starts in
     // the folder and then `cd`s to it by path — relative, that path is not there from inside it
@@ -947,8 +903,8 @@ export class DeploymentService {
     }
 
     const { bucket, origin } = await siteStorage(application as any);
-    // a release row for files from before releases — a shared source's rows are its other apps'
-    if (!shared) await adoptRootFiles(application as any);
+    // a release row for files from before releases, so there is something to roll back to
+    await adoptRootFiles(application as any);
     const folder = releaseFolder(deploymentId);
     try {
       await uploadSiteDirectory(inFolder(bucket, folder), distDir);
@@ -959,71 +915,10 @@ export class DeploymentService {
     return { bucket, origin, folder };
   }
 
-  /**
-   * The static sites of a source that holds other apps too (or several sites):
-   * built on the panel, all from one checkout of the source there pinned to
-   * `commitSha` — the commit the other apps build from. Each is pushed to
-   * `built` as it uploads, so a later failure can discard it.
-   */
-  private async buildSites(
-    sites: AppWithOrg[],
-    source: { repository: string | null; branch: string | null; gitAccountId: string | null },
-    commitSha: string | undefined,
-    deploymentId: string,
-    envOf: (site: AppWithOrg) => Record<string, string>,
-    built: BuiltSite[],
-    log: (text: string) => Promise<void>,
-  ): Promise<void> {
-    const siteFs = await this.prepareAppDirectory(sites[0]!.id);
-    await this.syncRepository(siteFs, source.repository!, source.branch || 'main', source.gitAccountId);
-    if (commitSha) await gitIn(siteFs, sourcesDirFor(siteFs.appDir), ['checkout', '--quiet', '--detach', commitSha]);
-    // each site's build log on the panel, then into the deploy's own — not build.log,
-    // which is the deploy's own when the source is sites alone (the same tree)
-    const logPath = join(logsDirFor(siteFs.appDir), 'site-build.log');
-    for (const site of sites) {
-      await siteFs.writeFile(logPath, '');
-      try {
-        built.push({ site, ...(await this.buildStaticRelease(site, siteFs, deploymentId, envOf(site), logPath, true)) });
-      } finally {
-        await log(`==> ${site.name} <==` + NL + (await siteFs.readText(logPath).catch(() => '')) + NL);
-      }
-    }
-  }
-
-  /**
-   * Point each built site's route at its new folder. Said, not thrown, when a
-   * route fails: the site stays RUNNING on the new pointer and the watchdog
-   * re-applies it. The folder it served before goes.
-   * ponytail: a shared source's site keeps no releases, so no rollback for it —
-   * give it Release rows of its own (a site id on Release) if that is needed.
-   */
-  private async switchSites(built: BuiltSite[]): Promise<string> {
-    const lines: string[] = [];
-    for (const { site, bucket, origin, folder } of built) {
-      const staticOrigin = inFolder(origin, folder);
-      try {
-        await serveStatic(await serverForApplication(site.id), site.id, staticOrigin);
-        lines.push(`${site.name}: static site deployed to Cloudflare R2 (${staticOrigin})`);
-      } catch (error: any) {
-        lines.push(`${site.name}: uploaded, but its route could not be set — ${staticRouteError(error)}`);
-      }
-      const before = servingFolder(site.staticOrigin);
-      await prisma.application.update({
-        where: { id: site.id },
-        data: { staticBucket: bucket, staticOrigin, status: 'RUNNING', lastDeployment: new Date() },
-      });
-      if (before && before !== folder) await discardFolder(bucket, before);
-    }
-    return lines.join(NL);
-  }
-
   private async deployInner(config: DeploymentConfig): Promise<DeployResult> {
     const { application, deployment, envVars = {} } = config;
     const key = lockKey(application);
     let commitSha: string | undefined;
-    // static sites of a shared source, uploaded but not serving yet — discarded unless the deploy goes live
-    const builtSites: BuiltSite[] = [];
-    let sitesLive = false;
     // the deploy's build log so far, for a failure thrown past every step's own handling
     let readBuildLog: (() => Promise<string>) | null = null;
 
@@ -1035,27 +930,18 @@ export class DeploymentService {
         data: { status: 'BUILDING' },
       });
 
-      // Everything built from this source goes out together, from one commit.
-      // Its static sites (in a source with other apps) build on the panel and
-      // switch once the rest is up; `group` is what builds and runs on the node.
-      // what this deploy covers: the project, or (config.only) the app — alone, or with its node's apps
-      const { whole, scoped: all } = await this.deployScope(application, config.only);
-      // a static site of a source with other apps builds on the panel as one of `sites`,
-      // even when it is deployed alone: its source's Release rows are the other apps'
-      const sites = whole.length > 1 ? all.filter((app) => app.type === 'STATIC') : [];
-      const group = all.filter((app) => !sites.includes(app));
-      // whose tree the deploy works in: the app itself, else another of the node's — or, sites alone, the first
-      const lead = group.find((app) => app.id === application.id) ?? group[0] ?? sites[0]!;
+      // the app, with what the build needs (its org's slug) — `group` from when a source's apps built together
+      const group = await this.groupOf(application);
 
       // The org has to exist on this app's node before anything lands there —
       // provisioned lazily, on the nodes it actually uses. A no-op once done.
-      if (lead.organizationId && lead.type !== 'STATIC') {
-        const node = await serverForApplication(lead.id);
-        await ensureOrgOnNode(lead.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
+      if (application.organizationId && application.type !== 'STATIC') {
+        const node = await serverForApplication(application.id);
+        await ensureOrgOnNode(application.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
       }
       throwIfCancelled(key);
 
-      const afs = await this.prepareAppDirectory(lead.id);
+      const afs = await this.prepareAppDirectory(application.id);
       const { appDir } = afs;
 
       const logsDir = logsDirFor(appDir);
@@ -1097,25 +983,7 @@ export class DeploymentService {
       }
       throwIfCancelled(key);
 
-      if (sites.length) {
-        if (!source?.repository) throw new Error('Only a project from a git repository can have several apps');
-        await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC SITES: ${sites.map((site) => site.name).join(', ')}` + NL);
-        await this.buildSites(sites, source, commitSha, deployment.id, (site) => (site.id === application.id ? envVars : readEnv(site.envVars)), builtSites, (text) =>
-          afs.appendFile(buildLogPath, text),
-        );
-        throwIfCancelled(key);
-      }
-
-      // a source of static sites alone: nothing runs on a node — they switch now
-      if (!group.length) {
-        const buildLogs = await readLog(buildLogPath, 'Build logs not available');
-        sitesLive = true;
-        const deployLogs = await this.switchSites(builtSites);
-        await prisma.deployment.update({ where: { id: deployment.id }, data: { status: 'SUCCESS', buildLogs, deployLogs } });
-        return { success: true, buildLogs, deployLogs };
-      }
-
-      if (lead.type === 'STATIC') {
+      if (application.type === 'STATIC') {
         // Static sites build on the panel (AppFs is local for them) and are
         // served from R2, so nothing here touches a node except the route.
         // Uploaded static sites already live in object storage — a redeploy has
@@ -1166,12 +1034,12 @@ export class DeploymentService {
 
         try {
           const previousOrigin: string | null = (application as any).staticOrigin ?? null;
-          const { bucket, origin, folder } = await this.buildStaticRelease(application, afs, deployment.id, envVars, buildLogPath, false);
+          const { bucket, origin, folder } = await this.buildStaticRelease(application, afs, deployment.id, envVars, buildLogPath);
 
           const release = await prisma.release.create({
-            data: { sourceId: application.sourceId, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
+            data: { applicationId: application.id, sourceId: application.sourceId, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
           });
-          const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), source: { update: { activeReleaseId: release.id } } };
+          const pointer = { staticBucket: bucket, staticOrigin: inFolder(origin, folder), activeReleaseId: release.id };
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');
 
           try {
@@ -1225,9 +1093,7 @@ export class DeploymentService {
       const envs = new Map(group.map((app) => [app.id, app.id === application.id ? envVars : readEnv(app.envVars)]));
       const buildKey = commitSha ? groupBuildKey(group.map((app) => buildKeyOf(app, commitSha!, envs.get(app.id)!))) : null;
       const reused =
-        buildKey && application.sourceId && !group.some((app) => app.type === 'PHP')
-          ? await this.reusableRelease(afs, application.sourceId, buildKey)
-          : null;
+        buildKey && !group.some((app) => app.type === 'PHP') ? await this.reusableRelease(afs, application.id, buildKey) : null;
       if (reused) {
         await afs.appendFile(
           buildLogPath,
@@ -1351,6 +1217,7 @@ export class DeploymentService {
         reused ??
         (await prisma.release.create({
           data: {
+            applicationId: application.id,
             sourceId: application.sourceId,
             commitSha: commitSha ?? null,
             status: 'READY',
@@ -1364,11 +1231,11 @@ export class DeploymentService {
         }));
 
       // the new release is live and recorded: whatever fell out of the rollback window goes
-      await cleanupAppReleases(afs, lead.id).catch(() => {});
+      await cleanupAppReleases(afs, application.id).catch(() => {});
 
       await prisma.application.update({
         where: { id: application.id },
-        data: { source: { update: { activeReleaseId: release.id } } },
+        data: { activeReleaseId: release.id },
       });
 
       // The apps are up; without their routes the hostnames are not. Said first
@@ -1386,11 +1253,6 @@ export class DeploymentService {
             `${error?.message ?? String(error)}. The watchdog retries it; redeploy to try now.` + NL;
           console.error(`Caddy route for ${app.name} not set:`, error?.message ?? error);
         }
-      }
-      // the apps are up on the new commit: the sites built from it go live with them
-      if (builtSites.length) {
-        sitesLive = true;
-        routeWarning += (await this.switchSites(builtSites)) + NL;
       }
       if (routeWarning) {
         await afs.appendFile(deployLogPath, routeWarning).catch(() => {});
@@ -1428,9 +1290,6 @@ export class DeploymentService {
         error: error.message,
         buildLogs,
       };
-    } finally {
-      // a failed or cancelled deploy leaves every site on what it served before
-      if (!sitesLive) for (const { bucket, folder } of builtSites) await discardFolder(bucket, folder);
     }
   }
 

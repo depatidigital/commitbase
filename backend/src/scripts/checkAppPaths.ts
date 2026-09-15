@@ -50,8 +50,8 @@ for (const bad of ['..', '.', 'apps/..', '../x', 'a/./b', 'a//b', 'a b', 'a;id',
 }
 assert.strictEqual(inRootDirectory('/r/1', 'apps/web'), '/r/1/apps/web');
 assert.strictEqual(inRootDirectory('/r/1', null), '/r/1');
-// a source's tree is a sibling of the app's, or the app's own
-assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app2', 'src1'), '/home/cb-acme/apps/src1');
+// every app's tree is its own — a monorepo's apps each clone and deploy alone
+assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app2', 'src1'), '/home/cb-acme/apps/app2');
 assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app1', 'app1'), '/home/cb-acme/apps/app1');
 assert.strictEqual(sourceDirOf('/home/cb-acme/apps/app1', null), '/home/cb-acme/apps/app1');
 

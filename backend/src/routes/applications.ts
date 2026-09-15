@@ -1684,8 +1684,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     const imported = refuseImported(application, res);
     if (imported) return imported;
 
-    // only: the app's own deploy (its setup checklist) — it alone, not its whole project (deployScope)
-    const launched = await launchDeploy(application, req.user!.userId, { only: req.body?.only === true });
+    const launched = await launchDeploy(application, req.user!.userId);
     if (!launched) {
       return res.status(409).json({
         success: false,

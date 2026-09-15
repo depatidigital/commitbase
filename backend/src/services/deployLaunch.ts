@@ -7,20 +7,15 @@ import { ensureAppHostname } from './appDnsService';
 const deploymentService = new DeploymentService();
 
 /**
- * Start a deploy of `application` — of its whole source, so every app of it —
- * in the background, and return its row. null when one is already running.
- * The caller has checked the app may be deployed (panel-managed, in scope).
+ * Start a deploy of `application` in the background, and return its row. null
+ * when one is already running. A project deploy is each of its apps launched
+ * (routes/sources.ts). The caller has checked the app may be deployed
+ * (panel-managed, in scope).
  */
-export async function launchDeploy(
-  application: Application,
-  userId: string,
-  /** the app's own deploy (its checklist's Deploy): it alone, not its whole project — DeploymentService.deployScope */
-  { only = false }: { only?: boolean } = {},
-): Promise<{ deploymentId: string } | null> {
-  // A project deploy builds its whole source, so every app of it (a monorepo's)
-  // goes out with it; an app's own, what deployScope says. Each app deployed keeps
-  // its own status, from what it was before.
-  const { whole: group, scoped } = await deploymentService.deployScope(application, only);
+export async function launchDeploy(application: Application, userId: string): Promise<{ deploymentId: string } | null> {
+  // the app keeps its own status, from what it was before
+  const group = await deploymentService.groupOf(application);
+  const scoped = group;
   const before = new Map(scoped.map((app) => [app.id, app.status]));
   const setStatus = (status: (was: AppStatus) => AppStatus, extra: { lastDeployment?: Date } = {}) =>
     Promise.all(
@@ -74,7 +69,6 @@ export async function launchDeploy(
     application,
     deployment,
     envVars: readEnv(application.envVars),
-    only,
   }).then(async (result) => {
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did

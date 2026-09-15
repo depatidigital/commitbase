@@ -64,13 +64,13 @@ export const currentDirFor = (appDir: string) => path.posix.join(appDir, 'curren
 export const sharedDirFor = (appDir: string) => path.posix.join(appDir, 'shared');
 
 /**
- * The tree an app's code is in: its source's directory, a sibling of its own.
- * sources/, releases/, current and build.sh are the source's; run.sh and the
- * unit's logs are the app's. The same directory for an app whose source shares
- * its id — every app but the extra apps of a monorepo.
+ * The tree an app's code is in: its own directory — sources/, releases/,
+ * current, build.sh, run.sh and the unit's logs, all of them. The apps of a
+ * monorepo each clone the repository into their own tree and deploy on their
+ * own; a project deploy is each of its apps deployed. Kept as a function: the
+ * callers say "the source's tree" and that is where it is.
  */
-export const sourceDirOf = (appDir: string, sourceId: string | null | undefined) =>
-  sourceId ? path.posix.join(path.posix.dirname(appDir), sourceId) : appDir;
+export const sourceDirOf = (appDir: string, _sourceId?: string | null) => appDir;
 
 /**
  * An app's folder inside the repository (monorepos): plain relative segments,
