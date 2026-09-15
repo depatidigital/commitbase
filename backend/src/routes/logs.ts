@@ -4,7 +4,6 @@ import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope, logScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
-import { getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 import * as path from 'path';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { followPm2Logs } from '../services/appSyncService';
@@ -58,21 +57,10 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
         if (!latestDeployment) {
           logs = 'No deployments found for application';
         } else {
-          const key = getBuildLogKey(latestDeployment.applicationId, latestDeployment.id);
-
-          if (!key) {
-            logs = 'Build logs are not available (S3 not configured)';
-          } else {
-            const approxBytes = Math.max(lines * 500, 5000);
-            const content = await downloadObjectToString(key, approxBytes);
-
-            if (!content) {
-              logs = 'Build logs are not available in S3';
-            } else {
-              const logLines = content.split('\n');
-              logs = logLines.slice(-lines).join('\n');
-            }
-          }
+          // kept on the deployment once its build ends
+          logs = latestDeployment.buildLogs
+            ? latestDeployment.buildLogs.split('\n').slice(-lines).join('\n')
+            : 'Build logs are not available yet';
         }
       } else {
         logs = await deploymentService.getApplicationLogsFromFiles(application.id, logType, lines);

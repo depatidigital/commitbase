@@ -4,7 +4,6 @@ import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
-import { getBuildLogPresignedUrl, getBuildLogKey, downloadObjectToString } from '../services/s3Service';
 
 const router = Router();
 const deploymentService = new DeploymentService();
@@ -136,63 +135,6 @@ router.get('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
   }
 });
 
-// Get build log URL for a deployment
-router.get('/:deploymentId/build-log-url', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { deploymentId } = req.params;
-
-    if (!deploymentId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Deployment ID is required',
-      } as ApiResponse);
-    }
-
-    const deployment = await prisma.deployment.findFirst({
-      where: {
-        id: deploymentId,
-        application: {
-          ...(await orgScope(req)),
-        },
-      },
-      select: {
-        id: true,
-        applicationId: true,
-      },
-    });
-
-    if (!deployment) {
-      return res.status(404).json({
-        success: false,
-        error: 'Deployment not found',
-      } as ApiResponse);
-    }
-
-    const url = await getBuildLogPresignedUrl(deployment.applicationId, deployment.id);
-
-    if (!url) {
-      return res.status(500).json({
-        success: false,
-        error: 'Build log URL is not available (S3 not configured)',
-      } as ApiResponse);
-    }
-
-    return res.json({
-      success: true,
-      data: {
-        url,
-      },
-      message: 'Build log URL retrieved successfully',
-    } as ApiResponse);
-  } catch (error) {
-    console.error('Error fetching build log URL:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    } as ApiResponse);
-  }
-});
-
 // Get deployment logs by deployment ID
 router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -233,21 +175,8 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
     let logs = '';
     try {
       if (logType === 'build') {
-        const key = getBuildLogKey(deployment.applicationId, deployment.id);
-
-        if (!key) {
-          logs = 'Build logs are not available (S3 not configured)';
-        } else {
-          const approxBytes = Math.max(lines * 500, 5000);
-          const content = await downloadObjectToString(key, approxBytes);
-
-          if (!content) {
-            logs = 'Build logs are not available in S3';
-          } else {
-            const logLines = content.split('\n');
-            logs = logLines.slice(-lines).join('\n');
-          }
-        }
+        // kept on the deployment once its build ends
+        logs = deployment.buildLogs ? deployment.buildLogs.split('\n').slice(-lines).join('\n') : 'Build logs are not available yet';
       } else {
         logs = await deploymentService.getApplicationLogs(deployment.applicationId, lines);
       }

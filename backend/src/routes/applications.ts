@@ -9,7 +9,6 @@ import { canManageOrg, getOrgIds, isPlatformAdmin, orgScope } from '../lib/scope
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { appHosts, appIdAt, atEach, hostList, hostRefused, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
-import { getStaticSiteBaseUrl } from '../services/s3Service';
 import { uploadSiteObject, deleteSiteObjects, copySiteObjects } from '../services/r2Service';
 import {
   adoptRootFiles,
@@ -639,7 +638,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
         placement: application.server ?? application.organization?.defaultServer ?? null,
       },
       message: 'Application retrieved successfully',
-    } as ApiResponse<Application & { staticSiteUrl?: string | null }>);
+    } as ApiResponse<Application>);
   } catch (error) {
     console.error('Error fetching application:', error);
     return res.status(500).json({
