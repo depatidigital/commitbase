@@ -20,6 +20,8 @@ interface AppSetupCardProps {
   /** Deploy was clicked and is saving or starting */
   starting?: boolean;
   onDeploy: () => void;
+  /** the hosts dialog — the first step: the env's addresses follow from them */
+  onEditHosts: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
   /** one line a step, in a small box — the project page's app cards */
@@ -88,11 +90,19 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           </Button>
         </div>
         <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
-          <Mark done={envDone} warn={dbFailed} />
+          <Mark done={envDone} warn={dbFailed || env.warnings.length > 0} />
           <span className="shrink-0 font-medium">{t("Environment")}</span>
-          <span className={`min-w-0 truncate ${env.missing.length ? "text-destructive" : unconfirmed ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-            {envLine}
-          </span>
+          {/* filled but likely wrong on the server: said here too, by count and name */}
+          {!detecting && !env.missing.length && env.warnings.length > 0 ? (
+            <span className="min-w-0 truncate text-amber-600 dark:text-amber-400" title={env.warnings.join(", ")}>
+              {t("{count} to check: {keys}", { count: env.warnings.length, keys: env.warnings.join(", ") })}
+              {unconfirmed && ` · ${t("not confirmed yet")}`}
+            </span>
+          ) : (
+            <span className={`min-w-0 truncate ${env.missing.length ? "text-destructive" : unconfirmed ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+              {envLine}
+            </span>
+          )}
         </button>
         <button type="button" onClick={onEditBuild} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
           <Mark done={!!(build || start)} warn={buildWarnings.length > 0 || !!suggestedPreDeploy} />

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { EnvEditor } from "@/components/EnvEditor";
 import { DatabaseDialog } from "@/components/DatabaseDialog";
 import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
+import { getProject } from "@/lib/projects";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, getApplication, hasBeenDeployed, hostsOf, updateApplication } from "@/lib/applications";
 import {
@@ -66,11 +67,14 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     [detected, required],
   );
 
-  // the saved env, then every expected key it lacks
+  // The saved env, then — until it is first saved — every expected key it lacks.
+  // Once saved, what is in it is the app's choice: a key removed then (the app
+  // does not use it) is not put back; it is offered below instead.
+  const prefill = application.envConfirmed === false;
   const initial = useMemo(
-    () => mergeRows(toRows(saved), expectedRows(detected)),
+    () => mergeRows(toRows(saved), prefill ? expectedRows(detected) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(saved), detected],
+    [JSON.stringify(saved), detected, prefill],
   );
 
   const [rows, setRows] = useState<EnvRow[]>(initial);
@@ -86,6 +90,25 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     queryKey: ["databases", "application", application.id],
     queryFn: () => getAppDatabases(application.id),
   });
+  // every host of the project's apps (its own too), offered on *_URL rows — the
+  // frontend's VITE_API_URL is the API app's address. The project page's own query.
+  const { data: project } = useQuery({
+    queryKey: ["project", application.sourceId],
+    queryFn: () => getProject(application.sourceId!),
+    enabled: !!application.sourceId,
+    staleTime: 60_000,
+  });
+  const urlOptions = useMemo(
+    () => [
+      ...new Set(
+        (project?.applications ?? [{ domains: hostsOf(application).map((host) => ({ host, path: "" })) }])
+          .flatMap((app) => app.domains)
+          .filter((d) => !d.host.endsWith(".local"))
+          .map((d) => `https://${d.host}${(d.path ?? "").replace(/\*+$/, "").replace(/\/+$/, "")}`),
+      ),
+    ],
+    [project, application],
+  );
   const managedDatabase = (url: string) => {
     try {
       const name = decodeURIComponent(new URL(url).pathname.replace(/^\/+/, ""));
@@ -107,10 +130,13 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   }, [initial]);
 
   // counted from what is on screen, not what is saved: a value just typed is no longer "empty"
+  // an expected key that was removed is not missing — the app said it does not use it
   const missing = useMemo(
-    () => [...required].filter((key) => !rows.find((row) => row.key === key)?.value.trim()),
+    () => [...required].filter((key) => rows.some((row) => row.key === key && !row.value.trim())),
     [required, rows],
   );
+  // what .env.example (or the ORM) expects that is not in the env — removed, or new in the repo since
+  const absent = useMemo(() => expectedRows(detected).filter((row) => !rows.some((r) => r.key === row.key)), [detected, rows]);
   // a database URL can be tried from the app's node (verify below) — whether
   // localhost works there is for that test to say, not for its text
   const isDatabaseUrl = (row: EnvRow) => !!parseDatabaseUrl(row.value).engine;
@@ -186,6 +212,25 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         </p>
       )}
 
+      {absent.length > 0 && (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            {t("In {file} but not set: {keys}", { file: detected?.env.example?.file ?? ".env.example", keys: absent.map((row) => row.key).join(", ") })}
+          </span>
+          <button
+            type="button"
+            className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+            disabled={saving}
+            onClick={() => {
+              setRows((prev) => mergeRows(prev, absent));
+              setDirty(true);
+            }}
+          >
+            {t("Add them")}
+          </button>
+        </p>
+      )}
+
       <EnvEditor
         rows={rows}
         required={required}
@@ -241,6 +286,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         generate={(row) => (row.value ? null : generateSecret(row.key))}
         // tried from the node the app runs on, with the value as typed
         verify={(row) => (isDatabaseUrl(row) ? () => testDatabaseUrl(application.id, row.key, row.value) : null)}
+        urlOptions={urlOptions}
         disabled={saving}
         onChange={(next) => {
           setRows(next);

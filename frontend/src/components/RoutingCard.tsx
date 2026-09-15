@@ -43,6 +43,8 @@ export function RoutingCard({
   onRepoint,
   children,
   compact = false,
+  editOpen: controlledOpen,
+  onEditOpenChange,
 }: {
   application: Application;
   pending?: boolean;
@@ -51,12 +53,17 @@ export function RoutingCard({
   children?: React.ReactNode;
   /** one line — the hosts and Edit — for an app card opened in a list */
   compact?: boolean;
+  /** the hosts dialog, opened from outside too (the setup checklist's Host step) */
+  editOpen?: boolean;
+  onEditOpenChange?: (open: boolean) => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   // each route checked at its own host and path — the same query the app page polls
   const { data: checks } = useApplicationHostname(application.id);
-  const [editOpen, setEditOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const editOpen = controlledOpen ?? ownOpen;
+  const setEditOpen = onEditOpenChange ?? setOwnOpen;
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<AppDomain | null>(null);
 
@@ -317,7 +324,8 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
 
   const [domain, setDomain] = useState("");
   const [subdomain, setSubdomain] = useState("");
-  const [root, setRoot] = useState(false);
+  // an owned domain is the route itself until "+ Subdomain" is clicked
+  const [root, setRoot] = useState(true);
   const [path, setPath] = useState("");
   const [hostBlocked, setHostBlocked] = useState(false);
   const [dnsConsent, setDnsConsent] = useState(false);
@@ -325,7 +333,8 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   const picked = choices.find((choice) => choice.name === domain);
   const useRoot = root && !!picked && !picked.shared;
   const host = joinHost(subdomain, domain, useRoot);
-  const nextPath = path.trim() === "/" ? "" : path.trim();
+  // the leading "/" is fixed in the field, so `path` is only what comes after it
+  const nextPath = path.trim() ? `/${path.trim()}` : "";
   const pathProblem = nextPath && !PATH.test(nextPath) ? t("A path is like /api/* — or leave it empty for the whole host") : null;
   const problem = hostnameProblem(subdomain, picked, useRoot);
   const taken = application.domains.some((d) => d.host === host && (d.path ?? "") === nextPath);
@@ -371,9 +380,17 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
         trailing={
           <>
             {/* optional: a path under the host — other apps of the organization can have the rest */}
-            <Input className="w-40 shrink-0 font-mono text-sm" value={path} placeholder={t("/path (optional)")} onChange={(e) => setPath(e.target.value)} />
+            <div className="relative w-40 shrink-0">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-muted-foreground">/</span>
+              <Input
+                className="pl-6 font-mono text-sm"
+                value={path}
+                placeholder={t("api/* (optional)")}
+                onChange={(e) => setPath(e.target.value.replace(/^\/+/, ""))}
+              />
+            </div>
             <Button
-              className="shrink-0"
+              className="h-9 shrink-0"
               onClick={() => void add()}
               // a path on a host the organization already serves is not "blocked": the host is shared by path
               disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}

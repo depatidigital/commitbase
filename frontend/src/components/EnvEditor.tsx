@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardPaste, Eye, EyeOff, FileUp, Loader2, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,10 +41,19 @@ interface EnvEditorProps {
    * the guess from the text that a localhost address cannot work.
    */
   verify?: (row: EnvRow) => (() => Promise<{ ok: boolean; message: string }>) | null;
+  /** addresses offered on *_URL / *_URI / *_ORIGIN rows (the project's hosts) — picked or typed over */
+  urlOptions?: string[];
   disabled?: boolean;
 }
 
 type Indexed = { row: EnvRow; index: number };
+
+// one line by nature — an address, a name, an id, a switch: an input. Anything
+// else may run long or span lines (a key, a JSON blob, a list): a growing textarea.
+const SHORT_NAME = /(^|_)(URL|URI|HOST|HOSTNAME|PORT|NAME|ID|ORIGIN|DOMAIN|EMAIL|USER|USERNAME|REGION|BUCKET|ENDPOINT|PATH|DIR|ENV|MODE|LEVEL|VERSION|TIMEOUT|TTL|ENABLED|DEBUG)$/i;
+const oneLine = (row: EnvRow) => SHORT_NAME.test(row.key) || /^(true|false|\d+)$/i.test(row.value.trim());
+// an address the app is given: where the project's hosts are offered
+const URL_NAME = /(^|_)(URL|URI|ORIGIN)$/i;
 
 /**
  * Env vars as a table: searched by name, narrowed to the ones that need a look,
@@ -52,7 +61,9 @@ type Indexed = { row: EnvRow; index: number };
  * whole .env into any name field splits it into rows, which is how most people
  * arrive with their variables.
  */
-export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, generate, verify, disabled }: EnvEditorProps) {
+export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, generate, verify, urlOptions = [], disabled }: EnvEditorProps) {
+  // the browser's own combobox: a dropdown on click, and still free text
+  const urlListId = useId();
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [pasting, setPasting] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -180,7 +191,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         />
         {(hints?.[row.key] || missing || invalid) && (
           <p className={`text-[11px] ${missing || invalid ? "text-destructive" : "text-muted-foreground"}`}>
-            {invalid ? t("Letters, digits and _ only; not starting with a digit") : missing ? t("Needs a value") : hints?.[row.key]}
+            {invalid ? t("Letters, digits and _ only; not starting with a digit") : missing ? t("Needs a value — or remove it if unused") : hints?.[row.key]}
           </p>
         )}
       </div>
@@ -188,16 +199,24 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   };
 
   const valueCell = ({ row, index }: Indexed) => {
-    const { missing, shown, multiline, check, checked, local, suggestion, generatable, platform, customValue } = view(row, index);
+    const { missing, secret, shown, multiline, check, checked, local, suggestion, generatable, platform, customValue } = view(row, index);
+    const action = renderAction?.(row);
+    const invalidValue = missing || (checked && checked !== "pending" && !checked.ok);
     return (
       <div className="space-y-1">
+        <div className="flex min-w-0 items-start gap-2">
+        <div className="min-w-0 flex-1">
         {customValue ? (
           customValue
-        ) : multiline && shown ? (
+        ) : shown && (multiline || (!secret && !oneLine(row))) ? (
+          // grows with what is in it (field-sizing), a line at first — a masked secret stays an input
           <Textarea
             aria-label={t("Value")}
-            className="font-mono text-xs"
-            rows={3}
+            className={`max-h-40 min-h-8 resize-y py-1.5 font-mono text-xs [field-sizing:content] ${
+              invalidValue ? "border-destructive" : local ? "border-amber-500" : ""
+            }`}
+            rows={1}
+            placeholder={missing ? t("required") : t("value")}
             value={row.value}
             disabled={disabled}
             onChange={(e) => update(index, { value: e.target.value })}
@@ -210,9 +229,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             type={shown || CSS_MASK ? "text" : "password"}
             autoComplete={shown || CSS_MASK ? "off" : "new-password"}
             style={!shown && CSS_MASK ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
-            className={`h-8 font-mono text-xs ${
-              missing || (checked && checked !== "pending" && !checked.ok) ? "border-destructive" : local ? "border-amber-500" : ""
-            }`}
+            list={!secret && urlOptions.length && URL_NAME.test(row.key) ? urlListId : undefined}
+            className={`h-8 font-mono text-xs ${invalidValue ? "border-destructive" : local ? "border-amber-500" : ""}`}
             placeholder={missing ? t("required") : t("value")}
             value={multiline && !shown ? "••••••" : row.value}
             readOnly={multiline && !shown}
@@ -220,6 +238,10 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             onChange={(e) => update(index, { value: e.target.value })}
           />
         )}
+        </div>
+        {/* the row's own control (the database dialog on DATABASE_URL) sits by the value it sets */}
+        {action}
+        </div>
         {/* said even when masked — the host is the part that matters here */}
         {(local || suggestion || generatable || platform || check) && (
           <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
@@ -285,10 +307,9 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   };
 
   const actionCell = ({ row, index }: Indexed) => {
-    const { secret, shown, fixed } = view(row, index);
+    const { secret, shown } = view(row, index);
     return (
       <div className="flex items-center justify-end gap-1">
-        {renderAction?.(row)}
         {secret && (
           <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title={shown ? t("Hide") : t("Show")} onClick={() => toggle(index)}>
             {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -299,9 +320,9 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          // an expected key would only come back — clear its value instead
-          title={fixed ? t("The code expects this variable") : t("Remove")}
-          disabled={disabled || fixed}
+          // an expected key the app does not use goes too — .env.example lists more than every setup needs
+          title={t("Remove")}
+          disabled={disabled}
           onClick={() => onChange(list.filter((_, i) => i !== index))}
         >
           <Trash2 className="h-4 w-4" />
@@ -312,10 +333,10 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
 
   const columns: Column<Indexed>[] = [
     { header: "#", className: "w-10 align-top pt-4 text-xs text-muted-foreground", cell: ({ index }) => index + 1 },
-    { header: t("Name"), className: "w-[34%] align-top", cell: nameCell },
+    { header: t("Name"), className: "w-[28%] align-top", cell: nameCell },
     { header: t("Value"), className: "align-top", cell: valueCell },
-    // wide enough for "Connect database" beside the eye and the bin
-    { header: "", className: "w-48 align-top", cell: actionCell },
+    // the eye and the bin
+    { header: "", className: "w-20 align-top", cell: actionCell },
   ];
 
   return (
@@ -382,6 +403,11 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         />
         {notice && <span className="text-xs text-muted-foreground">{notice}</span>}
       </div>
+      <datalist id={urlListId}>
+        {urlOptions.map((url) => (
+          <option key={url} value={url} />
+        ))}
+      </datalist>
 
       <Dialog open={pasting !== null} onOpenChange={(open) => !open && setPasting(null)}>
         <DialogContent>

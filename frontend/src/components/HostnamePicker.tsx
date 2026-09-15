@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Globe, Loader2, XCircle } from "lucide-react";
+import { Check, ChevronsUpDown, Globe, Loader2, Plus, X, XCircle } from "lucide-react";
 import { checkHostname, dnsNeedsConsent } from "@/lib/applications";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DnsChangeNotice } from "@/components/DnsChangeNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DomainChoice } from "@/lib/domains";
@@ -79,6 +78,7 @@ export function HostnamePicker({
 }) {
   const [open, setOpen] = useState(false);
   const picked = choices.find((choice) => choice.name === domain);
+  // shared domains are always a subdomain; owned ones are the root until "+ Subdomain" is clicked
   const useRoot = root && !!picked && !picked.shared;
   const problem = hostnameProblem(subdomain, picked, useRoot);
 
@@ -123,25 +123,36 @@ export function HostnamePicker({
         </div>
       )}
       {showFields && (<>
-      {picked && !picked.shared && onRoot && (
-        // one choice, one control: the root is picked on purpose, never implied by an empty field
-        <Tabs value={useRoot ? "root" : "sub"} onValueChange={(value) => onRoot(value === "root")}>
-          <TabsList>
-            <TabsTrigger value="sub">{t("Subdomain")}</TabsTrigger>
-            <TabsTrigger value="root">{t("Root domain")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      )}
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
         {!bare && <Globe className="min-w-4 min-h-4 text-muted-foreground" />}
-        {!useRoot && (<>
-          <Input
-            id="subdomain"
-            placeholder="app"
-            value={subdomain}
-            onBlur={() => setTouched(true)}
-            onChange={(e) => onSubdomain(e.target.value.trim().toLowerCase())}
-          />
+        {/* the domain comes first; a subdomain only once there is one to go under */}
+        {(picked || !onRoot) && !useRoot && (<>
+          <div className="relative w-full">
+            <Input
+              id="subdomain"
+              placeholder="app"
+              value={subdomain}
+              // opened by "+ Subdomain": straight into it
+              autoFocus={!!onRoot && !picked?.shared}
+              className={onRoot && !picked?.shared ? "pr-8" : undefined}
+              onBlur={() => setTouched(true)}
+              onChange={(e) => onSubdomain(e.target.value.trim().toLowerCase())}
+            />
+            {onRoot && !picked?.shared && (
+              <button
+                type="button"
+                title={t("Remove subdomain")}
+                aria-label={t("Remove subdomain")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  onSubdomain("");
+                  onRoot(true);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <span className="text-muted-foreground">.</span>
         </>)}
         <Popover open={open} onOpenChange={setOpen}>
@@ -154,7 +165,8 @@ export function HostnamePicker({
               aria-expanded={open}
               aria-invalid={!domain}
               // red until picked — whatever saves it stays disabled without it
-              className={`w-full justify-between bg-card font-normal ${
+              // h-9: level with the Input beside it (Button's default is h-10)
+              className={`h-9 w-full justify-between bg-card font-normal ${
                 domain ? "" : "border-destructive text-destructive hover:text-destructive"
               }`}
             >
@@ -203,6 +215,12 @@ export function HostnamePicker({
             </Command>
           </PopoverContent>
         </Popover>
+        {useRoot && onRoot && (
+          <Button type="button" variant="outline" className="h-9 shrink-0" onClick={() => onRoot(false)}>
+            <Plus className="mr-1 h-4 w-4" />
+            {t("Subdomain")}
+          </Button>
+        )}
         {trailing}
       </div>
       {/* the address it will have — or what is missing */}

@@ -8,7 +8,7 @@ import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
 import { AppSetupCard } from "@/components/AppSetupCard";
-import { requiredKeys } from "@/lib/env";
+import { envWarnings, requiredKeys } from "@/lib/env";
 import { stripAnsi } from "@/lib/ansi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -284,13 +284,12 @@ export default function ProjectDetail() {
                       </span>
                       <span className="flex flex-wrap items-center gap-2">
                         <AppTypeBadge type={app.type} />
-                        <Badge
-                          variant="outline"
-                          className={`truncate px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}
-                          title={app.rootPath ?? undefined}
-                        >
-                          {runtime}
-                        </Badge>
+                        {/* only what is not the panel's own: an imported app's pm2 process or Caddy files */}
+                        {app.runtime && (
+                          <Badge variant="outline" className="truncate border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning" title={app.rootPath ?? undefined}>
+                            {runtime}
+                          </Badge>
+                        )}
                       </span>
                     </span>
                     {/* where visitors reach it — opened, the quick edit below lists them instead */}
@@ -586,6 +585,7 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
   const { data: application, isLoading } = useApplication(appId);
   const start = useStartExistingApplication();
   const firstDeploy = useStartApplication();
+  const queryClient = useQueryClient();
   const stop = useStopApplication();
   const restart = useRestartApplication();
   const [confirmStop, setConfirmStop] = useState(false);
@@ -619,7 +619,12 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
   // a site uploaded as files: nothing is built or run, and it is given no env — its files are what there is
   const uploadedSite = application.type === "STATIC" && !application.repository;
   // counted from the saved env: the form is in the Env dialog, saved before it closes
-  const missing = [...requiredKeys(detection.data)].filter((key) => !application.envVars?.[key]?.trim());
+  // before its first save every expected key counts; after it, only those it kept (a removed one is not used)
+  const missing = [...requiredKeys(detection.data)].filter((key) =>
+    application.envConfirmed === false ? !application.envVars?.[key]?.trim() : application.envVars?.[key] !== undefined && !application.envVars[key].trim(),
+  );
+  // filled but likely wrong on the server (localhost…) — the same the Env dialog flags
+  const warnings = envWarnings(Object.entries(application.envVars ?? {}).map(([key, value]) => ({ key, value })));
   const lastFailed =
     lastDeployment?.status === "FAILED"
       ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-3).join("\n") || "")
@@ -637,7 +642,7 @@ function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page —
             application={application}
             detected={detection.data}
             detecting={detection.isLoading}
-            env={{ missing, warnings: [], dirty: false }}
+            env={{ missing, warnings, dirty: false }}
             failure={lastFailed || undefined}
             starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
             onDeploy={() => firstDeploy.mutate(application.id)}
