@@ -310,12 +310,12 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
               </Button>
             )}
 
-            {shippable && !deploying && !neverLive && (
+            {shippable && !neverLive && (
               <div className="flex flex-col gap-2">
                 <Button
                   type="button"
                   className="w-full bg-gradient-primary"
-                  disabled={starting || saveBranch.isPending}
+                  disabled={starting || saveBranch.isPending || (changed && deploying)}
                   onClick={() => (changed ? void deployBranch() : setConfirmPull(true))}
                 >
                   {starting || saveBranch.isPending ? (
@@ -355,7 +355,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
             <div className="space-y-2" role="radiogroup">
               {[
                 { value: false, title: t("Pull only"), detail: t("Only the code is updated. The sites keep running what was built before, until they are redeployed.") },
-                ...(project?.canSwitchBranch
+                // mid-deploy the code can still be pulled; a second deploy waits for the first
+                ...((!readOnly && !deploying) || project?.canSwitchBranch
                   ? [{ value: true, title: t("Pull and redeploy"), detail: t("Then every app is installed, built and restarted. The sites may show errors until that is done.") }]
                   : []),
               ].map((option) => (

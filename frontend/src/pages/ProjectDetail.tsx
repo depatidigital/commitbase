@@ -284,6 +284,13 @@ export default function ProjectDetail() {
                       <span className="flex min-w-0 items-center gap-2">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
                         <span className="truncate font-medium">{app.name}</span>
+                        {/* mid-deploy, said on the row itself: the dot alone is too quiet */}
+                        {["DEPLOYING", "BUILDING"].includes(app.status) && (
+                          <span className="flex shrink-0 items-center gap-1 text-xs font-normal text-warning">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            {t("Deploying")}
+                          </span>
+                        )}
                       </span>
                       <span className="flex flex-wrap items-center gap-2">
                         <AppTypeBadge type={app.type} />
