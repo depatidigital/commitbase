@@ -126,11 +126,15 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
     const group = application.sourceId
       ? await prisma.application.findMany({
           where: { sourceId: application.sourceId, runtime: null },
-          select: { id: true, name: true, type: true },
+          select: { id: true, name: true, type: true, status: true },
           orderBy: { createdAt: 'asc' },
         })
       : [];
-    const builder = group.find((app) => app.type !== 'STATIC') ?? application;
+    // whose tree the running deploy writes in: the node's, when it builds any app there — a
+    // static site deployed on its own builds on the panel, in its own tree (deployScope)
+    const deploying = group.filter((app) => app.status === 'DEPLOYING' || app.status === 'BUILDING');
+    const builder =
+      deploying.find((app) => app.type !== 'STATIC') ?? deploying[0] ?? group.find((app) => app.type !== 'STATIC') ?? application;
     const afs = await sourceFsFor(builder.id);
     const logFile = path.posix.join(afs.appDir, 'logs', 'build.log');
     const TAIL = 64 * 1024;
@@ -146,9 +150,9 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
     // A static site building right now writes on the panel (site-build.log) and joins
     // the deploy's log, under `==> name <==`, once it is done: the one not in it yet is
     // the one building — its output so far goes under its header.
-    const sites = group.length > 1 ? group.filter((app) => app.type === 'STATIC') : [];
+    const sites = group.length > 1 ? deploying.filter((app) => app.type === 'STATIC') : [];
     const building = sites.find((site) => !text.includes(`==> ${site.name} <==`));
-    if (building && application.status !== 'RUNNING' && application.status !== 'STOPPED' && application.status !== 'ERROR') {
+    if (building) {
       const siteFs = await sourceFsFor(building.id);
       const siteLog = await siteFs.readText(path.posix.join(siteFs.appDir, 'logs', 'site-build.log')).catch(() => '');
       if (siteLog.trim()) text += `\n==> ${building.name} <==\n${siteLog.slice(-TAIL)}`;

@@ -795,7 +795,7 @@ export function AppWorkspace({
                 </Button>
               )
             ) : needsSetup || uploadedSite ? null : !deployed && !application.runtime ? (
-              <Button onClick={deploy} disabled={starting} className="bg-gradient-primary">
+              <Button onClick={() => void deploy()} disabled={starting} className="bg-gradient-primary">
                 {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
                 {t("Deploy")}
               </Button>
@@ -818,7 +818,7 @@ export function AppWorkspace({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
                   {canRedeploy && (
-                    <DropdownMenuItem disabled={starting} onClick={deploy} className="items-start">
+                    <DropdownMenuItem disabled={starting} onClick={() => void deploy()} className="items-start">
                       <Rocket className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
                       <span>
                         {t("Redeploy")}
@@ -948,7 +948,7 @@ export function AppWorkspace({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {/* again the same way: an imported pm2 app builds where it runs, asked first */}
-                    <Button onClick={canPm2Build ? () => setConfirmPm2Build(true) : deploy} disabled={starting} className="bg-gradient-primary">
+                    <Button onClick={canPm2Build ? () => setConfirmPm2Build(true) : () => void deploy()} disabled={starting} className="bg-gradient-primary">
                       {starting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
                       {t("Retry deploy")}
                     </Button>
