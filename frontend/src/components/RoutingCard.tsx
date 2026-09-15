@@ -364,11 +364,10 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
     setAdding(true);
     const label = `${host}${nextPath}`;
     try {
-      // a move only takes the whole host; a path beside another app's host needs none
-      const moving = move && !nextPath;
-      const { dns } = await addAppDomain(application.id, { host, path: nextPath, dnsConsent: dnsConsent || undefined, move: moving || undefined });
+      // a move takes exactly this host+path from the app that has it; beside another app's path needs none
+      const { dns } = await addAppDomain(application.id, { host, path: nextPath, dnsConsent: dnsConsent || undefined, move: move || undefined });
       // the app it came from lost it
-      if (moving) void queryClient.invalidateQueries({ queryKey: ["application"] });
+      if (move) void queryClient.invalidateQueries({ queryKey: ["application"] });
       const dnsProblem = ["conflict", "unavailable"].includes(dns.state);
       toast(
         dnsProblem
@@ -406,7 +405,8 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
         excludeAppId={application.id}
         onBlockedChange={setHostBlocked}
         onConsentChange={setDnsConsent}
-        onMoveChange={nextPath ? undefined : setMove}
+        onMoveChange={setMove}
+        path={nextPath}
         root={root}
         onRoot={setRoot}
         trailing={
@@ -445,8 +445,8 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
             <Button
               className="shrink-0"
               onClick={() => void add()}
-              // a path on a host the organization already serves is not "blocked": the host is shared by path
-              disabled={!domain || !!problem || !!pathProblem || (hostBlocked && !nextPath) || adding || taken}
+              // the picker checks this very host+path: another app's other paths of the host never block it
+              disabled={!domain || !!problem || !!pathProblem || hostBlocked || adding || taken}
             >
               {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
               {t("Add")}

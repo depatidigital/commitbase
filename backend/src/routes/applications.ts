@@ -576,6 +576,8 @@ router.get('/hostname-check', authenticateToken, async (req: AuthenticatedReques
       // the node the new app would get, so the preview shows its real address
       serverId: param('serverId') as string | undefined,
       organizationId: param('organizationId') as string | undefined,
+      // a path under the name: who has that path, not the whole name
+      path: normalizeBindingPath(param('path')) ?? '',
     });
     return res.json({ success: true, data } as ApiResponse);
   } catch (error) {

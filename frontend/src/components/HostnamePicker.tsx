@@ -52,7 +52,10 @@ export function HostnamePicker({
   compact = false,
   bare = false,
   trailing,
+  path = "",
 }: {
+  /** a path under the name (`/api/*`): "taken" means that path is, not the whole name */
+  path?: string;
   /** no globe in front of the fields */
   bare?: boolean;
   /** more in the fields' row, after the domain — a path, a button */
@@ -85,30 +88,32 @@ export function HostnamePicker({
   const useRoot = root && !!picked && !picked.shared;
   const problem = hostnameProblem(subdomain, picked, useRoot);
 
-  // what the name is today, asked once typing pauses
+  // what the name (and the path under it) is today, asked once typing pauses
   const host = domain && !problem ? joinHost(subdomain, domain, useRoot) : "";
-  const [settled, setSettled] = useState(host);
+  // host has no "/", a path starts with one: the pair as one key
+  const route = host && `${host}${path}`;
+  const [settled, setSettled] = useState(route);
   useEffect(() => {
-    const timer = setTimeout(() => setSettled(host), 400);
+    const timer = setTimeout(() => setSettled(route), 400);
     return () => clearTimeout(timer);
-  }, [host]);
+  }, [route]);
   const { data: inspection, isFetching: checking } = useQuery({
     queryKey: ["hostname-check", settled, excludeAppId, serverId, organizationId],
-    queryFn: () => checkHostname(settled, { excludeAppId, serverId, organizationId }),
-    enabled: !!settled && settled === host,
+    queryFn: () => checkHostname(host, { excludeAppId, serverId, organizationId, path }),
+    enabled: !!settled && settled === route,
     staleTime: 30_000,
   });
-  const current = settled === host ? inspection : undefined;
+  const current = settled === route ? inspection : undefined;
 
   // consent is for one name: typing another one asks again
   const [agreedFor, setAgreedFor] = useState("");
   const needsConsent = dnsNeedsConsent(current);
   const agreed = needsConsent && agreedFor === host;
-  // another app of ours has it: moving it here is agreed to, for this very name
+  // another app of ours has it: moving it here is agreed to, for this very name and path
   const [moveFor, setMoveFor] = useState("");
   const canMove = !!onMoveChange && !!current?.usedBy?.id;
-  const moving = canMove && moveFor === host;
-  const blocked = !!host && (settled !== host || checking || (!!current?.usedBy && !moving) || (needsConsent && !agreed));
+  const moving = canMove && moveFor === route;
+  const blocked = !!host && (settled !== route || checking || (!!current?.usedBy && !moving) || (needsConsent && !agreed));
   useEffect(() => onBlockedChange?.(blocked), [blocked, onBlockedChange]);
   useEffect(() => onConsentChange?.(agreed), [agreed, onConsentChange]);
   useEffect(() => onMoveChange?.(moving), [moving, onMoveChange]);
@@ -245,7 +250,7 @@ export function HostnamePicker({
         </p>
       )}
 
-      {host && settled === host && checking && (
+      {host && settled === route && checking && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           {t("Checking {host}…", { host })}
@@ -256,11 +261,11 @@ export function HostnamePicker({
         <label className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
           <Checkbox
             checked={moving}
-            onCheckedChange={(checked) => setMoveFor(checked === true ? host : "")}
+            onCheckedChange={(checked) => setMoveFor(checked === true ? route : "")}
             className="mt-0.5"
           />
           <span>
-            {t("{host} is already used by", { host })}{" "}
+            {t("{host} is already used by", { host: route })}{" "}
             <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
               {current.usedBy.name}
             </Link>
@@ -274,14 +279,14 @@ export function HostnamePicker({
           <span>
             {current.usedBy.id ? (
               <>
-                {t("{host} is already used by", { host })}{" "}
+                {t("{host} is already used by", { host: route })}{" "}
                 <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
                   {current.usedBy.name}
                 </Link>
                 .
               </>
             ) : (
-              t("{host} is already used by another app.", { host })
+              t("{host} is already used by another app.", { host: route })
             )}{" "}
             {t("Pick another name.")}
           </span>

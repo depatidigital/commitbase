@@ -640,10 +640,11 @@ export const dnsNeedsConsent = (inspection?: HostInspection | null) =>
 
 export const checkHostname = async (
   host: string,
-  opts: { excludeAppId?: string; serverId?: string; organizationId?: string } = {},
+  opts: { excludeAppId?: string; serverId?: string; organizationId?: string; path?: string } = {},
 ): Promise<HostInspection> => {
   const query = new URLSearchParams({
     host,
+    ...(opts.path && { path: opts.path }),
     ...(opts.excludeAppId && { exclude: opts.excludeAppId }),
     ...(opts.serverId && { serverId: opts.serverId }),
     ...(opts.organizationId && { organizationId: opts.organizationId }),

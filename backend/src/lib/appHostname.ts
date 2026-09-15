@@ -160,12 +160,12 @@ async function previewTarget(
 export async function inspectHost(
   req: AuthenticatedRequest,
   host: string,
-  opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined } = {},
+  opts: { excludeAppId?: string | undefined; serverId?: string | undefined; organizationId?: string | undefined; path?: string } = {},
 ): Promise<HostInspection> {
   const app = (
-    // the whole name: a path under it is the path's own question
+    // exactly this binding: the whole name ('') or one path under it — other paths of the name are theirs
     await prisma.appDomain.findUnique({
-      where: { host_path: { host, path: '' } },
+      where: { host_path: { host, path: opts.path ?? '' } },
       select: { application: { select: { id: true, name: true, organizationId: true } } },
     })
   )?.application;

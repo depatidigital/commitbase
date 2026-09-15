@@ -956,12 +956,17 @@ export class DeploymentService {
       // ponytail: tenant build code on the panel as the backend user. Move
       // static builds into a node's build cgroup if untrusted tenants ship static sites.
       await afs.appendFile(buildLogPath, `$ ${steps.join(' && ')}` + NL);
+      // corepack, npm, pnpm and yarn cache under $HOME: the panel's own may be
+      // unset or not writable (a service user). Static builds get one beside
+      // their apps — kept, so the caches stay warm. No app id has a dot.
+      const buildHome = path.resolve(path.dirname(afs.appDir), '.build-home');
+      await afs.mkdir(buildHome);
       // install where the lockfile is, build in the folder ($1).
       // NODE_ENV stays unset: production would make the install skip the
       // devDependencies that vite / react-scripts live in
       await streamToLog('sh', ['-c', [install, build && `cd "$1" && ${build}`].filter(Boolean).join(' && '), 'sh', workDir], buildLogPath, 600000, {
         cwd: detected.installAtRoot ? sourcesDir : workDir,
-        env: { ...process.env, ...envVars },
+        env: { ...process.env, ...envVars, HOME: buildHome, XDG_CACHE_HOME: path.join(buildHome, '.cache') },
       });
       await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] STATIC BUILD COMPLETED` + NL);
     } else {
