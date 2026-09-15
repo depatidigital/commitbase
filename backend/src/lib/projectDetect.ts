@@ -550,8 +550,8 @@ export async function detectFromRepo(
   }
 }
 
-// never an app of its own: dependencies, build output, dot-folders
-const NOT_APP_DIR = /(^|\/)(node_modules|vendor|dist|build|out|\.[^/]+)(\/|$)/;
+// never an app of its own: dependencies, build output, an app's assets, tests and examples, dot-folders
+const NOT_APP_DIR = /(^|\/)(node_modules|vendor|dist|build|out|public|tests?|__tests__|fixtures|e2e|examples?|\.[^/]+)(\/|$)/;
 const APP_MARKERS = ['package.json', 'composer.json', 'index.html'];
 
 /** Folders with an app marker file, 4 deep at most and capped: a repo of fixtures is not 200 apps. */

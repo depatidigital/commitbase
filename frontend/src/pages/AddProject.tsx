@@ -329,7 +329,6 @@ export default function AddProject() {
       cancelled = true;
       clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceMode, formData.repository, formData.branch, uploadFiles, branchesLoading, manualAccountId, remoteBranches, projectId, joining?.repository, rootDirectory]);
 
   const handleSubmit = async (e: React.FormEvent) => {

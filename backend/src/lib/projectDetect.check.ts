@@ -193,6 +193,8 @@ const tree = [
   'node_modules/x/package.json',
   'apps/web/.next/index.html',
   'a/b/c/d/e/index.html',
+  'test/fixtures/blog/index.html',
+  'examples/search/public/index.html',
 ];
 assert.deepStrictEqual(appFoldersOf(tree, (dir) => pkgs[dir] ?? null), ['apps/admin', 'apps/api', 'apps/web', 'docs']);
 // a pnpm workspace root is not an app either; a plain repo is its root alone
