@@ -451,7 +451,7 @@ export function AppWorkspace({
   // the last attempt failed — whether or not the app is still up on the release before it
   const failureReason =
     lastDeployment?.status === 'FAILED'
-      ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-3).join('\n') || '') || undefined
+      ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split('\n').slice(-15).join('\n') || '') || undefined
       : undefined;
   // A deploy runs in the background after /start answers, so the request being
   // pending says little: the app's status and its newest deployment are the

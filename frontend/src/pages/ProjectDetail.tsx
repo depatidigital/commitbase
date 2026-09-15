@@ -605,7 +605,9 @@ function AppQuickEdit({ appId }: { appId: string }) {
   const detection = useQuery({
     queryKey: ["application", appId, "detect"],
     queryFn: () => getAppDetection(appId),
-    enabled: needsSetup,
+    // the panel's own apps from a repository: the checklist before the first deploy, the
+    // detected commands on the card after it (an app deployed on detection's defaults has none saved)
+    enabled: !!application && !application.runtime && !!application.repository,
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -672,7 +674,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
   const warnings = envWarnings(Object.entries(application.envVars ?? {}).map(([key, value]) => ({ key, value })));
   const lastFailed =
     lastDeployment?.status === "FAILED"
-      ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-3).join("\n") || "")
+      ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-15).join("\n") || "")
       : "";
   return (
     <div className="space-y-3 border-t border-border/60 p-4">
@@ -716,10 +718,13 @@ function AppQuickEdit({ appId }: { appId: string }) {
         <MiniCard icon={Rocket} title={t("Deployments")}>
           {!uploadedSite && (
             <>
-              <MiniLine label={t("Build Command")}>{application.buildCommand || "—"}</MiniLine>
+              {/* what it is built and run with: its own commands, else detection's defaults */}
+              <MiniLine label={t("Build Command")}>{application.buildCommand || detection.data?.buildCommand || "—"}</MiniLine>
               {application.type !== "STATIC" && (
                 <MiniLine label={t("Start Command")}>
-                  {application.runtime === "PM2" && application.processName ? `pm2 restart ${application.processName}` : application.startCommand || "—"}
+                  {application.runtime === "PM2" && application.processName
+                    ? `pm2 restart ${application.processName}`
+                    : application.startCommand || detection.data?.startCommand || "—"}
                 </MiniLine>
               )}
             </>

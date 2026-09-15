@@ -161,7 +161,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           </p>
         )}
         {failure && (
-          <pre className="max-h-16 overflow-auto whitespace-pre-wrap rounded border border-destructive/40 bg-destructive/5 p-1.5 font-mono text-destructive">{failure}</pre>
+          <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded border border-destructive/40 bg-destructive/5 p-2 font-mono text-destructive">{failure}</pre>
         )}
         {migrationFix}
       </div>
@@ -313,7 +313,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         {failure && (
           <div className="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">
             <p className="text-sm font-medium text-destructive">{t("The last deploy failed")}</p>
-            <pre className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">{failure}</pre>
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">{failure}</pre>
             {migrationFix}
           </div>
         )}
