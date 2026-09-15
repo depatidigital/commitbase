@@ -650,6 +650,7 @@ export default {
   "Restore database": "Pulihkan database",
   "Migration {name} is recorded as failed and blocks the rest.": "Migrasi {name} tercatat gagal dan menghalangi migrasi lainnya.",
   "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
+  "If that migration is no longer in the repository, delete its row yourself, then deploy again:": "Kalau migrasi itu sudah tidak ada di repositori, hapus barisnya sendiri di database, lalu deploy lagi:",
   "Restoring {db}": "Memulihkan {db}",
   "Follow it on the Database tab.": "Pantau di tab Database.",
   "Could not start the restore": "Gagal memulai pemulihan",

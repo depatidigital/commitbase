@@ -51,6 +51,11 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         <Database className="mr-1.5 h-3 w-3" />
         {t("Clear it and deploy again")}
       </Button>
+      {/* the button resolves it through the repository's migrations: one no longer there is the person's to clear */}
+      <span className="w-full text-muted-foreground">
+        {t("If that migration is no longer in the repository, delete its row yourself, then deploy again:")}
+        <code className="ml-1 select-all break-all">{`DELETE FROM "_prisma_migrations" WHERE migration_name = '${failedMigration}';`}</code>
+      </span>
     </div>
   ) : null;
   // Where it answers comes first: without a host there is nothing to reach, and

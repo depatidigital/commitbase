@@ -38,7 +38,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type DetectedProject, type StartOptions, bindingLabel, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -683,10 +683,28 @@ function AppQuickEdit({ appId }: { appId: string }) {
     lastDeployment?.status === "FAILED"
       ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-15).join("\n") || "")
       : "";
+  const cancelDeploy = useMutation({
+    mutationFn: () => cancelDeployment(application.id),
+    onSuccess: () => toast({ title: t("Cancelling the deployment…") }),
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
+  });
   return (
     <div className="space-y-3 border-t border-border/60 p-4">
       {inFlight && (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+          {/* a pm2 build on the server runs to its end; the panel's own stops at its next step, the old release still live */}
+          {!application.runtime && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="float-right text-destructive hover:text-destructive"
+              disabled={cancelDeploy.isPending}
+              onClick={() => cancelDeploy.mutate()}
+            >
+              <Square className="h-3.5 w-3.5 mr-1.5" />
+              {t("Cancel deploy")}
+            </Button>
+          )}
           <DeployProgress
             appId={application.id}
             status={newestDeploy?.status}

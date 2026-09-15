@@ -315,10 +315,10 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 <Button
                   type="button"
                   className="w-full bg-gradient-primary"
-                  disabled={starting || saveBranch.isPending || (changed && deploying)}
+                  disabled={starting || saveBranch.isPending || pull.isPending || (changed && deploying)}
                   onClick={() => (changed ? void deployBranch() : setConfirmPull(true))}
                 >
-                  {starting || saveBranch.isPending ? (
+                  {starting || saveBranch.isPending || pull.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : changed ? (
                     <Rocket className="h-4 w-4 mr-2" />
@@ -326,7 +326,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                     <Download className="h-4 w-4 mr-2" />
                   )}
                   {/* same branch, newer commits: pulled, then every app built and switched. Another branch is a switch */}
-                  {changed ? t("Deploy {branch}", { branch }) : t("Pull")}
+                  {pull.isPending ? t("Pulling…") : changed ? t("Deploy {branch}", { branch }) : t("Pull")}
                 </Button>
                 {changed && (
                   <Button type="button" variant="ghost" size="sm" disabled={saveBranch.isPending} onClick={() => saveBranch.mutate()}>

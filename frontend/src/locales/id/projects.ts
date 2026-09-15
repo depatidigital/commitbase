@@ -35,6 +35,7 @@ export default {
   "Quick edit": "Ubah cepat",
   "Pull only": "Pull saja",
   "Pull": "Pull",
+  "Pulling…": "Sedang pull…",
   "Pull and redeploy": "Pull dan deploy ulang",
   "Get the newest code from {branch}?": "Ambil kode terbaru dari {branch}?",
   "The server takes the newest commits of {branch}, for every app of this project.":

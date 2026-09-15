@@ -299,7 +299,7 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
  * pulling as another user (root, typically) leaves files the apps cannot write.
  * It lands in the project's history like a deploy.
  */
-router.post('/:id/pull', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/pull', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const source = await findSource(req, res);
     if (!source) return;
@@ -316,6 +316,8 @@ router.post('/:id/pull', authenticateToken, requireRole([]), async (req: Authent
         return res.status(502).json({ success: false, error: String(error?.message || error).slice(0, 500) } as ApiResponse);
       }
     }
+    // an imported checkout is pulled on its server: the platform's admins only
+    if (!isPlatformAdmin(req)) return res.status(403).json({ success: false, error: 'Insufficient permissions' } as ApiResponse);
     if (!source.path || !source.serverId || !source.repository) {
       return res.status(400).json({ success: false, error: 'Only a project checked out on its server from git can be pulled' } as ApiResponse);
     }
