@@ -12,7 +12,7 @@ import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
-import { detectProject, nvmPreamble } from '../lib/projectDetect';
+import { detectProject, nvmPreamble, type DetectedProject } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
@@ -882,7 +882,6 @@ export class DeploymentService {
     const hasPackageJson = await afs.exists(join(workDir, 'package.json'));
     const install = hasPackageJson ? detected.installCommand : '';
     const build = application.buildCommand || detected.buildCommand || '';
-    const steps = [install, build].filter(Boolean);
 
     await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);
 
