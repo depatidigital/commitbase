@@ -35,6 +35,7 @@ export default {
   "Quick edit": "Ubah cepat",
   "Pull only": "Pull saja",
   "Pull": "Pull",
+  "Pulled — the checkout is newer than what is live. Deploy to put it live.": "Sudah di-pull — checkout lebih baru dari yang live. Deploy agar live.",
   "Pulling…": "Sedang pull…",
   "Pull and redeploy": "Pull dan deploy ulang",
   "Get the newest code from {branch}?": "Ambil kode terbaru dari {branch}?",

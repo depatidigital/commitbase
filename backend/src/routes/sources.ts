@@ -274,12 +274,12 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
       const [remote, head] = await Promise.all([git(['ls-remote', '--symref', 'origin']), git(['rev-parse', 'HEAD']).catch(() => null)]);
       return res.json({
         success: true,
-        data: { ...parseLsRemote(remote.stdout), branch, liveCommit: head?.stdout.trim() || null },
+        data: { ...parseLsRemote(remote.stdout), branch, liveCommit: head?.stdout.trim() || null, checkoutCommit: head?.stdout.trim() || null },
       } as ApiResponse);
     }
 
     const remote = await listRemoteBranches(source.repository, source.gitAccountId ? await gitAuthFor(source.gitAccountId) : undefined);
-    // what the checkout has: a pull without a deploy counts as pulled. Before any checkout, the live release
+    // two states: the checkout behind the remote is a pull; the live release behind the checkout is a deploy
     const managed = source.applications.find((app) => !app.runtime);
     const checkout = managed
       ? await sourceFsFor(managed.id)
@@ -289,7 +289,7 @@ router.get('/:id/branches', authenticateToken, async (req: AuthenticatedRequest,
       : null;
     return res.json({
       success: true,
-      data: { ...remote, branch, liveCommit: checkout ?? source.activeRelease?.commitSha ?? null },
+      data: { ...remote, branch, liveCommit: source.activeRelease?.commitSha ?? null, checkoutCommit: checkout },
     } as ApiResponse);
   } catch (error: any) {
     return res.status(400).json({

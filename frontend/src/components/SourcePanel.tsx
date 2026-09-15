@@ -61,11 +61,15 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const changed = branch !== current;
   const head = remote.data?.heads[branch];
   const live = remote.data?.liveCommit ?? null;
-  const upToDate = !changed && !!head && head === live;
+  // two states: the checkout behind the remote wants a pull; the live release behind the checkout wants a deploy
+  const checkout = remote.data?.checkoutCommit ?? live;
+  const needsPull = !changed && !!head && head !== checkout;
+  const needsDeploy = !changed && !needsPull && !!checkout && checkout !== live;
+  const upToDate = !changed && !!head && head === checkout && checkout === live;
   // something to ship: another branch picked, or commits the live release lacks
-  const shippable = !!head && (changed || head !== live);
+  const shippable = !!head && (changed || needsPull || needsDeploy);
   // what runs is behind its branch — said by the card's outline too, not only a line of grey text
-  const behind = !changed && !!head && !!live && head !== live;
+  const behind = !!live && (needsPull || needsDeploy);
   // Nothing has gone live yet: the first deploy is each app's, from its setup
   // checklist (its host, env and build checked there) — not a project-wide one from here
   const neverLive = !live && !project?.activeRelease;
@@ -295,6 +299,11 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 </span>
               ) : neverLive ? (
                 <span className="text-muted-foreground">{t("Not live yet — deploy each app from its setup checklist first.")}</span>
+              ) : needsDeploy ? (
+                <span className="flex items-center gap-1.5 text-warning">
+                  <GitCommit className="h-3.5 w-3.5 shrink-0" />
+                  {t("Pulled — the checkout is newer than what is live. Deploy to put it live.")}
+                </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-warning">
                   <GitCommit className="h-3.5 w-3.5 shrink-0" />
@@ -316,17 +325,17 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                   type="button"
                   className="w-full bg-gradient-primary"
                   disabled={starting || saveBranch.isPending || pull.isPending || (changed && deploying)}
-                  onClick={() => (changed ? void deployBranch() : setConfirmPull(true))}
+                  onClick={() => (changed || needsDeploy ? void deployBranch() : setConfirmPull(true))}
                 >
                   {starting || saveBranch.isPending || pull.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : changed ? (
+                  ) : changed || needsDeploy ? (
                     <Rocket className="h-4 w-4 mr-2" />
                   ) : (
                     <Download className="h-4 w-4 mr-2" />
                   )}
                   {/* same branch, newer commits: pulled, then every app built and switched. Another branch is a switch */}
-                  {pull.isPending ? t("Pulling…") : changed ? t("Deploy {branch}", { branch }) : t("Pull")}
+                  {pull.isPending ? t("Pulling…") : changed || needsDeploy ? t("Deploy {branch}", { branch }) : t("Pull")}
                 </Button>
                 {changed && (
                   <Button type="button" variant="ghost" size="sm" disabled={saveBranch.isPending} onClick={() => saveBranch.mutate()}>

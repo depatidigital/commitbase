@@ -472,6 +472,8 @@ export type AppBranches = {
   heads: Record<string, string>;
   branch: string;
   liveCommit: string | null;
+  /** what the checkout has — pulled, live or not; null before the first clone */
+  checkoutCommit: string | null;
 };
 
 /**
