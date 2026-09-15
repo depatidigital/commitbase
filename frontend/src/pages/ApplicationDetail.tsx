@@ -133,7 +133,7 @@ const LOG_TYPE_LABELS: Record<string, string> = {
 };
 
 /** Label left, value right — every line of the overview card. */
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+export const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div className="flex items-start justify-between gap-3 border-b border-border/60 py-2 text-sm">
     <span className="shrink-0 text-muted-foreground">{label}</span>
     <div className="min-w-0 text-right">{children}</div>
@@ -1011,7 +1011,16 @@ export function AppWorkspace({
               </CardHeader>
               <CardContent className="pt-2 pb-2">
                 {/* where the code comes from says more than a type label twice:
-                    an upload redeploys by uploading, a repository by building */}
+                    an upload redeploys by uploading, a repository by building.
+                    In a project, source, server and checkout are the project's — its Source tab */}
+                {onProjectTab ? (
+                  <Field label={t("Type")}>
+                    <Badge variant="secondary" className="text-xs">
+                      {isStatic ? t("Static Site") : application.type}
+                    </Badge>
+                  </Field>
+                ) : (
+                <>
                 <Field label={t("Source")}>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {application.repository ? (
@@ -1068,6 +1077,8 @@ export function AppWorkspace({
                     </span>
                   )}
                 </Field>
+                </>
+                )}
                 <Field label={t("Runtime")}>
                   {/* decides how it stops and what removing it touches on the box */}
                   <span className="inline-flex flex-wrap items-center justify-end gap-2">
@@ -1128,7 +1139,7 @@ export function AppWorkspace({
                   </Field>
                 )}
                 {/* imported: the git checkout its folder sits in — where a pull, a branch switch and a build run */}
-                {application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
+                {!onProjectTab && application.runtime && application.checkoutPath && application.checkoutPath !== application.rootPath && (
                   <Field label={t("Checkout")}>
                     <span className="break-all font-mono text-xs">{application.checkoutPath}</span>
                   </Field>

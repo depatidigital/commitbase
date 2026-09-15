@@ -1,7 +1,7 @@
 ﻿import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, Hammer, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Route, Trash2, Upload } from "lucide-react";
+import { GitBranch, Hammer, HardDrive, Layers, Loader2, MoreHorizontal, Plus, Route, Server, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,7 @@ import { SourcePanel } from "@/components/SourcePanel";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
-import { AppWorkspace } from "./ApplicationDetail";
+import { AppWorkspace, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
 import { type Application, bindingLabel, deleteApplication, hostList, repoName } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -239,62 +239,106 @@ export default function ProjectDetail() {
         <TabsList>
           <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
           <TabsTrigger value="apps">{t("Apps")}</TabsTrigger>
+          <TabsTrigger value="source">{t("Source")}</TabsTrigger>
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
         </TabsList>
 
-        {/* what the project is: its apps and their domains, where its code comes from */}
+        {/* what the project is: its apps and their routes — an app has many (host, host/path), a route belongs to one app.
+            A row opens that app; its routes are edited in its Routing tab */}
         <TabsContent value="overview">
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-            {/* app → its domains: an app has many (host, host/path), a domain belongs to one app.
-                A row opens that app; its routes are edited in its Routing tab */}
-            <div className="rounded-lg border border-border/60 bg-card">
-              <p className="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-medium">
-                <Route className="h-4 w-4 text-primary" />
-                {t("Apps & routes")}
-              </p>
-              <ul className="divide-y divide-border/60">
-                {apps.map((app) => {
-                  const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
-                  const TypeIcon = type.icon;
-                  // a directory Caddy serves as files, or a process it proxies to
-                  const directory = app.runtime === "CADDY_STATIC" || app.type === "STATIC";
-                  const where = directory ? app.rootPath ?? app.rootDirectory : app.port ? `:${app.port}` : app.processName;
-                  const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
-                  return (
-                    <li key={app.id}>
-                      <button
-                        type="button"
-                        onClick={() => go("apps", app.id)}
-                        className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/40 ${
-                          app.disabled ? "opacity-50" : ""
-                        }`}
-                      >
-                        <span className="flex min-w-0 items-center gap-2 sm:w-64">
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
-                          <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
-                          <span className="truncate font-medium">{app.name}</span>
-                          <Badge variant="outline" className="shrink-0 font-normal" title={where ?? undefined}>
-                            {directory ? t("directory") : t("process")}
-                          </Badge>
-                        </span>
-                        <span className="text-muted-foreground">→</span>
-                        <span className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-0.5 font-mono text-xs">
-                          {bindings.length === 0 && <span className="text-muted-foreground">{t("no route")}</span>}
-                          {bindings.map((d) => (
-                            <span key={bindingLabel(d)} className="break-all">
-                              {d.host}
-                              {d.path && <span className="text-muted-foreground">{d.path}</span>}
-                            </span>
-                          ))}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+          <div className="rounded-lg border border-border/60 bg-card">
+            <p className="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-medium">
+              <Route className="h-4 w-4 text-primary" />
+              {t("Apps & routes")}
+            </p>
+            <ul className="divide-y divide-border/60">
+              {apps.map((app) => {
+                const type = APP_TYPES[app.type] ?? { label: app.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
+                const TypeIcon = type.icon;
+                // a directory Caddy serves as files, or a process it proxies to
+                const directory = app.runtime === "CADDY_STATIC" || app.type === "STATIC";
+                const where = directory ? app.rootPath ?? app.rootDirectory : app.port ? `:${app.port}` : app.processName;
+                const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
+                return (
+                  <li key={app.id}>
+                    <button
+                      type="button"
+                      onClick={() => go("apps", app.id)}
+                      className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/40 ${
+                        app.disabled ? "opacity-50" : ""
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2 sm:w-64">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
+                        <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${type.className}`} />
+                        <span className="truncate font-medium">{app.name}</span>
+                        <Badge variant="outline" className="shrink-0 font-normal" title={where ?? undefined}>
+                          {directory ? t("directory") : t("process")}
+                        </Badge>
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-0.5 font-mono text-xs">
+                        {bindings.length === 0 && <span className="text-muted-foreground">{t("no route")}</span>}
+                        {bindings.map((d) => (
+                          <span key={bindingLabel(d)} className="break-all">
+                            {d.host}
+                            {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                          </span>
+                        ))}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </TabsContent>
+
+        {/* where its code comes from and where it lives — the project's, shared by every app of it;
+            a pull, a branch switch or a deploy changes them all */}
+        <TabsContent value="source">
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="rounded-lg border border-border/60 bg-card px-4 py-2">
+              <Field label={t("Source")}>
+                {project.repository ? (
+                  <span className="break-all font-mono text-xs">{project.repository}</span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">{origin}</span>
+                )}
+              </Field>
+              {project.repository && (
+                <Field label={t("Branch")}>
+                  <span className="inline-flex items-center gap-1 font-mono text-xs">
+                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    {project.branch || "main"}
+                  </span>
+                </Field>
+              )}
+              <Field label={t("Server")}>
+                {project.server ? (
+                  <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                    <Server className="h-4 w-4 text-muted-foreground" />
+                    {superAdmin ? (
+                      <Link to={`/servers/${project.server.id}`} className="hover:text-primary">
+                        {project.server.name}
+                      </Link>
+                    ) : (
+                      project.server.name
+                    )}
+                    {project.server.publicIp && <span className="font-mono text-xs text-muted-foreground">{project.server.publicIp}</span>}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </Field>
+              {/* imported: the checkout on its server — where a pull, a branch switch and a build run */}
+              {project.path && (
+                <Field label={t("Checkout")}>
+                  <span className="break-all font-mono text-xs">{project.path}</span>
+                </Field>
+              )}
             </div>
-            {/* the project's: a pull, a branch switch or a deploy changes every app of it */}
             {project.repository && (
               <SourcePanel
                 projectId={project.id}
