@@ -183,8 +183,13 @@ export function buildOf(pm: PackageManager, script: string): string {
   return m[3] ? `${tsc} && ${EXEC[pm]} ${m[3].trim()}` : tsc;
 }
 
+/**
+ * Running is not installing: the unit runs as the tenant, where pnpm (a corepack
+ * download into that user's cache) is not there. `npm start` ships with node and
+ * only runs the script; bun's runtime is the script's own.
+ */
 function startScript(pm: PackageManager): string {
-  return pm === 'yarn' ? 'yarn start' : pm === 'npm' ? 'npm start' : `${pm} run start`;
+  return pm === 'bun' ? 'bun run start' : 'npm start';
 }
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;

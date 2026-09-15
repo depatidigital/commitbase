@@ -31,7 +31,7 @@ assert.strictEqual(nextNoScripts.startCommand, NEXT_START);
 const nextStart = (start: string) =>
   detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { next: '16' }, scripts: { start } }), 'pnpm-lock.yaml': '' });
 const migrating = nextStart('prisma migrate deploy && next start');
-assert.strictEqual(migrating.startCommand, 'pnpm run start');
+assert.strictEqual(migrating.startCommand, 'npm start');
 assert.deepStrictEqual(migrating.warnings, [{ code: 'start-binds-all' }]);
 assert.deepStrictEqual(nextStart('next start -p 3000').warnings, [{ code: 'start-fixed-port', port: '3000' }, { code: 'start-binds-all' }]);
 assert.deepStrictEqual(nextStart('next start --port=4000 -H 127.0.0.1').warnings, [{ code: 'start-fixed-port', port: '4000' }]);
