@@ -645,6 +645,8 @@ export default {
   "The database goes back to its snapshot of {when}. Everything written since then is lost. Type the database's name to confirm.":
     "Database dikembalikan ke snapshot {when}. Semua yang ditulis setelahnya hilang. Ketik nama database untuk konfirmasi.",
   "Restore database": "Pulihkan database",
+  "Migration {name} is recorded as failed and blocks the rest.": "Migrasi {name} tercatat gagal dan menghalangi migrasi lainnya.",
+  "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
   "Restoring {db}": "Memulihkan {db}",
   "Follow it on the Database tab.": "Pantau di tab Database.",
   "Could not start the restore": "Gagal memulai pemulihan",

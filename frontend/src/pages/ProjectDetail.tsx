@@ -38,7 +38,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type DetectedProject, bindingLabel, deleteApplication, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type DetectedProject, type StartOptions, bindingLabel, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -628,8 +628,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
     firstDeploy.isPending ||
     ["DEPLOYING", "BUILDING"].includes(application?.status ?? "") ||
     ["PENDING", "BUILDING", "DEPLOYING"].includes(newestDeploy?.status ?? "");
-  const startDeploy = (id: string) =>
-    firstDeploy.mutate(id, {
+  const startDeploy = (id: string, options: StartOptions = {}) =>
+    firstDeploy.mutate({ id, ...options }, {
       // the new row and status at once — the history then polls itself until the deploy ends
       onSuccess: () => {
         void refetchHistory();
@@ -706,8 +706,9 @@ function AppQuickEdit({ appId }: { appId: string }) {
             env={{ missing, warnings, dirty: false }}
             dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
             failure={lastFailed || undefined}
+            failedMigration={lastDeployment?.status === "FAILED" ? failedMigrationOf(lastDeployment.buildLogs) : null}
             starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
-            onDeploy={() => startDeploy(application.id)}
+            onDeploy={(options) => startDeploy(application.id, options)}
             onEditEnv={() => setEnvOpen(true)}
             onEditBuild={() => setBuildOpen(true)}
           />
