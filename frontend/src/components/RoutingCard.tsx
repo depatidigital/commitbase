@@ -141,8 +141,8 @@ export function RoutingCard({
                     variant="ghost"
                     size="sm"
                     className="ml-auto h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                    disabled={last || !!busy}
-                    title={last ? t("An app needs at least one host — add another first") : t("Remove {host}", { host: label })}
+                    disabled={!!busy}
+                    title={t("Remove {host}", { host: label })}
                     aria-label={t("Remove {host}", { host: label })}
                     onClick={() => setConfirmRemove(route)}
                   >
@@ -169,6 +169,13 @@ export function RoutingCard({
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* its only one: allowed, but it leaves the app unreachable — said before, not found after */}
+          {confirmRemove && last && (
+            <p className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              {t("It is {app}'s only host: nobody reaches it until another one is added.", { app: application.name })}
+            </p>
+          )}
           {confirmRemove && staleEnv(confirmRemove.host).length > 0 && (
             <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-3 text-sm">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />

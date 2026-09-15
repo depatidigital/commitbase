@@ -1242,9 +1242,12 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     } else {
       await prisma.appDomain.create({ data: { host, path: at, stripPrefix, applicationId: application.id, domainId } });
     }
-    // a panel app never deployed: nothing of it to serve yet (an imported one has a runtime, and its own route)
+    // a panel app never deployed: nothing of it to serve yet (an imported one has a runtime and its own
+    // route; an uploaded site has files in its bucket without any deployment)
     const neverDeployed =
-      !application.runtime && !(await prisma.deployment.count({ where: { applicationId: application.id, status: 'SUCCESS' } }));
+      !application.runtime &&
+      !application.staticOrigin &&
+      !(await prisma.deployment.count({ where: { applicationId: application.id, status: 'SUCCESS' } }));
     try {
       if (neverDeployed) {
         // the "ready, waiting for its first deploy" page until then — the deploy routes it for real (serveApp)
@@ -1340,9 +1343,8 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
     const label = `${host}${at}`;
     const name = application.domains.find((d) => d.host === host && d.path === at);
     if (!name) return res.status(404).json({ success: false, error: `${label} is not one of this app's names` } as ApiResponse);
-    if (application.domains.length === 1) {
-      return res.status(400).json({ success: false, error: 'An app needs at least one hostname — add another first' } as ApiResponse);
-    }
+    // its last one may go too — asked first, said on the form: an app with no host is one
+    // nobody reaches, a state it already has before its first host is added
 
     const node = await serverForApplication(application.id).catch(() => null);
     const removed = await prisma.appDomain.delete({ where: { host_path: { host, path: at } } });

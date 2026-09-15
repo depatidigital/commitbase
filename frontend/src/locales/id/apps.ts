@@ -499,6 +499,8 @@ export default {
   Custom: "Kustom",
   "Pick a database…": "Pilih database…",
   "Custom URL": "URL kustom",
+  "It is {app}'s only host: nobody reaches it until another one is added.":
+    "Ini satu-satunya host {app}: aplikasi tidak bisa diakses sampai host lain ditambahkan.",
   "Connection URL": "URL koneksi",
   "Use this URL": "Pakai URL ini",
   "A postgresql:// or mysql:// URL.": "Isi URL postgresql:// atau mysql://.",
