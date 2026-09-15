@@ -145,6 +145,18 @@ assert.strictEqual(next.preDeployCommand, null);
 assert.strictEqual(detectFromFiles({ ...prismaPkg, 'pnpm-lock.yaml': '' }).generateCommand, 'pnpm prisma generate');
 assert.strictEqual(next.generateCommand, null);
 
+// package.json's packageManager first, then text lockfiles; bun.lockb (binary, pre-1.2) only when it is alone
+const pmOf = (files: Record<string, string>) => detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { vite: '5' } }), ...files }).packageManager;
+assert.strictEqual(pmOf({ 'bun.lockb': '', 'package-lock.json': '' }), 'npm', 'a leftover bun.lockb beside package-lock.json');
+assert.strictEqual(pmOf({ 'bun.lock': '', 'package-lock.json': '' }), 'bun');
+assert.strictEqual(pmOf({ 'bun.lockb': '' }), 'bun');
+assert.strictEqual(pmOf({ 'bun.lockb': '', 'yarn.lock': '' }), 'yarn');
+assert.strictEqual(
+  detectFromFiles({ 'package.json': JSON.stringify({ packageManager: 'npm@10.0.0' }), 'yarn.lock': '' }).packageManager,
+  'npm',
+  'the declared manager wins over a lockfile',
+);
+
 // Monorepo: a workspace package inherits the root's lockfile, node version and
 // packageManager, and installs at the root
 const webPkg = { 'package.json': JSON.stringify({ dependencies: { next: '15.0.0' }, scripts: { build: 'next build' } }) };
@@ -200,5 +212,12 @@ assert.deepStrictEqual(appFoldersOf(tree, (dir) => pkgs[dir] ?? null), ['apps/ad
 // a pnpm workspace root is not an app either; a plain repo is its root alone
 assert.deepStrictEqual(appFoldersOf(['package.json', 'pnpm-workspace.yaml', 'apps/api/package.json'], (dir) => (dir ? pkgs['apps/api'] : { scripts: { build: 'x' } })), ['apps/api']);
 assert.deepStrictEqual(appFoldersOf(['package.json', 'examples/demo/package.json'], () => ({ scripts: { dev: 'vite' } })), ['']);
+// a root that runs the others (pm2) is a draft beside them, not above them
+assert.deepStrictEqual(
+  appFoldersOf(['package.json', 'backend/package.json', 'frontend/package.json', 'frontend/index.html', 'frontend/src/index.html'], (dir) =>
+    dir === 'frontend/src' ? null : { scripts: { start: 'x' } },
+  ),
+  ['', 'backend', 'frontend'],
+);
 
 console.log('projectDetect: ok');

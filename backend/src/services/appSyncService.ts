@@ -5,7 +5,7 @@ import { createApplicationWithSource, dropOrphanSources, setSourceOrganization }
 import { setAppBindings, zonesFor } from '../lib/appDomains';
 import { readServe, type Serve } from './hostRouteService';
 import { exec, type SshTarget } from '../lib/runner';
-import { parseEnvFile } from '../lib/projectDetect';
+import { lockfileManager, parseEnvFile } from '../lib/projectDetect';
 import { sealEnv } from '../lib/appEnv';
 import { allServers } from '../lib/servers';
 import { getCaddyConfig, allRoutesOf } from './caddyService';
@@ -976,13 +976,7 @@ export function buildCommandFrom(packageJson: string, files: string[]): string |
     return undefined;
   }
   if (typeof scripts.build !== 'string' || !scripts.build.trim()) return undefined;
-  const manager = files.includes('pnpm-lock.yaml')
-    ? 'pnpm'
-    : files.includes('yarn.lock')
-      ? 'yarn'
-      : files.includes('bun.lockb') || files.includes('bun.lock')
-        ? 'bun'
-        : 'npm';
+  const manager = lockfileManager((name) => files.includes(name)) ?? 'npm';
   return manager === 'yarn' ? 'yarn build' : `${manager} run build`;
 }
 

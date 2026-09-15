@@ -22,6 +22,8 @@ interface AppSetupCardProps {
   onDeploy: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
+  /** one line a step, in a small box — the project page's app cards */
+  compact?: boolean;
 }
 
 /**
@@ -29,7 +31,7 @@ interface AppSetupCardProps {
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, starting, onDeploy, onEditEnv, onEditBuild }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, starting, onDeploy, onEditEnv, onEditBuild, compact }: AppSetupCardProps) {
   const dbFailed = !!dbCheck && dbCheck !== "pending" && !dbCheck.ok;
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -51,6 +53,64 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
   const envDone = !detecting && env.missing.length === 0;
   // about the repo's start script — an app with its own start command has taken that over
   const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
+
+  if (compact) {
+    const Mark = ({ done, warn }: { done: boolean; warn?: boolean }) =>
+      done && warn ? (
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+      ) : done ? (
+        <CheckCircle className="h-4 w-4 shrink-0 text-green-600" />
+      ) : (
+        <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />
+      );
+    const commands = [install, detected?.generateCommand, application.preDeployCommand, build, start].filter(Boolean).join(" → ");
+    return (
+      <div className="min-w-0 space-y-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 font-medium">
+            <Rocket className="h-3.5 w-3.5 text-primary" />
+            {t("Set up and deploy")}
+          </p>
+          <Button type="button" size="sm" className="h-7 bg-gradient-primary px-3 text-xs" onClick={onDeploy} disabled={!envDone || starting}>
+            {starting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Rocket className="mr-1.5 h-3.5 w-3.5" />}
+            {failure ? t("Retry deploy") : t("Deploy")}
+          </Button>
+        </div>
+        <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
+          <Mark done={envDone} warn={dbFailed} />
+          <span className="shrink-0 font-medium">{t("Environment")}</span>
+          <span className={`min-w-0 truncate ${env.missing.length ? "text-destructive" : "text-muted-foreground"}`}>
+            {detecting
+              ? t("Reading the repository…")
+              : env.missing.length
+                ? t("{count} still empty: {keys}", { count: env.missing.length, keys: env.missing.join(", ") })
+                : t("Every expected variable has a value.")}
+          </span>
+        </button>
+        <button type="button" onClick={onEditBuild} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
+          <Mark done={!!(build || start)} warn={buildWarnings.length > 0 || !!suggestedPreDeploy} />
+          <span className="shrink-0 font-medium">{t("Build")}</span>
+          <span className="min-w-0 truncate font-mono text-muted-foreground" title={commands}>
+            {detected ? `${detected.label} · ` : ""}
+            {commands || "—"}
+          </span>
+        </button>
+        {/* what needs a look, one line each — the full story is on the app's page */}
+        {(dbFailed || suggestedPreDeploy || buildWarnings.length > 0) && (
+          <p className="truncate text-amber-600 dark:text-amber-400">
+            {dbFailed
+              ? t("DATABASE_URL does not connect: {reason}", { reason: (dbCheck as { message: string }).message })
+              : suggestedPreDeploy
+                ? `${t("The repo uses Prisma — run its migrations before the release goes live:")} ${suggestedPreDeploy}`
+                : t("The start script needs a look — see Build on the app's page.")}
+          </p>
+        )}
+        {failure && (
+          <pre className="max-h-16 overflow-auto whitespace-pre-wrap rounded border border-destructive/40 bg-destructive/5 p-1.5 font-mono text-destructive">{failure}</pre>
+        )}
+      </div>
+    );
+  }
 
   const Step = ({ done, warn, title, children, action }: { done: boolean; warn?: boolean; title: string; children?: React.ReactNode; action?: React.ReactNode }) => (
     <div className="flex items-start justify-between gap-3 py-3">

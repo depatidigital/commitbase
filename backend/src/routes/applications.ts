@@ -646,6 +646,8 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
         ...withSourceFields(application),
         // the detail page edits them; everywhere else only the sealed blob goes out
         envVars: readEnv(application.envVars),
+        // saved once, even empty: someone looked at it — the setup checklist waits for that
+        envConfirmed: application.envVars !== null,
         staticSiteUrl,
         placement: application.server ?? application.organization?.defaultServer ?? null,
       },
@@ -675,7 +677,6 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     const joining = req.body.sourceId
       ? await prisma.source.findFirst({
           where: { id: String(req.body.sourceId), ...(await orgScope(req)) },
-          include: { applications: { select: { type: true } } },
         })
       : null;
     if (req.body.sourceId) {
@@ -685,9 +686,6 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
           success: false,
           error: 'This project was imported from its server — its apps are the sites served from that folder',
         } as ApiResponse);
-      }
-      if (type === 'STATIC' || joining.applications.some((app) => app.type === 'STATIC')) {
-        return res.status(400).json({ success: false, error: 'A static site cannot share its project with other apps yet' } as ApiResponse);
       }
       if (!joining.serverId) {
         return res.status(409).json({ success: false, error: 'This project has no server yet — deploy it once first' } as ApiResponse);
@@ -1166,7 +1164,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 
     return res.json({
       success: true,
-      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars) },
+      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars), envConfirmed: updatedApp.envVars !== null },
       message: 'Application updated successfully',
     } as ApiResponse<Application>);
   } catch (error) {
@@ -2080,6 +2078,18 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
       return res.status(400).json({
         success: false,
         error: 'Release is not in READY state',
+      } as ApiResponse);
+    }
+
+    // A site sharing its project with other apps keeps no releases of its own:
+    // the project's are theirs (services/deployment.ts switchSites)
+    if (
+      application.type === 'STATIC' &&
+      (await prisma.application.count({ where: { sourceId: application.sourceId, runtime: null, type: { not: 'STATIC' } } })) > 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "A static site in a project with other apps is not rolled back on its own — redeploy the project at the commit you want",
       } as ApiResponse);
     }
 

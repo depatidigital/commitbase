@@ -165,8 +165,6 @@ export default function AddProject() {
   const [drafts, setDrafts] = useState<Array<DetectedApp & { name: string; checked: boolean }>>([]);
   const multi = drafts.length > 1;
   const checkedDrafts = drafts.filter((d) => d.checked);
-  // the backend's rule: a static site cannot share its project with other apps yet
-  const staticMixed = checkedDrafts.length > 1 && checkedDrafts.some((d) => d.detected.type === "STATIC");
   const updateDraft = (index: number, change: Partial<(typeof drafts)[number]>) =>
     setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...change } : d)));
 
@@ -291,11 +289,11 @@ export default function AddProject() {
         if (cancelled) return;
         if (scan) {
           const repoName = formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "");
-          // ticked: what is plainly an app (a framework); libraries and static sites are left to the user
+          // ticked: what is plainly an app (a framework); libraries and bare HTML folders (docs) are left to the user
           const next = scan.apps.map((app) => ({
             ...app,
             name: slugify(app.rootDirectory.split("/").pop() || repoName),
-            checked: !["node", null].includes(app.detected.framework) && app.detected.type !== "STATIC",
+            checked: !["node", "html", null].includes(app.detected.framework),
           }));
           if (next.length && !next.some((d) => d.checked)) next[0].checked = true;
           setDrafts(next);
@@ -374,13 +372,9 @@ export default function AddProject() {
       return; // createApp reports its own failure
     }
 
-    if (rest.length) {
-      for (const draft of rest) {
-        // the project's id is its first app's (Source shares it); a failure is toasted, the rest still go
-        await createApp.mutateAsync({ ...fromDraft(draft), sourceId: createdId }).catch(() => {});
-      }
-      navigate(`/project/${createdId}`);
-      return;
+    for (const draft of rest) {
+      // the project's id is its first app's (Source shares it); a failure is toasted, the rest still go
+      await createApp.mutateAsync({ ...fromDraft(draft), sourceId: createdId }).catch(() => {});
     }
 
     // Picked files are the app's source: they go up now (a static site's are
@@ -399,8 +393,8 @@ export default function AddProject() {
     }
     setBusy("");
 
-    // its page takes it from here: its hosts and env, then the first deploy
-    navigate(`/application/${createdId}`);
+    // the project's page takes it from here: each app's hosts and env, then the first deploy
+    navigate(`/project/${projectId || createdId}`);
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -440,7 +434,7 @@ export default function AddProject() {
       !!formData.name &&
       (!needsOrg || !!organizationId) &&
       !detecting &&
-      (multi ? checkedDrafts.length > 0 && checkedDrafts.every((d) => d.name.trim()) && !staticMixed : !!formData.type)
+      (multi ? checkedDrafts.length > 0 && checkedDrafts.every((d) => d.name.trim()) : !!formData.type)
     );
   };
 
@@ -879,11 +873,6 @@ export default function AddProject() {
                   </div>
                 );
               })}
-              {staticMixed && (
-                <p className="text-xs text-destructive">
-                  {t("A static site cannot share its project with other apps yet — tick it on its own.")}
-                </p>
-              )}
             </CardContent>
           </Card>
         )}

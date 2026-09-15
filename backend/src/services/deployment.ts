@@ -10,7 +10,7 @@ import { appBuild, ensureOrgOnNode, sourceTreeUnit } from './orgProvisionService
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { uploadSiteDirectory } from './r2Service';
-import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
+import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, servingFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, sourcesDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
 import { detectProject, nvmPreamble } from '../lib/projectDetect';
@@ -34,6 +34,9 @@ const BUILD_CONCURRENCY = Math.max(1, Number(process.env.BUILD_CONCURRENCY || 1)
 const deploying = new Set<string>();
 // deploys a user asked to stop; checked between steps (cancelDeploy)
 const cancelling = new Set<string>();
+
+/** A static site of a shared source, uploaded to `folder` of its R2 location and not serving yet. */
+type BuiltSite = { site: AppWithOrg; bucket: string; origin: string; folder: string };
 
 /** A deploy stopped on request — recorded as CANCELLED, not FAILED. */
 class CancelledError extends Error {}
@@ -475,7 +478,10 @@ export class DeploymentService {
           }
 
           if (firstInstall(installCommand)) {
-            const lock = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock', bun: 'bun.lock' }[detected.packageManager];
+            const lock =
+              detected.packageManager === 'bun'
+                ? (await has('bun.lock')) ? 'bun.lock' : 'bun.lockb'
+                : { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock' }[detected.packageManager];
             // ponytail: node_modules is reused only for a folder with its own
             // lockfile — a workspace install also fills every package's node_modules.
             const reusable = installDir === workDir;
@@ -848,8 +854,12 @@ export class DeploymentService {
     const key = lockKey(app);
     if (!deploying.has(key)) return false;
     cancelling.add(key);
-    // static builds run on the panel and stop at the next step instead
-    if (app.type !== 'STATIC' && app.organization?.slug) {
+    // static builds run on the panel and stop at the next step instead — but a
+    // site sharing its source with other apps deploys with their build on the node
+    const nodeBuild =
+      app.type !== 'STATIC' ||
+      (!!app.sourceId && (await prisma.application.count({ where: { sourceId: app.sourceId, runtime: null, type: { not: 'STATIC' } } })) > 0);
+    if (nodeBuild && app.organization?.slug) {
       // the build runs as the source's: cb-build-<slug>-<source id>
       await sourceTreeUnit('cancel-build', app.organization.slug, key, applicationId).catch((error: any) =>
         console.error(`Could not stop the build of ${applicationId}:`, error?.message ?? error),
@@ -858,10 +868,147 @@ export class DeploymentService {
     return true;
   }
 
+  /**
+   * Build a static site from the checkout in `afs` (its tree on the panel) and
+   * upload the output to a fresh release folder in its R2 location. Nothing
+   * serves the folder yet: the serving one is untouched until the route moves
+   * (services/staticReleaseService.ts). `shared`: its source also holds other
+   * apps, whose releases are the source's Release rows — the site keeps none.
+   */
+  private async buildStaticRelease(
+    application: AppWithOrg,
+    afs: AppFs,
+    deploymentId: string,
+    envVars: Record<string, string>,
+    buildLogPath: string,
+    shared: boolean,
+  ): Promise<{ bucket: string; origin: string; folder: string }> {
+    const sourcesDir = sourcesDirFor(afs.appDir);
+    await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD STARTED` + NL);
+
+    // Same detection the create screen showed: install before building,
+    // take the framework's output folder, and let a plain HTML repo
+    // (no package.json, no build) ship as-is.
+    // A monorepo site is detected and built in its folder; a workspace
+    // installs at the repository root.
+    const workDir = inRootDirectory(sourcesDir, application.rootDirectory);
+    if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${application.rootDirectory} in the repository`);
+    const detected = await detectProject(workDir, afs.readText, undefined, sourcesDir);
+    const hasPackageJson = await afs.exists(join(workDir, 'package.json'));
+    const install = hasPackageJson ? detected.installCommand : '';
+    const build = application.buildCommand || detected.buildCommand || '';
+    const steps = [install, build].filter(Boolean);
+
+    await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);
+
+    if (steps.length > 0) {
+      // streamed into build.log as it prints, so the app page can follow it
+      // ponytail: tenant build code on the panel as the backend user. Move
+      // static builds into a node's build cgroup if untrusted tenants ship static sites.
+      await afs.appendFile(buildLogPath, `$ ${steps.join(' && ')}` + NL);
+      // install where the lockfile is, build in the folder ($1).
+      // NODE_ENV stays unset: production would make the install skip the
+      // devDependencies that vite / react-scripts live in
+      await streamToLog('sh', ['-c', [install, build && `cd "$1" && ${build}`].filter(Boolean).join(' && '), 'sh', workDir], buildLogPath, 600000, {
+        cwd: detected.installAtRoot ? sourcesDir : workDir,
+        env: { ...process.env, ...envVars },
+      });
+      await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] STATIC BUILD COMPLETED` + NL);
+    } else {
+      await afs.appendFile(buildLogPath, 'No build step — publishing the repository as-is' + NL);
+    }
+
+    const distCandidates = [detected.outputDir, 'dist', 'build', 'out'].filter((candidate): candidate is string => Boolean(candidate));
+    let distDir: string | null = null;
+    for (const candidate of distCandidates) {
+      const candidatePath = join(workDir, candidate);
+      if (await afs.exists(candidatePath)) {
+        distDir = candidatePath;
+        break;
+      }
+    }
+    if (!distDir) {
+      throw new Error(`Static build directory not found (looked for ${distCandidates.join(', ')})`);
+    }
+
+    const { bucket, origin } = await siteStorage(application as any);
+    // a release row for files from before releases — a shared source's rows are its other apps'
+    if (!shared) await adoptRootFiles(application as any);
+    const folder = releaseFolder(deploymentId);
+    try {
+      await uploadSiteDirectory(inFolder(bucket, folder), distDir);
+    } catch (error) {
+      await discardFolder(bucket, folder);
+      throw error;
+    }
+    return { bucket, origin, folder };
+  }
+
+  /**
+   * The static sites of a source that holds other apps too (or several sites):
+   * built on the panel, all from one checkout of the source there pinned to
+   * `commitSha` — the commit the other apps build from. Each is pushed to
+   * `built` as it uploads, so a later failure can discard it.
+   */
+  private async buildSites(
+    sites: AppWithOrg[],
+    source: { repository: string | null; branch: string | null; gitAccountId: string | null },
+    commitSha: string | undefined,
+    deploymentId: string,
+    envOf: (site: AppWithOrg) => Record<string, string>,
+    built: BuiltSite[],
+    log: (text: string) => Promise<void>,
+  ): Promise<void> {
+    const siteFs = await this.prepareAppDirectory(sites[0]!.id);
+    await this.syncRepository(siteFs, source.repository!, source.branch || 'main', source.gitAccountId);
+    if (commitSha) await gitIn(siteFs, sourcesDirFor(siteFs.appDir), ['checkout', '--quiet', '--detach', commitSha]);
+    // each site's build log on the panel, then into the deploy's own — not build.log,
+    // which is the deploy's own when the source is sites alone (the same tree)
+    const logPath = join(logsDirFor(siteFs.appDir), 'site-build.log');
+    for (const site of sites) {
+      await siteFs.writeFile(logPath, '');
+      try {
+        built.push({ site, ...(await this.buildStaticRelease(site, siteFs, deploymentId, envOf(site), logPath, true)) });
+      } finally {
+        await log(`==> ${site.name} <==` + NL + (await siteFs.readText(logPath).catch(() => '')) + NL);
+      }
+    }
+  }
+
+  /**
+   * Point each built site's route at its new folder. Said, not thrown, when a
+   * route fails: the site stays RUNNING on the new pointer and the watchdog
+   * re-applies it. The folder it served before goes.
+   * ponytail: a shared source's site keeps no releases, so no rollback for it —
+   * give it Release rows of its own (a site id on Release) if that is needed.
+   */
+  private async switchSites(built: BuiltSite[]): Promise<string> {
+    const lines: string[] = [];
+    for (const { site, bucket, origin, folder } of built) {
+      const staticOrigin = inFolder(origin, folder);
+      try {
+        await serveStatic(await serverForApplication(site.id), site.id, staticOrigin);
+        lines.push(`${site.name}: static site deployed to Cloudflare R2 (${staticOrigin})`);
+      } catch (error: any) {
+        lines.push(`${site.name}: uploaded, but its route could not be set — ${staticRouteError(error)}`);
+      }
+      const before = servingFolder(site.staticOrigin);
+      await prisma.application.update({
+        where: { id: site.id },
+        data: { staticBucket: bucket, staticOrigin, status: 'RUNNING', lastDeployment: new Date() },
+      });
+      if (before && before !== folder) await discardFolder(bucket, before);
+    }
+    return lines.join(NL);
+  }
+
   private async deployInner(config: DeploymentConfig): Promise<DeployResult> {
     const { application, deployment, envVars = {} } = config;
     const key = lockKey(application);
     let commitSha: string | undefined;
+    // static sites of a shared source, uploaded but not serving yet — discarded unless the deploy goes live
+    const builtSites: BuiltSite[] = [];
+    let sitesLive = false;
 
     try {
       console.log(`Starting deployment for application: ${application.name}`);
@@ -871,21 +1018,24 @@ export class DeploymentService {
         data: { status: 'BUILDING' },
       });
 
-      // everything built from this source goes out together, from one commit
-      const group = await this.groupOf(application);
-      if (group.length > 1 && group.some((app) => app.type === 'STATIC')) {
-        throw new Error('A static site cannot share its source with other apps yet — give it a source of its own');
-      }
+      // Everything built from this source goes out together, from one commit.
+      // Its static sites (in a source with other apps) build on the panel and
+      // switch once the rest is up; `group` is what builds and runs on the node.
+      const all = await this.groupOf(application);
+      const sites = all.length > 1 ? all.filter((app) => app.type === 'STATIC') : [];
+      const group = all.filter((app) => !sites.includes(app));
+      // whose tree the deploy works in: the app itself, else another of the node's — or, sites alone, the first
+      const lead = group.find((app) => app.id === application.id) ?? group[0] ?? sites[0]!;
 
       // The org has to exist on this app's node before anything lands there —
       // provisioned lazily, on the nodes it actually uses. A no-op once done.
-      if (application.organizationId && application.type !== 'STATIC') {
-        const node = await serverForApplication(application.id);
-        await ensureOrgOnNode(application.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
+      if (lead.organizationId && lead.type !== 'STATIC') {
+        const node = await serverForApplication(lead.id);
+        await ensureOrgOnNode(lead.organizationId, node.id, { userId: deployment.userId, trigger: 'deploy' });
       }
       throwIfCancelled(key);
 
-      const afs = await this.prepareAppDirectory(application.id);
+      const afs = await this.prepareAppDirectory(lead.id);
       const { appDir } = afs;
 
       const logsDir = logsDirFor(appDir);
@@ -928,7 +1078,26 @@ export class DeploymentService {
       }
       throwIfCancelled(key);
 
-      if (application.type === 'STATIC') {
+      if (sites.length) {
+        if (!source?.repository) throw new Error('Only a project from a git repository can have several apps');
+        await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC SITES: ${sites.map((site) => site.name).join(', ')}` + NL);
+        await this.buildSites(sites, source, commitSha, deployment.id, (site) => (site.id === application.id ? envVars : readEnv(site.envVars)), builtSites, (text) =>
+          afs.appendFile(buildLogPath, text),
+        );
+        throwIfCancelled(key);
+      }
+
+      // a source of static sites alone: nothing runs on a node — they switch now
+      if (!group.length) {
+        await uploadLog();
+        const buildLogs = await readLog(buildLogPath, 'Build logs not available');
+        sitesLive = true;
+        const deployLogs = await this.switchSites(builtSites);
+        await prisma.deployment.update({ where: { id: deployment.id }, data: { status: 'SUCCESS', buildLogs, deployLogs } });
+        return { success: true, buildLogs, deployLogs };
+      }
+
+      if (lead.type === 'STATIC') {
         // Static sites build on the panel (AppFs is local for them) and are
         // served from R2, so nothing here touches a node except the route.
         // Uploaded static sites already live in object storage — a redeploy has
@@ -978,74 +1147,9 @@ export class DeploymentService {
           };
         }
 
-        // NODE_ENV stays unset: production would make the install skip the
-        // devDependencies that vite / react-scripts live in
-        const staticBuildEnv = {
-          ...process.env,
-          ...envVars,
-        };
-
         try {
-          await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD STARTED` + NL);
-
-          // Same detection the create screen showed: install before building,
-          // take the framework's output folder, and let a plain HTML repo
-          // (no package.json, no build) ship as-is.
-          // A monorepo site is detected and built in its folder; a workspace
-          // installs at the repository root.
-          const workDir = inRootDirectory(sourcesDir, application.rootDirectory);
-          if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${application.rootDirectory} in the repository`);
-          const detected = await detectProject(workDir, afs.readText, undefined, sourcesDir);
-          const hasPackageJson = await afs.exists(join(workDir, 'package.json'));
-          const install = hasPackageJson ? detected.installCommand : '';
-          const build = application.buildCommand || detected.buildCommand || '';
-          const steps = [install, build].filter(Boolean);
-
-          await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);
-
-          if (steps.length > 0) {
-            // streamed into build.log as it prints, so the app page can follow it
-            // ponytail: tenant build code on the panel as the backend user. Move
-            // static builds into a node's build cgroup if untrusted tenants ship static sites.
-            await afs.appendFile(buildLogPath, `$ ${steps.join(' && ')}` + NL);
-            // install where the lockfile is, build in the folder ($1)
-            await streamToLog('sh', ['-c', [install, build && `cd "$1" && ${build}`].filter(Boolean).join(' && '), 'sh', workDir], buildLogPath, 600000, {
-              cwd: detected.installAtRoot ? sourcesDir : workDir,
-              env: staticBuildEnv,
-            });
-            await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] STATIC BUILD COMPLETED` + NL);
-          } else {
-            await afs.appendFile(buildLogPath, 'No build step — publishing the repository as-is' + NL);
-          }
-
-          const distCandidates = [detected.outputDir, 'dist', 'build', 'out'].filter(
-            (candidate): candidate is string => Boolean(candidate)
-          );
-          let distDir: string | null = null;
-          for (const candidate of distCandidates) {
-            const candidatePath = join(workDir, candidate);
-            if (await afs.exists(candidatePath)) {
-              distDir = candidatePath;
-              break;
-            }
-          }
-
-          if (!distDir) {
-            throw new Error(`Static build directory not found (looked for ${distCandidates.join(', ')})`);
-          }
-
-          // into a fresh release folder; the serving one is not touched until
-          // the route moves (services/staticReleaseService.ts)
           const previousOrigin: string | null = (application as any).staticOrigin ?? null;
-          const { bucket, origin } = await siteStorage(application as any);
-          await adoptRootFiles(application as any);
-          const folder = releaseFolder(deployment.id);
-          try {
-            await uploadSiteDirectory(inFolder(bucket, folder), distDir);
-          } catch (error) {
-            await discardFolder(bucket, folder);
-            throw error;
-          }
+          const { bucket, origin, folder } = await this.buildStaticRelease(application, afs, deployment.id, envVars, buildLogPath, false);
 
           const release = await prisma.release.create({
             data: { sourceId: application.sourceId, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },
@@ -1246,7 +1350,7 @@ export class DeploymentService {
         }));
 
       // the new release is live and recorded: whatever fell out of the rollback window goes
-      await cleanupAppReleases(afs, application.id).catch(() => {});
+      await cleanupAppReleases(afs, lead.id).catch(() => {});
 
       await prisma.application.update({
         where: { id: application.id },
@@ -1268,6 +1372,11 @@ export class DeploymentService {
             `${error?.message ?? String(error)}. The watchdog retries it; redeploy to try now.` + NL;
           console.error(`Caddy route for ${app.name} not set:`, error?.message ?? error);
         }
+      }
+      // the apps are up on the new commit: the sites built from it go live with them
+      if (builtSites.length) {
+        sitesLive = true;
+        routeWarning += (await this.switchSites(builtSites)) + NL;
       }
       if (routeWarning) {
         await afs.appendFile(deployLogPath, routeWarning).catch(() => {});
@@ -1304,6 +1413,9 @@ export class DeploymentService {
         success: false,
         error: error.message,
       };
+    } finally {
+      // a failed or cancelled deploy leaves every site on what it served before
+      if (!sitesLive) for (const { bucket, folder } of builtSites) await discardFolder(bucket, folder);
     }
   }
 

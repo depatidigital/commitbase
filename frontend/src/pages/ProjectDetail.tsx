@@ -6,7 +6,10 @@ import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useApplication, useRestartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
+import { useApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
+import { AppSetupCard } from "@/components/AppSetupCard";
+import { requiredKeys } from "@/lib/env";
+import { stripAnsi } from "@/lib/ansi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +35,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, bindingLabel, deleteApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, bindingLabel, deleteApplication, getAppDetection, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -84,10 +87,10 @@ export default function ProjectDetail() {
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [buildConsent, setBuildConsent] = useState(false);
   const [building, setBuilding] = useState(false);
-  // the app cards opened in the list for a quick edit
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // the app cards flipped from how they start (open until the project's first deploy, closed after)
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
   const toggle = (appId: string) =>
-    setExpanded((open) => {
+    setToggled((open) => {
       const next = new Set(open);
       if (!next.delete(appId)) next.add(appId);
       return next;
@@ -134,6 +137,9 @@ export default function ProjectDetail() {
   const imported = project.kind === "IMPORTED";
   // releases and a build cache on its node: the panel's own projects, but for static sites (their files are in R2)
   const hasStorage = !imported && !!apps[0] && !apps.every((app) => app.type === "STATIC");
+  // never deployed: every card starts open on its setup checklist — env, then deploy
+  const startsOpen = !imported && !project.lastDeployment && !project.activeRelease;
+  const isOpen = (appId: string) => toggled.has(appId) !== startsOpen;
 
   const origin = project.repository ? (
     <>
@@ -266,11 +272,11 @@ export default function ProjectDetail() {
                   {/* the row opens it here for a quick edit — its hosts and actions — without leaving the list */}
                   <button
                     type="button"
-                    aria-expanded={expanded.has(app.id)}
+                    aria-expanded={isOpen(app.id)}
                     onClick={() => toggle(app.id)}
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-x-6 gap-y-3 rounded-l-lg py-4 pl-3 pr-4 text-left transition-colors hover:bg-muted/30"
                   >
-                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded.has(app.id) ? "" : "-rotate-90"}`} />
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isOpen(app.id) ? "" : "-rotate-90"}`} />
                     <span className="min-w-0 space-y-1.5 sm:w-72">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
@@ -288,7 +294,7 @@ export default function ProjectDetail() {
                       </span>
                     </span>
                     {/* where visitors reach it — opened, the quick edit below lists them instead */}
-                    <span className={`min-w-0 flex-1 items-start gap-1.5 font-mono text-xs ${expanded.has(app.id) ? "hidden" : "flex"}`}>
+                    <span className={`min-w-0 flex-1 items-start gap-1.5 font-mono text-xs ${isOpen(app.id) ? "hidden" : "flex"}`}>
                       <Route className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
                       {bindings.length === 0 ? (
                         <span className="text-muted-foreground">{t("no route")}</span>
@@ -317,7 +323,7 @@ export default function ProjectDetail() {
                     <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </button>
                   </div>
-                  {expanded.has(app.id) && <AppQuickEdit appId={app.id} />}
+                  {isOpen(app.id) && <AppQuickEdit appId={app.id} onOpen={() => openApp(app.id)} />}
                 </li>
               );
             })}
@@ -576,13 +582,25 @@ export default function ProjectDetail() {
  * allows — Stop and Restart while it runs, Start when it is stopped. The rest
  * is on its page — the card's › button.
  */
-function AppQuickEdit({ appId }: { appId: string }) {
+function AppQuickEdit({ appId, onOpen }: { appId: string; /** its whole page — where its build settings are edited */ onOpen: () => void }) {
   const { data: application, isLoading } = useApplication(appId);
   const start = useStartExistingApplication();
+  const firstDeploy = useStartApplication();
   const stop = useStopApplication();
   const restart = useRestartApplication();
   const [confirmStop, setConfirmStop] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
+  // never deployed, and ours to deploy: its setup checklist, as on its page
+  const needsSetup =
+    !!application && !(application.type === "STATIC" && !application.repository) && !application.runtime && !hasBeenDeployed(application);
+  // the same query (and cache) as its page's checklist
+  const detection = useQuery({
+    queryKey: ["application", appId, "detect"],
+    queryFn: () => getAppDetection(appId),
+    enabled: needsSetup,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
   if (isLoading || !application) {
     return (
       <div className="border-t border-border/60 p-4">
@@ -600,12 +618,33 @@ function AppQuickEdit({ appId }: { appId: string }) {
   const lastDeployment = application.deployments?.[0];
   // a site uploaded as files: nothing is built or run, and it is given no env — its files are what there is
   const uploadedSite = application.type === "STATIC" && !application.repository;
+  // counted from the saved env: the form is in the Env dialog, saved before it closes
+  const missing = [...requiredKeys(detection.data)].filter((key) => !application.envVars?.[key]?.trim());
+  const lastFailed =
+    lastDeployment?.status === "FAILED"
+      ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-3).join("\n") || "")
+      : "";
   return (
     <div className="space-y-3 border-t border-border/60 p-4">
       {/* bento: its hosts and how it is built and run side by side; under them what it is given,
-          the full width, beside the actions — read at a glance, hosts managed here */}
+          the full width, beside the actions — read at a glance, hosts managed here.
+          Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
       <div className="grid items-stretch gap-3 md:grid-cols-2">
         <RoutingCard application={application} compact />
+        {needsSetup ? (
+          <AppSetupCard
+            compact
+            application={application}
+            detected={detection.data}
+            detecting={detection.isLoading}
+            env={{ missing, warnings: [], dirty: false }}
+            failure={lastFailed || undefined}
+            starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
+            onDeploy={() => firstDeploy.mutate(application.id)}
+            onEditEnv={() => setEnvOpen(true)}
+            onEditBuild={onOpen}
+          />
+        ) : (
         <MiniCard icon={Rocket} title={t("Deployments")}>
           {!uploadedSite && (
             <>
@@ -623,7 +662,22 @@ function AppQuickEdit({ appId }: { appId: string }) {
               : t("Never deployed")}
           </MiniLine>
         </MiniCard>
+        )}
       </div>
+      {/* the panel's own apps: the env form. An imported one's is its .env on the server — read, searched, not edited */}
+      <Dialog open={envOpen} onOpenChange={setEnvOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{t("Env")} — {application.name}</DialogTitle>
+          </DialogHeader>
+          {application.runtime ? (
+            <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
+          ) : (
+            <AppEnvironment application={application} detected={detection.data} />
+          )}
+        </DialogContent>
+      </Dialog>
+      {!needsSetup && (
       <div className="flex flex-wrap items-center gap-3 md:flex-nowrap">
         <div className="min-w-0 flex-1">
           {uploadedSite ? (
@@ -649,19 +703,6 @@ function AppQuickEdit({ appId }: { appId: string }) {
             )}
           </MiniCard>
           )}
-          {/* the panel's own apps: the env form. An imported one's is its .env on the server — read, searched, not edited */}
-          <Dialog open={envOpen} onOpenChange={setEnvOpen}>
-            <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
-              <DialogHeader>
-                <DialogTitle>{t("Env")} — {application.name}</DialogTitle>
-              </DialogHeader>
-              {application.runtime ? (
-                <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
-              ) : (
-                <AppEnvironment application={application} />
-              )}
-            </DialogContent>
-          </Dialog>
         </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-2 empty:hidden">
       {controllable &&
@@ -684,6 +725,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
         ))}
       </div>
       </div>
+      )}
       {/* stopping takes it offline: asked first, as on its page */}
       <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
         <AlertDialogContent>

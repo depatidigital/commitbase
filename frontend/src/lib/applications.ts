@@ -69,6 +69,8 @@ export interface Application {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
+  /** detail only: its env was saved at least once (even empty) — the setup checklist waits for that */
+  envConfirmed?: boolean;
   userId: string | null;
   organizationId?: string | null;
   organization?: { id: string; name: string; slug: string } | null;

@@ -74,7 +74,18 @@ if ! command -v node >/dev/null || [ "$(node -v | sed 's/^v//' | cut -d. -f1)" -
   apt-get install -y -qq nodejs >/dev/null
 fi
 note "node $(node -v) at $(command -v node)"
+# pnpm and yarn come with corepack; bun does not
 corepack enable 2>/dev/null || true
+
+# For repositories whose only lockfile is Bun's: detection picks `bun install`
+# then (lib/projectDetect.ts lockfileManager). System-wide, so the build user
+# and the panel's static builds find it on PATH.
+if ! command -v bun >/dev/null; then
+  note "Bun"
+  apt-get install -y -qq unzip >/dev/null
+  curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/dev/null 2>&1 || note "bun install failed - Bun-only repositories will not build"
+fi
+command -v bun >/dev/null && note "bun $(bun --version) at $(command -v bun)"
 
 if ! command -v caddy >/dev/null; then
   note "Caddy"

@@ -3,6 +3,7 @@ import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 import { listPm2Processes } from './appSyncService';
+import { lockfileManager } from '../lib/projectDetect';
 
 /**
  * Build and restart an imported pm2 app where it lives: its own folder on its
@@ -15,12 +16,9 @@ import { listPm2Processes } from './appSyncService';
 
 export type PackageManager = 'pnpm' | 'yarn' | 'bun' | 'npm';
 
-/** The package manager a folder's lockfile says. Pure. */
+/** The package manager a folder's lockfile says (projectDetect lockfileManager). Pure. */
 export function packageManager(files: string[]): PackageManager {
-  if (files.includes('pnpm-lock.yaml')) return 'pnpm';
-  if (files.includes('yarn.lock')) return 'yarn';
-  if (files.includes('bun.lockb') || files.includes('bun.lock')) return 'bun';
-  return 'npm';
+  return lockfileManager((name) => files.includes(name)) ?? 'npm';
 }
 
 /**

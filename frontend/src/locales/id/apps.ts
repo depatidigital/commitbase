@@ -481,6 +481,10 @@ export default {
   value: "nilai",
   "Add variable": "Tambah variabel",
   "Upload .env": "Unggah .env",
+  "Search variables…": "Cari variabel…",
+  "Needs a look ({count})": "Perlu dicek ({count})",
+  "Nothing needs a look.": "Tidak ada yang perlu dicek.",
+  "Add domain / host": "Tambah domain / host",
   "Paste .env": "Tempel .env",
   Import: "Impor",
   "Every KEY=value line becomes a variable. Nothing is removed; if a name already has a different value, you choose whether to overwrite it.":

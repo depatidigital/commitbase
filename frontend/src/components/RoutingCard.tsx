@@ -193,6 +193,19 @@ export function RoutingCard({
     </>
   );
 
+  // no host yet: the one thing to do is add one — said where the list would be
+  const addFirst = (
+    <Button
+      variant="outline"
+      size="sm"
+      className={`w-full border-dashed ${compact ? "h-8 text-xs" : ""}`}
+      onClick={() => setEditOpen(true)}
+    >
+      <Plus className={compact ? "mr-1 h-3.5 w-3.5" : "mr-2 h-4 w-4"} />
+      {t("Add domain / host")}
+    </Button>
+  );
+
   if (compact) {
     return (
       // a small card: Host and Manage on top, then one host a line — each opens in a new tab, with its status
@@ -202,12 +215,15 @@ export function RoutingCard({
             <Globe className="h-3.5 w-3.5 text-primary" />
             {t("Host")}
           </p>
-          <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setEditOpen(true)}>
-            <Pencil className="mr-1 h-3 w-3" />
-            {t("Manage")}
-          </Button>
+          {routes.length > 0 && (
+            <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1 h-3 w-3" />
+              {t("Manage")}
+            </Button>
+          )}
         </div>
-        <ul className="space-y-1">
+        {routes.length === 0 && addFirst}
+        <ul className="space-y-1 empty:hidden">
           {routes.map((route) => (
             <li key={bindingLabel(route)} className="flex min-w-0 items-center gap-1.5">
               <a
@@ -242,14 +258,17 @@ export function RoutingCard({
           </CardTitle>
           <p className="mt-1.5 text-xs text-muted-foreground">{t("What visitors get")}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-          <Pencil className="mr-2 h-3.5 w-3.5" />
-          {t("Manage")}
-        </Button>
+        {routes.length > 0 && (
+          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />
+            {t("Manage")}
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="space-y-2 pt-3 pb-2">
+        {routes.length === 0 && addFirst}
         {/* read-only: where it answers, and whether each answers */}
-        <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+        <ul className="divide-y divide-border/60 rounded-md border border-border/60 empty:hidden">
           {routes.map((route) => {
             const label = bindingLabel(route);
             return (

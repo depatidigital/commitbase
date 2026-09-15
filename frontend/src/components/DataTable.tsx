@@ -129,6 +129,8 @@ interface DataTableProps<T> {
   toolbar?: ReactNode;
   /** The whole row opens it. Clicks on the row's own links, buttons and menus still go to them. */
   onRowClick?: (row: T) => void;
+  /** Bounds the rows' box (e.g. "max-h-[55vh]") where no page does — in a dialog. They scroll under a sticky header. */
+  bodyClassName?: string;
 }
 
 // what a click inside a clickable row should leave alone — menu items too: a
@@ -147,6 +149,7 @@ export function DataTable<T>({
   empty = t("No results."),
   toolbar,
   onRowClick,
+  bodyClassName = "",
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
     query;
@@ -210,7 +213,7 @@ export function DataTable<T>({
           main and Table's own overflow div scrolls inside it, so the header
           sticks and the pagination below stays on screen. Where the parent is
           not a flex column it just grows and the page scrolls as before. */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-md border bg-card">
+      <div className={`flex min-h-0 flex-col overflow-hidden rounded-md border bg-card ${bodyClassName}`}>
         <Table className="table-fixed [&_td]:py-2.5 [&_th]:h-10 [&_th]:py-2">
           <TableHeader className="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_hsl(var(--border))]">
             <TableRow className="hover:bg-transparent">

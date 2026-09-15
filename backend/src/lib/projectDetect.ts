@@ -122,13 +122,25 @@ const STATIC_BUILDERS: Array<{ dep: string; framework: string; label: string; ou
   { dep: '@angular/core', framework: 'angular', label: 'Angular', out: 'dist' },
 ];
 
+/**
+ * The manager a folder's lockfiles say, or null without one: text lockfiles
+ * first, Bun's binary bun.lockb (its format before Bun 1.2) last — beside a
+ * text lockfile it is a template's leftover nobody updates. Pure.
+ */
+export function lockfileManager(has: (name: string) => boolean): PackageManager | null {
+  if (has('pnpm-lock.yaml')) return 'pnpm';
+  if (has('yarn.lock')) return 'yarn';
+  if (has('bun.lock')) return 'bun';
+  if (has('package-lock.json')) return 'npm';
+  if (has('bun.lockb')) return 'bun';
+  return null;
+}
+
+/** package.json's `packageManager` first — the repo's own word — then its lockfiles. */
 function packageManagerOf(files: DetectInput, pkg: any): PackageManager {
   const declared = String(pkg?.packageManager || '').split('@')[0];
-  if (declared === 'pnpm' || declared === 'yarn' || declared === 'bun') return declared;
-  if (files['pnpm-lock.yaml'] !== undefined) return 'pnpm';
-  if (files['yarn.lock'] !== undefined) return 'yarn';
-  if (files['bun.lockb'] !== undefined || files['bun.lock'] !== undefined) return 'bun';
-  return 'npm';
+  if (declared === 'npm' || declared === 'pnpm' || declared === 'yarn' || declared === 'bun') return declared;
+  return lockfileManager((name) => files[name as keyof DetectInput] !== undefined) ?? 'npm';
 }
 
 function installCommandOf(pm: PackageManager, files: DetectInput): string {
@@ -572,7 +584,7 @@ function candidateDirsOf(paths: string[]): string[] {
  * The folders of a repository that look like an app of their own, root ('')
  * first: a package.json with a start/build/dev script, a composer.json, or an
  * index.html alone (a static site). A workspace root is not one, and neither
- * is a folder inside an app (CRA's public/index.html). Pure — `packageJson`
+ * is a folder inside an app other than the root. Pure — `packageJson`
  * reads a folder's parsed package.json, or null.
  */
 export function appFoldersOf(paths: string[], packageJson: (dir: string) => any): string[] {
@@ -586,7 +598,8 @@ export function appFoldersOf(paths: string[], packageJson: (dir: string) => any)
     return !!(scripts.start || scripts.build || scripts.dev);
   };
   const apps = candidateDirsOf(paths).filter(isApp).sort((a, b) => a.localeCompare(b));
-  return apps.filter((dir) => !apps.some((other) => other !== dir && (other === '' || dir.startsWith(`${other}/`))));
+  // not the root: a root package.json that runs the others (pm2, concurrently) sits above real apps
+  return apps.filter((dir) => !apps.some((other) => other && other !== dir && dir.startsWith(`${other}/`)));
 }
 
 export type DetectedApp = { rootDirectory: string; detected: DetectedProject };
