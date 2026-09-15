@@ -29,7 +29,6 @@
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.454.0",
-    "@aws-sdk/s3-request-presigner": "^3.995.0",
     "@prisma/client": "^5.7.1",
     "@types/multer": "^2.2.0",
     "@types/node-cron": "^3.0.11",
