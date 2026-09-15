@@ -655,6 +655,11 @@ function AppQuickEdit({ appId }: { appId: string }) {
       void queryClient.invalidateQueries({ queryKey: ["project"] });
     }
   }, [inFlight, refetchApp, queryClient]);
+  const cancelDeploy = useMutation({
+    mutationFn: () => cancelDeployment(appId),
+    onSuccess: () => toast({ title: t("Cancelling the deployment…") }),
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
+  });
   if (isLoading || !application) {
     return (
       <div className="border-t border-border/60 p-4">
@@ -683,11 +688,6 @@ function AppQuickEdit({ appId }: { appId: string }) {
     lastDeployment?.status === "FAILED"
       ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-15).join("\n") || "")
       : "";
-  const cancelDeploy = useMutation({
-    mutationFn: () => cancelDeployment(application.id),
-    onSuccess: () => toast({ title: t("Cancelling the deployment…") }),
-    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
-  });
   return (
     <div className="space-y-3 border-t border-border/60 p-4">
       {inFlight && (
