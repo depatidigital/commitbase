@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, Settings, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, RotateCcw, Settings, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
@@ -49,63 +49,55 @@ interface AppSetupCardProps {
  * app page's failure card.
  */
 export function DeployFailureFixes({ application, failure, failedMigration, starting, onDeploy }: Pick<AppSetupCardProps, "application" | "failure" | "failedMigration" | "starting" | "onDeploy">) {
-  // P3009: the migration's record is cleared, then the migrations run again — one click, nothing to type
-  // the last resort for a database whose migration history no longer matches the code: emptied, after a snapshot
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmApplied, setConfirmApplied] = useState(false);
   const [typed, setTyped] = useState("");
-  const resetOffer =
-    failure && (failedMigration || /migrat|relation .* does not exist/i.test(failure)) ? (
-      <div className="text-xs">
-        <Button type="button" variant="outline" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" disabled={starting} onClick={() => setConfirmReset(true)}>
-          <Database className="mr-1.5 h-3 w-3" />
-          {t("Reset the database and deploy")}
-        </Button>
-        <AlertDialog open={confirmReset} onOpenChange={(open) => { setConfirmReset(open); setTyped(""); }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t("Empty every database of {name}?", { name: application.name })}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {t("Every table and row is dropped, then the deploy runs the migrations from nothing. A snapshot is taken first and can be restored from the deployment history.")}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-1.5">
-              <p className="text-sm">{t("Type {name} to confirm", { name: application.name })}</p>
-              <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus className="font-mono" />
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={typed !== application.name}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={() => onDeploy({ resetDatabase: true })}
-              >
-                {t("Reset and deploy")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    ) : null;
-  const migrationFix = failedMigration ? (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-muted-foreground">{t("Migration {name} is recorded as failed and blocks the rest.", { name: failedMigration })}</span>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7 text-xs"
-        disabled={starting}
-        onClick={() => onDeploy({ resolveMigration: failedMigration })}
-      >
-        <Database className="mr-1.5 h-3 w-3" />
-        {t("Clear it and deploy again")}
-      </Button>
-      {/* a baseline: the tables it would create are already there (a squashed history) — recorded as done, not run */}
-      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled={starting} onClick={() => setConfirmApplied(true)}>
-        <CheckCircle className="mr-1.5 h-3 w-3" />
-        {t("Mark it as applied and deploy")}
-      </Button>
+  const aboutMigrations = !!failure && (!!failedMigration || /migrat|relation .* does not exist/i.test(failure));
+  if (!aboutMigrations) return null;
+
+  // one row an option: what is done on the left, why one would on the right
+  const option = (button: React.ReactNode, detail: string) => (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="w-full sm:w-64 shrink-0">{button}</span>
+      <span className="min-w-0 flex-1 text-muted-foreground">{detail}</span>
+    </li>
+  );
+  const button = (label: string, icon: React.ReactNode, onClick: () => void, destructive = false) => (
+    <Button type="button" variant="outline" size="sm" className={`h-7 w-full justify-start text-xs ${destructive ? "text-destructive hover:text-destructive" : ""}`} disabled={starting} onClick={onClick}>
+      {icon}
+      {label}
+    </Button>
+  );
+
+  return (
+    <div className="space-y-2 text-xs">
+      <p className="font-medium">
+        {failedMigration ? t("Migration {name} is recorded as failed and blocks the rest.", { name: failedMigration }) : t("The migrations failed.")}{" "}
+        <span className="font-normal text-muted-foreground">{t("Ways out:")}</span>
+      </p>
+      <ol className="space-y-1.5">
+        {failedMigration &&
+          option(
+            button(t("Clear it and deploy again"), <RotateCcw className="mr-1.5 h-3 w-3" />, () => onDeploy({ resolveMigration: failedMigration })),
+            t("Its record is cleared and it runs again. When it failed for a passing reason."),
+          )}
+        {failedMigration &&
+          option(
+            button(t("Mark it as applied and deploy"), <CheckCircle className="mr-1.5 h-3 w-3" />, () => setConfirmApplied(true)),
+            t("Not run, recorded as done. When its tables are already there — a squashed history."),
+          )}
+        {option(
+          button(t("Reset the database and deploy"), <Database className="mr-1.5 h-3 w-3" />, () => setConfirmReset(true), true),
+          t("Emptied after a snapshot, migrations from nothing. When nothing in it is worth keeping."),
+        )}
+      </ol>
+      {failedMigration && (
+        <p className="text-muted-foreground">
+          {t("If that migration is no longer in the repository, delete its row yourself, then deploy again:")}
+          <code className="ml-1 select-all break-all">{`DELETE FROM "_prisma_migrations" WHERE migration_name = '${failedMigration}';`}</code>
+        </p>
+      )}
+
       <AlertDialog open={confirmApplied} onOpenChange={setConfirmApplied}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -116,22 +108,35 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => onDeploy({ resolveMigration: failedMigration, resolveAs: "applied" })}>{t("Mark as applied and deploy")}</AlertDialogAction>
+            <AlertDialogAction onClick={() => onDeploy({ resolveMigration: failedMigration!, resolveAs: "applied" })}>{t("Mark as applied and deploy")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* the button resolves it through the repository's migrations: one no longer there is the person's to clear */}
-      <span className="w-full text-muted-foreground">
-        {t("If that migration is no longer in the repository, delete its row yourself, then deploy again:")}
-        <code className="ml-1 select-all break-all">{`DELETE FROM "_prisma_migrations" WHERE migration_name = '${failedMigration}';`}</code>
-      </span>
+      <AlertDialog open={confirmReset} onOpenChange={(open) => { setConfirmReset(open); setTyped(""); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Empty every database of {name}?", { name: application.name })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Every table and row is dropped, then the deploy runs the migrations from nothing. A snapshot is taken first and can be restored from the deployment history.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <p className="text-sm">{t("Type {name} to confirm", { name: application.name })}</p>
+            <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus className="font-mono" />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={typed !== application.name}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDeploy({ resetDatabase: true })}
+            >
+              {t("Reset and deploy")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
-  ) : null;
-  return (
-    <>
-      {migrationFix}
-      {resetOffer}
-    </>
   );
 }
 

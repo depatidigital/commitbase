@@ -658,6 +658,11 @@ export default {
   "Migration {name} is recorded as failed and blocks the rest.": "Migrasi {name} tercatat gagal dan menghalangi migrasi lainnya.",
   "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
   "Reset the database and deploy": "Reset database lalu deploy",
+  "The migrations failed.": "Migrasi gagal.",
+  "Ways out:": "Jalan keluarnya:",
+  "Its record is cleared and it runs again. When it failed for a passing reason.": "Catatannya dihapus dan dijalankan ulang. Kalau gagalnya karena sebab sementara.",
+  "Not run, recorded as done. When its tables are already there — a squashed history.": "Tidak dijalankan, dicatat selesai. Kalau tabelnya memang sudah ada — riwayat yang di-squash.",
+  "Emptied after a snapshot, migrations from nothing. When nothing in it is worth keeping.": "Dikosongkan setelah snapshot, migrasi dari nol. Kalau tidak ada isinya yang perlu disimpan.",
   "Mark it as applied and deploy": "Tandai sudah terpasang lalu deploy",
   "Mark {name} as applied?": "Tandai {name} sudah terpasang?",
   "Its SQL is not run — it is recorded as done and the later migrations go on. Only right when the database already has everything this migration would create, such as after the migrations were squashed. On an incomplete database the app fails later on a missing table.":
