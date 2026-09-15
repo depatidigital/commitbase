@@ -168,6 +168,21 @@ function runScript(pm: PackageManager, script: string): string {
   return pm === 'npm' ? `npm run ${script}` : `${pm} run ${script}`;
 }
 
+/**
+ * The build to run for a `build` script. One that is `tsc`, `tsc -b`, or either
+ * followed by one more command (`tsc -b && vite build`) is run here with
+ * --noCheck: emitted, not type-checked — a type error is the editor's to show,
+ * not a reason for the deploy to fail. Any other script runs as written.
+ * ponytail: --noCheck is TypeScript 5.6+; an older one fails on the flag, and the
+ * app's own Build command overrides this.
+ */
+export function buildOf(pm: PackageManager, script: string): string {
+  const m = script.trim().match(/^tsc(\s+(-b|--build))?(?:\s*&&\s*([^&|;<>]+))?$/);
+  if (!m) return runScript(pm, 'build');
+  const tsc = `${EXEC[pm]} tsc${m[1] ? ' -b' : ''} --noCheck`;
+  return m[3] ? `${tsc} && ${EXEC[pm]} ${m[3].trim()}` : tsc;
+}
+
 function startScript(pm: PackageManager): string {
   return pm === 'yarn' ? 'yarn start' : pm === 'npm' ? 'npm start' : `${pm} run start`;
 }
@@ -359,7 +374,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
         type: 'STATIC',
         framework: 'nextjs-static',
         label: 'Next.js (static export)',
-        buildCommand: scripts.build ? runScript(pm, 'build') : 'next build',
+        buildCommand: scripts.build ? buildOf(pm, scripts.build) : 'next build',
         outputDir: 'out',
       });
     }
@@ -372,7 +387,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
       type: 'NODEJS',
       framework: fw.framework,
       label: fw.label,
-      buildCommand: scripts.build ? runScript(pm, 'build') : fw.build || null,
+      buildCommand: scripts.build ? buildOf(pm, scripts.build) : fw.build || null,
       startCommand: scripts.start && !plainNextStart ? startScript(pm) : fw.start,
       port: fw.port,
     });
@@ -385,7 +400,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
       type: 'STATIC',
       framework: sb.framework,
       label: sb.label,
-      buildCommand: scripts.build ? runScript(pm, 'build') : null,
+      buildCommand: scripts.build ? buildOf(pm, scripts.build) : null,
       outputDir: sb.out,
     });
   }
@@ -396,7 +411,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
     type: 'NODEJS',
     framework: 'node',
     label: 'Node.js',
-    buildCommand: scripts.build ? runScript(pm, 'build') : null,
+    buildCommand: scripts.build ? buildOf(pm, scripts.build) : null,
     startCommand: scripts.start ? startScript(pm) : pkg.main ? `node ${pkg.main}` : 'node index.js',
     port: 3000,
   });

@@ -228,3 +228,11 @@ console.log('projectDetect: ok');
 const chosenPnpm = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { express: '4' } }), 'package-lock.json': '' }, undefined, 'pnpm');
 assert.strictEqual(chosenPnpm.packageManager, 'pnpm');
 assert.strictEqual(chosenPnpm.installCommand, 'pnpm import && pnpm install --frozen-lockfile');
+
+// a build that is tsc runs emit-only: a type error is not a failed deploy
+import { buildOf } from './projectDetect';
+assert.strictEqual(buildOf('pnpm', 'tsc'), 'pnpm tsc --noCheck');
+assert.strictEqual(buildOf('npm', 'tsc -b && vite build'), 'npx tsc -b --noCheck && npx vite build');
+assert.strictEqual(buildOf('pnpm', 'tsc --build && vite build'), 'pnpm tsc -b --noCheck && pnpm vite build');
+assert.strictEqual(buildOf('pnpm', 'next build'), 'pnpm run build');
+assert.strictEqual(buildOf('pnpm', 'tsc && node scripts/x.js && vite build'), 'pnpm run build');
