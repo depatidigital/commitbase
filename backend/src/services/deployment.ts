@@ -12,7 +12,7 @@ import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
-import { detectProject, nvmPreamble, type DetectedProject } from '../lib/projectDetect';
+import { detectProject, nvmPreamble, EXEC, type DetectedProject } from '../lib/projectDetect';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
@@ -156,6 +156,8 @@ export interface DeploymentConfig {
   application: Application;
   deployment: Deployment;
   envVars?: Record<string, string>;
+  /** a Prisma migration recorded as failed (P3009), cleared before the migrations run — runBuild */
+  resolveMigration?: string;
 }
 
 export interface BuildResult {
@@ -377,6 +379,8 @@ export class DeploymentService {
     group: AppWithOrg[],
     deployment: Deployment,
     envs: Map<string, Record<string, string>>,
+    /** a failed Prisma migration to mark rolled back before the pre-deploy step */
+    resolveMigration?: string,
   ): Promise<BuildResult> {
     const { appDir, sourcesDir } = afs;
     const first = group[0]!;
@@ -507,6 +511,9 @@ export class DeploymentService {
         // (Next prerendering), in the same script and env. A failure leaves the
         // old release live — but a migration that ran and a build that then
         // failed leave the old release on the new schema.
+        // a migration Prisma recorded as failed (P3009) blocks every one after it: asked
+        // for from the history, its record is cleared right before the migrations run again
+        if (resolveMigration) steps.push(`${EXEC[detected.packageManager]} prisma migrate resolve --rolled-back ${resolveMigration}`);
         if (app.preDeployCommand) steps.push(app.preDeployCommand);
         const buildCommand = app.buildCommand || detected.buildCommand;
         if (buildCommand) steps.push(buildCommand);
@@ -1195,7 +1202,7 @@ export class DeploymentService {
       }
       const buildResult: BuildResult = reused
         ? { success: true, releaseDir: reused.path! }
-        : await this.runBuild(afs, group, deployment, envs);
+        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(key);

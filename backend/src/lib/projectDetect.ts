@@ -212,7 +212,7 @@ function repoEnvOf(files: DetectInput): RepoEnv {
 }
 
 // runs a package's own binary with the project's package manager
-const EXEC: Record<PackageManager, string> = { npm: 'npx', pnpm: 'pnpm', yarn: 'yarn', bun: 'bunx' };
+export const EXEC: Record<PackageManager, string> = { npm: 'npx', pnpm: 'pnpm', yarn: 'yarn', bun: 'bunx' };
 
 /**
  * Prisma's schema step, for the pre-deploy command. Pure. With migrations

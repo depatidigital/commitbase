@@ -12,7 +12,12 @@ const deploymentService = new DeploymentService();
  * (routes/sources.ts). The caller has checked the app may be deployed
  * (panel-managed, in scope).
  */
-export async function launchDeploy(application: Application, userId: string): Promise<{ deploymentId: string } | null> {
+export async function launchDeploy(
+  application: Application,
+  userId: string,
+  /** resolveMigration: a Prisma migration recorded as failed, cleared before this deploy's migrations */
+  { resolveMigration }: { resolveMigration?: string } = {},
+): Promise<{ deploymentId: string } | null> {
   // the app keeps its own status, from what it was before
   const group = await deploymentService.groupOf(application);
   const scoped = group;
@@ -69,6 +74,7 @@ export async function launchDeploy(application: Application, userId: string): Pr
     application,
     deployment,
     envVars: readEnv(application.envVars),
+    resolveMigration,
   }).then(async (result) => {
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did
