@@ -400,19 +400,29 @@ export function buildRoute(names: string | string[], target: Target): any {
       ],
     });
 
-    route.handle.push({
+    const toBucket = {
       handler: 'reverse_proxy',
       transport: { protocol: 'http', tls: {} },
-      headers: {
-        request: {
-          set: {
-            Host: [host],
-          },
-        },
-      },
-      upstreams: [
+      headers: { request: { set: { Host: [host] } } },
+      upstreams: [{ dial: `${host}:443` }],
+    };
+    route.handle.push({
+      ...toBucket,
+      // A page the bucket does not have (/login of a single-page app, whose
+      // routes live in the browser) is the site's index.html — what a server
+      // with the files would do with `try_files {path} /index.html`. Only for
+      // page paths: a missing asset (/x.png) stays a 404.
+      handle_response: [
         {
-          dial: `${host}:443`,
+          match: { status_code: [404] },
+          routes: [
+            {
+              match: [{ expression: `{http.request.orig_uri.path}.matches('^/[^.]*$')` }],
+              handle: [{ handler: 'rewrite', uri: `${folder}/index.html` }, toBucket],
+            },
+            // anything else: the bucket's answer, as it was
+            { handle: [{ handler: 'copy_response' }] },
+          ],
         },
       ],
     });
