@@ -74,9 +74,12 @@ hand_to_tenant() {
   # every file of every kept release (node_modules, .next) on each deploy and
   # outgrew its timeout once a few releases piled up. -h: the `current`
   # symlink itself, never through it.
-  find "$dir" \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
-  find "$dir" -type f ! -perm -0060 -exec chmod g+rwX {} +
-  find "$dir" -type d ! -perm -2070 -exec chmod g+rwxs {} +
+  # node_modules stays the build user's: pnpm hardlinks it from its store, so a chown
+  # here would hand the store's inodes to the tenant and the next install's chmod
+  # fails (ERR_PNPM_CMD_SHIM_CHMOD). The app only reads it; world-readable as built.
+  find "$dir" -name node_modules -prune -o \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
+  find "$dir" -name node_modules -prune -o -type f ! -perm -0060 -exec chmod g+rwX {} +
+  find "$dir" -name node_modules -prune -o -type d ! -perm -2070 -exec chmod g+rwxs {} +
 }
 
 case "$ACTION" in
