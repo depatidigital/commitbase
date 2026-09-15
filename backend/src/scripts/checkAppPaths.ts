@@ -6,7 +6,7 @@ import assert from 'assert';
 import * as path from 'path';
 import {
   appDirFor, orgHome, orgAppsDir, osUserFor, ORG_SLUG_RE,
-  cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE, sourceDirOf,
+  cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE, sourceDirOf, sourcesDirFor,
 } from '../lib/appPaths';
 
 const APP = 'clx1234567890abcdef';
