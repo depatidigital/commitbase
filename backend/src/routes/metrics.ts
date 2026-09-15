@@ -4,7 +4,7 @@ import { ApiResponse } from '../types';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { orgScope } from '../lib/scope';
 
-const router = Router();
+const router: Router = Router();
 
 // Get system metrics — host-wide, admin only
 router.get('/system', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {

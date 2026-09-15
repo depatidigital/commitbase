@@ -13,7 +13,7 @@ import {
 } from '../services/orgProvisionService';
 
 // Mounted at /api/admin behind authenticateToken + requireRole(['ADMIN']) in index.ts.
-const router = Router();
+const router: Router = Router();
 
 const CreateClientSchema = z.object({
   email: z.string().email(),

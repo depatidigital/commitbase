@@ -5,7 +5,7 @@ import { canEncrypt, encrypt } from '../lib/secretBox';
 import { getGitOAuthConfig, setGitOAuthConfigValue, GitOAuthProvider } from '../services/integrationConfigService';
 
 // Mounted superadmin-only in index.ts, like the other integration credentials.
-const router = Router();
+const router: Router = Router();
 
 const PROVIDERS: GitOAuthProvider[] = ['github', 'gitlab'];
 

@@ -4,7 +4,7 @@ import { setIntegrationConfigValue, getRdashConfigFromDb } from '../services/int
 import { authenticateToken, AuthenticatedRequest, requireRole } from '../middleware/auth';
 import { ApiResponse } from '../types';
 
-const router = Router();
+const router: Router = Router();
 
 // The registrar account spends real money (register, nameservers) and holds
 // its credentials: superadmins only. Admins register through /domains/register,

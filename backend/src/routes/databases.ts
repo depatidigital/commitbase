@@ -33,7 +33,7 @@ import {
 import { streamBackup } from '../services/databaseBackupService';
 import { listSnapshots, restoreSnapshot } from '../services/databaseSnapshotService';
 
-const router = Router();
+const router: Router = Router();
 
 const IMPORT_MAX_MB = Math.max(1, Number(process.env.DB_IMPORT_MAX_MB) || 512);
 // on disk, not in memory: dumps are big. Deleted once the import is done.

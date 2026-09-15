@@ -17,7 +17,7 @@ import { appsOnServer } from '../lib/servers';
 import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { DeploymentService } from '../services/deployment';
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * Provisioning nodes.

@@ -38,7 +38,7 @@ const sortOrder = (sort: unknown, order: unknown): any => {
   }
 };
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * Last-resort signal for names neither RDAP nor the registrar answered for.

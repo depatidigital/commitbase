@@ -21,7 +21,7 @@ const deploymentService = new DeploymentService();
  * and the apps ("Aplikasi") served from it. Pull and deploy happen here, once
  * for all of them; everything per hostname stays on /api/applications.
  */
-const router = Router();
+const router: Router = Router();
 
 const instanceSelect = {
   id: true,

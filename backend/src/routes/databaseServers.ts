@@ -8,7 +8,7 @@ import { paging, contains } from '../lib/paging';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 import { checkDatabaseServer, syncInventory, type SyncResult } from '../services/databaseServerService';
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * Database servers — the Postgres/MySQL instances tenant databases live on.

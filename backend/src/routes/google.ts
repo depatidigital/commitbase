@@ -6,7 +6,7 @@ import { getGoogleConfigFromDb, setGoogleConfigValue, splitEmails } from '../ser
 import { checkGoogleAccess } from '../services/searchConsoleService';
 
 // Mounted superadmin-only in index.ts, like the other integration credentials.
-const router = Router();
+const router: Router = Router();
 
 /** What the panel shows: never the key itself. */
 async function googleStatus() {

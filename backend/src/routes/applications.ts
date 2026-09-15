@@ -49,7 +49,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
 
-const router = Router();
+const router: Router = Router();
 const deploymentService = new DeploymentService();
 
 /**

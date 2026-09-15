@@ -8,7 +8,7 @@ import { CreateUserSchema, LoginSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 
-const router = Router();
+const router: Router = Router();
 
 // Bootstrap the first (ADMIN) account. Once any user exists this endpoint is closed —
 // further accounts are created by an admin via POST /api/admin/users.

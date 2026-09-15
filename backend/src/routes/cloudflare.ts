@@ -14,7 +14,7 @@ import {
 import { checkR2Access } from '../services/r2Service';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 
-const router = Router();
+const router: Router = Router();
 
 // The platform's Cloudflare token (DNS for every zone, and R2): superadmins
 // only — the integrations pages are theirs alone. No roles = SUPERADMIN.

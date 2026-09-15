@@ -12,7 +12,7 @@ import * as systemd from '../services/systemdService';
 import { logsDirFor } from '../lib/appPaths';
 import type { SshTarget } from '../lib/runner';
 
-const router = Router();
+const router: Router = Router();
 const deploymentService = new DeploymentService();
 
 // Get application logs

@@ -10,7 +10,7 @@ import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
 import { queueOrgNode, orgNodesInclude } from '../services/orgProvisionService';
 
-const router = Router();
+const router: Router = Router();
 
 const CreateOrgSchema = z.object({
   name: z.string().min(2),

@@ -6,7 +6,7 @@ import { orgScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { snapshotsOfDeployment } from '../services/databaseSnapshotService';
 
-const router = Router();
+const router: Router = Router();
 const deploymentService = new DeploymentService();
 
 // Get deployment history for an application

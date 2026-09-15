@@ -8,7 +8,7 @@ import { getGitOAuthConfig } from '../services/integrationConfigService';
 
 const gitAccountClient: any = (prisma as any).gitAccount;
 
-const router = Router();
+const router: Router = Router();
 
 function getFrontendBaseUrl() {
   return (
