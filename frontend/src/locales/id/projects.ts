@@ -43,7 +43,6 @@ export default {
   "Then every app is installed, built and restarted. The sites may show errors until that is done.":
     "Lalu setiap aplikasi di-install, di-build, dan dijalankan ulang. Situs bisa error sampai selesai.",
   Env: "Env",
-  "api/* (optional)": "api/* (opsional)",
   "Open details": "Buka detail",
   Summary: "Ringkasan",
   "Filter variables…": "Cari variabel…",

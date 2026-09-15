@@ -133,6 +133,8 @@ interface DataTableProps<T> {
   bodyClassName?: string;
   /** on the whole table — "min-h-0 flex-1" to take what a flex column (a dialog) leaves */
   className?: string;
+  /** "Showing 1–3 of 3" under the rows — false where every row is on screen anyway (a form's rows) */
+  showCount?: boolean;
 }
 
 // what a click inside a clickable row should leave alone — menu items too: a
@@ -153,6 +155,7 @@ export function DataTable<T>({
   onRowClick,
   bodyClassName = "",
   className = "",
+  showCount = true,
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
     query;
@@ -290,6 +293,7 @@ export function DataTable<T>({
         </Table>
       </div>
 
+      {(showCount || paged) && (
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
           {total === 0
@@ -320,6 +324,7 @@ export function DataTable<T>({
         </div>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -335,6 +335,7 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   // an owned domain is the route itself until "+ Subdomain" is clicked
   const [root, setRoot] = useState(true);
   const [path, setPath] = useState("");
+  const [withPath, setWithPath] = useState(false);
   const [hostBlocked, setHostBlocked] = useState(false);
   const [dnsConsent, setDnsConsent] = useState(false);
   const [move, setMove] = useState(false);
@@ -399,16 +400,37 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
         onRoot={setRoot}
         trailing={
           <>
-            {/* optional: a path under the host — other apps of the organization can have the rest */}
-            <div className="relative w-40 shrink-0">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-muted-foreground">/</span>
-              <Input
-                className="pl-6 font-mono text-sm"
-                value={path}
-                placeholder={t("api/* (optional)")}
-                onChange={(e) => setPath(e.target.value.replace(/^\/+/, ""))}
-              />
-            </div>
+            {/* optional: a path under the host — other apps of the organization can have the rest; opened by "+ Path" */}
+            {withPath ? (
+              <div className="relative w-40 shrink-0">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-muted-foreground">/</span>
+                <Input
+                  autoFocus
+                  className="px-6 font-mono text-sm"
+                  value={path}
+                  placeholder="api/*"
+                  onChange={(e) => setPath(e.target.value.replace(/^\/+/, ""))}
+                />
+                <button
+                  type="button"
+                  title={t("Remove path")}
+                  aria-label={t("Remove path")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setPath("");
+                    setWithPath(false);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              domain && (
+                <Button type="button" variant="link" className="shrink-0 px-1" onClick={() => setWithPath(true)}>
+                  + {t("Path")}
+                </Button>
+              )
+            )}
             <Button
               className="shrink-0"
               onClick={() => void add()}

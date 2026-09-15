@@ -1212,12 +1212,10 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       }
       const holder = await prisma.application.findFirst({
         where: { id: holderId, AND: [{ organizationId: application.organizationId }, await orgScope(req)] },
-        select: { id: true, name: true, _count: { select: { domains: true } } },
+        select: { id: true, name: true },
       });
       if (!holder) return res.status(403).json({ success: false, error: `${label} belongs to an app you cannot manage` } as ApiResponse);
-      if (holder._count.domains === 1) {
-        return res.status(400).json({ success: false, error: `${label} is the last host of ${holder.name} — add another one to it first` } as ApiResponse);
-      }
+      // its last host may go too: agreed to on purpose, and an app without a host is a state apps already have (before their first)
       // ponytail: same server only; across servers needs the old node's route dropped and DNS repointed
       if ((await serverForApplication(holder.id)).id !== node.id) {
         return res.status(400).json({ success: false, error: `${holder.name} runs on another server — ${label} can only move between apps on the same server` } as ApiResponse);

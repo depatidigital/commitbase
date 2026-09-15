@@ -317,6 +317,7 @@ export default {
   "A subdomain or the root of a domain your organization owns": "Subdomain atau domain utama milik organisasi Anda",
   "Enter a subdomain": "Isi subdomain",
   "Remove subdomain": "Hapus subdomain",
+  "Remove path": "Hapus path",
   "Move it to this app — {app} stops answering on it.": "Pindahkan ke aplikasi ini — {app} tidak lagi melayaninya.",
   "Root domain": "Domain utama",
   "Goes live at {url}": "Akan live di {url}",

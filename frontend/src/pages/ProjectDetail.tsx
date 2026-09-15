@@ -35,7 +35,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, bindingLabel, deleteApplication, getAppDetection, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type DetectedProject, bindingLabel, deleteApplication, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";

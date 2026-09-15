@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Globe, Loader2, Plus, X, XCircle } from "lucide-react";
+import { Check, ChevronsUpDown, Globe, Loader2, X, XCircle } from "lucide-react";
 import { checkHostname, dnsNeedsConsent } from "@/lib/applications";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DnsChangeNotice } from "@/components/DnsChangeNotice";
@@ -135,9 +135,8 @@ export function HostnamePicker({
         {!bare && <Globe className="min-w-4 min-h-4 text-muted-foreground" />}
         {/* where the subdomain goes: in front of the domain */}
         {useRoot && onRoot && (
-          <Button type="button" variant="outline" className="shrink-0" onClick={() => onRoot(false)}>
-            <Plus className="mr-1 h-4 w-4" />
-            {t("Subdomain")}
+          <Button type="button" variant="link" className="shrink-0 px-1" onClick={() => onRoot(false)}>
+            + {t("Subdomain")}
           </Button>
         )}
         {/* the domain comes first; a subdomain only once there is one to go under */}

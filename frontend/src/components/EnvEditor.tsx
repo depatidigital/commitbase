@@ -393,6 +393,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <DataTable
         className="min-h-[12rem] flex-1"
+        // every row is on screen (it scrolls): a count under them says nothing
+        showCount={false}
         columns={columns}
         rows={tableRows}
         rowKey={({ index }) => String(index)}
