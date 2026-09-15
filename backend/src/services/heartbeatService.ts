@@ -126,6 +126,17 @@ export const forgetPointing = (applicationId: string) => pointing.delete(applica
  * Health for many targets at once, for a table that renders a bar per row.
  * One query for the beats and one for the day's totals, however many rows.
  */
+/**
+ * Something of the app's own answers on its names: an imported app's (routed by
+ * whoever set it up), or a route the panel put there at a deploy — not the
+ * "waiting for its first deploy" placeholder. Pure.
+ */
+export function isServing(app: { runtime: string | null; serve: unknown }): boolean {
+  if (app.runtime) return true;
+  const serve = readServe(app.serve);
+  return !!serve && serve.kind !== 'placeholder';
+}
+
 export async function healthFor(
   targetType: TargetType,
   targetIds: string[],
@@ -232,9 +243,17 @@ export async function checkApplicationHostnames(): Promise<string> {
     await prisma.application.findMany({
       // a switched-off app is off on purpose
       where: { disabled: false },
-      select: { id: true, domains: { select: { host: true, path: true, domainId: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] } },
+      select: {
+        id: true,
+        runtime: true,
+        serve: true,
+        domains: { select: { host: true, path: true, domainId: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
+      },
     })
   )
+    // Nothing of its own is routed yet (never deployed): whatever answers on its
+    // name is another app on the host, or the placeholder page — not it.
+    .filter(isServing)
     // a hostname that only exists inside the platform has nothing to check
     .map((app) => ({ ...app, domains: app.domains.filter((d) => !d.host.endsWith('.pm2.local')) }))
     .filter((app) => app.domains.length > 0);

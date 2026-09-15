@@ -545,13 +545,16 @@ router.get('/health', authenticateToken, async (req: AuthenticatedRequest, res: 
     // only applications the caller may see — the ids arrive from the client
     const visible = await prisma.application.findMany({
       where: { id: { in: ids }, ...(await orgScope(req)) },
-      select: { id: true },
+      select: { id: true, runtime: true, serve: true },
     });
 
-    return res.json({
-      success: true,
-      data: await healthFor('APPLICATION', visible.map((app) => app.id)),
-    } as ApiResponse);
+    const health = await healthFor('APPLICATION', visible.map((app) => app.id));
+    // nothing of its own routed yet: no verdict — its old beats (from before, or
+    // another app answering on its host) would read as "online"
+    for (const app of visible) {
+      if (!isServing(app) && health[app.id]) health[app.id] = { ...health[app.id]!, state: 'unknown', beats: [], uptime24h: null };
+    }
+    return res.json({ success: true, data: health } as ApiResponse);
   } catch (error) {
     console.error('Error reading application health:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
