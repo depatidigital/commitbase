@@ -3,7 +3,7 @@ import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 import { listPm2Processes } from './appSyncService';
-import { lockfileManager } from '../lib/projectDetect';
+import { PNPM_ALLOW_BUILDS, lockfileManager } from '../lib/projectDetect';
 
 /**
  * Build and restart an imported pm2 app where it lives: its own folder on its
@@ -32,7 +32,7 @@ export function pm2DeploySteps(files: string[], packageJson: string | null, proc
     const manager = packageManager(files);
     // exactly the lockfile's versions, like a deploy — never a silent upgrade
     const install: Record<PackageManager, string[]> = {
-      pnpm: ['pnpm', 'install', '--frozen-lockfile'],
+      pnpm: ['pnpm', 'install', '--frozen-lockfile', PNPM_ALLOW_BUILDS],
       yarn: ['yarn', 'install', '--frozen-lockfile'],
       bun: ['bun', 'install', '--frozen-lockfile'],
       npm: files.includes('package-lock.json') ? ['npm', 'ci'] : ['npm', 'install'],

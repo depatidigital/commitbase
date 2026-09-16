@@ -14,7 +14,7 @@ assert.strictEqual(packageManager([]), 'npm');
 
 // install exactly the lockfile, build by the script, restart by name
 assert.deepStrictEqual(argv(pm2DeploySteps(['package.json', 'pnpm-lock.yaml'], '{"scripts":{"build":"next build"}}', 'cpnsfokus')), [
-  'pnpm install --frozen-lockfile',
+  'pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true',
   'pnpm run build',
   'pm2 restart cpnsfokus',
 ]);

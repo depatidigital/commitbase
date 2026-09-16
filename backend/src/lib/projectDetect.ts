@@ -148,13 +148,24 @@ function packageManagerOf(files: DetectInput, pkg: any, chosen?: string | null):
   return pm === 'npm' && chosen !== 'npm' ? 'pnpm' : pm;
 }
 
+/**
+ * pnpm 10 runs no dependency's install script unless the repo lists it
+ * (onlyBuiltDependencies), and with CI=true — how every build here runs — it
+ * fails the install outright (ERR_PNPM_IGNORED_BUILDS). esbuild, sharp and
+ * their kind need theirs, so a deploy allows them: the code is being built and
+ * run on this box anyway. `pnpm approve-builds` is the interactive equivalent.
+ */
+export const PNPM_ALLOW_BUILDS = '--config.dangerouslyAllowAllBuilds=true';
+
 function installCommandOf(pm: PackageManager, files: DetectInput): string {
   const locked = files['package-lock.json'] !== undefined;
   switch (pm) {
-    case 'pnpm':
+    case 'pnpm': {
       // chosen over another manager's lockfile: pnpm-lock.yaml is derived from it at build
-      if (files['pnpm-lock.yaml'] === undefined && (locked || files['yarn.lock'] !== undefined)) return 'pnpm import && pnpm install --frozen-lockfile';
-      return files['pnpm-lock.yaml'] === undefined ? 'pnpm install' : 'pnpm install --frozen-lockfile';
+      const imported = files['pnpm-lock.yaml'] === undefined && (locked || files['yarn.lock'] !== undefined);
+      const frozen = imported || files['pnpm-lock.yaml'] !== undefined ? ' --frozen-lockfile' : '';
+      return `${imported ? 'pnpm import && ' : ''}pnpm install${frozen} ${PNPM_ALLOW_BUILDS}`;
+    }
     case 'yarn':
       return 'yarn install --frozen-lockfile';
     case 'bun':

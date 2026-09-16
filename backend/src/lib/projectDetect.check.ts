@@ -13,7 +13,7 @@ const next = detectFromFiles({
 assert.strictEqual(next.framework, 'nextjs');
 assert.strictEqual(next.type, 'NODEJS');
 assert.strictEqual(next.packageManager, 'pnpm');
-assert.strictEqual(next.installCommand, 'pnpm install --frozen-lockfile');
+assert.strictEqual(next.installCommand, 'pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true');
 assert.strictEqual(next.buildCommand, 'pnpm run build');
 // a start script that is only `next start` runs as Next itself: loopback, the platform's port
 const NEXT_START = 'node ./node_modules/next/dist/bin/next start -H 127.0.0.1 -p $PORT';
@@ -24,7 +24,7 @@ assert.strictEqual(next.port, 3000);
 
 const nextNoScripts = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { next: '15' } }), 'package-lock.json': '' });
 // npm's lockfile: pnpm all the same, importing it — npm only when the app says so
-assert.strictEqual(nextNoScripts.installCommand, 'pnpm import && pnpm install --frozen-lockfile');
+assert.strictEqual(nextNoScripts.installCommand, 'pnpm import && pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true');
 assert.strictEqual(nextNoScripts.startCommand, NEXT_START);
 
 // a script that does more is kept — and said about when it pins a port or binds everywhere
@@ -68,7 +68,7 @@ assert.strictEqual(laravel.type, 'PHP');
 assert.strictEqual(laravel.framework, 'laravel');
 assert.strictEqual(laravel.outputDir, 'public');
 assert.ok(laravel.installCommand.startsWith('composer install'));
-assert.strictEqual(laravel.buildCommand, 'pnpm import && pnpm install --frozen-lockfile && pnpm run build');
+assert.strictEqual(laravel.buildCommand, 'pnpm import && pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true && pnpm run build');
 
 const html = detectFromFiles({ 'index.html': '<html>' });
 assert.strictEqual(html.type, 'STATIC');
@@ -170,7 +170,7 @@ const inWorkspace = withRootFiles(webPkg, workspaceRoot);
 assert.strictEqual(inWorkspace.installAtRoot, true);
 const web = detectFromFiles(inWorkspace.files);
 assert.strictEqual(web.packageManager, 'pnpm');
-assert.strictEqual(web.installCommand, 'pnpm install --frozen-lockfile');
+assert.strictEqual(web.installCommand, 'pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true');
 assert.strictEqual(web.nodeVersion, '20');
 // packageManager alone (yarn berry repos without a lockfile yet) still names the manager
 assert.strictEqual(detectFromFiles(withRootFiles(webPkg, { 'package.json': JSON.stringify({ packageManager: 'yarn@4.0.0' }) }).files).packageManager, 'yarn');
@@ -178,7 +178,7 @@ assert.strictEqual(detectFromFiles(withRootFiles(webPkg, { 'package.json': JSON.
 const standalone = withRootFiles({ ...webPkg, 'package-lock.json': '' }, workspaceRoot);
 assert.strictEqual(standalone.installAtRoot, false);
 assert.strictEqual(standalone.files['pnpm-lock.yaml'], undefined);
-assert.strictEqual(detectFromFiles(standalone.files).installCommand, 'pnpm import && pnpm install --frozen-lockfile');
+assert.strictEqual(detectFromFiles(standalone.files).installCommand, 'pnpm import && pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true');
 assert.strictEqual(detectFromFiles(standalone.files, undefined, 'npm').installCommand, 'npm ci --no-audit --no-fund');
 // its own packageManager wins over the root's
 assert.strictEqual(
@@ -227,7 +227,7 @@ console.log('projectDetect: ok');
 // a chosen pnpm over npm's lockfile imports it first
 const chosenPnpm = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { express: '4' } }), 'package-lock.json': '' }, undefined, 'pnpm');
 assert.strictEqual(chosenPnpm.packageManager, 'pnpm');
-assert.strictEqual(chosenPnpm.installCommand, 'pnpm import && pnpm install --frozen-lockfile');
+assert.strictEqual(chosenPnpm.installCommand, 'pnpm import && pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true');
 
 // a build that is tsc runs emit-only: a type error is not a failed deploy
 import { buildOf } from './projectDetect';
