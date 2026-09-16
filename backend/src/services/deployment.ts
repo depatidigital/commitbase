@@ -859,7 +859,20 @@ export class DeploymentService {
     });
     if (!app) return false;
     const key = lockKey(app);
-    if (!deploying.has(key)) return false;
+    if (!deploying.has(key)) {
+      // nothing runs here, but the rows may still say so — a launch that died
+      // before it got this far, or a crash — and Cancel is how they get unstuck
+      const stuck = await prisma.deployment.updateMany({
+        where: { applicationId, status: { in: ['PENDING', 'BUILDING', 'DEPLOYING'] } },
+        data: { status: 'CANCELLED', deployLogs: 'Cancelled — nothing was running for it; the previous release, if any, keeps serving' },
+      });
+      const live = await prisma.application.findUnique({ where: { id: applicationId }, select: { activeReleaseId: true } });
+      const status = await prisma.application.updateMany({
+        where: { id: applicationId, status: { in: ['DEPLOYING', 'BUILDING'] } },
+        data: { status: live?.activeReleaseId ? 'RUNNING' : 'STOPPED' },
+      });
+      return stuck.count > 0 || status.count > 0;
+    }
     cancelling.add(key);
     if (app.organization?.slug) {
       // the build runs as the app's: cb-build-<slug>-<app id>

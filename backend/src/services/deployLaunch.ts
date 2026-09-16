@@ -60,9 +60,12 @@ export async function launchDeploy(
     orderBy: { host: 'asc' },
   });
   for (const name of names) {
-    const dns = await ensureAppHostname({ id: name.applicationId, domain: name.host, domainId: name.domainId }).catch(
-      (error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }),
-    );
+    // bounded: the row already says "deploying", and until deploy() below runs
+    // nothing can cancel it — a hung DNS API must not hold the app there
+    const dns = await Promise.race([
+      ensureAppHostname({ id: name.applicationId, domain: name.host, domainId: name.domainId }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('DNS API did not answer in 30s')), 30_000).unref()),
+    ]).catch((error: any) => ({ state: 'unavailable' as const, detail: String(error?.message ?? 'DNS setup failed') }));
     // does not fail the deploy — the hostname may be in a zone we do not run
     if (dns.state === 'conflict' || dns.state === 'unavailable') {
       dnsWarning += `DNS was not set up${names.length > 1 ? ` for ${name.host}` : ''}: ${dns.detail}\n\n`;
