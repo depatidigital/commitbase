@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildScript, dotenvLine } from './deployment';
+import { buildBlock, buildScript, dotenvLine, pruneOf } from './deployment';
 import { parseEnv } from 'util';
 
 // .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
@@ -62,3 +62,10 @@ console.log('deployment: dotenvLine OK');
   process.exit(1);
 });
 
+// devDependencies pruned after the build — unless the start command runs one
+assert.strictEqual(pruneOf({ pruneDevDeps: false }, { packageManager: 'pnpm', startCommand: 'node dist/index.js' }), null);
+assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'pnpm', startCommand: 'node dist/index.js' }), 'pnpm prune --prod');
+assert.strictEqual(pruneOf({ pruneDevDeps: true, startCommand: 'tsx src/index.ts' }, { packageManager: 'pnpm', startCommand: null }), null);
+assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'npm', startCommand: 'nodemon server.js' }), null);
+assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'bun', startCommand: 'bun dist/index.js' }), null);
+console.log('deployment: pruneOf OK');
