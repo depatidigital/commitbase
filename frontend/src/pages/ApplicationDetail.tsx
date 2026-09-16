@@ -1596,6 +1596,7 @@ const settingsOf = (application: Application) => ({
   installCommand: application?.installCommand || '',
   buildCommand: application?.buildCommand || '',
   preDeployCommand: application?.preDeployCommand || '',
+  pruneDevDeps: !!application?.pruneDevDeps,
   startCommand: application?.startCommand || '',
   port: application?.port?.toString() || '',
 });
@@ -1608,7 +1609,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
   const queryClient = useQueryClient();
   const isStatic = application.type === 'STATIC';
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = (field: string, value: string | boolean) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -1629,6 +1630,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         installCommand: formData.installCommand,
         buildCommand: formData.buildCommand || undefined,
         preDeployCommand: formData.preDeployCommand,
+        pruneDevDeps: formData.pruneDevDeps,
         startCommand: formData.startCommand || undefined,
         port: formData.port ? parseInt(formData.port) : undefined,
       };
@@ -1731,6 +1733,19 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             {t("Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.")}
           </p>
         </div>
+      )}
+
+      {/* smaller releases: devDependencies go after the build. Skipped by the deploy when the start command runs one (tsx, nodemon) */}
+      {!isStatic && (
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+          <Checkbox checked={formData.pruneDevDeps} onCheckedChange={(checked) => handleInputChange('pruneDevDeps', checked === true)} className="mt-0.5" />
+          <span>
+            <span className="font-medium">{t("Remove devDependencies after the build")}</span>
+            <span className="block text-xs text-muted-foreground">
+              {t("typescript, the prisma CLI, @types and the like leave the release once it is built — often half of node_modules. Kept when the start command runs one of them (tsx, ts-node, nodemon). The next build installs afresh instead of reusing the trimmed node_modules.")}
+            </span>
+          </span>
+        </label>
       )}
 
       {/* a static site is served, not started: no start command, no port */}

@@ -373,6 +373,9 @@ model Application {
   buildCommand     String?
   /// Before the build, after install — migrations. Failing it fails the deploy.
   preDeployCommand String?
+  /// After the build: devDependencies removed from the release (pnpm prune --prod).
+  /// Not when the start command runs one (tsx, ts-node, nodemon) — deployment.ts.
+  pruneDevDeps     Boolean  @default(false)
   startCommand     String?
   /// `{ "$enc": <secretBox blob> }` once written through lib/appEnv; a plain
   /// object on rows from before encryption, read as is until next saved.

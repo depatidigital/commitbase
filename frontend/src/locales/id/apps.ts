@@ -617,6 +617,9 @@ export default {
   "pnpm unless the repository uses yarn or bun. Pick npm to keep npm.": "pnpm, kecuali repositori memakai yarn atau bun. Pilih npm untuk tetap memakai npm.",
   "Without a pnpm-lock.yaml, the build runs pnpm import first — nothing to commit.": "Tanpa pnpm-lock.yaml, build menjalankan pnpm import dulu — tidak perlu commit apa pun.",
   "Pre-deploy Command": "Perintah Pra-deploy",
+  "Remove devDependencies after the build": "Hapus devDependencies setelah build",
+  "typescript, the prisma CLI, @types and the like leave the release once it is built — often half of node_modules. Kept when the start command runs one of them (tsx, ts-node, nodemon). The next build installs afresh instead of reusing the trimmed node_modules.":
+    "typescript, prisma CLI, @types dan sejenisnya dibuang dari release setelah build — sering separuh node_modules. Tetap dipertahankan kalau perintah start memakainya (tsx, ts-node, nodemon). Build berikutnya install ulang, bukan memakai node_modules yang sudah dipangkas.",
   "Empty uses the detected one: {command}": "Kosong = memakai hasil deteksi: {command}",
   "Empty uses the detected one.": "Kosong = memakai hasil deteksi.",
   "Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.":

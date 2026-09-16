@@ -1095,7 +1095,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
     // hostnames are not edited here: POST/DELETE /:id/domains
-    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId, rootDirectory, packageManager } =
+    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, pruneDevDeps, startCommand, port, envVars, gitAccountId, rootDirectory, packageManager } =
       req.body || {};
     if (packageManager !== undefined && packageManager !== null && packageManager !== '' && !['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
       return res.status(400).json({ success: false, error: 'packageManager must be npm, pnpm, yarn or bun' });
@@ -1152,6 +1152,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         ...(packageManager !== undefined && { packageManager: packageManager || null }),
         buildCommand,
         ...(preDeployCommand !== undefined && { preDeployCommand: preDeployCommand.trim() || null }),
+        ...(typeof pruneDevDeps === 'boolean' && { pruneDevDeps }),
         startCommand,
         port,
         ...(envVars !== undefined && { envVars: sealEnv(envVars) }),

@@ -68,6 +68,8 @@ export interface Application {
   buildCommand?: string;
   /** before the build, after install — migrations */
   preDeployCommand?: string | null;
+  /** after the build: devDependencies removed from the release */
+  pruneDevDeps?: boolean;
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
@@ -171,6 +173,7 @@ export interface UpdateApplicationData {
   buildCommand?: string;
   /** '' removes the step */
   preDeployCommand?: string;
+  pruneDevDeps?: boolean;
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
