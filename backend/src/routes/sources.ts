@@ -105,8 +105,6 @@ async function findSource(req: AuthenticatedRequest, res: Response) {
 
 const present = <T extends { name: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
   ...source,
-  // BigInt does not survive JSON; sizes fit a number
-  applications: source.applications.map((app) => ({ ...app, diskBytes: app.diskBytes === null ? null : Number(app.diskBytes) })),
   name: sourceName(source, source.applications[0]?.domains[0]?.host),
   customName: source.name,
   kind: kindOf(source),

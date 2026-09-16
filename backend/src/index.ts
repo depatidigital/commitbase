@@ -4,6 +4,12 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
+
+// Application.diskBytes is a BigInt; res.json() has no idea what to do with one.
+// Sizes fit a number — every BigInt on the wire is one.
+(BigInt.prototype as any).toJSON = function () {
+  return Number(this);
+};
 import * as appStatusWatcher from './services/appStatusWatcher';
 import { startCronJobs } from './services/cron';
 import { snapshotCaddyConfig } from './services/caddySnapshotService';
