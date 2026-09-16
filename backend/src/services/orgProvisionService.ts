@@ -183,6 +183,19 @@ export async function sourceTreeUnit(action: 'chown' | 'cancel-build', slug: str
 }
 
 /**
+ * Remove a tree inside an app (or source) directory on its node, as root:
+ * `tree` is relative to it (`releases/<name>`, `sources/web/node_modules`).
+ * A build's leftovers are the build user's, with modes the SSH user cannot
+ * delete through. `applicationId`: any app of the tree, for its node.
+ */
+export async function removeAppTree(slug: string, dirId: string, tree: string, applicationId = dirId): Promise<string> {
+  assertSlug(slug);
+  if (!APP_ID_RE.test(dirId)) throw new Error(`Invalid app id: ${dirId}`);
+  if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(tree) || /(^|\/)\.\.(\/|$)/.test(tree)) throw new Error(`Invalid tree: ${tree}`);
+  return sudo(await serverForApplication(applicationId), 'cb-app-unit', ['rm-tree', slug, dirId, tree], 5 * 60_000);
+}
+
+/**
  * Run the app's own <app-dir>/build.sh inside the build cgroup (memory-capped,
  * low CPU/IO weight) on its node. Its own, not its source's: two apps of one
  * source deploying at once must not run each other's script. Resolves with

@@ -4,6 +4,7 @@ import { currentDirFor, logsDirFor, releasesDirFor, sharedDirFor } from '../lib/
 import { exec, type SshTarget } from '../lib/runner';
 import { serverForApplication } from '../lib/servers';
 import { listSiteObjects } from './r2Service';
+import { removeAppTree } from './orgProvisionService';
 import * as path from 'path';
 
 const join = path.posix.join;
@@ -109,14 +110,22 @@ export async function cleanupAppReleases(
   { keep = KEEP_RELEASES, cache = false }: { keep?: number; cache?: boolean } = {},
 ): Promise<{ removed: string[] }> {
   const { releases, ready } = await releasesOf(afs, applicationId, keep);
+  const slug = (await prisma.application.findUnique({ where: { id: applicationId }, select: { organization: { select: { slug: true } } } }))?.organization?.slug;
   const removed: string[] = [];
   for (const release of releases) {
     if (release.state !== 'unused') continue;
+    // as root on the node: the tree is the build user's, the SSH user cannot delete through it.
     // said, not thrown: one tree that will not go must not stop the rest
-    await afs.rm(release.path, { recursive: true, force: false }).catch((error: any) => console.warn(`cleanup ${applicationId}: ${release.name} not removed: ${error?.stderr || error?.message || error}`));
-    removed.push(release.name);
+    const gone = slug
+      ? removeAppTree(slug, applicationId, `releases/${release.name}`)
+      : afs.rm(release.path, { recursive: true, force: false });
+    const ok = await gone.then(() => true, (error: any) => {
+      console.warn(`cleanup ${applicationId}: ${release.name} not removed: ${error?.stderr || error?.message || error}`);
+      return false;
+    });
+    if (ok) removed.push(release.name);
   }
-  const gone = new Set(releases.filter((r) => r.state === 'unused').map((r) => r.path));
+  const gone = new Set(releases.filter((r) => r.state === 'unused' && removed.includes(r.name)).map((r) => r.path));
   const staleRows = ready.filter((r) => gone.has(r.path!)).map((r) => r.id);
   // never the active one: it is `live`, so its tree is not in `gone`
   if (staleRows.length) await prisma.release.deleteMany({ where: { id: { in: staleRows } } });

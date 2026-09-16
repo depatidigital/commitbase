@@ -11,6 +11,8 @@
 #       unit may write there too, and both trees are handed to the tenant.
 #   cb-app-unit start|stop|restart|remove|status <org-slug> <app-id>
 #   cb-app-unit chown <org-slug> <app-id>     ownership only — PHP apps have no unit
+#   cb-app-unit rm-tree <org-slug> <app-id> <tree>
+#       removes <app-dir>/<tree> (an old release, a build's node_modules) as root
 #   cb-app-unit cancel-build <org-slug> <app-id>
 #       stops that app's running build (its transient cb-build-* unit), if any
 #   cb-app-unit build <org-slug> <app-id> [memory-max] [cpu-weight]
@@ -39,12 +41,15 @@ SOURCE_ID="$APP_ID"
 case "$ACTION" in
   build)   BUILD_MEMORY_MAX="${4:-2G}"; BUILD_CPU_WEIGHT="${5:-50}" ;;
   install) SOURCE_ID="${4:-$APP_ID}" ;;
+  rm-tree) TREE="${4-}" ;;
 esac
+# rm-tree: a path inside the app directory — plain segments, never up, never the root
+[[ "$ACTION" != rm-tree || "$TREE" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && ! "$TREE" =~ (^|/)\.\.(/|$) ]] || { echo "cb-app-unit: invalid tree: '$TREE'" >&2; exit 2; }
 [[ "$BUILD_MEMORY_MAX" =~ ^[0-9]+[KMGT]?$ ]] || { echo "cb-app-unit: invalid memory max: '$BUILD_MEMORY_MAX'" >&2; exit 2; }
 [[ "$BUILD_CPU_WEIGHT" =~ ^[0-9]{1,5}$ ]]    || { echo "cb-app-unit: invalid cpu weight: '$BUILD_CPU_WEIGHT'" >&2; exit 2; }
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
-[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build|cancel-build)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
+[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build|cancel-build|rm-tree)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
 [[ "$SOURCE_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                     || { echo "cb-app-unit: invalid source id: '$SOURCE_ID'" >&2; exit 2; }
@@ -86,6 +91,13 @@ case "$ACTION" in
   chown)
     hand_to_tenant "$APP_DIR"
     echo "chowned $APP_DIR"
+    ;;
+
+  rm-tree)
+    # what a build left (an old release, node_modules, dist) is the build user's,
+    # with modes the backend's SSH user cannot delete through — so removed here
+    rm -rf -- "$APP_DIR/$TREE"
+    echo "removed $APP_DIR/$TREE"
     ;;
 
   build)

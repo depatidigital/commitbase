@@ -3,7 +3,7 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { staticRouteError } from './caddyService';
 import { serveApp, serveStatic } from './hostRouteService';
-import { appBuild, ensureOrgOnNode, sourceTreeUnit } from './orgProvisionService';
+import { appBuild, ensureOrgOnNode, removeAppTree, sourceTreeUnit } from './orgProvisionService';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { isPublishable, uploadSiteObject } from './r2Service';
@@ -925,7 +925,18 @@ export class DeploymentService {
     // cache keeps that fast) and the output folder. The checkout stays as cloned,
     // so two sites of one project never trip over each other's install.
     const leftovers = [join(workDir, 'node_modules'), ...(detected.installAtRoot ? [join(sourcesDir, 'node_modules')] : [])];
-    const sweep = () => Promise.all(leftovers.map((p) => afs.rm(p, { recursive: true, force: true }).catch(() => {})));
+    // as root on the node (the build user's files); the tree id is the source's — the checkout is under it
+    const treeId = application.sourceId ?? application.id;
+    const treeDir = path.posix.dirname(sourcesDir);
+    const sweep = () =>
+      Promise.all(
+        leftovers.map((p) =>
+          (application.organization?.slug
+            ? removeAppTree(application.organization.slug, treeId, path.posix.relative(treeDir, p), application.id)
+            : afs.rm(p, { recursive: true, force: true })
+          ).catch((error: any) => console.warn(`static sweep ${application.id}: ${p} not removed: ${error?.stderr || error?.message || error}`)),
+        ),
+      );
     try {
       return await this.buildAndUploadStatic(application, afs, deploymentId, envVars, buildLogPath, sourcesDir, workDir, detected, install, build, leftovers);
     } finally {
