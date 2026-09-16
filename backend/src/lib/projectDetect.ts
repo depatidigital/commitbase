@@ -157,6 +157,26 @@ function packageManagerOf(files: DetectInput, pkg: any, chosen?: string | null):
  */
 export const PNPM_ALLOW_BUILDS = '--config.dangerouslyAllowAllBuilds=true';
 
+/**
+ * The same permission by the two other routes pnpm reads it from, because the
+ * flag alone is not enough: pnpm 11+ takes these settings from
+ * pnpm-workspace.yaml in the install folder, and a repository without one (or
+ * with one that says nothing about builds) still fails with
+ * ERR_PNPM_IGNORED_BUILDS. The line is appended where the install runs, and
+ * the env var covers the versions that read the config from the environment.
+ */
+export const pnpmAllowBuildsInFolder = (dir?: string): string => {
+  const at = dir ? `"${dir}/pnpm-workspace.yaml"` : 'pnpm-workspace.yaml';
+  return `grep -qs dangerouslyAllowAllBuilds ${at} || printf '
+dangerouslyAllowAllBuilds: true
+' >> ${at}`;
+};
+
+export const PNPM_ALLOW_BUILDS_ENV = {
+  pnpm_config_dangerously_allow_all_builds: 'true',
+  pnpm_config_package_manager_strict: 'false',
+} as const;
+
 function installCommandOf(pm: PackageManager, files: DetectInput): string {
   const locked = files['package-lock.json'] !== undefined;
   switch (pm) {

@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { appFoldersOf, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles } from './projectDetect';
+import { appFoldersOf, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -221,6 +221,11 @@ assert.deepStrictEqual(
   ),
   ['', 'backend', 'frontend'],
 );
+
+// the permission pnpm 11+ reads from the install folder, idempotent and quotable
+assert.match(pnpmAllowBuildsInFolder(), /^grep -qs dangerouslyAllowAllBuilds pnpm-workspace\.yaml \|\| printf /);
+assert.ok(pnpmAllowBuildsInFolder('/srv/app').includes('"/srv/app/pnpm-workspace.yaml"'));
+assert.strictEqual(PNPM_ALLOW_BUILDS_ENV.pnpm_config_dangerously_allow_all_builds, 'true');
 
 console.log('projectDetect: ok');
 

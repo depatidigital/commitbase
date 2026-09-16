@@ -12,7 +12,7 @@ import { uploadSiteDirectory } from './r2Service';
 import { adoptRootFiles, discardFolder, inFolder, pruneStaticReleases, releaseFolder, siteStorage } from './staticReleaseService';
 import { releasesDirFor, currentDirFor, sharedDirFor, logsDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, sourceFsFor, type AppFs } from '../lib/appFs';
-import { detectProject, nvmPreamble, EXEC, type DetectedProject } from '../lib/projectDetect';
+import { detectProject, nvmPreamble, EXEC, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV, type DetectedProject } from '../lib/projectDetect';
 
 // world-readable in /tmp: flock takes an exclusive lock on a read-only fd, whichever build user made it
 const NPM_LOCK = '/tmp/larika-npm.lock';
@@ -964,9 +964,19 @@ export class DeploymentService {
       // install where the lockfile is, build in the folder ($1).
       // NODE_ENV stays unset: production would make the install skip the
       // devDependencies that vite / react-scripts live in
-      await streamToLog('sh', ['-c', [install, build && `cd "$1" && ${build}`].filter(Boolean).join(' && '), 'sh', workDir], buildLogPath, 600000, {
+      // pnpm 11+ takes the build permission from pnpm-workspace.yaml in the
+      // install folder: the install flag alone leaves it failing with
+      // ERR_PNPM_IGNORED_BUILDS (esbuild, sharp), as the node builds do too
+      const allow = install && detected.packageManager === 'pnpm' ? [pnpmAllowBuildsInFolder()] : [];
+      await streamToLog('sh', ['-c', [...allow, install, build && `cd "$1" && ${build}`].filter(Boolean).join(' && '), 'sh', workDir], buildLogPath, 600000, {
         cwd: detected.installAtRoot ? sourcesDir : workDir,
-        env: { ...process.env, ...envVars, HOME: buildHome, XDG_CACHE_HOME: path.join(buildHome, '.cache') },
+        env: {
+          ...process.env,
+          ...envVars,
+          HOME: buildHome,
+          XDG_CACHE_HOME: path.join(buildHome, '.cache'),
+          ...(detected.packageManager === 'pnpm' ? PNPM_ALLOW_BUILDS_ENV : {}),
+        },
       });
       await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] STATIC BUILD COMPLETED` + NL);
     } else {
