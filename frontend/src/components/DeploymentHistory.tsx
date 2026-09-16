@@ -171,6 +171,49 @@ function SnapshotRestore({ snapshots }: { snapshots: Snapshot[] }) {
   );
 }
 
+/**
+ * The last few lines of a running build, for a card that has no room for the
+ * whole log: the same live query the dialog uses, so following it costs one
+ * request. Clicking opens the whole thing.
+ */
+export function BuildLogTail({
+  appId,
+  text,
+  lines = 3,
+  onOpen,
+}: {
+  appId: string;
+  /** an imported app's build writes onto its deployment row, not into a build log on disk */
+  text?: string | undefined;
+  lines?: number;
+  onOpen?: () => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ["build-live", appId],
+    queryFn: () => getLiveBuildLog(appId),
+    refetchInterval: 2000,
+    enabled: text === undefined,
+  });
+  const tail = (text ?? data ?? "")
+    .split("\n")
+    .filter((line) => line.trim())
+    .slice(-lines)
+    .join("\n");
+
+  const body = (
+    <pre className="overflow-hidden whitespace-pre-wrap break-all rounded bg-muted/60 p-2 text-left font-mono text-[11px] leading-snug text-muted-foreground">
+      {tail ? <AnsiText text={tail} /> : t("Waiting for output…")}
+    </pre>
+  );
+  return onOpen ? (
+    <button type="button" onClick={onOpen} title={t("Full log")} className="block w-full hover:opacity-80">
+      {body}
+    </button>
+  ) : (
+    body
+  );
+}
+
 /** Asks before switching what is live to a kept build. */
 export function RestoreDialog({ appId, isStatic, release, onClose }: { appId: string; isStatic: boolean; release: Release | null; onClose: () => void }) {
   const restore = useRestoreRelease(appId);

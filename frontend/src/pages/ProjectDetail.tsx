@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DeployLogDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import { BuildLogTail, DeployLogDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
@@ -696,7 +696,26 @@ function AppQuickEdit({ appId }: { appId: string }) {
     <div className="space-y-3 border-t border-border/60 p-4">
       {inFlight && (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-          <div className="float-right flex items-center gap-1">
+          {/* where it is; its log in the dialog (Logs) */}
+          <DeployProgress
+            appId={application.id}
+            status={newestDeploy?.status}
+            redeploy={hasBeenDeployed(application)}
+            published={application.type === "STATIC" ? !!application.staticBucket : application.status === "RUNNING"}
+            showLog={false}
+          />
+          {/* the newest lines, so the card says what it is doing — the whole log is a click away */}
+          {!uploadedSite && newestDeploy?.status !== "PENDING" && (
+            <div className="mt-2">
+              <BuildLogTail
+                appId={application.id}
+                text={application.runtime ? newestDeploy?.deployLogs ?? "" : undefined}
+                onOpen={() => setLogOpen(true)}
+              />
+            </div>
+          )}
+          {/* under it, on their own line: the phases keep the width they need */}
+          <div className="mt-2 flex flex-wrap items-center justify-end gap-1 border-t border-primary/20 pt-2">
             {!uploadedSite && (
               <Button variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
                 <Terminal className="h-3.5 w-3.5 mr-1.5" />
@@ -717,14 +736,6 @@ function AppQuickEdit({ appId }: { appId: string }) {
               </Button>
             )}
           </div>
-          {/* where it is; its log in the dialog (Log) */}
-          <DeployProgress
-            appId={application.id}
-            status={newestDeploy?.status}
-            redeploy={hasBeenDeployed(application)}
-            published={application.type === "STATIC" ? !!application.staticBucket : application.status === "RUNNING"}
-            showLog={false}
-          />
         </div>
       )}
       <DeployLogDialog
