@@ -20,12 +20,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { t } from "@/lib/i18n";
+import { MigrationChoices, useMigrationsConfirm } from "@/components/DeployConfirmDialog";
 
 interface SourcePanelProps {
   /** the project (source) the page's app — or the page — is about */
   projectId: string;
-  /** the page's deploy: saves pending env edits, then starts it (the whole project) */
-  onDeploy: () => void;
+  /** the page's deploy: saves pending env edits, then starts it (the whole project); `skipPreDeployFor`: apps whose migrations are left out */
+  onDeploy: (skipPreDeployFor?: string[]) => void;
   starting?: boolean;
   /** a deploy is running — nothing to offer until it ends */
   deploying?: boolean;
@@ -88,13 +89,17 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
   const [confirmPull, setConfirmPull] = useState(false);
   // the pull dialog's choice: the code only, or the code and a redeploy of every app (the sites can err while they build)
   const [redeploy, setRedeploy] = useState(false);
+  // apps with migrations: each asked before a deploy, on by default (DeployConfirmDialog)
+  const migrating = apps.filter((app) => app.preDeployCommand);
+  const [skipMigrations, setSkipMigrations] = useState<Set<string>>(new Set());
+  const confirmDeploy = useMigrationsConfirm(t("Deploy {name}?", { name: project?.name ?? "" }), apps, (skipFor) => onDeploy(skipFor));
   const pull = useMutation({
-    mutationFn: async (redeploy: boolean) => {
+    mutationFn: async ({ redeploy, skipFor }: { redeploy: boolean; skipFor: string[] }) => {
       const pulled = await pullProject(projectId);
       // the pull stands whatever the build does: its failure is said on its own
       let built: string[] | null = null;
       let buildError: string | null = null;
-      if (redeploy && !readOnly) onDeploy();
+      if (redeploy && !readOnly) onDeploy(skipFor);
       else if (redeploy) {
         try {
           built = await buildProject(projectId, true);
@@ -138,7 +143,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
 
   const deployBranch = async () => {
     if (changed) await saveBranch.mutateAsync();
-    onDeploy();
+    confirmDeploy.deploy();
   };
 
   return (
@@ -346,11 +351,13 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
             )}
           </>
         )}
+        {confirmDeploy.dialog}
         <AlertDialog
           open={confirmPull}
           onOpenChange={(open) => {
             setConfirmPull(open);
             setRedeploy(false);
+            setSkipMigrations(new Set());
           }}
         >
           <AlertDialogContent>
@@ -389,9 +396,11 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 </button>
               ))}
             </div>
+            {/* redeploying: each app's migrations, on by default */}
+            {redeploy && !readOnly && migrating.length > 0 && <MigrationChoices apps={migrating} skip={skipMigrations} onChange={setSkipMigrations} />}
             <AlertDialogFooter>
               <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => pull.mutate(redeploy)}>{redeploy ? t("Pull and redeploy") : t("Pull only")}</AlertDialogAction>
+              <AlertDialogAction onClick={() => pull.mutate({ redeploy, skipFor: [...skipMigrations] })}>{redeploy ? t("Pull and redeploy") : t("Pull only")}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

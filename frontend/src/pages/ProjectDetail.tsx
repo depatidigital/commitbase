@@ -104,7 +104,7 @@ export default function ProjectDetail() {
   const [panelSlot, setPanelSlot] = useState<HTMLDivElement | null>(null);
   // a panel-managed project deploys as one, from its source panel
   const deploy = useMutation({
-    mutationFn: () => deployProject(id),
+    mutationFn: (skipPreDeployFor: string[] = []) => deployProject(id, skipPreDeployFor),
     onSuccess: () => {
       toast({ title: t("Deploying") });
       void queryClient.invalidateQueries({ queryKey: ["project", id] });
@@ -458,7 +458,7 @@ export default function ProjectDetail() {
         {project.repository && (
           <SourcePanel
             projectId={project.id}
-            onDeploy={() => deploy.mutate()}
+            onDeploy={(skipPreDeployFor) => deploy.mutate(skipPreDeployFor ?? [])}
             starting={deploy.isPending}
             deploying={project.status === "DEPLOYING"}
           />

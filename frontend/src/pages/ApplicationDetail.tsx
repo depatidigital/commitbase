@@ -893,8 +893,9 @@ export function AppWorkspace({
         {dnsFix}
         {/* the branch and what is newer than live — after the first deploy;
             before it the setup card is where deploying happens */}
+        {/* the panel asks about the migrations itself: straight to the deploy, not the app's own question again */}
         {application.repository && application.sourceId && !needsSetup && !inProject && (
-          <SourcePanel projectId={application.sourceId} onDeploy={() => void deploy()} starting={starting} deploying={deploying} />
+          <SourcePanel projectId={application.sourceId} onDeploy={(skipFor) => void deployNow(skipFor?.includes(application.id) ? { skipPreDeploy: true } : {})} starting={starting} deploying={deploying} />
         )}
         </aside>
 

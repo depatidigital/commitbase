@@ -30,6 +30,8 @@ export interface ProjectApp {
   /** bytes on disk (or in R2), null until measured */
   diskBytes: number | null;
   diskMeasuredAt: string | null;
+  /** its migrations, run before each build; the deploy confirmation can leave it out */
+  preDeployCommand: string | null;
 }
 
 export interface Project {
@@ -112,8 +114,12 @@ export const buildProject = async (id: string, consent: boolean): Promise<string
 };
 
 /** Build and release every app of a panel-managed project. */
-export const deployProject = async (id: string): Promise<string> => {
-  const response = await apiRequest<{ deploymentId: string }>(`/sources/${id}/deploy`, { method: 'POST' });
+/** `skipPreDeployFor`: the apps whose pre-deploy step (migrations) is left out this once. */
+export const deployProject = async (id: string, skipPreDeployFor: string[] = []): Promise<string> => {
+  const response = await apiRequest<{ deploymentId: string }>(`/sources/${id}/deploy`, {
+    method: 'POST',
+    ...(skipPreDeployFor.length > 0 && { body: JSON.stringify({ skipPreDeployFor }) }),
+  });
   if (response.success && response.data) return response.data.deploymentId;
   throw new Error(response.error || t('Could not start the deployment'));
 };

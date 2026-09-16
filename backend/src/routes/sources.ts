@@ -40,6 +40,7 @@ const instanceSelect = {
   createdAt: true,
   diskBytes: true,
   diskMeasuredAt: true,
+  preDeployCommand: true,
 } satisfies Prisma.ApplicationSelect;
 
 type Instance = Prisma.ApplicationGetPayload<{ select: typeof instanceSelect }>;
@@ -510,10 +511,12 @@ router.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRequest, 
     }
 
     const applications = await prisma.application.findMany({ where: { id: { in: managed.map((app) => app.id) } } });
+    // skipPreDeployFor: the apps whose pre-deploy step (migrations) is left out this once
+    const skipFor = new Set<string>(Array.isArray(req.body?.skipPreDeployFor) ? req.body.skipPreDeployFor.map(String) : []);
     const launched: string[] = [];
     const busy: string[] = [];
     for (const application of applications) {
-      const started = await launchDeploy(application, req.user!.userId);
+      const started = await launchDeploy(application, req.user!.userId, { ...(skipFor.has(application.id) && { skipPreDeploy: true }) });
       if (started) launched.push(started.deploymentId);
       else busy.push(application.name);
     }

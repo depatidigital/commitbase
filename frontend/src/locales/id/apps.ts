@@ -663,6 +663,7 @@ export default {
   "Deploy {name}?": "Deploy {name}?",
   "The new release builds beside the running one and takes over once it answers.": "Rilis baru dibangun di samping yang berjalan dan mengambil alih begitu merespons.",
   "Migrate the database": "Migrasi database",
+  "Migrate the database of {name}": "Migrasi database {name}",
   "Runs the pre-deploy step before the build. Unticked, the code goes live on the schema as it is.":
     "Menjalankan langkah pre-deploy sebelum build. Tidak dicentang: kode live di skema yang ada.",
   "The pre-deploy step is left out this once; the code goes live on the schema as it is. When the code does not need the change yet.":
