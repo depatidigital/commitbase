@@ -11,6 +11,7 @@ import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
+import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { envWarnings, parseDatabaseUrl, requiredKeys } from "@/lib/env";
 import { testDatabaseUrl } from "@/lib/databases";
 import { stripAnsi } from "@/lib/ansi";
@@ -641,7 +642,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
     firstDeploy.isPending ||
     ["DEPLOYING", "BUILDING"].includes(application?.status ?? "") ||
     ["PENDING", "BUILDING", "DEPLOYING"].includes(newestDeploy?.status ?? "");
-  const startDeploy = (id: string, options: StartOptions = {}) =>
+  const startDeployNow = (id: string, options: StartOptions = {}) =>
     firstDeploy.mutate({ id, ...options }, {
       // the new row and status at once — the history then polls itself until the deploy ends
       onSuccess: () => {
@@ -649,6 +650,9 @@ function AppQuickEdit({ appId }: { appId: string }) {
         void refetchApp();
       },
     });
+  // an app with migrations is asked first (migrate on by default)
+  const confirmDeploy = useDeployConfirm(application ?? undefined, (options) => startDeployNow(appId, options));
+  const startDeploy = (_id: string, options: StartOptions = {}) => confirmDeploy.deploy(options);
   // when it ends: the app again — its status, its first release, its checklist gone
   const wasInFlight = useRef(false);
   useEffect(() => {
@@ -776,6 +780,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
           </div>
         </div>
       )}
+      {confirmDeploy.dialog}
       <DeployLogDialog
         application={application}
         open={logOpen}

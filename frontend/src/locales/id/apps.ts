@@ -660,6 +660,11 @@ export default {
   "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
   "Reset the database and deploy": "Reset database lalu deploy",
   "Deploy without the migrations": "Deploy tanpa migrasi",
+  "Deploy {name}?": "Deploy {name}?",
+  "The new release builds beside the running one and takes over once it answers.": "Rilis baru dibangun di samping yang berjalan dan mengambil alih begitu merespons.",
+  "Migrate the database": "Migrasi database",
+  "Runs the pre-deploy step before the build. Unticked, the code goes live on the schema as it is.":
+    "Menjalankan langkah pre-deploy sebelum build. Tidak dicentang: kode live di skema yang ada.",
   "The pre-deploy step is left out this once; the code goes live on the schema as it is. When the code does not need the change yet.":
     "Langkah pre-deploy dilewati sekali ini; kode live di skema yang ada. Kalau kodenya belum butuh perubahan itu.",
   "The migrations failed.": "Migrasi gagal.",

@@ -67,6 +67,7 @@ import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
+import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { DeployProgress } from "@/components/DeployProgress";
@@ -356,7 +357,7 @@ export function AppWorkspace({
   const envSave = useRef<(() => Promise<boolean>) | null>(null);
   const connectDb = useRef<(() => void) | null>(null);
   const [savingForDeploy, setSavingForDeploy] = useState(false);
-  const deploy = async (options: StartOptions = {}) => {
+  const deployNow = async (options: StartOptions = {}) => {
     if (envStatus.dirty) {
       setSavingForDeploy(true);
       const saved = await envSave.current?.();
@@ -365,6 +366,9 @@ export function AppWorkspace({
     }
     startApp.mutate({ id: id!, ...options });
   };
+  // an app with migrations is asked first (migrate on by default)
+  const confirmDeploy = useDeployConfirm(application ?? undefined, (options) => void deployNow(options));
+  const deploy = async (options: StartOptions = {}) => confirmDeploy.deploy(options);
   const starting = savingForDeploy || startApp.isPending;
 
   // Update logs when data changes
@@ -1455,6 +1459,7 @@ export function AppWorkspace({
           </div>
         </div>
 
+        {confirmDeploy.dialog}
         <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
           <AlertDialogContent>
             <AlertDialogHeader>

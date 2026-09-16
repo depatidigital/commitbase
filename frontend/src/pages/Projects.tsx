@@ -276,8 +276,7 @@ export default function Projects() {
         const measured = project.applications.filter((app) => app.diskBytes != null);
         if (measured.length === 0) return <span className="text-muted-foreground">—</span>;
         const total = measured.reduce((sum, app) => sum + (app.diskBytes ?? 0), 0);
-        const detail = measured.map((app) => `${app.name}: ${formatBytes(app.diskBytes)}`).join("
-");
+        const detail = measured.map((app) => `${app.name}: ${formatBytes(app.diskBytes)}`).join("\n");
         return (
           <span className="text-muted-foreground" title={detail}>
             {formatBytes(total)}
