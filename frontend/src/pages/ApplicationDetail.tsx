@@ -973,7 +973,7 @@ export function AppWorkspace({
             </Card>
           ) : null}
           {/* stacked: one grid for every card of the page — the overview's cards and the sections after them pair up */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className={stacked ? "grid items-start gap-4 md:grid-cols-2" : "space-y-6"}>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className={stacked ? "grid grid-cols-1 items-start gap-4 md:grid-cols-2" : "space-y-6"}>
           {/* in a project: no tabs — its sections are cards down one page */}
           {!stacked && (
           <TabsList

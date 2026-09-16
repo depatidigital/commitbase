@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import DeploymentHistory, { LiveBuildLog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import { DeployLogDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
@@ -727,19 +727,14 @@ function AppQuickEdit({ appId }: { appId: string }) {
           />
         </div>
       )}
-      <Dialog open={logOpen} onOpenChange={setLogOpen}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
-          <DialogHeader>
-            <DialogTitle>{t("Deployments")} — {application.name}</DialogTitle>
-          </DialogHeader>
-          {/* queued: build.log is still the previous deploy's — not shown as if it were this one's */}
-          {inFlight && !uploadedSite && newestDeploy?.status !== "PENDING" && (
-            // an imported app's build logs onto its deployment row
-            <LiveBuildLog appId={application.id} text={application.runtime ? newestDeploy?.deployLogs ?? "" : undefined} />
-          )}
-          <DeploymentHistory application={application} onlyApp={application.id} />
-        </DialogContent>
-      </Dialog>
+      <DeployLogDialog
+        application={application}
+        open={logOpen}
+        onOpenChange={setLogOpen}
+        // a pm2 build on the server runs to its end
+        onCancel={application.runtime ? undefined : () => cancelDeploy.mutate()}
+        cancelling={cancelDeploy.isPending}
+      />
       {/* bento: its hosts and how it is built and run side by side; under them what it is given,
           the full width, beside the actions — read at a glance, hosts managed here.
           Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
