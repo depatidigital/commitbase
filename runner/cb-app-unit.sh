@@ -150,7 +150,9 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 RemoveIPC=true
 LockPersonality=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK: getifaddrs (os.networkInterfaces — Fastify logs its addresses
+# on listen) goes through netlink; without it Node throws EAFNOSUPPORT (errno 97)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 # Node and other JIT runtimes need writable+executable pages.
 MemoryDenyWriteExecute=false
 
