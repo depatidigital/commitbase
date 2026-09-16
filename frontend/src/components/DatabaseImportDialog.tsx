@@ -259,7 +259,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
                   {t("{name} already has {count} tables.", { name: dbName, count: tables! })}
                 </p>
                 <Label htmlFor="import-confirm" className="font-normal">
-                  {t('Type "{name}" to restore into it anyway', { name: dbName })}
+                  {t('Type "{name}" to empty it and restore into it', { name: dbName })}
                 </Label>
                 <Input
                   id="import-confirm"

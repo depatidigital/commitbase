@@ -12,7 +12,7 @@ import { prisma } from '../lib/prisma';
 import { liveLog } from '../lib/liveLog';
 import { buildCommand, connect, getSftp } from '../lib/runner';
 import { reach, tlsOptions } from './databaseServerService';
-import { databaseCredentials } from './databaseProvisionService';
+import { databaseCredentials, resetDatabase } from './databaseProvisionService';
 
 /**
  * Running an uploaded .sql file (optionally gzipped) against one database.
@@ -475,7 +475,13 @@ const errorText = (error: any) =>
  * the outcome lands on the row. Deletes the file and releases the database's
  * lock when done.
  */
-export async function runImport(importId: string, databaseId: string, filePath: string): Promise<void> {
+/**
+ * `reset`: the database is emptied first (dropped and made again, logins kept).
+ * A full dump (pg_dump --clean, the panel's own backups and snapshots) drops
+ * each object before creating it, and on a database with data those DROPs
+ * fail on the foreign keys between them — so a restore over data starts empty.
+ */
+export async function runImport(importId: string, databaseId: string, filePath: string, { reset = false } = {}): Promise<void> {
   const live = liveLog((text) => prisma.databaseImport.update({ where: { id: importId }, data: { log: clean(text) } }));
   /** The outcome, recorded no matter what: a lost write leaves the row RUNNING and the dialog waiting forever. */
   const finish = async (data: { status: 'DONE' | 'FAILED'; error?: string; sha256?: string }) => {
@@ -530,6 +536,10 @@ export async function runImport(importId: string, databaseId: string, filePath: 
       text = gzipped ? pipeline(raw, tap, zlib.createGunzip(), noop) : pipeline(raw, tap, noop);
     }
 
+    if (reset) {
+      live.push('Emptying the database first — a restore over data\n');
+      await resetDatabase(databaseId);
+    }
     await withTenant(databaseId, async (session) => {
       const { engine, dbName } = session;
       const kind = archive ? ' (backup archive)' : gzipped ? ' (gzip)' : '';

@@ -728,8 +728,9 @@ router.post('/:id/import', authenticateToken, async (req: AuthenticatedRequest, 
       },
     });
     started = true;
-    // releases the database and deletes the file when done
-    void runImport(row.id, database.id, req.file.path);
+    // releases the database and deletes the file when done. Over data (the name
+    // was typed): emptied first — a dump's DROPs fail on the foreign keys otherwise
+    void runImport(row.id, database.id, req.file.path, { reset: tables > 0 && !database.discovered });
     return res.status(202).json({ success: true, data: row, message: 'Import started' } as ApiResponse);
   } catch (error: any) {
     if (error instanceof multer.MulterError) {

@@ -141,7 +141,8 @@ export async function restoreSnapshot(databaseId: string, file: string, userId: 
     throw error;
   }
   // releases the database and deletes the copy when done
-  const run = runImport(row.id, databaseId, copy);
+  // the panel's own dump (--clean): over the data that came since, so emptied first
+  const run = runImport(row.id, databaseId, copy, { reset: true });
   if (!wait) return row;
   await run;
   return prisma.databaseImport.findUnique({ where: { id: row.id } });
