@@ -93,7 +93,10 @@ else
 fi
 
 mkdir -p "$HOME_DIR/apps"
-chown -R "$OS_USER:$CB_GROUP" "$HOME_DIR"
+# node_modules stays the build user's (see cb-app-unit hand_to_tenant): pnpm
+# hardlinks it from its store, so chowning it hands the store's inodes to the
+# tenant and every later install fails with ERR_PNPM_CMD_SHIM_CHMOD
+find "$HOME_DIR" -name node_modules -prune -o \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
 # setgid so anything the org user writes stays group-readable by the backend
 chmod 2770 "$HOME_DIR" "$HOME_DIR/apps"
 
