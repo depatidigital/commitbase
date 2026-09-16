@@ -387,6 +387,11 @@ model Application {
   lastDeployment DateTime?
   deploymentCount Int @default(0)
 
+  /// What it takes on disk (its tree on the node, or its files in R2), measured
+  /// after each deploy and by the app-disk cron. Null until measured.
+  diskBytes      BigInt?
+  diskMeasuredAt DateTime?
+
   // Server inventory — filled by the app sync (pm2 + Caddy site files)
   runtime      String?   // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for apps we deploy
   processName  String?   // pm2 process name, when the runtime is PM2

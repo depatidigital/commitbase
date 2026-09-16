@@ -27,6 +27,9 @@ export interface ProjectApp {
   /** a hostname split by path: `/api/*` → the app, the rest → static files */
   routing: Array<{ path: string | null; proxy?: string; root?: string }> | null;
   createdAt: string;
+  /** bytes on disk (or in R2), null until measured */
+  diskBytes: number | null;
+  diskMeasuredAt: string | null;
 }
 
 export interface Project {

@@ -10,7 +10,7 @@ import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
-import { AppSetupCard } from "@/components/AppSetupCard";
+import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { envWarnings, parseDatabaseUrl, requiredKeys } from "@/lib/env";
 import { testDatabaseUrl } from "@/lib/databases";
 import { stripAnsi } from "@/lib/ansi";
@@ -547,9 +547,12 @@ export default function ProjectDetail() {
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>{t("Every app of this project is deleted, one after the other:")}</p>
-                <ul className="list-disc pl-5 font-mono text-xs">
+                <ul className="list-disc pl-5 text-xs">
                   {apps.map((app) => (
-                    <li key={app.id}>{hostList(app)}</li>
+                    <li key={app.id}>
+                      <span className="font-medium">{app.name}</span>
+                      {hostList(app) && <span className="font-mono text-muted-foreground"> · {hostList(app)}</span>}
+                    </li>
                   ))}
                 </ul>
                 {imported && (
@@ -738,8 +741,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
           </div>
         </div>
       )}
-      {/* why the last deploy failed, as the detail page says it — the checklist has its own copy */}
-      {!inFlight && !needsSetup && lastFailed && (
+      {/* why the last deploy failed, on the card itself — the checklist below stays a checklist */}
+      {!inFlight && lastFailed && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -761,6 +764,16 @@ function AppQuickEdit({ appId }: { appId: string }) {
             </div>
           </div>
           <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">{lastFailed}</pre>
+          {/* a failed migration: its ways out, right under the reason */}
+          <div className="mt-2">
+            <DeployFailureFixes
+              application={application}
+              failure={lastFailed}
+              failedMigration={lastDeployment?.status === "FAILED" ? failedMigrationOf(lastDeployment.buildLogs) : null}
+              starting={firstDeploy.isPending}
+              onDeploy={(options) => startDeploy(application.id, options)}
+            />
+          </div>
         </div>
       )}
       <DeployLogDialog
@@ -787,8 +800,9 @@ function AppQuickEdit({ appId }: { appId: string }) {
             detecting={detection.isLoading}
             env={{ missing, warnings, dirty: false }}
             dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
-            failure={lastFailed || undefined}
-            failedMigration={lastDeployment?.status === "FAILED" ? failedMigrationOf(lastDeployment.buildLogs) : null}
+            // the failure and its ways out are on the card above, not in the checklist
+            failure={undefined}
+            failedMigration={null}
             starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
             onDeploy={(options) => startDeploy(application.id, options)}
             onEditEnv={() => setEnvOpen(true)}

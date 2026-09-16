@@ -404,58 +404,58 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         bodyClassName="max-h-[55vh]"
         empty={onlyFlagged ? t("Nothing needs a look.") : t("No results.")}
         toolbar={
-          flaggedCount > 0 || onlyFlagged ? (
+          <>
+            {(flaggedCount > 0 || onlyFlagged) && (
+              <Button
+                type="button"
+                variant={onlyFlagged ? "secondary" : "outline"}
+                size="sm"
+                aria-pressed={onlyFlagged}
+                className={onlyFlagged ? "" : "text-amber-600 dark:text-amber-400"}
+                onClick={() => setOnlyFlagged((on) => !on)}
+              >
+                <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
+                {t("Needs a look ({count})", { count: flaggedCount })}
+              </Button>
+            )}
             <Button
               type="button"
-              variant={onlyFlagged ? "secondary" : "outline"}
+              variant="outline"
               size="sm"
-              aria-pressed={onlyFlagged}
-              className={onlyFlagged ? "" : "text-amber-600 dark:text-amber-400"}
-              onClick={() => setOnlyFlagged((on) => !on)}
+              disabled={disabled}
+              onClick={() => {
+                // a new row at the end: shown whatever the filter was
+                setOnlyFlagged(false);
+                query.setInput("");
+                onChange([...list, { key: "", value: "" }]);
+              }}
             >
-              <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-              {t("Needs a look ({count})", { count: flaggedCount })}
+              <Plus className="h-4 w-4 mr-2" />
+              {t("Add variable")}
             </Button>
-          ) : null
+            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => fileRef.current?.click()}>
+              <FileUp className="h-4 w-4 mr-2" />
+              {t("Upload .env")}
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setPasting("")}>
+              <ClipboardPaste className="h-4 w-4 mr-2" />
+              {t("Paste .env")}
+            </Button>
+            {/* no accept filter: ".env" has no extension a picker would match */}
+            <input
+              ref={fileRef}
+              type="file"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = ""; // the same file again is a new pick
+                if (file) importText(await file.slice(0, 256 * 1024).text());
+              }}
+            />
+          </>
         }
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-          onClick={() => {
-            // a new row at the end: shown whatever the filter was
-            setOnlyFlagged(false);
-            query.setInput("");
-            onChange([...list, { key: "", value: "" }]);
-          }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          {t("Add variable")}
-        </Button>
-        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => fileRef.current?.click()}>
-          <FileUp className="h-4 w-4 mr-2" />
-          {t("Upload .env")}
-        </Button>
-        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setPasting("")}>
-          <ClipboardPaste className="h-4 w-4 mr-2" />
-          {t("Paste .env")}
-        </Button>
-        {/* no accept filter: ".env" has no extension a picker would match */}
-        <input
-          ref={fileRef}
-          type="file"
-          className="hidden"
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            e.target.value = ""; // the same file again is a new pick
-            if (file) importText(await file.slice(0, 256 * 1024).text());
-          }}
-        />
-        {notice && <span className="text-xs text-muted-foreground">{notice}</span>}
-      </div>
+      {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
 
       <Dialog open={pasting !== null} onOpenChange={(open) => !open && setPasting(null)}>
         <DialogContent>

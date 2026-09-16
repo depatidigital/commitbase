@@ -2,6 +2,8 @@ import { prisma } from '../lib/prisma';
 import { sourceFsFor, type AppFs } from '../lib/appFs';
 import { currentDirFor, logsDirFor, releasesDirFor, sharedDirFor } from '../lib/appPaths';
 import { exec, type SshTarget } from '../lib/runner';
+import { serverForApplication } from '../lib/servers';
+import { listSiteObjects } from './r2Service';
 import * as path from 'path';
 
 const join = path.posix.join;
@@ -140,4 +142,48 @@ export async function nodeDisk(node: SshTarget): Promise<{ size: number; used: n
   const { stdout } = await exec(node, ['df', '-B1', '--output=size,used,avail', home], { timeout: 30_000 }).catch(() => ({ stdout: '' }));
   const [size, used, avail] = (stdout.trim().split('\n')[1] ?? '').trim().split(/\s+/).map(Number);
   return size ? { size, used: used ?? 0, avail: avail ?? 0 } : null;
+}
+
+/**
+ * Measure what the app takes and store it on its row — its tree on the node,
+ * an imported app's folder, or a static site's objects in R2. Returns the bytes,
+ * null when there is nothing to measure. After each deploy and on the app-disk cron.
+ */
+export async function measureAppDisk(applicationId: string): Promise<number | null> {
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    select: { type: true, runtime: true, rootPath: true, staticBucket: true },
+  });
+  if (!app) return null;
+  let bytes: number | null = null;
+  if (app.type === 'STATIC') {
+    if (app.staticBucket) bytes = (await listSiteObjects(app.staticBucket)).reduce((sum, file) => sum + file.size, 0);
+  } else if (app.runtime) {
+    // imported: its folder on the server, as the sync found it
+    if (app.rootPath && app.rootPath.startsWith('/')) {
+      const { stdout } = await exec(await serverForApplication(applicationId), ['du', '-sb', '--', app.rootPath], { timeout: 300_000 });
+      bytes = Number(stdout.split('\t')[0]) || 0;
+    }
+  } else {
+    bytes = (await appDiskUsage(applicationId))?.totalBytes ?? null;
+  }
+  if (bytes === null) return null;
+  await prisma.application.update({ where: { id: applicationId }, data: { diskBytes: BigInt(bytes), diskMeasuredAt: new Date() } });
+  return bytes;
+}
+
+/** Every app, one after the other — a du per app is slow, and the cron must not overlap itself. */
+export async function measureAllAppDisks(): Promise<string> {
+  const apps = await prisma.application.findMany({ select: { id: true }, orderBy: { diskMeasuredAt: { sort: 'asc', nulls: 'first' } } });
+  let measured = 0;
+  let failed = 0;
+  for (const { id } of apps) {
+    try {
+      if ((await measureAppDisk(id)) !== null) measured += 1;
+    } catch (error: any) {
+      failed += 1;
+      console.warn(`app-disk: ${id}: ${error?.message ?? error}`);
+    }
+  }
+  return `${measured} app(s) measured, ${failed} failed`;
 }

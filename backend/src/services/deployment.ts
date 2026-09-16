@@ -146,6 +146,8 @@ export interface DeploymentConfig {
   resolveAs?: 'rolled-back' | 'applied';
   /** the app's databases emptied before the build — after their snapshot, which is the way back */
   resetDatabase?: boolean;
+  /** the pre-deploy step (the migrations) left out this once — the code goes live on the schema as it is */
+  skipPreDeploy?: boolean;
 }
 
 export interface BuildResult {
@@ -370,6 +372,7 @@ export class DeploymentService {
     /** a failed Prisma migration to mark rolled back (or applied) before the pre-deploy step */
     resolveMigration?: string,
     resolveAs: 'rolled-back' | 'applied' = 'rolled-back',
+    skipPreDeploy = false,
   ): Promise<BuildResult> {
     const { appDir, sourcesDir } = afs;
     const first = group[0]!;
@@ -517,8 +520,9 @@ export class DeploymentService {
         // failed leave the old release on the new schema.
         // a migration Prisma recorded as failed (P3009) blocks every one after it: asked
         // for from the history, its record is cleared right before the migrations run again
-        if (resolveMigration) steps.push(`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`);
-        if (app.preDeployCommand) steps.push(app.preDeployCommand);
+        if (resolveMigration && !skipPreDeploy) steps.push(`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`);
+        if (app.preDeployCommand && !skipPreDeploy) steps.push(app.preDeployCommand);
+        if (app.preDeployCommand && skipPreDeploy) steps.push(`echo 'pre-deploy step skipped this once: ${app.preDeployCommand.replace(/'/g, "'\\''")}'`);
         const buildCommand = app.buildCommand || detected.buildCommand;
         if (buildCommand) steps.push(buildCommand);
 
@@ -1203,7 +1207,7 @@ export class DeploymentService {
       // release kept writing during the build, and that is a person's call.
       const wasLive = !!application.activeReleaseId || application.status === 'RUNNING';
       const snapshots: Snapshot[] = [];
-      if (application.preDeployCommand || config.resetDatabase) {
+      if ((application.preDeployCommand && !config.skipPreDeploy) || config.resetDatabase) {
         const databases = await prisma.database.findMany({
           where: { applicationId: application.id, discovered: false, status: 'RUNNING' },
           select: { id: true, dbName: true },
@@ -1265,7 +1269,7 @@ export class DeploymentService {
       }
       const buildResult: BuildResult = reused
         ? { success: true, releaseDir: reused.path! }
-        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs);
+        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs, config.skipPreDeploy);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(key);

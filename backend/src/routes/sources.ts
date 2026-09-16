@@ -38,6 +38,8 @@ const instanceSelect = {
   port: true,
   routing: true,
   createdAt: true,
+  diskBytes: true,
+  diskMeasuredAt: true,
 } satisfies Prisma.ApplicationSelect;
 
 type Instance = Prisma.ApplicationGetPayload<{ select: typeof instanceSelect }>;
@@ -102,6 +104,8 @@ async function findSource(req: AuthenticatedRequest, res: Response) {
 
 const present = <T extends { name: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
   ...source,
+  // BigInt does not survive JSON; sizes fit a number
+  applications: source.applications.map((app) => ({ ...app, diskBytes: app.diskBytes === null ? null : Number(app.diskBytes) })),
   name: sourceName(source, source.applications[0]?.domains[0]?.host),
   customName: source.name,
   kind: kindOf(source),
@@ -167,6 +171,10 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || byName(a, b);
         case 'apps':
           return direction * (a.applications.length - b.applications.length) || byName(a, b);
+        case 'disk': {
+          const bytes = (row: (typeof rows)[number]) => row.applications.reduce((sum, app) => sum + Number(app.diskBytes ?? 0), 0);
+          return direction * (bytes(a) - bytes(b)) || byName(a, b);
+        }
         default:
           // what needs attention leads
           return (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byName(a, b);

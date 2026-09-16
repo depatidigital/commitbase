@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, RotateCcw, Settings, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, RotateCcw, Settings, SkipForward, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
@@ -88,6 +88,10 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
             button(t("Mark it as applied and deploy"), <CheckCircle className="mr-1.5 h-3 w-3" />, () => setConfirmApplied(true)),
             t("Not run, recorded as done. When its tables are already there — a squashed history."),
           )}
+        {option(
+          button(t("Deploy without the migrations"), <SkipForward className="mr-1.5 h-3 w-3" />, () => onDeploy({ skipPreDeploy: true })),
+          t("The pre-deploy step is left out this once; the code goes live on the schema as it is. When the code does not need the change yet."),
+        )}
         {option(
           button(t("Reset the database and deploy"), <Database className="mr-1.5 h-3 w-3" />, () => setConfirmReset(true), true),
           t("Emptied after a snapshot, migrations from nothing. When nothing in it is worth keeping."),

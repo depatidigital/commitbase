@@ -659,6 +659,9 @@ export default {
   "Migration {name} is recorded as failed and blocks the rest.": "Migrasi {name} tercatat gagal dan menghalangi migrasi lainnya.",
   "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
   "Reset the database and deploy": "Reset database lalu deploy",
+  "Deploy without the migrations": "Deploy tanpa migrasi",
+  "The pre-deploy step is left out this once; the code goes live on the schema as it is. When the code does not need the change yet.":
+    "Langkah pre-deploy dilewati sekali ini; kode live di skema yang ada. Kalau kodenya belum butuh perubahan itu.",
   "The migrations failed.": "Migrasi gagal.",
   "Ways out:": "Jalan keluarnya:",
   "Its record is cleared and it runs again. When it failed for a passing reason.": "Catatannya dihapus dan dijalankan ulang. Kalau gagalnya karena sebab sementara.",

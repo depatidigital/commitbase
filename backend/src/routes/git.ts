@@ -196,6 +196,7 @@ router.delete(
       await gitAccountClient.delete({
         where: { id },
       });
+      listingCache.delete(req.user!.userId);
 
       return res.json({
         success: true,
@@ -410,6 +411,7 @@ router.get(
         } as ApiResponse);
       }
 
+      listingCache.delete(userId);
       await gitAccountClient.upsert({
         where: {
           userId_provider_externalId: {
@@ -661,6 +663,7 @@ router.get(
         } as ApiResponse);
       }
 
+      listingCache.delete(userId);
       await gitAccountClient.upsert({
         where: {
           userId_provider_externalId: {
@@ -727,56 +730,74 @@ type ListedAccount = {
 // ponytail: the 300 most recently active per account; server-side search if someone has thousands
 const REPOSITORY_PAGES = 3;
 
+/** Up to REPOSITORY_PAGES pages of 100, fetched at once — the picker waits on the slowest, not the sum. */
+async function pagedRepositories(url: (page: number) => string, headers: Record<string, string>, map: (row: any) => ListedRepository): Promise<ListedRepository[]> {
+  const pages = await Promise.all(
+    Array.from({ length: REPOSITORY_PAGES }, async (_, i) => {
+      const response = await fetch(url(i + 1), { headers, signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return (await response.json()) as any[];
+    }),
+  );
+  return pages.flat().map(map);
+}
+
 async function githubRepositories(account: ListedAccount): Promise<ListedRepository[]> {
   const token = await freshAccessToken(account);
-  const repositories: ListedRepository[] = [];
-  for (let page = 1; page <= REPOSITORY_PAGES; page++) {
-    const response = await fetch(`https://api.github.com/user/repos?per_page=100&sort=pushed&page=${page}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'larika' },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = (await response.json()) as any[];
-    repositories.push(
-      ...data.map((repo) => ({
-        fullName: String(repo.full_name),
-        cloneUrl: String(repo.clone_url),
-        provider: 'github' as const,
-        accountId: account.id,
-        account: account.username,
-        private: !!repo.private,
-      })),
-    );
-    if (data.length < 100) break;
-  }
-  return repositories;
+  return pagedRepositories(
+    (page) => `https://api.github.com/user/repos?per_page=100&sort=pushed&page=${page}`,
+    { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'larika' },
+    (repo) => ({
+      fullName: String(repo.full_name),
+      cloneUrl: String(repo.clone_url),
+      provider: 'github' as const,
+      accountId: account.id,
+      account: account.username,
+      private: !!repo.private,
+    }),
+  );
 }
 
 async function gitlabRepositories(account: ListedAccount): Promise<ListedRepository[]> {
   // refreshes an expired GitLab token, which lives ~2h
   const token = await freshAccessToken(account);
   const { apiBase } = await getGitOAuthConfig('gitlab');
-  const repositories: ListedRepository[] = [];
-  for (let page = 1; page <= REPOSITORY_PAGES; page++) {
-    const response = await fetch(
-      `${apiBase}/projects?membership=true&simple=true&order_by=last_activity_at&per_page=100&page=${page}`,
-      // an OAuth token is a Bearer token; PRIVATE-TOKEN is only for personal access tokens
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = (await response.json()) as any[];
-    repositories.push(
-      ...data.map((project) => ({
-        fullName: String(project.path_with_namespace),
-        cloneUrl: String(project.http_url_to_repo),
-        provider: 'gitlab' as const,
-        accountId: account.id,
-        account: account.username,
-        private: project.visibility !== 'public',
-      })),
-    );
-    if (data.length < 100) break;
-  }
-  return repositories;
+  return pagedRepositories(
+    (page) => `${apiBase}/projects?membership=true&simple=true&order_by=last_activity_at&per_page=100&page=${page}`,
+    // an OAuth token is a Bearer token; PRIVATE-TOKEN is only for personal access tokens
+    { Authorization: `Bearer ${token}` },
+    (project) => ({
+      fullName: String(project.path_with_namespace),
+      cloneUrl: String(project.http_url_to_repo),
+      provider: 'gitlab' as const,
+      accountId: account.id,
+      account: account.username,
+      private: project.visibility !== 'public',
+    }),
+  );
+}
+
+/** The last listing per user: answered at once, refreshed behind it when older than a minute. */
+type RepositoryListing = { accounts: { id: string; provider: string; username: string }[]; repositories: ListedRepository[]; errors: string[] };
+const listingCache = new Map<string, { at: number; data: RepositoryListing; refreshing: Promise<RepositoryListing> | null }>();
+const LISTING_FRESH_MS = 60_000;
+
+async function listRepositories(userId: string): Promise<RepositoryListing> {
+  const accounts: ListedAccount[] = await prisma.gitAccount.findMany({
+    where: { userId },
+    select: { id: true, provider: true, username: true, accessToken: true, refreshToken: true, tokenExpiresAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const results = await Promise.allSettled(
+    accounts.map((account) => (account.provider === 'gitlab' ? gitlabRepositories(account) : githubRepositories(account))),
+  );
+  return {
+    accounts: accounts.map(({ id, provider, username }) => ({ id, provider, username })),
+    repositories: results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
+    errors: results.flatMap((result, i) =>
+      result.status === 'rejected' ? [`${accounts[i]!.provider}/${accounts[i]!.username}: ${result.reason?.message ?? 'failed'}`] : [],
+    ),
+  };
 }
 
 /**
@@ -786,28 +807,27 @@ async function gitlabRepositories(account: ListedAccount): Promise<ListedReposit
  */
 router.get('/repositories', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const accounts: ListedAccount[] = await prisma.gitAccount.findMany({
-      where: { userId: req.user!.userId },
-      select: { id: true, provider: true, username: true, accessToken: true, refreshToken: true, tokenExpiresAt: true },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const results = await Promise.allSettled(
-      accounts.map((account) => (account.provider === 'gitlab' ? gitlabRepositories(account) : githubRepositories(account))),
-    );
-
-    return res.json({
-      success: true,
-      data: {
-        accounts: accounts.map(({ id, provider, username }) => ({ id, provider, username })),
-        repositories: results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
-        errors: results.flatMap((result, i) =>
-          result.status === 'rejected'
-            ? [`${accounts[i]!.provider}/${accounts[i]!.username}: ${result.reason?.message ?? 'failed'}`]
-            : [],
-        ),
-      },
-    } as ApiResponse);
+    const userId = req.user!.userId;
+    const cached = listingCache.get(userId);
+    // ponytail: stale-while-revalidate in memory; per-process, fine for one panel
+    if (cached) {
+      if (Date.now() - cached.at > LISTING_FRESH_MS && !cached.refreshing) {
+        cached.refreshing = listRepositories(userId)
+          .then((data) => {
+            listingCache.set(userId, { at: Date.now(), data, refreshing: null });
+            return data;
+          })
+          .catch((error) => {
+            cached.refreshing = null;
+            throw error;
+          });
+        cached.refreshing.catch(() => {});
+      }
+      return res.json({ success: true, data: cached.data } as ApiResponse);
+    }
+    const data = await listRepositories(userId);
+    listingCache.set(userId, { at: Date.now(), data, refreshing: null });
+    return res.json({ success: true, data } as ApiResponse);
   } catch (error) {
     console.error('Error listing repositories:', error);
     return res.status(500).json({ success: false, error: 'Failed to list repositories' } as ApiResponse);

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ExternalLink, GitBranch, MoreVertical, Pencil, HardDrive, Upload, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatBytes } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -263,6 +264,24 @@ export default function Projects() {
               </div>
             ))}
           </div>
+        );
+      },
+    },
+    {
+      // measured after each deploy and a few times a day (cron app-disk)
+      header: t("Size"),
+      className: "w-24 whitespace-nowrap align-top text-right text-xs",
+      sortKey: "disk",
+      cell: (project) => {
+        const measured = project.applications.filter((app) => app.diskBytes != null);
+        if (measured.length === 0) return <span className="text-muted-foreground">—</span>;
+        const total = measured.reduce((sum, app) => sum + (app.diskBytes ?? 0), 0);
+        const detail = measured.map((app) => `${app.name}: ${formatBytes(app.diskBytes)}`).join("
+");
+        return (
+          <span className="text-muted-foreground" title={detail}>
+            {formatBytes(total)}
+          </span>
         );
       },
     },

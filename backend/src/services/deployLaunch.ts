@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { readEnv } from '../lib/appEnv';
 import { DeploymentService } from './deployment';
 import { ensureAppHostname } from './appDnsService';
+import { measureAppDisk } from './appDiskService';
 
 const deploymentService = new DeploymentService();
 
@@ -16,7 +17,7 @@ export async function launchDeploy(
   application: Application,
   userId: string,
   /** resolveMigration: a Prisma migration recorded as failed, cleared before this deploy's migrations */
-  { resolveMigration, resolveAs, resetDatabase }: { resolveMigration?: string; resolveAs?: 'rolled-back' | 'applied'; resetDatabase?: boolean } = {},
+  { resolveMigration, resolveAs, resetDatabase, skipPreDeploy }: { resolveMigration?: string; resolveAs?: 'rolled-back' | 'applied'; resetDatabase?: boolean; skipPreDeploy?: boolean } = {},
 ): Promise<{ deploymentId: string } | null> {
   // the app keeps its own status, from what it was before
   const group = await deploymentService.groupOf(application);
@@ -80,6 +81,7 @@ export async function launchDeploy(
     ...(resolveMigration && { resolveMigration }),
     ...(resolveAs && { resolveAs }),
     ...(resetDatabase && { resetDatabase }),
+    ...(skipPreDeploy && { skipPreDeploy }),
   }).then(async (result) => {
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did
@@ -109,6 +111,8 @@ export async function launchDeploy(
       // lastDeployment as "has a build to start"
       result.success ? { lastDeployment: new Date() } : {},
     );
+    // what the deploy left on disk, for the project list; a miss waits for the cron
+    void measureAppDisk(application.id).catch(() => {});
   }).catch(async (error) => {
     console.error('Deployment failed:', error);
 

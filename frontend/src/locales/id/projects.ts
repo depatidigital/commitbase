@@ -67,6 +67,7 @@ export default {
   "static files": "file statis",
   "{count} down": "{count} mati",
   "Uptime 24h": "Uptime 24 jam",
+  Size: "Ukuran",
   "Server folder (not git)": "Folder di server (bukan git)",
   "On the server (folder not detected)": "Di server (folder tidak terdeteksi)",
   "folder not detected": "folder tidak terdeteksi",

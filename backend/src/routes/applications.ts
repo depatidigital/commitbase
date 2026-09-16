@@ -25,7 +25,7 @@ import {
 import { Pm2DeployError, startPm2Deploy } from '../services/pm2DeployService';
 import { addCaddyHost, staticRouteError } from '../services/caddyService';
 import { hostsOnlyOf, normalizeBindingPath, readServe, recomposeHosts, serveApp, serveStatic } from '../services/hostRouteService';
-import { appDiskUsage, cleanupApp } from '../services/appDiskService';
+import { appDiskUsage, cleanupApp, measureAppDisk } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, healthPath, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
 import { forgetPointing, healthFor, isServing } from '../services/heartbeatService';
@@ -1696,6 +1696,8 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       // applied: a baseline — the migration's tables are already there, only its record is missing
       ...(resolveMigration && req.body?.resolveAs === 'applied' && { resolveAs: 'applied' as const }),
       ...(req.body?.resetDatabase === true && { resetDatabase: true }),
+      // skipPreDeploy: the code alone, the migrations left for a later deploy
+      ...(req.body?.skipPreDeploy === true && { skipPreDeploy: true }),
     });
     if (!launched) {
       return res.status(409).json({
@@ -1727,7 +1729,11 @@ router.get('/:id/disk', authenticateToken, async (req: AuthenticatedRequest, res
       select: { id: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    return res.json({ success: true, data: await appDiskUsage(application.id) } as ApiResponse);
+    const disk = await appDiskUsage(application.id);
+    // the Storage card's Refresh is also "measure now" for the project list
+    if (disk) await prisma.application.update({ where: { id: application.id }, data: { diskBytes: BigInt(disk.totalBytes), diskMeasuredAt: new Date() } });
+    else void measureAppDisk(application.id).catch(() => {});
+    return res.json({ success: true, data: disk } as ApiResponse);
   } catch (error: any) {
     console.error('Error reading app disk usage:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not read the disk usage' } as ApiResponse);

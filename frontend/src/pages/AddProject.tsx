@@ -136,7 +136,8 @@ export default function AddProject() {
     queryKey: ["git", "repositories"],
     queryFn: listGitRepositories,
     enabled: sourceMode === "git",
-    staleTime: 60_000,
+    // the backend answers from its own cache; five minutes keeps the picker instant across pages
+    staleTime: 5 * 60_000,
   });
   const repoGroups = useMemo(() => {
     const groups = new Map<string, { key: string; heading: string; repositories: GitRepositoryListing["repositories"] }>();

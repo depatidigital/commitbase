@@ -711,13 +711,15 @@ export type StartOptions = {
   resolveAs?: 'rolled-back' | 'applied';
   /** the app's databases emptied before the build, after a snapshot */
   resetDatabase?: boolean;
+  /** the pre-deploy step (migrations) left out this once */
+  skipPreDeploy?: boolean;
 };
 
 /** Deploy the app — it alone; a project deploy is each of its apps (deployProject). */
 export const startApplication = async (id: string, options: StartOptions = {}): Promise<Application | boolean> => {
   const response = await apiRequest<Application>(`/applications/${id}/start`, {
     method: 'POST',
-    ...((options.resolveMigration || options.resetDatabase) && { body: JSON.stringify(options) }),
+    ...((options.resolveMigration || options.resetDatabase || options.skipPreDeploy) && { body: JSON.stringify(options) }),
   });
   
   if (response.success) {

@@ -9,6 +9,7 @@ import { pingAllServers } from './serverHealthService';
 import { checkAllDatabaseServers } from './databaseServerService';
 import { provisionQueuedOrgs } from './orgProvisionService';
 import { setupQueuedServers } from './serverSetupService';
+import { measureAllAppDisks } from './appDiskService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -129,6 +130,12 @@ const jobs: Job[] = [
     // Same shape: kicked in-process, swept for what a restart cut short.
     schedule: process.env.CRON_SERVER_SETUP || '* * * * *',
     run: setupQueuedServers,
+  },
+  {
+    name: 'app-disk',
+    // what each app takes on disk / in R2 — a du per app, so a few times a day
+    schedule: process.env.CRON_APP_DISK || '17 */6 * * *',
+    run: measureAllAppDisks,
   },
 ];
 
