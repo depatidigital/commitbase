@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildScript, dotenvLine, streamToLog } from './deployment';
+import { buildBlock, buildHeapMb, buildScript, dotenvLine, streamToLog } from './deployment';
 import { parseEnv } from 'util';
 
 (async () => {
@@ -77,3 +77,9 @@ console.log('deployment: dotenvLine OK');
   console.error(error);
   process.exit(1);
 });
+
+// BUILD_MEMORY_MAX as a V8 heap cap for a panel-side static build
+assert.strictEqual(buildHeapMb('2G'), 2048);
+assert.strictEqual(buildHeapMb('512M'), 512);
+assert.strictEqual(buildHeapMb('junk'), 2048);
+assert.strictEqual(buildHeapMb('1M'), 256);

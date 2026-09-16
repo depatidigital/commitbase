@@ -171,13 +171,20 @@ export async function appFsFor(applicationId: string): Promise<AppFs> {
   });
   if (!app) throw new Error(`Unknown application: ${applicationId}`);
 
-  // static: built on the panel, served from R2
+  const slug = app.organization?.slug;
+
+  // static: served from R2. Built on the org's node (its build cgroup) when it
+  // has one; on the panel otherwise, for sites from before orgs had nodes.
   if (app.type === 'STATIC') {
-    const appDir = appDirFor(applicationId, null);
-    return localAppFs(appDir, sourcesDirFor(appDir, app.sourceId));
+    const node = slug ? await serverForApplication(applicationId).catch(() => null) : null;
+    if (!node) {
+      const appDir = appDirFor(applicationId, null);
+      return localAppFs(appDir, sourcesDirFor(appDir, app.sourceId));
+    }
+    const appDir = appDirFor(applicationId, slug!);
+    return remoteAppFs(node, appDir, sourcesDirFor(appDir, app.sourceId));
   }
 
-  const slug = app.organization?.slug;
   if (!slug) throw new Error('Assign the app to an organization first — apps run on its node');
   // the app's own node — organizations span nodes (lib/servers.ts)
   const appDir = appDirFor(applicationId, slug);

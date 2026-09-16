@@ -782,8 +782,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
 
     // Provision the org on that node now, so the first deploy does not wait
     // for it (the deploy still checks, and waits if this has not finished).
-    // Static sites are served from R2 and never need the org's OS user.
-    if (organizationId && serverId && type !== 'STATIC') {
+    // Static sites are served from R2, but build on the node too (its build cgroup).
+    if (organizationId && serverId) {
       await queueOrgNode(organizationId, serverId, { userId: req.user!.userId, trigger: 'app-create' }).catch(
         (error) => console.error(`Could not queue provisioning for ${domain}:`, error),
       );
