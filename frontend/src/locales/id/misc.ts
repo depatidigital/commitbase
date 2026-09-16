@@ -78,7 +78,10 @@ export default {
   "Runs in one transaction: if any statement fails, nothing is kept.":
     "Berjalan dalam satu transaksi: jika ada perintah yang gagal, tidak ada yang disimpan.",
   "{name} already has {count} tables.": "{name} sudah berisi {count} tabel.",
-  'Type "{name}" to empty it and restore into it': 'Ketik "{name}" untuk mengosongkan lalu memulihkan ke dalamnya',
+  'Type "{name}" to restore into it anyway': 'Ketik "{name}" untuk tetap memulihkan',
+  "Empty the database first": "Kosongkan database dulu",
+  "Dropped and made again before the restore, logins kept. A full dump (pg_dump --clean) fails over existing data otherwise.":
+    "Dihapus dan dibuat ulang sebelum pemulihan, login tetap. Dump lengkap (pg_dump --clean) gagal di atas data yang ada kalau tidak.",
   "Uploading… {percent}%": "Mengunggah… {percent}%",
   "Restore another file": "Pulihkan berkas lain",
   "Pages the app built before the restore can still show the old data — redeploy the app to rebuild them.":

@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, FileUp, Loader2, XCircle } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
@@ -52,6 +53,8 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
   const [file, setFile] = useState<File | null>(null);
   const [sniff, setSniff] = useState<Awaited<ReturnType<typeof sniffDump>> | null>(null);
   const [confirm, setConfirm] = useState("");
+  // over data: emptied first only when ticked — the person's call, never implied
+  const [reset, setReset] = useState(false);
   const [progress, setProgress] = useState(0);
   // the run this dialog started: its result stays up after it finishes
   const [startedId, setStartedId] = useState<string | null>(null);
@@ -95,7 +98,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
   };
 
   const start = useMutation({
-    mutationFn: () => importDatabase(database!.id, file!, { confirm: tables ? confirm : undefined, onProgress: setProgress }),
+    mutationFn: () => importDatabase(database!.id, file!, { confirm: tables ? confirm : undefined, reset: !!tables && reset, onProgress: setProgress }),
     onSuccess: (row) => {
       setStartedId(row.id);
       // shown straight away from the answer, not after a refetch — the polling takes it from there
@@ -259,7 +262,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
                   {t("{name} already has {count} tables.", { name: dbName, count: tables! })}
                 </p>
                 <Label htmlFor="import-confirm" className="font-normal">
-                  {t('Type "{name}" to empty it and restore into it', { name: dbName })}
+                  {t('Type "{name}" to restore into it anyway', { name: dbName })}
                 </Label>
                 <Input
                   id="import-confirm"
@@ -269,6 +272,15 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                 />
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <Checkbox checked={reset} onCheckedChange={(checked) => setReset(checked === true)} className="mt-0.5" />
+                  <span>
+                    <span className="font-medium">{t("Empty the database first")}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("Dropped and made again before the restore, logins kept. A full dump (pg_dump --clean) fails over existing data otherwise.")}
+                    </span>
+                  </span>
+                </label>
               </div>
             )}
 

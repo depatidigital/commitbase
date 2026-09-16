@@ -112,7 +112,8 @@ export async function cleanupAppReleases(
   const removed: string[] = [];
   for (const release of releases) {
     if (release.state !== 'unused') continue;
-    await afs.rm(release.path, { recursive: true, force: true }).catch(() => {});
+    // said, not thrown: one tree that will not go must not stop the rest
+    await afs.rm(release.path, { recursive: true, force: false }).catch((error: any) => console.warn(`cleanup ${applicationId}: ${release.name} not removed: ${error?.stderr || error?.message || error}`));
     removed.push(release.name);
   }
   const gone = new Set(releases.filter((r) => r.state === 'unused').map((r) => r.path));

@@ -236,11 +236,14 @@ export class DeploymentService {
 
       if (await afs.exists(join(sourcesDir, '.git'))) {
         console.log(`Pulling latest changes for ${repository} on branch ${branch}`);
-        await gitIn(afs, sourcesDir, [...auth.args, 'fetch', 'origin'], auth.env);
+        // --depth=1: the checkout is built from, never browsed — no history on disk
+        await gitIn(afs, sourcesDir, [...auth.args, 'fetch', '--depth=1', 'origin'], auth.env);
         await gitIn(afs, sourcesDir, ['reset', '--hard', `origin/${branch}`]);
       } else {
         console.log(`Cloning repository ${repository} on branch ${branch}`);
-        await afs.run(['git', ...auth.args, 'clone', '-b', branch, '--', repository, sourcesDir], {
+        // shallow, every branch: the tree at HEAD is all a build needs, and a later
+        // branch switch (fetch origin/<other>) must still find the other branches
+        await afs.run(['git', ...auth.args, 'clone', '--depth=1', '--no-single-branch', '-b', branch, '--', repository, sourcesDir], {
           timeout: 600_000,
           env: auth.env,
         });

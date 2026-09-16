@@ -97,6 +97,7 @@ case "$ACTION" in
       -p MemoryMax="$BUILD_MEMORY_MAX" -p MemorySwapMax=0 \
       -p CPUWeight="$BUILD_CPU_WEIGHT" -p IOWeight="$BUILD_CPU_WEIGHT" -p Nice=10 \
       -p TimeoutStartSec=0 \
+      -p UMask=0002 \
       /bin/bash "$APP_DIR/build.sh"
     ;;
 

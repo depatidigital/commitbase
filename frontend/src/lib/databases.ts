@@ -293,11 +293,14 @@ export const getDatabaseImports = async (id: string): Promise<DatabaseImport[]> 
 export const importDatabase = async (
   id: string,
   file: File,
-  options: { confirm?: string; onProgress?: (fraction: number) => void } = {},
+  options: { confirm?: string; reset?: boolean; onProgress?: (fraction: number) => void } = {},
 ): Promise<DatabaseImport> => {
   const body = new FormData();
   body.append('file', file);
-  const query = options.confirm ? `?confirm=${encodeURIComponent(options.confirm)}` : '';
+  const params = new URLSearchParams();
+  if (options.confirm) params.set('confirm', options.confirm);
+  if (options.reset) params.set('reset', '1');
+  const query = params.size > 0 ? `?${params}` : '';
   const token = localStorage.getItem('authToken');
   const fallback = t('Failed to upload the file');
 
