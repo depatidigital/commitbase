@@ -28,6 +28,14 @@ assert.deepStrictEqual(argv(pm2DeploySteps(['package.json', 'yarn.lock'], '{"scr
   'yarn install --frozen-lockfile',
   'pm2 restart w',
 ]);
+// Prisma: migrations applied after install, before the build and the restart
+assert.deepStrictEqual(argv(pm2DeploySteps(['package.json', 'pnpm-lock.yaml', 'prisma'], '{"scripts":{"build":"next build"},"dependencies":{"@prisma/client":"7"}}', 'cpnsfokus')), [
+  'pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true',
+  'pnpm prisma migrate deploy',
+  'pnpm run build',
+  'pm2 restart cpnsfokus',
+]);
+assert.deepStrictEqual(argv(pm2DeploySteps(['package.json'], '{"devDependencies":{"prisma":"7"}}', 'api')), ['npm install', 'npx prisma migrate deploy', 'pm2 restart api']);
 // not a Node folder: only the restart
 assert.deepStrictEqual(argv(pm2DeploySteps(['server.py'], null, 'py')), ['pm2 restart py']);
 // whatever the build script says, it never becomes the command — only `run build` does

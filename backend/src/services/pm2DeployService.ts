@@ -3,7 +3,7 @@ import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { exec, type SshTarget } from '../lib/runner';
 import { listPm2Processes } from './appSyncService';
-import { PNPM_ALLOW_BUILDS, lockfileManager } from '../lib/projectDetect';
+import { PNPM_ALLOW_BUILDS, lockfileManager, preDeployOf } from '../lib/projectDetect';
 
 /**
  * Build and restart an imported pm2 app where it lives: its own folder on its
@@ -24,7 +24,7 @@ export function packageManager(files: string[]): PackageManager {
 /**
  * The steps, as argv — never a shell string, so nothing stored or typed
  * anywhere becomes a command. Install is skipped without a package.json;
- * build without a `build` script. Pure.
+ * migrations without Prisma; build without a `build` script. Pure.
  */
 export function pm2DeploySteps(files: string[], packageJson: string | null, processName: string | null): Array<{ label: string; argv: string[] }> {
   const steps: Array<{ label: string; argv: string[] }> = [];
@@ -38,6 +38,11 @@ export function pm2DeploySteps(files: string[], packageJson: string | null, proc
       npm: files.includes('package-lock.json') ? ['npm', 'ci'] : ['npm', 'install'],
     };
     steps.push({ label: 'install', argv: install[manager] });
+    // before the build (Next prerendering may query the tables) and the restart, like a deploy.
+    // ponytail: always `migrate deploy` — with no prisma/migrations it only says so; the
+    // db push fallback of a fresh deploy is not for a live database.
+    const migrate = preDeployOf({ 'package.json': packageJson }, manager, true);
+    if (migrate) steps.push({ label: 'migrate', argv: migrate.split(' ') });
     let scripts: Record<string, unknown> = {};
     try {
       scripts = JSON.parse(packageJson)?.scripts ?? {};
