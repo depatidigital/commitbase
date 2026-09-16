@@ -1,25 +1,25 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ExternalLink, GitBranch, HardDrive, Upload, Layers, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
+import { AlertCircle, ExternalLink, GitBranch, MoreHorizontal, Pencil, HardDrive, Upload, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
-import { TYPES as APP_TYPES } from "@/components/AppTypeBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
-import { hostsOf, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
+import { isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
 import { getServers } from "@/lib/servers";
-import { appParts, assignProjects, getProjects, projectPath, type AppPart, type Project, type ProjectApp } from "@/lib/projects";
+import { assignProjects, getProjects, projectPath, type Project, type ProjectApp } from "@/lib/projects";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
@@ -72,6 +72,7 @@ export default function Projects() {
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [assignTarget, setAssignTarget] = useState<{ id: string; name: string } | null>(null);
   const [assignOrgId, setAssignOrgId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["projects", query.params, serverFilter],
@@ -120,21 +121,23 @@ export default function Projects() {
   const allSelected = projects.length > 0 && projects.every((project) => selectedIds.includes(project.id));
   const toggleOne = (id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  // An app's lines — one per path of a split hostname — in the Apps column and
-  // again, lined up (same height), in the Uptime column.
+  // One line per binding (host, or host + path) the project answers on, in the
+  // Host column and again, lined up (same height), in the Uptime column.
   const LINE = "flex h-6 min-w-0 items-center gap-1.5";
-  // A site under several names gets a line per name, all alike; the uptime and
-  // what serves it are said once, on the first — they are one check, one app.
-  const partsOf = (project: Project) =>
-    project.applications.flatMap((app) => {
-      const [main, ...paths] = appParts(app) as Array<AppPart & { repeat?: boolean }>;
-      // one line per binding — `app.arusflow.id/api/*` is where this app answers
-      const hosts =
-        app.domains.length > 1 || app.domains.some((d) => d.path)
-          ? app.domains.map((d, i) => ({ ...main!, key: `${app.id}:${d.host}${d.path ?? ""}`, label: `${d.host}${d.path ?? ""}`, href: d.host, repeat: i > 0 }))
-          : [main!];
-      return [...hosts, ...paths].map((part) => ({ app, part }));
-    });
+  const hostsOfProject = (project: Project) => {
+    const byBinding = new Map<string, { host: string; path: string; apps: ProjectApp[] }>();
+    for (const app of project.applications)
+      for (const { host, path = "" } of app.domains) {
+        if (!isPublicHost(host)) continue;
+        const key = `${host}${path}`;
+        const entry = byBinding.get(key) ?? { host, path, apps: [] };
+        if (!entry.apps.includes(app)) entry.apps.push(app);
+        byBinding.set(key, entry);
+      }
+    // a host, then its paths
+    return [...byBinding.values()].sort((x, y) => x.host.localeCompare(y.host) || x.path.localeCompare(y.path));
+  };
+  const worstOf = (apps: ProjectApp[]) => apps.map((app) => ({ app, ...statusOf(app) })).sort((x, y) => x.rank - y.rank)[0]!;
 
   // where the code comes from, said under the project's name
   const originOf = (project: Project) =>
@@ -174,15 +177,11 @@ export default function Projects() {
       sortKey: "name",
       className: "w-[24%] align-top",
       cell: (project) => {
-        const down = project.applications.filter((app) => statusOf(app).tone === "down").length;
+        const down = hostsOfProject(project).filter(({ apps }) => worstOf(apps).tone === "down").length;
         return (
           <div className="min-w-0">
             <span className="flex h-6 min-w-0 items-center gap-1.5">
               <span className="truncate font-medium">{project.name}</span>
-              {/* the row opens the project: the pencil (and its dialog, bubbling through the portal) must not */}
-              <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                <RenameProjectDialog project={project} />
-              </span>
               {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">{t("{count} down", { count: down })}</span>}
             </span>
             <span
@@ -211,84 +210,61 @@ export default function Projects() {
       },
     },
     {
-      header: t("Apps"),
-      className: "align-top",
+      header: t("Host"),
+      className: "w-[36%] align-top",
       // listed, not links: the row is the project's; only the site opens from here
-      cell: (project) => (
-        <div className="min-w-0">
-          {partsOf(project).map(({ app, part }) => {
-            const type = APP_TYPES[part.type] ?? { label: part.type.toLowerCase(), icon: Layers, className: "text-muted-foreground" };
-            const TypeIcon = type.icon;
-            const internal = !isPublicHost(part.label);
-            // what serves this part on the box: the app's own process, or Caddy
-            const runtime = part.owner
-              ? `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`
-              : runtimeLabel(part.proxyPort ? "CADDY_PROXY" : "CADDY_STATIC");
-            const target = !app.routing?.length ? null : part.proxyPort ? `:${part.proxyPort}` : part.root?.split("/").slice(-2).join("/") ?? null;
-            return (
-              <div key={part.key} className={`${LINE} ${app.disabled ? "opacity-50" : ""}`}>
-                {part.main ? (
-                  <>
-                    <span title={type.label} className="shrink-0">
-                      <TypeIcon className={`h-3.5 w-3.5 ${type.className}`} />
-                    </span>
-                    <span className="truncate text-sm">{part.label}</span>
-                    {!internal && (
-                      <a
-                        href={`https://${(part as { href?: string }).href ?? part.label}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 text-muted-foreground hover:text-primary"
-                        aria-label={t("Open {url}", { url: part.label })}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
-                  </>
-                ) : (
-                  // a path of the hostname above it
-                  <>
-                    <span className="shrink-0 pl-1 text-muted-foreground">└</span>
-                    <span title={type.label} className="shrink-0">
-                      <TypeIcon className={`h-3.5 w-3.5 ${type.className}`} />
-                    </span>
-                    <span className="truncate font-mono text-xs">{part.label.slice(hostsOf(app)[0]?.length ?? 0) || part.label}</span>
-                  </>
+      cell: (project) => {
+        const hosts = hostsOfProject(project);
+        if (!hosts.length) return <span className={`${LINE} text-muted-foreground`}>—</span>;
+        return (
+          <div className="min-w-0">
+            {hosts.map(({ host, path, apps }) => (
+              <div key={host + path} className={`${LINE} ${apps.every((app) => app.disabled) ? "opacity-50" : ""}`}>
+                <span className="truncate text-sm">
+                  {host}
+                  {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
+                </span>
+                {/* a path (often a wildcard) is no page of its own; the host line links */}
+                {!path && (
+                  <a
+                    href={`https://${host}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-muted-foreground hover:text-primary"
+                    aria-label={t("Open {url}", { url: host })}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
                 )}
-                {superAdmin && !part.repeat && (
-                  <span className="flex min-w-0 shrink items-center gap-1.5 text-xs text-muted-foreground">
-                    <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
-                      {runtime}
+                {/* what serves it on the box, once per distinct runtime */}
+                {superAdmin &&
+                  [...new Map(apps.map((app) => [`${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`, app])).entries()].map(([label, app]) => (
+                    <Badge key={label} variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
+                      {label}
                     </Badge>
-                    {target && <span className="truncate font-mono">→ {target}</span>}
-                  </span>
-                )}
+                  ))}
               </div>
-            );
-          })}
-        </div>
-      ),
+            ))}
+          </div>
+        );
+      },
     },
     {
       header: t("Uptime 24h"),
       className: "w-36 whitespace-nowrap align-top text-right text-xs",
-      // lined up with the apps' lines; a path has no check of its own
+      // lined up with the host lines
       cell: (project) => (
         <div>
-          {partsOf(project).map(({ app, part }) => {
+          {hostsOfProject(project).map(({ host, path, apps }) => {
+            const { app, tone, text } = worstOf(apps);
             const health = healthById[app.id] as Health | undefined;
-            const { tone, text } = statusOf(app);
-            const down = tone === "down";
             return (
-              <div key={part.key} className="flex h-6 items-center justify-end gap-1.5">
-                {/* the state and the number behind it, together; a path has no check of its own */}
-                {part.main && !part.repeat && (
-                  <>
-                    <Dot tone={tone} text={[text, health?.state !== "up" && health?.lastError].filter(Boolean).join(" · ")} />
-                    {health?.uptime24h != null && (
-                      <span className={down ? "font-medium text-destructive" : "text-muted-foreground"}>{health.uptime24h}%</span>
-                    )}
-                  </>
+              <div key={host + path} className="flex h-6 items-center justify-end gap-1.5">
+                <Dot tone={tone} text={[apps.length > 1 && app.name, text, health?.state !== "up" && health?.lastError].filter(Boolean).join(" · ")} />
+                {health?.uptime24h != null ? (
+                  <span className={tone === "down" ? "font-medium text-destructive" : "text-muted-foreground"}>{health.uptime24h}%</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
                 )}
               </div>
             );
@@ -352,6 +328,28 @@ export default function Projects() {
           </span>
         );
       },
+    },
+    {
+      header: t("Actions"),
+      className: "w-16 align-top",
+      // the row opens the project: the menu must not
+      cell: (project) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-6 w-8 p-0" aria-label={t("Actions for {name}", { name: project.name })}>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setRenameTarget(project)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                {t("Rename project")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ),
     },
   ];
 
@@ -475,6 +473,9 @@ export default function Projects() {
           </div>
         </DialogContent>
       </Dialog>
+      {renameTarget && (
+        <RenameProjectDialog key={renameTarget.id} project={renameTarget} open onOpenChange={(open) => !open && setRenameTarget(null)} />
+      )}
     </PageLayout>
   );
 }

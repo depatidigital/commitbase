@@ -9,11 +9,18 @@ import { t } from "@/lib/i18n";
 import { updateProject, type Project } from "@/lib/projects";
 import { updateApplication } from "@/lib/applications";
 
-/** A pencil that opens a one-field rename; `rename` saves and throws on failure. */
-function RenameDialog({ value, title, description, rename, done }: { value: string; title: string; description?: string; rename: (name: string) => Promise<unknown>; done: string }) {
+type Controlled = { open?: boolean; onOpenChange?: (open: boolean) => void };
+
+/**
+ * A pencil that opens a one-field rename; `rename` saves and throws on failure.
+ * Given `open`, there is no pencil: whoever opens it (a row menu) owns the state.
+ */
+function RenameDialog({ value, title, description, rename, done, ...controlled }: { value: string; title: string; description?: string; rename: (name: string) => Promise<unknown>; done: string } & Controlled) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = controlled.open ?? ownOpen;
+  const setOpen = controlled.onOpenChange ?? setOwnOpen;
+  const [name, setName] = useState(value);
 
   const save = useMutation({
     mutationFn: () => rename(name.trim()),
@@ -26,20 +33,22 @@ function RenameDialog({ value, title, description, rename, done }: { value: stri
 
   return (
     <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 w-7 shrink-0 p-0 text-muted-foreground"
-        aria-label={title}
-        title={title}
-        onClick={() => {
-          setName(value);
-          setOpen(true);
-        }}
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </Button>
+      {controlled.open === undefined && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 shrink-0 p-0 text-muted-foreground"
+          aria-label={title}
+          title={title}
+          onClick={() => {
+            setName(value);
+            setOpen(true);
+          }}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -74,10 +83,11 @@ function RenameDialog({ value, title, description, rename, done }: { value: stri
  * A pencil that renames a project. Emptied, the name goes back to the one it
  * gets on its own (its folder, its repository, its first hostname).
  */
-export function RenameProjectDialog({ project }: { project: Pick<Project, "id" | "name" | "customName"> }) {
+export function RenameProjectDialog({ project, ...controlled }: { project: Pick<Project, "id" | "name" | "customName"> } & Controlled) {
   const queryClient = useQueryClient();
   return (
     <RenameDialog
+      {...controlled}
       value={project.customName ?? project.name}
       title={t("Rename project")}
       description={t("Leave it empty to name it after its folder or repository again.")}
