@@ -33,6 +33,7 @@ import {
   ExternalLink,
   MoreHorizontal,
   Layers,
+  Server as ServerIcon,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -584,6 +585,13 @@ export default function Application() {
         description={t("Manage your applications and services.")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {/* back to the list by project, the way here came */}
+            <Button variant="ghost" asChild>
+              <Link to="/">
+                <ServerIcon className="mr-2 h-4 w-4" />
+                {t("By project")}
+              </Link>
+            </Button>
             {superAdmin && (
               <Button
                 variant="outline"

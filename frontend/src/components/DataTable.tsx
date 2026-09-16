@@ -273,7 +273,7 @@ export function DataTable<T>({
               visible.map((row) => (
                 <TableRow
                   key={rowKey(row)}
-                  className={onRowClick ? "cursor-pointer" : undefined}
+                  className={onRowClick ? "group cursor-pointer" : "group"}
                   onClick={
                     onRowClick &&
                     ((event) => {

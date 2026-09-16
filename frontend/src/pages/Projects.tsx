@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ExternalLink, GitBranch, MoreHorizontal, Pencil, HardDrive, Upload, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
+import { AlertCircle, ExternalLink, GitBranch, MoreVertical, Pencil, HardDrive, Upload, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -182,23 +182,40 @@ export default function Projects() {
           <div className="min-w-0">
             <span className="flex h-6 min-w-0 items-center gap-1.5">
               <span className="truncate font-medium">{project.name}</span>
+              {/* not git: where it lives says little in a list — a mark, the words on hover */}
+              {!project.repository && (project.kind !== "IMPORTED" || project.path) && (
+                <span className="shrink-0 text-muted-foreground" title={originOf(project)}>
+                  {project.kind === "IMPORTED" ? <HardDrive className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
+                  <span className="sr-only">{originOf(project)}</span>
+                </span>
+              )}
               {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">{t("{count} down", { count: down })}</span>}
             </span>
-            <span
-              className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground"
-              // the checkout a pull updates, for whoever may see it
-              title={[project.repository, superAdmin && project.path].filter(Boolean).join("\n") || undefined}
-            >
-              {/* where it comes from, as a mark: a branch, an upload, or a folder on the server */}
-              {project.repository ? (
+            {/* the checkout a pull updates, branch and all */}
+            {project.repository && (
+              <span
+                className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground"
+                title={[project.repository, superAdmin && project.path].filter(Boolean).join("\n")}
+              >
                 <GitBranch className="h-3 w-3 shrink-0" />
-              ) : project.kind === "IMPORTED" ? (
+                <span className="truncate">{originOf(project)}</span>
+              </span>
+            )}
+            {/* the one case worth a line: the panel lost track of its folder */}
+            {project.kind === "IMPORTED" && !project.repository && !project.path && (
+              <span className="flex min-w-0 items-center gap-1 text-xs text-warning" title={originOf(project)}>
                 <HardDrive className="h-3 w-3 shrink-0" />
-              ) : (
-                <Upload className="h-3 w-3 shrink-0" />
-              )}
-              <span className="truncate">{originOf(project)}</span>
-            </span>
+                <span className="truncate">{t("folder not detected")}</span>
+              </span>
+            )}
+            {project.lastDeployment && (
+              <span
+                className={`block truncate text-xs ${project.lastDeployment.status === "FAILED" ? "text-destructive" : "text-muted-foreground"}`}
+                title={`${new Date(project.lastDeployment.createdAt).toLocaleString(locale)}${project.lastDeployment.commitMessage ? ` · ${project.lastDeployment.commitMessage}` : ""}`}
+              >
+                {t("Deployed {ago}", { ago: ago(project.lastDeployment.createdAt) })}
+              </span>
+            )}
             {/* a monorepo the panel builds: the folders its apps are built from */}
             {project.kind === "MANAGED" && [...new Set(project.applications.map((app) => app.rootDirectory).filter(Boolean))].map((dir) => (
               <span key={dir} className="block truncate font-mono text-xs text-muted-foreground">
@@ -309,36 +326,22 @@ export default function Projects() {
         ]
       : []),
     {
-      header: t("Last deploy"),
-      className: "w-36 whitespace-nowrap align-top text-xs",
-      cell: (project) => {
-        const last = project.lastDeployment;
-        return (
-          <span className="flex h-6 items-center">
-            {last ? (
-              <span
-                className={last.status === "FAILED" ? "text-destructive" : ""}
-                title={`${new Date(last.createdAt).toLocaleString(locale)}${last.commitMessage ? ` · ${last.commitMessage}` : ""}`}
-              >
-                {ago(last.createdAt)}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </span>
-        );
-      },
-    },
-    {
-      header: t("Actions"),
-      className: "w-16 align-top",
+      // an icon's column needs no title
+      header: <span className="sr-only">{t("Actions")}</span>,
+      className: "w-10 align-top",
       // the row opens the project: the menu must not
       cell: (project) => (
-        <div onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-6 w-8 p-0" aria-label={t("Actions for {name}", { name: project.name })}>
-                <MoreHorizontal className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="sm"
+                // desktop: shown on row hover, while focused, or while open
+                className="h-6 w-8 p-0 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
+                aria-label={t("Actions for {name}", { name: project.name })}
+              >
+                <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
