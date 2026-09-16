@@ -47,7 +47,8 @@ export function ServerEnv({ env, dir, note }: { env: Record<string, string>; dir
         // a long .env scrolls in its own box
         <div className="max-h-80 divide-y divide-border/60 overflow-auto rounded-md border border-border/60 font-mono text-xs">
           {matching.map(([key, value]) => (
-            <div key={key} className="grid grid-cols-[minmax(8rem,16rem)_1fr] gap-3 px-3 py-1.5">
+            {/* the name takes at most a third of the row — a narrow card left the value a few characters wide */}
+            <div key={key} className="grid grid-cols-[minmax(6rem,33%)_minmax(0,1fr)] gap-3 px-3 py-1.5">
               <span className="truncate font-medium" title={key}>
                 {key}
               </span>
