@@ -2,42 +2,42 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import zlib from 'zlib';
+import { pipeline } from 'stream/promises';
 import { prisma } from '../lib/prisma';
 import { buildCommand, connect } from '../lib/runner';
+import { deletePrivateObjects, getPrivateObject, listPrivateObjects, putPrivateObject } from './r2Service';
 import { databaseCredentials } from './databaseProvisionService';
 import { MYSQLDUMP, PG_DUMP } from './databaseBackupService';
 import { ImportError, releaseImport, reserveImport, runImport } from './databaseImportService';
 
 /**
  * A database as it was just before a deploy ran its pre-deploy step (the
- * migrations): dumped on the panel's disk as .sql.gz, the same file Restore
+ * migrations): dumped to R2's private bucket as .sql.gz, the same file Restore
  * takes. Migrations only go forward, so this is the way back when one goes
  * wrong — put back on its own for an app that had nothing live yet, offered
  * on the deploy's history row for one that had (its live release kept writing
  * while the build ran; what came in since is gone with a restore).
  *
- * ponytail: on the panel's disk, the newest KEEP per database, named by when
- * and for which deploy. A row per snapshot if they ever need more than a name.
+ * ponytail: the newest KEEP per database, named by when and for which deploy —
+ * the object listing is the index. A row per snapshot if they ever need more than a name.
  */
 
-const SNAPSHOT_DIR = process.env.DB_SNAPSHOT_DIR || path.join(process.env.APPS_DIR || path.join(process.cwd(), 'apps_dir'), 'db-snapshots');
 const KEEP = Math.max(1, Number(process.env.DB_SNAPSHOT_KEEP) || 5);
 const FILE = /^(\d{8}-\d{6})-([A-Za-z0-9_-]+)\.sql\.gz$/;
 
 export type Snapshot = { databaseId: string; file: string; deploymentId: string; createdAt: Date; bytes: number };
 
-const dirOf = (databaseId: string) => path.join(SNAPSHOT_DIR, databaseId);
+const prefixOf = (databaseId: string) => `db-snapshots/${databaseId}/`;
 /** `20260915-101844-<deployment id>.sql.gz` — sorts by time, says which deploy */
 const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
 
-/** A database's snapshots, newest first. Pure over the directory listing. */
+/** A database's snapshots, newest first. Pure over the object listing. */
 export async function listSnapshots(databaseId: string): Promise<Snapshot[]> {
-  const names = await fs.promises.readdir(dirOf(databaseId)).catch(() => [] as string[]);
+  const objects = await listPrivateObjects(prefixOf(databaseId)).catch(() => []);
   const out: Snapshot[] = [];
-  for (const file of names) {
+  for (const { key: file, size } of objects) {
     const match = file.match(FILE);
     if (!match) continue;
-    const size = await fs.promises.stat(path.join(dirOf(databaseId), file)).then((s) => s.size, () => 0);
     const [, at, deploymentId] = match;
     const createdAt = new Date(`${at!.slice(0, 4)}-${at!.slice(4, 6)}-${at!.slice(6, 8)}T${at!.slice(9, 11)}:${at!.slice(11, 13)}:${at!.slice(13, 15)}Z`);
     out.push({ databaseId, file, deploymentId: deploymentId!, createdAt, bytes: size });
@@ -52,9 +52,10 @@ export async function snapshotsOfDeployment(deploymentId: string, databaseIds: s
 }
 
 /**
- * Dump the database to a snapshot file, as its own login on its node (like a
+ * Dump the database to a snapshot object, as its own login on its node (like a
  * backup download). Throws when it cannot: a managed service has no node of
  * ours to run the tools on. Prunes older snapshots past KEEP.
+ * Spooled through a temp file: S3 wants the length up front, gzip cannot say it.
  */
 export async function snapshotDatabase(databaseId: string, deploymentId: string): Promise<Snapshot> {
   const db = await prisma.database.findUnique({ where: { id: databaseId }, include: { databaseServer: { include: { server: true } } } });
@@ -63,10 +64,8 @@ export async function snapshotDatabase(databaseId: string, deploymentId: string)
   if (dbs.mode !== 'TUNNEL' || !dbs.server) throw new ImportError(`${dbs.name} is a managed service — its provider keeps the backups`);
   const { username, password } = await databaseCredentials(databaseId);
 
-  await fs.promises.mkdir(dirOf(databaseId), { recursive: true });
   const file = `${stamp()}-${deploymentId}.sql.gz`;
-  const target = path.join(dirOf(databaseId), file);
-  const partial = `${target}.part`;
+  const partial = path.join(os.tmpdir(), `larika-snapshot-${databaseId}-${Date.now()}.part`);
 
   const script = dbs.engine === 'POSTGRESQL' ? PG_DUMP : MYSQLDUMP;
   const command = buildCommand(['bash', '-c', script, 'bash', dbs.host, String(dbs.port), username, db.dbName]);
@@ -102,13 +101,16 @@ export async function snapshotDatabase(databaseId: string, deploymentId: string)
     await fs.promises.unlink(partial).catch(() => {});
     throw error;
   });
-  await fs.promises.rename(partial, target);
+  const bytes = (await fs.promises.stat(partial)).size;
+  try {
+    await putPrivateObject(prefixOf(databaseId) + file, fs.createReadStream(partial), bytes);
+  } finally {
+    await fs.promises.unlink(partial).catch(() => {});
+  }
 
   // the newest KEEP stay
-  for (const old of (await listSnapshots(databaseId)).slice(KEEP)) {
-    await fs.promises.unlink(path.join(dirOf(databaseId), old.file)).catch(() => {});
-  }
-  const bytes = (await fs.promises.stat(target)).size;
+  const old = (await listSnapshots(databaseId)).slice(KEEP);
+  await deletePrivateObjects(old.map((s) => prefixOf(databaseId) + s.file)).catch(() => {});
   return { databaseId, file, deploymentId, createdAt: new Date(), bytes };
 }
 
@@ -120,21 +122,22 @@ export async function snapshotDatabase(databaseId: string, deploymentId: string)
  */
 export async function restoreSnapshot(databaseId: string, file: string, userId: string, { wait = false } = {}) {
   if (!FILE.test(file)) throw new ImportError('Not a snapshot');
-  const source = path.join(dirOf(databaseId), file);
-  await fs.promises.access(source).catch(() => {
-    throw new ImportError('That snapshot is gone');
-  });
-  if (!reserveImport(databaseId)) return null;
+  const source = await getPrivateObject(prefixOf(databaseId) + file).catch(() => null);
+  if (!source) throw new ImportError('That snapshot is gone');
+  if (!reserveImport(databaseId)) {
+    source.destroy();
+    return null;
+  }
   let row;
-  let copy: string;
+  const copy = path.join(os.tmpdir(), `larika-snapshot-${databaseId}-${Date.now()}.sql.gz`);
   try {
-    copy = path.join(os.tmpdir(), `larika-snapshot-${databaseId}-${Date.now()}.sql.gz`);
-    await fs.promises.copyFile(source, copy);
+    await pipeline(source, fs.createWriteStream(copy, { mode: 0o600 }));
     row = await prisma.databaseImport.create({
       data: { databaseId, userId, fileName: `snapshot ${file}`, sizeBytes: (await fs.promises.stat(copy)).size },
     });
   } catch (error) {
     releaseImport(databaseId);
+    await fs.promises.unlink(copy).catch(() => {});
     throw error;
   }
   // releases the database and deletes the copy when done

@@ -6,7 +6,9 @@ import {
   ListObjectsV2Command,
   DeleteObjectsCommand,
   CopyObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
+import type { Readable } from 'stream';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
@@ -368,4 +370,71 @@ export async function deleteSiteObjects(bucket: string, keys: string[]): Promise
     deleted += batch.length - (result.Errors?.length ?? 0);
   }
   return deleted;
+}
+
+// --- Private objects ---------------------------------------------------------
+//
+// Database snapshots: their own bucket, never given a public host and never a
+// folder of the shared site bucket (that one is public through its domain).
+// Made on first use; a bucket-scoped key cannot create buckets, so with one
+// R2_PRIVATE_BUCKET has to exist already.
+
+const PRIVATE_BUCKET = process.env.R2_PRIVATE_BUCKET || 'larika-private';
+let privateReady = false;
+
+async function privateBucket(): Promise<{ r2: S3Client; bucket: string }> {
+  const config = await getR2Config();
+  if (!config) throw new Error('R2 is not configured — database snapshots are kept there');
+  const r2 = client(config);
+  if (!privateReady) {
+    try {
+      await r2.send(new HeadBucketCommand({ Bucket: PRIVATE_BUCKET }));
+    } catch {
+      try {
+        await r2.send(new CreateBucketCommand({ Bucket: PRIVATE_BUCKET }));
+      } catch (error: any) {
+        const code = error?.name || error?.Code;
+        if (code !== 'BucketAlreadyOwnedByYou' && code !== 'BucketAlreadyExists') {
+          throw new Error(`R2 bucket ${PRIVATE_BUCKET} is missing and could not be created (${code || error?.message}) — create it, or set R2_PRIVATE_BUCKET`);
+        }
+      }
+    }
+    privateReady = true;
+  }
+  return { r2, bucket: PRIVATE_BUCKET };
+}
+
+/** A stream of known length — S3 wants the size up front for a single PUT. */
+export async function putPrivateObject(key: string, body: Readable, contentLength: number): Promise<void> {
+  const { r2, bucket } = await privateBucket();
+  await r2.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentLength: contentLength, ContentType: 'application/octet-stream' }));
+}
+
+export async function getPrivateObject(key: string): Promise<Readable> {
+  const { r2, bucket } = await privateBucket();
+  const result = await r2.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!result.Body) throw new Error(`R2 object ${key} has no body`);
+  return result.Body as Readable;
+}
+
+export async function listPrivateObjects(prefix: string): Promise<SiteObject[]> {
+  const { r2, bucket } = await privateBucket();
+  const objects: SiteObject[] = [];
+  let token: string | undefined;
+  do {
+    const page = await r2.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+    for (const item of page.Contents ?? []) {
+      if (item.Key) objects.push({ key: item.Key.slice(prefix.length), size: item.Size ?? 0, lastModified: item.LastModified?.toISOString() ?? null });
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return objects;
+}
+
+export async function deletePrivateObjects(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const { r2, bucket } = await privateBucket();
+  for (let i = 0; i < keys.length; i += 1000) {
+    await r2.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+  }
 }
