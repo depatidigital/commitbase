@@ -295,29 +295,6 @@ export async function ensureSiteBucket(domain: string): Promise<{ bucket: string
 }
 
 /** Push a built site directory into its bucket, keeping the folder layout. */
-export async function uploadSiteDirectory(bucket: string, localDir: string): Promise<number> {
-  let count = 0;
-
-  async function walk(currentDir: string): Promise<void> {
-    const entries = await fs.readdir(currentDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(currentDir, entry.name);
-
-      if (entry.isDirectory()) {
-        // don't even descend into .git / node_modules
-        if (isPublishable(entry.name)) await walk(fullPath);
-      } else if (entry.isFile()) {
-        const key = path.relative(localDir, fullPath).split(path.sep).join('/');
-        if (await uploadSiteObject(bucket, key, await fs.readFile(fullPath))) count += 1;
-      }
-    }
-  }
-
-  await walk(localDir);
-  return count;
-}
-
 export type SiteObject = { key: string; size: number; lastModified: string | null };
 
 /** Every object in a site bucket. ponytail: no cap — a static site is thousands of files, not millions. */

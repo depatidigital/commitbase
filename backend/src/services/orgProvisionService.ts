@@ -28,10 +28,10 @@ import { ORG_SLUG_RE, APP_ID_RE, osUserFor } from '../lib/appPaths';
  * revalidate their own arguments as well.
  */
 
-// Tenant apps always run isolated on their organization's node — there is no
-// "build on the panel" mode to fall back to (it built on whatever machine ran
-// the backend, a laptop included). Static sites are the exception: they build
-// on the panel and are served from R2.
+// Tenant apps always build and run isolated on their organization's node — there
+// is no "build on the panel" mode to fall back to (it built on whatever machine
+// ran the backend, a laptop included). Static sites build there too, then are
+// served from R2.
 
 // Same depth from src/services (tsx) and dist/services (node): backend/<x>/services → repo root.
 const RUNNER_DIR = path.resolve(__dirname, '../../../runner');
@@ -151,7 +151,7 @@ export async function provisionOrgOnNode(
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown' | 'cancel-build';
 
-export const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
+const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
 const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
 
 /**
@@ -183,25 +183,20 @@ export async function sourceTreeUnit(action: 'chown' | 'cancel-build', slug: str
 }
 
 /**
- * Run <source-dir>/build.sh inside the build cgroup (memory-capped, low CPU/IO
- * weight) on the node of `applicationId` (an app of the source). Resolves with
+ * Run the app's own <app-dir>/build.sh inside the build cgroup (memory-capped,
+ * low CPU/IO weight) on its node. Its own, not its source's: two apps of one
+ * source deploying at once must not run each other's script. Resolves with
  * the combined output; rejects with it attached when the script fails.
  * Fifteen minutes per app built. `onOutput` gets the output as it prints, for the live build log.
  */
-export async function appBuild(
-  slug: string,
-  sourceId: string,
-  applicationId: string,
-  onOutput?: (text: string) => void,
-  apps = 1,
-): Promise<string> {
+export async function appBuild(slug: string, applicationId: string, onOutput?: (text: string) => void, apps = 1): Promise<string> {
   assertSlug(slug);
-  if (!APP_ID_RE.test(sourceId)) throw new Error(`Invalid source id: ${sourceId}`);
+  if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
 
   const { stdout, stderr } = await runScript(
     await serverForApplication(applicationId),
     'cb-app-unit',
-    ['build', slug, sourceId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
+    ['build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
     { timeout: 900_000 * Math.max(1, apps), maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
   );
   return stdout + (stderr ? '\n' + stderr : '');

@@ -11,14 +11,11 @@ import { prisma } from './prisma';
  *   /home/cb-<slug>/apps/<applicationId>/sources
  *   /home/cb-<slug>/apps/<applicationId>/logs
  *
- * Applications with no organization (or installs that have not migrated yet)
- * fall back to the old flat APPS_DIR. Both shapes key the directory on the
- * application id — some log helpers used to key it on the domain instead and
- * therefore read a directory that never existed.
+ * Keyed on the application id — some log helpers used to key it on the domain
+ * instead and therefore read a directory that never existed.
  */
 
 export const HOME_ROOT = process.env.CB_HOME_ROOT || '/home';
-const LEGACY_APPS_DIR = process.env.APPS_DIR || path.join(process.cwd(), 'apps_dir');
 
 /** Must match the validation in runner/cb-provision-org.sh. */
 export const ORG_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
@@ -35,13 +32,10 @@ export const orgAppsDir = (slug: string) => path.posix.join(orgHome(slug), 'apps
 export const orgSlicePath = (slug: string) => path.posix.join('/etc/systemd/system', `cb-${slug}.slice`);
 
 /** Synchronous form, for callers that already loaded the organization. */
-export function appDirFor(applicationId: string, orgSlug?: string | null): string {
+export function appDirFor(applicationId: string, orgSlug: string): string {
   if (!APP_ID_RE.test(applicationId)) {
     throw new Error(`Invalid application id: ${applicationId}`);
   }
-  // Only an absent organization falls back — an empty-string slug is a bug,
-  // not a tenant-less app, and must not silently share the legacy directory.
-  if (orgSlug === null || orgSlug === undefined) return path.posix.join(LEGACY_APPS_DIR, applicationId);
   if (!ORG_SLUG_RE.test(orgSlug)) {
     throw new Error(`Invalid organization slug: ${orgSlug}`);
   }

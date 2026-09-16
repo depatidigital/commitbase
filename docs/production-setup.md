@@ -316,7 +316,6 @@ Write `/opt/larika/app/backend/.env`, owned `larika:larika`, mode
 |---|---|---|
 | ~~`CADDY_API_URL`~~ | *removed* | The admin API is unauthenticated, so it is never addressed directly: each node's own `127.0.0.1:2019` is reached through that node's SSH connection |
 | `APPS_ROOT_DIR` | `/var/www/html` | Document root guessed for synced sites |
-| `APPS_DIR` | `./apps_dir` | Legacy flat app directory — used only for apps with no organization |
 
 ### Per-organization OS isolation
 

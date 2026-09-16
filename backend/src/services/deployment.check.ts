@@ -7,24 +7,8 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildHeapMb, buildScript, dotenvLine, streamToLog } from './deployment';
+import { buildBlock, buildScript, dotenvLine } from './deployment';
 import { parseEnv } from 'util';
-
-(async () => {
-  const log = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'cb-log-')), 'build.log');
-  await fs.writeFile(log, 'BUILD STARTED\n');
-
-  await streamToLog(process.execPath, ['-e', 'console.log("out"); console.error("err")'], log, 10000);
-  const text = await fs.readFile(log, 'utf-8');
-  assert.ok(text.startsWith('BUILD STARTED\n'), 'appends, never truncates');
-  assert.ok(text.includes('out') && text.includes('err'), 'stdout and stderr both land');
-
-  await assert.rejects(streamToLog(process.execPath, ['-e', 'process.exit(3)'], log, 10000), /code 3/);
-  await assert.rejects(streamToLog(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], log, 200), /killed/);
-
-  console.log('deployment: streamToLog OK');
-  process.exit(0);
-})();
 
 // .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
 for (const value of [
@@ -78,8 +62,3 @@ console.log('deployment: dotenvLine OK');
   process.exit(1);
 });
 
-// BUILD_MEMORY_MAX as a V8 heap cap for a panel-side static build
-assert.strictEqual(buildHeapMb('2G'), 2048);
-assert.strictEqual(buildHeapMb('512M'), 512);
-assert.strictEqual(buildHeapMb('junk'), 2048);
-assert.strictEqual(buildHeapMb('1M'), 256);

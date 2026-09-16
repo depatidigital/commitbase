@@ -18,8 +18,6 @@ assert.strictEqual(orgAppsDir('acme'), path.posix.join('/home', 'cb-acme', 'apps
 assert.strictEqual(appDirFor(APP, 'acme'), path.posix.join('/home', 'cb-acme', 'apps', APP));
 
 // No organization -> legacy flat directory, never a path under /home
-assert.ok(!appDirFor(APP, null).startsWith('/home/cb-'));
-assert.strictEqual(appDirFor(APP, null), appDirFor(APP, undefined));
 
 // One tenant must never resolve into another tenant's home
 assert.ok(!appDirFor(APP, 'acme').startsWith(orgHome('other')));

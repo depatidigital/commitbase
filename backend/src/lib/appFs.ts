@@ -1,6 +1,3 @@
-import * as fs from 'fs/promises';
-import * as net from 'net';
-import { execFile } from 'child_process';
 import { prisma } from './prisma';
 import { appDirFor, sourcesDirFor } from './appPaths';
 import { serverForApplication } from './servers';
@@ -13,9 +10,8 @@ import * as rfs from './remoteFs';
  * A tenant app lives in its organization's home on the app's node, and every
  * file operation and command goes over SSH (SFTP via remoteFs, commands via
  * runner.exec) as the node's SSH user — who reaches the tenant home through
- * the `larika` group. Only static sites use the local APPS_DIR on the panel:
- * they are built there and served from R2. There is no local fallback for
- * anything else — an app without an organization cannot be deployed.
+ * the `larika` group. Static sites too: built on the node, served from R2.
+ * There is no local fallback — an app without an organization cannot be deployed.
  *
  * Deploy code is written once against this interface; `node` says which side
  * it is on when it genuinely differs (health checks, isolated builds).
@@ -62,42 +58,6 @@ export interface AppFs {
 }
 
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
-
-function localAppFs(appDir: string, sourcesDir: string): AppFs {
-  return {
-    node: null,
-    appDir,
-    sourcesDir,
-    readFile: (p) => fs.readFile(p),
-    readText: (p) => fs.readFile(p, 'utf-8'),
-    writeFile: (p, data, opts = {}) => fs.writeFile(p, data, opts.mode ? { mode: opts.mode } : {}),
-    appendFile: (p, data) => fs.appendFile(p, data),
-    readdir: (p) => fs.readdir(p),
-    exists: (p) => fs.access(p).then(() => true, () => false),
-    isDirectory: (p) => fs.stat(p).then((s) => s.isDirectory(), () => false),
-    size: (p) => fs.stat(p).then((s) => s.size, () => null),
-    readlink: (p) => fs.readlink(p),
-    symlink: (target, p) => fs.symlink(target, p),
-    rename: (from, to) => fs.rename(from, to),
-    rm: (p, opts = {}) => fs.rm(p, opts),
-    mkdir: (p) => fs.mkdir(p, { recursive: true }).then(() => undefined),
-    run: ([cmd, ...args], opts = {}) =>
-      new Promise((resolve, reject) => {
-        execFile(
-          cmd!,
-          args,
-          { cwd: opts.cwd, timeout: opts.timeout, env: { ...process.env, ...opts.env }, maxBuffer: 64 * 1024 * 1024 },
-          (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr })),
-        );
-      }),
-    portInUse: (port) =>
-      new Promise((resolve) => {
-        const server = net.createServer();
-        server.once('error', () => resolve(true));
-        server.listen(port, '127.0.0.1', () => server.close(() => resolve(false)));
-      }),
-  };
-}
 
 /**
  * The argv (and stdin) that runs `argv` on a node: umask 002, then any env
@@ -167,24 +127,11 @@ function remoteAppFs(node: SshTarget, appDir: string, sourcesDir: string): AppFs
 export async function appFsFor(applicationId: string): Promise<AppFs> {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { type: true, sourceId: true, organization: { select: { slug: true } } },
+    select: { sourceId: true, organization: { select: { slug: true } } },
   });
   if (!app) throw new Error(`Unknown application: ${applicationId}`);
 
   const slug = app.organization?.slug;
-
-  // static: served from R2. Built on the org's node (its build cgroup) when it
-  // has one; on the panel otherwise, for sites from before orgs had nodes.
-  if (app.type === 'STATIC') {
-    const node = slug ? await serverForApplication(applicationId).catch(() => null) : null;
-    if (!node) {
-      const appDir = appDirFor(applicationId, null);
-      return localAppFs(appDir, sourcesDirFor(appDir, app.sourceId));
-    }
-    const appDir = appDirFor(applicationId, slug!);
-    return remoteAppFs(node, appDir, sourcesDirFor(appDir, app.sourceId));
-  }
-
   if (!slug) throw new Error('Assign the app to an organization first — apps run on its node');
   // the app's own node — organizations span nodes (lib/servers.ts)
   const appDir = appDirFor(applicationId, slug);
