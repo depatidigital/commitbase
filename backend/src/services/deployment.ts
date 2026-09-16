@@ -1211,7 +1211,8 @@ export class DeploymentService {
 
         try {
           const previousOrigin: string | null = (application as any).staticOrigin ?? null;
-          const { bucket, origin, folder } = await this.buildStaticRelease(application, afs, deployment.id, envVars, buildLogPath);
+          // group[0]: the app with its org's slug — `application` came from the route without it
+          const { bucket, origin, folder } = await this.buildStaticRelease(group[0]!, afs, deployment.id, envVars, buildLogPath);
 
           const release = await prisma.release.create({
             data: { applicationId: application.id, sourceId: application.sourceId, status: 'READY', path: folder, commitSha: commitSha ?? null, deploymentId: deployment.id },

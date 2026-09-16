@@ -738,6 +738,31 @@ function AppQuickEdit({ appId }: { appId: string }) {
           </div>
         </div>
       )}
+      {/* why the last deploy failed, as the detail page says it — the checklist has its own copy */}
+      {!inFlight && !needsSetup && lastFailed && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-medium text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                {t("The last deploy failed")}
+              </p>
+              <p className="text-xs text-muted-foreground">{t("Whatever was serving before keeps serving.")}</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={() => setLogOpen(true)}>
+                <Terminal className="h-3.5 w-3.5 mr-1.5" />
+                {t("Logs")}
+              </Button>
+              <Button size="sm" className="bg-gradient-primary" disabled={firstDeploy.isPending} onClick={() => startDeploy(application.id)}>
+                {firstDeploy.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                {t("Retry deploy")}
+              </Button>
+            </div>
+          </div>
+          <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs text-destructive">{lastFailed}</pre>
+        </div>
+      )}
       <DeployLogDialog
         application={application}
         open={logOpen}
