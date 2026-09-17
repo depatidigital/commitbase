@@ -451,7 +451,11 @@ router.delete('/:id/members/:userId', authenticateToken, async (req: Authenticat
       }
     }
 
-    await prisma.membership.delete({ where: { userId_organizationId: { userId, organizationId: id } } });
+    await prisma.$transaction([
+      prisma.membership.delete({ where: { userId_organizationId: { userId, organizationId: id } } }),
+      // back in the org later = added to its projects again, not silently
+      prisma.projectMember.deleteMany({ where: { userId, source: { organizationId: id } } }),
+    ]);
 
     return res.json({ success: true, message: 'Member removed' } as ApiResponse);
   } catch (error) {

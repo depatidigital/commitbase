@@ -5,7 +5,7 @@ import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Applicat
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
-import { canManageOrg, getOrgIds, isPlatformAdmin, orgScope } from '../lib/scope';
+import { appScope, canManageOrg, canManageProject, getOrgIds, isPlatformAdmin, projectScope } from '../lib/scope';
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { appHosts, appIdAt, atEach, hostList, hostRefused, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
@@ -246,7 +246,7 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
     // an app added to a project: its repository, read through the project's
     // clone account — which may be a teammate's; whoever sees the project may read it
     if (req.body?.sourceId) {
-      const source = await prisma.source.findFirst({ where: { id: String(req.body.sourceId), ...(await orgScope(req)) } });
+      const source = await prisma.source.findFirst({ where: { id: String(req.body.sourceId), ...(await projectScope(req)) } });
       if (!source?.repository) {
         return res.status(404).json({ success: false, error: 'Project not found, or not from a repository' } as ApiResponse);
       }
@@ -324,7 +324,7 @@ router.post('/detect-apps', authenticateToken, async (req: AuthenticatedRequest,
 router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       select: { id: true, rootDirectory: true, packageManager: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -415,7 +415,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     // the parent domain: an app on shop.example.com belongs to example.com
     const domainId = String(req.query.domainId ?? '').trim();
     const where = {
-      ...(await orgScope(req)),
+      ...(await appScope(req)),
       // ?organizationId=unassigned: the synced rows nobody has claimed yet
       ...(organizationId && { organizationId: organizationId === 'unassigned' ? null : organizationId }),
       ...((Object.values(AppType) as string[]).includes(type) && { type: type as AppType }),
@@ -544,7 +544,7 @@ router.get('/health', authenticateToken, async (req: AuthenticatedRequest, res: 
 
     // only applications the caller may see — the ids arrive from the client
     const visible = await prisma.application.findMany({
-      where: { id: { in: ids }, ...(await orgScope(req)) },
+      where: { id: { in: ids }, ...(await appScope(req)) },
       select: { id: true, runtime: true, serve: true },
     });
 
@@ -606,7 +606,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
       include: {
         deployments: {
@@ -667,7 +667,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     // runs on the project's node and belongs to the project's organization.
     const joining = req.body.sourceId
       ? await prisma.source.findFirst({
-          where: { id: String(req.body.sourceId), ...(await orgScope(req)) },
+          where: { id: String(req.body.sourceId), ...(await projectScope(req)) },
         })
       : null;
     if (req.body.sourceId) {
@@ -863,7 +863,7 @@ router.post(
       }
 
       const application = await prisma.application.findFirst({
-        where: { id: id as string, ...(await orgScope(req)) },
+        where: { id: id as string, ...(await appScope(req)) },
       });
 
       if (!application) {
@@ -1031,7 +1031,7 @@ router.post(
 /** The static app with its bucket, or the response that says why not. */
 async function siteBucketFor(req: AuthenticatedRequest, res: Response) {
   const application = await prisma.application.findFirst({
-    where: { id: req.params.id as string, ...(await orgScope(req)) },
+    where: { id: req.params.id as string, ...(await appScope(req)) },
   });
   if (!application) {
     res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -1111,7 +1111,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     const existingApp = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -1184,7 +1184,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       include: { organization: { select: { slug: true } }, ...withDomains },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -1208,7 +1208,7 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
         return res.status(400).json({ success: false, error: `${label} is already in use` } as ApiResponse);
       }
       const holder = await prisma.application.findFirst({
-        where: { id: holderId, AND: [{ organizationId: application.organizationId }, await orgScope(req)] },
+        where: { id: holderId, AND: [{ organizationId: application.organizationId }, await appScope(req)] },
         select: { id: true, name: true },
       });
       if (!holder) return res.status(403).json({ success: false, error: `${label} belongs to an app you cannot manage` } as ApiResponse);
@@ -1300,7 +1300,7 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
 /** Hand the app its path with or without the prefix (`/api/users` or `/users`) — the name's route composed again. */
 router.patch('/:id/domains', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) }, include: withDomains });
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) }, include: withDomains });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     const host = normalizeHost(req.body?.host);
     const at = normalizeBindingPath(req.body?.path);
@@ -1330,7 +1330,7 @@ router.patch('/:id/domains', authenticateToken, async (req: AuthenticatedRequest
 router.delete('/:id/domains/:host', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       include: withDomains,
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -1377,7 +1377,7 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
 router.post('/:id/pm2-deploy', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       select: { id: true, organizationId: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -1400,7 +1400,7 @@ router.post('/:id/pm2-deploy', authenticateToken, async (req: AuthenticatedReque
 // What deleting an imported app could remove from its server — for the delete dialog
 router.get('/:id/teardown', authenticateToken, requireRole([]), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) }, include: withDomains });
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) }, include: withDomains });
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
@@ -1418,7 +1418,7 @@ router.get('/:id/teardown', authenticateToken, requireRole([]), async (req: Auth
  */
 router.post('/:id/disabled', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) } });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
     const disabled = req.body?.disabled === true;
@@ -1433,7 +1433,7 @@ router.post('/:id/disabled', authenticateToken, requireRole(['ADMIN']), async (r
 // Is the imported app's folder really on its server — the row can say one that is not
 router.get('/:id/folder', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await orgScope(req)) } });
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) } });
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     }
@@ -1486,9 +1486,9 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
-      include: { organization: { select: { slug: true } }, ...withDomains },
+      include: { organization: { select: { slug: true } }, source: { select: { organizationId: true, createdById: true } }, ...withDomains },
     });
 
     if (!application) {
@@ -1496,6 +1496,9 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
         success: false,
         error: 'Application not found',
       } as ApiResponse);
+    }
+    if (!application.runtime && !(await canManageProject(req, application.source ?? { organizationId: application.organizationId, createdById: null }))) {
+      return res.status(403).json({ success: false, error: 'Only the creator of the project and the admins of its organization can delete it' } as ApiResponse);
     }
 
     // Imported apps (runtime set) were set up by hand. Deleting one removes it
@@ -1591,7 +1594,7 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -1672,7 +1675,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -1726,7 +1729,7 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
 router.get('/:id/disk', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       select: { id: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -1750,7 +1753,7 @@ router.get('/:id/disk', authenticateToken, async (req: AuthenticatedRequest, res
 router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     const imported = refuseImported(application, res);
@@ -1784,7 +1787,7 @@ router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest,
 router.post('/:id/deploy/cancel', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     const imported = refuseImported(application, res);
@@ -1818,7 +1821,7 @@ router.post('/:id/stop', authenticateToken, async (req: AuthenticatedRequest, re
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -1882,7 +1885,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -1944,7 +1947,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
 router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       include: withDomains,
     });
 
@@ -1985,7 +1988,7 @@ router.get('/:id/hostname', authenticateToken, async (req: AuthenticatedRequest,
 router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.id as string, ...(await orgScope(req)) },
+      where: { id: req.params.id as string, ...(await appScope(req)) },
       include: withDomains,
     });
 
@@ -2032,7 +2035,7 @@ router.get('/:id/releases', authenticateToken, async (req: AuthenticatedRequest,
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -2081,7 +2084,7 @@ router.post('/:id/releases/:releaseId/activate', authenticateToken, async (req: 
     const application = await prisma.application.findFirst({
       where: {
         id,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 

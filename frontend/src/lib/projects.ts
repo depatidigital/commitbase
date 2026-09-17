@@ -53,6 +53,8 @@ export interface Project {
   applications: ProjectApp[];
   /** detail only: the caller may switch an imported checkout's branch (its org's owner/admin, a platform admin) */
   canSwitchBranch?: boolean;
+  /** detail only: the caller may delete it and manage its members (its creator, its org's owner/admin) */
+  canManage?: boolean;
   activeRelease?: { id: string; commitSha: string | null; createdAt: string } | null;
   lastDeployment?: { status: string; createdAt: string; commitHash: string | null; commitMessage: string | null } | null;
   createdAt: string;
@@ -67,6 +69,38 @@ export const getProjects = async (
   const response = await apiRequest<PaginatedResponse<Project>>(`/sources${query}${extra}`);
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Could not load the projects'));
+};
+
+export interface ProjectUser {
+  id: string;
+  name: string | null;
+  email: string;
+}
+
+/** Who sees a project. Org owners/admins always do and can't be removed. */
+export interface ProjectMembers {
+  admins: Array<ProjectUser & { role: 'OWNER' | 'ADMIN' }>;
+  creator: ProjectUser | null;
+  members: Array<ProjectUser & { addedAt: string }>;
+  /** org members who could be added (empty unless canManage) */
+  candidates: ProjectUser[];
+  canManage: boolean;
+}
+
+export const getProjectMembers = async (id: string): Promise<ProjectMembers> => {
+  const response = await apiRequest<ProjectMembers>(`/sources/${id}/members`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not load the members'));
+};
+
+export const addProjectMember = async (id: string, userId: string): Promise<void> => {
+  const response = await apiRequest(`/sources/${id}/members`, { method: 'POST', body: JSON.stringify({ userId }) });
+  if (!response.success) throw new Error(response.error || t('Could not add the member'));
+};
+
+export const removeProjectMember = async (id: string, userId: string): Promise<void> => {
+  const response = await apiRequest(`/sources/${id}/members/${userId}`, { method: 'DELETE' });
+  if (!response.success) throw new Error(response.error || t('Could not remove the member'));
 };
 
 export const getProject = async (id: string): Promise<Project> => {

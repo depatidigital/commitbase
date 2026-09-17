@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { orgScope } from '../lib/scope';
+import { appScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import { snapshotsOfDeployment } from '../services/databaseSnapshotService';
 
@@ -27,7 +27,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -117,7 +117,7 @@ router.get('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
       where: {
         id: deploymentId,
         application: {
-          ...(await orgScope(req)),
+          ...(await appScope(req)),
         },
       },
       include: {
@@ -170,7 +170,7 @@ router.get('/:deploymentId/logs', authenticateToken, async (req: AuthenticatedRe
       where: {
         id: deploymentId,
         application: {
-          ...(await orgScope(req)),
+          ...(await appScope(req)),
         },
       },
       include: {
@@ -237,7 +237,7 @@ router.post('/application/:appId', authenticateToken, async (req: AuthenticatedR
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -300,7 +300,7 @@ router.put('/:deploymentId', authenticateToken, async (req: AuthenticatedRequest
       where: {
         id: deploymentId,
         application: {
-          ...(await orgScope(req)),
+          ...(await appScope(req)),
         },
       },
     });
@@ -363,7 +363,7 @@ router.delete('/:deploymentId/logs', authenticateToken, async (req: Authenticate
       where: {
         id: deploymentId,
         application: {
-          ...(await orgScope(req)),
+          ...(await appScope(req)),
         },
       },
     });
@@ -414,7 +414,7 @@ router.delete('/:deploymentId', authenticateToken, async (req: AuthenticatedRequ
       where: {
         id: deploymentId,
         application: {
-          ...(await orgScope(req)),
+          ...(await appScope(req)),
         },
       },
     });

@@ -2,17 +2,19 @@ import { Router, Response } from 'express';
 import fs from 'fs';
 import os from 'os';
 import multer from 'multer';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { CreateDatabaseSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { canManageOrg, isPlatformAdmin, orgScope } from '../lib/scope';
+import { appScope, canManageOrg, getMemberships, isPlatformAdmin } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { serverForApplication } from '../lib/servers';
 import { testDatabaseUrl } from '../services/databaseServerService';
 import {
   ProvisionError,
+  accountName,
   databaseCredentials,
   databaseName,
   dropDatabase,
@@ -40,12 +42,46 @@ const IMPORT_MAX_MB = Math.max(1, Number(process.env.DB_IMPORT_MAX_MB) || 512);
 const importUpload = multer({ dest: os.tmpdir(), limits: { fileSize: IMPORT_MAX_MB * 1024 * 1024, files: 1 } });
 
 /**
- * Who may see a database: members of the org that owns it, or of the org its
- * app belongs to (rows from before databases had an owner of their own).
+ * Who may see a database: owners/admins of its org (or of its app's, for rows
+ * from before databases had an owner of their own); a member, the ones they
+ * made and the ones the apps of their projects are linked to or name in env.
  */
-async function databaseScope(req: AuthenticatedRequest) {
-  const scope = await orgScope(req);
-  return 'organizationId' in scope ? { OR: [scope, { application: scope }] } : {};
+async function databaseScope(req: AuthenticatedRequest): Promise<Prisma.DatabaseWhereInput> {
+  if (isPlatformAdmin(req)) return {};
+  const memberships = await getMemberships(req);
+  const orgIds = memberships.map((m) => m.organizationId);
+  const managed = { in: memberships.filter((m) => m.role !== 'MEMBER').map((m) => m.organizationId) };
+  // ponytail: loads the member's project apps' env on every call; fine at tens of apps
+  // names are matched in the app's own org only — a user may be in several
+  const apps = await prisma.application.findMany({ where: await appScope(req), select: { organizationId: true, envVars: true } });
+  const namedByOrg = new Map<string, Set<string>>();
+  for (const app of apps) {
+    if (!app.organizationId) continue;
+    const names = namedByOrg.get(app.organizationId) ?? new Set<string>();
+    for (const name of envDatabaseNames(app.envVars)) names.add(name);
+    namedByOrg.set(app.organizationId, names);
+  }
+  return {
+    OR: [
+      { organizationId: managed },
+      { organizationId: null, application: { organizationId: managed } },
+      { createdById: req.user!.userId, organizationId: { in: orgIds } },
+      { application: await appScope(req) },
+      ...[...namedByOrg]
+        .filter(([, names]) => names.size)
+        .map(([organizationId, names]) => ({ organizationId, dbName: { in: [...names] } })),
+    ],
+  };
+}
+
+/** Manage (credentials, import, delete): its org's owners/admins, or whoever made it. */
+async function mayManageDatabase(
+  req: AuthenticatedRequest,
+  database: { organizationId: string | null; createdById: string | null; application: { organizationId: string | null } | null },
+) {
+  const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
+  if (!ownerOrg) return isPlatformAdmin(req);
+  return (await canManageOrg(req, ownerOrg)) || database.createdById === req.user!.userId;
 }
 
 /** The database names an app's env points at: its URLs' paths, Laravel's and libpq's names. */
@@ -121,7 +157,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -171,7 +207,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 router.get('/project/:sourceId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const apps = await prisma.application.findMany({
-      where: { sourceId: req.params.sourceId as string, ...(await orgScope(req)) },
+      where: { sourceId: req.params.sourceId as string, ...(await appScope(req)) },
       select: { id: true, name: true, organizationId: true, envVars: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -275,7 +311,7 @@ router.get('/logins', authenticateToken, async (req: AuthenticatedRequest, res: 
 router.post('/test-url', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: String(req.body?.applicationId ?? ''), ...(await orgScope(req)) },
+      where: { id: String(req.body?.applicationId ?? ''), ...(await appScope(req)) },
       select: { id: true, organizationId: true, envVars: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -351,7 +387,7 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
     let organizationId = requestedOrg ?? null;
     if (applicationId) {
       const application = await prisma.application.findFirst({
-        where: { id: applicationId, ...(await orgScope(req)) },
+        where: { id: applicationId, ...(await appScope(req)) },
         select: { organizationId: true },
       });
       if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -363,7 +399,8 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
     if (!organizationId) {
       return res.status(400).json({ success: false, error: 'Choose the organization the database belongs to' } as ApiResponse);
     }
-    if (!(await canManageOrg(req, organizationId))) {
+    // a project member may create one for an app of theirs (checked above); otherwise managers only
+    if (!applicationId && !(await canManageOrg(req, organizationId))) {
       return res.status(403).json({ success: false, error: 'Only owners and admins of the organization can create databases' } as ApiResponse);
     }
 
@@ -394,8 +431,21 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
     const type = dbs.engine as 'POSTGRESQL' | 'MYSQL';
 
     const dbName = databaseName(organization.slug, name, type);
+    // A member gets a new login for this database only: the org's logins reach
+    // its other databases, and the creator can read this one's password.
+    let chosen = login;
+    if (!(await canManageOrg(req, organizationId))) {
+      if (login && !('username' in login)) {
+        return res.status(403).json({ success: false, error: "Only owners and admins can use the organization's existing logins" } as ApiResponse);
+      }
+      chosen = { username: login?.username || name };
+      const username = accountName(organization.slug, chosen.username, type);
+      if (await prisma.orgDatabaseAccount.findUnique({ where: { databaseServerId_username: { databaseServerId: dbs.id, username } } })) {
+        return res.status(409).json({ success: false, error: `The login ${username} already exists — pick another login name` } as ApiResponse);
+      }
+    }
     // resolved (and a new one checked against the server) before anything is recorded
-    const account = await resolveAccount(dbs, organization, login);
+    const account = await resolveAccount(dbs, organization, chosen);
 
     let database;
     try {
@@ -407,6 +457,7 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
           dbName,
           port: dbs.port,
           organizationId,
+          createdById: req.user!.userId,
           databaseServerId: dbs.id,
           ...(type === 'POSTGRESQL' && { ownerRole: ownerRoleName(dbName) }),
           grants: { create: { accountId: account.id } },
@@ -451,9 +502,7 @@ async function manageable(req: AuthenticatedRequest, id: string) {
     include: { application: { select: { organizationId: true } } },
   });
   if (!database) return null;
-  const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
-  const allowed = ownerOrg ? await canManageOrg(req, ownerOrg) : isPlatformAdmin(req);
-  return allowed ? database : null;
+  return (await mayManageDatabase(req, database)) ? database : null;
 }
 
 type Credentials = Awaited<ReturnType<typeof databaseCredentials>>;
@@ -499,7 +548,7 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
     if (!database) return res.status(404).json({ success: false, error: 'Database not found' } as ApiResponse);
 
     const application = await prisma.application.findFirst({
-      where: { id: String(req.body?.applicationId ?? ''), ...(await orgScope(req)) },
+      where: { id: String(req.body?.applicationId ?? ''), ...(await appScope(req)) },
       select: { id: true, organizationId: true, envVars: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -516,7 +565,15 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
     const parsedLogin = CreateDatabaseSchema.shape.login.safeParse(req.body?.login);
     if (!parsedLogin.success) return res.status(400).json({ success: false, error: 'Invalid login' } as ApiResponse);
     let accountId: string | undefined;
-    if (parsedLogin.data || !database.discovered) {
+    if (!(ownerOrg ? await canManageOrg(req, ownerOrg) : isPlatformAdmin(req))) {
+      // its creator: one of the database's own logins, never the org's shared one
+      const grants = await prisma.databaseGrant.findMany({ where: { databaseId: database.id }, select: { accountId: true }, orderBy: { createdAt: 'asc' } });
+      const wanted = parsedLogin.data ? ('accountId' in parsedLogin.data ? parsedLogin.data.accountId : null) : grants[0]?.accountId;
+      if (!wanted || !grants.some((grant) => grant.accountId === wanted)) {
+        return res.status(403).json({ success: false, error: "Pick one of this database's own logins" } as ApiResponse);
+      }
+      accountId = wanted;
+    } else if (parsedLogin.data || !database.discovered) {
       const full = await prisma.database.findUnique({
         where: { id: database.id },
         include: { databaseServer: { include: { server: true } }, organization: { select: { id: true, slug: true } } },
@@ -817,9 +874,8 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
 
-    const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
-    if (ownerOrg ? !(await canManageOrg(req, ownerOrg)) : !isPlatformAdmin(req)) {
-      return res.status(403).json({ success: false, error: 'Only owners and admins of the organization can delete databases' } as ApiResponse);
+    if (!(await mayManageDatabase(req, database))) {
+      return res.status(403).json({ success: false, error: 'Only its creator and the owners and admins of the organization can delete this database' } as ApiResponse);
     }
 
     // An imported database is data someone else created: the panel only forgets

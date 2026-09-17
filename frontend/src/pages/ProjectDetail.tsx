@@ -35,6 +35,7 @@ import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
 import { SourcePanel } from "@/components/SourcePanel";
+import { ProjectMembersCard } from "@/components/ProjectMembersCard";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
@@ -366,6 +367,7 @@ export default function ProjectDetail() {
 
         {/* as the API allows it: the panel's own apps, anyone who manages them; apps set up on the server, a superadmin only */}
         <TabsContent value="settings" className="space-y-6">
+          <ProjectMembersCard projectId={project.id} />
           {apps.length > 0 && (
             <Card className="border-destructive/50">
               <CardHeader>
@@ -386,11 +388,14 @@ export default function ProjectDetail() {
                   {imported && !superAdmin && (
                     <p className="mt-1 text-xs text-muted-foreground">{t("Only a superadmin can remove things from the server.")}</p>
                   )}
+                  {!imported && !project.canManage && (
+                    <p className="mt-1 text-xs text-muted-foreground">{t("Only the creator of the project and the admins of its organization can delete it.")}</p>
+                  )}
                 </div>
                 <Button
                   variant="outline"
                   className="text-destructive hover:text-destructive"
-                  disabled={imported && !superAdmin}
+                  disabled={imported ? !superAdmin : !project.canManage}
                   onClick={() => {
                     setTyped("");
                     setConfirmDelete(true);

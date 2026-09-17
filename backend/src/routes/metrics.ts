@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
-import { orgScope } from '../lib/scope';
+import { appScope } from '../lib/scope';
 
 const router: Router = Router();
 
@@ -61,7 +61,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 

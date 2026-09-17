@@ -30,6 +30,9 @@ model User {
   memberships Membership[]
   invitesSent Invite[]     @relation("InvitedBy")
   databaseImports DatabaseImport[]
+  sourcesCreated  Source[]        @relation("SourceCreator")
+  projectMembers  ProjectMember[]
+  databasesCreated Database[]     @relation("DatabaseCreator")
 
   @@map("users")
 }
@@ -509,6 +512,11 @@ model Source {
   /// What is live: the release `current` points at, or the R2 folder a static site serves
   activeReleaseId String?
   activeRelease   Release?    @relation("SourceActiveRelease", fields: [activeReleaseId], references: [id], onDelete: SetNull)
+  /// Who made it. With `members`, who besides the org's owners/admins sees it.
+  /// null for imported sources — admins only until someone is added.
+  createdById     String?
+  createdBy       User?       @relation("SourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members         ProjectMember[]
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -520,6 +528,20 @@ model Source {
   @@index([gitAccountId])
   @@index([organizationId])
   @@map("sources")
+}
+
+/// An org MEMBER given a project. Org owners/admins see every project of their
+/// org without a row here — they can't be removed from one.
+model ProjectMember {
+  sourceId  String
+  source    Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([sourceId, userId])
+  @@index([userId])
+  @@map("project_members")
 }
 
 model Deployment {
@@ -631,6 +653,9 @@ model Database {
   /// access is a member and acts as it inside this database, so whatever one
   /// login creates the others can use. Null: owned by the org login (older rows).
   ownerRole        String?
+  /// Who made it — an org member sees the databases they made, besides their projects'
+  createdById      String?
+  createdBy        User?           @relation("DatabaseCreator", fields: [createdById], references: [id], onDelete: SetNull)
   /// The logins that may reach this database
   grants           DatabaseGrant[]
   imports          DatabaseImport[]

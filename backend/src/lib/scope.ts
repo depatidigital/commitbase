@@ -1,4 +1,4 @@
-import { OrgRole } from '@prisma/client';
+import { OrgRole, Prisma } from '@prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from './prisma';
 
@@ -53,6 +53,45 @@ export async function orgScopeVia(
   return { [relation]: { organizationId: { in: await getOrgIds(req) } } };
 }
 
+/**
+ * Projects (Source) the caller sees: every project of the orgs they own/admin,
+ * and in the rest the ones they made or were added to. Wrapped in AND so a
+ * route's own `organizationId`/`OR` keys narrow it instead of replacing it.
+ */
+export async function projectScope(req: AuthenticatedRequest): Promise<Prisma.SourceWhereInput> {
+  if (isPlatformAdmin(req)) return {};
+  const memberships = await getMemberships(req);
+  const userId = req.user!.userId;
+  return {
+    AND: [
+      { organizationId: { in: memberships.map((m) => m.organizationId) } },
+      {
+        OR: [
+          { organizationId: { in: memberships.filter((m) => m.role !== 'MEMBER').map((m) => m.organizationId) } },
+          { createdById: userId },
+          { members: { some: { userId } } },
+        ],
+      },
+    ],
+  };
+}
+
+/** projectScope for Application: an app is visible when its project is. */
+export async function appScope(req: AuthenticatedRequest): Promise<Prisma.ApplicationWhereInput> {
+  if (isPlatformAdmin(req)) return {};
+  return { AND: [{ source: await projectScope(req) }] };
+}
+
+/** Delete a project, manage its members: its creator, its org's owners/admins, platform admins. */
+export async function canManageProject(
+  req: AuthenticatedRequest,
+  source: { organizationId: string | null; createdById: string | null }
+): Promise<boolean> {
+  if (isPlatformAdmin(req)) return true;
+  if (!source.organizationId || !(await getOrgRole(req, source.organizationId))) return false;
+  return source.createdById === req.user!.userId || (await canManageOrg(req, source.organizationId));
+}
+
 /** Role of the caller inside one org, or null when not a member. */
 export async function getOrgRole(
   req: AuthenticatedRequest,
@@ -74,15 +113,14 @@ export async function canManageOrg(
 
 /**
  * Logs are written per-user and only sometimes carry an application.
- * A member sees their own log lines plus everything logged against their orgs' apps.
+ * A member sees their own log lines plus everything logged against the apps of projects they see.
  */
 export async function logScope(req: AuthenticatedRequest): Promise<Record<string, unknown>> {
   if (isPlatformAdmin(req)) return {};
-  const orgIds = await getOrgIds(req);
   return {
     OR: [
       { userId: req.user!.userId },
-      { application: { organizationId: { in: orgIds } } },
+      { application: await appScope(req) },
     ],
   };
 }

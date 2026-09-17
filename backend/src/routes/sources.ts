@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
-import { canManageOrg, orgScope, isPlatformAdmin } from '../lib/scope';
+import { canManageOrg, canManageProject, isPlatformAdmin, projectScope } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
@@ -82,7 +82,7 @@ const maySwitchBranch = async (req: AuthenticatedRequest, source: { organization
 
 async function findSource(req: AuthenticatedRequest, res: Response) {
   const source = await prisma.source.findFirst({
-    where: { id: req.params.id as string, ...(await orgScope(req)) },
+    where: { id: req.params.id as string, ...(await projectScope(req)) },
     include: {
       organization: { select: { id: true, name: true, slug: true } },
       server: { select: { id: true, name: true, hostname: true, publicIp: true } },
@@ -124,7 +124,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const { page, limit, skip, search, organizationId } = paging(req);
     const serverId = String(req.query.serverId ?? '').trim();
     const where: Prisma.SourceWhereInput = {
-      ...(await orgScope(req)),
+      ...(await projectScope(req)),
       // ?organizationId=unassigned: what the sync found that nobody has claimed yet
       ...(organizationId && { organizationId: organizationId === 'unassigned' ? null : organizationId }),
       ...(serverId && { serverId }),
@@ -197,9 +197,95 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
   try {
     const source = await findSource(req, res);
     if (!source) return;
-    return res.json({ success: true, data: { ...present(source), canSwitchBranch: await maySwitchBranch(req, source) } } as ApiResponse);
+    return res.json({
+      success: true,
+      data: { ...present(source), canSwitchBranch: await maySwitchBranch(req, source), canManage: await canManageProject(req, source) },
+    } as ApiResponse);
   } catch (error) {
     console.error('Error fetching project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+const userSelect = { id: true, name: true, email: true } as const;
+
+/**
+ * Who sees the project: the org's owners/admins (always, not removable), its
+ * creator, the members added. `candidates`: org members who could be added.
+ */
+router.get('/:id/members', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    const canManage = await canManageProject(req, source);
+    if (!source.organizationId) {
+      return res.json({ success: true, data: { admins: [], creator: null, members: [], candidates: [], canManage } } as ApiResponse);
+    }
+    const [orgMembers, members] = await Promise.all([
+      prisma.membership.findMany({ where: { organizationId: source.organizationId }, select: { role: true, user: { select: userSelect } } }),
+      prisma.projectMember.findMany({ where: { sourceId: source.id }, select: { createdAt: true, user: { select: userSelect } }, orderBy: { createdAt: 'asc' } }),
+    ]);
+    const taken = new Set([source.createdById, ...members.map((m) => m.user.id)]);
+    return res.json({
+      success: true,
+      data: {
+        admins: orgMembers.filter((m) => m.role !== 'MEMBER').map((m) => ({ ...m.user, role: m.role })),
+        creator: orgMembers.find((m) => m.user.id === source.createdById)?.user ?? null,
+        members: members.map((m) => ({ ...m.user, addedAt: m.createdAt })),
+        candidates: canManage ? orgMembers.filter((m) => m.role === 'MEMBER' && !taken.has(m.user.id)).map((m) => m.user) : [],
+        canManage,
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error listing project members:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** Add an org MEMBER to the project. Owners/admins already see it. */
+router.post('/:id/members', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!(await canManageProject(req, source))) {
+      return res.status(403).json({ success: false, error: 'Only the creator of the project and the admins of its organization can add members' } as ApiResponse);
+    }
+    const userId = String(req.body?.userId ?? '');
+    const membership = source.organizationId
+      ? await prisma.membership.findUnique({ where: { userId_organizationId: { userId, organizationId: source.organizationId } } })
+      : null;
+    if (!membership) {
+      return res.status(400).json({ success: false, error: 'That user is not a member of the organization of this project' } as ApiResponse);
+    }
+    if (membership.role !== 'MEMBER') {
+      return res.status(400).json({ success: false, error: 'Owners and admins of the organization already see every project' } as ApiResponse);
+    }
+    if (userId === source.createdById) {
+      return res.status(400).json({ success: false, error: 'The creator already sees the project' } as ApiResponse);
+    }
+    await prisma.projectMember.upsert({
+      where: { sourceId_userId: { sourceId: source.id, userId } },
+      create: { sourceId: source.id, userId },
+      update: {},
+    });
+    return res.status(201).json({ success: true, message: 'Member added' } as ApiResponse);
+  } catch (error) {
+    console.error('Error adding project member:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+router.delete('/:id/members/:userId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!(await canManageProject(req, source))) {
+      return res.status(403).json({ success: false, error: 'Only the creator of the project and the admins of its organization can remove members' } as ApiResponse);
+    }
+    await prisma.projectMember.deleteMany({ where: { sourceId: source.id, userId: req.params.userId as string } });
+    return res.json({ success: true, message: 'Member removed' } as ApiResponse);
+  } catch (error) {
+    console.error('Error removing project member:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

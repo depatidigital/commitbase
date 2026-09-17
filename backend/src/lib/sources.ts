@@ -38,6 +38,12 @@ export async function backfillSources(): Promise<number> {
     prisma.$executeRaw`
       UPDATE "sources" s SET "serverId" = a."serverId"
       FROM "applications" a WHERE a."sourceId" = s."id" AND s."serverId" IS NULL AND a."serverId" IS NOT NULL`,
+    // creator: whoever made its first app (imported sources have none — admins only)
+    prisma.$executeRaw`
+      UPDATE "sources" s SET "createdById" = (
+        SELECT a."userId" FROM "applications" a
+        WHERE a."sourceId" = s."id" AND a."userId" IS NOT NULL ORDER BY a."createdAt" ASC LIMIT 1)
+      WHERE s."createdById" IS NULL AND s."path" IS NULL`,
   ]);
   return created;
 }
@@ -67,7 +73,7 @@ export function createApplicationWithSource(
 ) {
   return prisma.$transaction(async (tx) => {
     const { id } = await tx.source.create({
-      data: { ...source, organizationId: data.organizationId ?? null, serverId: data.serverId ?? null },
+      data: { ...source, organizationId: data.organizationId ?? null, serverId: data.serverId ?? null, createdById: data.userId ?? null },
     });
     return tx.application.create({ data: { ...data, id, sourceId: id }, include: { source: true } });
   });
@@ -82,6 +88,13 @@ export async function setSourceOrganization(sourceIds: string[], organizationId:
   const [, apps] = await prisma.$transaction([
     prisma.source.updateMany({ where: { id: { in: sourceIds } }, data: { organizationId } }),
     prisma.application.updateMany({ where: { sourceId: { in: sourceIds } }, data: { organizationId } }),
+    // members who are not in the new org lose the project
+    prisma.projectMember.deleteMany({
+      where: {
+        sourceId: { in: sourceIds },
+        ...(organizationId && { user: { memberships: { none: { organizationId } } } }),
+      },
+    }),
   ]);
   return apps.count;
 }

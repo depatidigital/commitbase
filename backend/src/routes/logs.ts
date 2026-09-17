@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { orgScope, logScope } from '../lib/scope';
+import { appScope, logScope } from '../lib/scope';
 import { DeploymentService } from '../services/deployment';
 import * as path from 'path';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
@@ -33,7 +33,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -97,7 +97,7 @@ router.get('/application/:appId', authenticateToken, async (req: AuthenticatedRe
 router.get('/application/:appId/build-live', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({
-      where: { id: req.params.appId as string, ...(await orgScope(req)) },
+      where: { id: req.params.appId as string, ...(await appScope(req)) },
       include: { organization: { select: { slug: true } } },
     });
     if (!application) {
@@ -162,7 +162,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
     const lines = Math.min(Math.max(parseInt(req.query.lines as string) || 100, 1), 2000);
 
     const application = await prisma.application.findFirst({
-      where: { id: req.params.appId as string, ...(await orgScope(req)) },
+      where: { id: req.params.appId as string, ...(await appScope(req)) },
     });
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
@@ -273,7 +273,7 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
     const type = (['combined', 'out', 'error'] as const).find((t) => t === req.query.type) ?? 'combined';
     const lines = Math.min(Math.max(parseInt(req.query.lines as string) || 100, 1), 2000);
     const apps = await prisma.application.findMany({
-      where: { sourceId: req.params.sourceId as string, ...(await orgScope(req)) },
+      where: { sourceId: req.params.sourceId as string, ...(await appScope(req)) },
       select: { id: true, name: true, type: true, runtime: true, processName: true, serverId: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -332,7 +332,7 @@ router.post('/test-build-log/:appId', authenticateToken, async (req: Authenticat
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
@@ -390,7 +390,7 @@ router.get('/build-log-status/:appId', authenticateToken, async (req: Authentica
     const application = await prisma.application.findFirst({
       where: {
         id: appId,
-        ...(await orgScope(req)),
+        ...(await appScope(req)),
       },
     });
 
