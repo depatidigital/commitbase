@@ -663,6 +663,14 @@ export default {
   "Clear it and deploy again": "Hapus catatannya dan deploy lagi",
   "Reset the database and deploy": "Reset database lalu deploy",
   "Deploy without the migrations": "Deploy tanpa migrasi",
+  "prisma db push stopped: the schema change would delete data.": "prisma db push berhenti: perubahan skema akan menghapus data.",
+  "Accept the data loss and deploy": "Terima kehilangan data lalu deploy",
+  "Pushed with --accept-data-loss this once, after a snapshot. When the dropped columns or rows are not needed.":
+    "Di-push dengan --accept-data-loss sekali ini, setelah snapshot. Kalau kolom atau baris yang terhapus tidak dibutuhkan.",
+  "Push the schema and lose data?": "Push skema dan kehilangan data?",
+  "prisma db push runs with --accept-data-loss: whatever the warnings in the log name — columns, tables, duplicate rows under a new unique — is deleted. A snapshot is taken first and can be restored from the deployment history.":
+    "prisma db push dijalankan dengan --accept-data-loss: apa pun yang disebut peringatan di log — kolom, tabel, baris duplikat di unique baru — dihapus. Snapshot diambil dulu dan bisa dipulihkan dari riwayat deployment.",
+  "Accept and deploy": "Terima dan deploy",
   "Deploy {name}?": "Deploy {name}?",
   "The new release builds beside the running one and takes over once it answers.": "Rilis baru dibangun di samping yang berjalan dan mengambil alih begitu merespons.",
   "Migrate the database": "Migrasi database",
