@@ -27,7 +27,39 @@ export class ProvisionError extends Error {}
 
 type Engine = 'POSTGRESQL' | 'MYSQL';
 
-const CONNECTION_LIMIT = Math.max(1, Number(process.env.DB_ORG_CONNECTION_LIMIT) || 20);
+// per login: an app's pool (Prisma's pg adapter: 10), and the old release beside
+// the new one during a deploy, and the migrations — 20 was full on one app
+const CONNECTION_LIMIT = Math.max(1, Number(process.env.DB_ORG_CONNECTION_LIMIT) || 100);
+
+/**
+ * Every login the panel made, set to CONNECTION_LIMIT — at startup, so a
+ * changed limit reaches the logins made before it. A server that cannot be
+ * reached, or a login gone from it, is skipped and logged. Returns how many were set.
+ */
+export async function applyConnectionLimits(): Promise<number> {
+  const accounts = await prisma.orgDatabaseAccount.findMany({
+    include: { databaseServer: { include: { server: true } } },
+  });
+  const byServer = new Map<string, typeof accounts>();
+  for (const account of accounts) byServer.set(account.databaseServerId, [...(byServer.get(account.databaseServerId) ?? []), account]);
+
+  let applied = 0;
+  for (const logins of byServer.values()) {
+    const dbs = logins[0]!.databaseServer;
+    await withAdmin(dbs, async (session) => {
+      for (const { username } of logins) {
+        try {
+          if (dbs.engine === 'POSTGRESQL') await session.query(`ALTER ROLE ${pgIdent(username)} CONNECTION LIMIT ${CONNECTION_LIMIT}`);
+          else await session.query(`ALTER USER ?@'%' WITH MAX_USER_CONNECTIONS ${CONNECTION_LIMIT}`, [username]);
+          applied += 1;
+        } catch (error: any) {
+          console.error(`Connection limit not set for ${username} on ${dbs.name}:`, error?.message ?? error);
+        }
+      }
+    }).catch((error: any) => console.error(`Connection limits not set on ${dbs.name}:`, error?.message ?? error));
+  }
+  return applied;
+}
 
 /** What a tenant may call a database: the part after the org prefix. */
 export const DB_NAME_RE = /^[a-z][a-z0-9_]{0,40}$/;

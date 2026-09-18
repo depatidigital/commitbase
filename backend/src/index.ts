@@ -12,6 +12,7 @@ import { config } from 'dotenv';
 };
 import * as appStatusWatcher from './services/appStatusWatcher';
 import { startCronJobs } from './services/cron';
+import { applyConnectionLimits } from './services/databaseProvisionService';
 import { snapshotCaddyConfig } from './services/caddySnapshotService';
 import { DeploymentService } from './services/deployment';
 import { allServers } from './lib/servers';
@@ -207,6 +208,11 @@ async function onListening() {
   console.log('🔍 Application status watcher started');
 
   startCronJobs();
+
+  // a raised DB_ORG_CONNECTION_LIMIT reaches the logins made before it
+  applyConnectionLimits()
+    .then((count) => count && console.log(`🔌 Connection limit set on ${count} database login(s)`))
+    .catch((err) => console.error('Could not apply database connection limits:', err));
 }
 
 // before the first request: every app reads its repository from its source
