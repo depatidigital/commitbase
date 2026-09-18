@@ -364,8 +364,8 @@ export class DeploymentService {
   /**
    * build.sh blocks for a reused tree: only the pre-deploy step (and a migration
    * to resolve), in the same env and Node the build had. Empty when there is
-   * nothing to run; null when an app that has to run one was pruned of its
-   * devDependencies — the migration tool may be gone, so rebuild instead.
+   * nothing to run. A pruned tree lost its devDependencies (the prisma CLI):
+   * they are installed back for the step and pruned again after it.
    */
   private async preDeployPlan(
     afs: AppFs,
@@ -374,24 +374,40 @@ export class DeploymentService {
     envs: Map<string, Record<string, string>>,
     resolveMigration?: string,
     resolveAs: 'rolled-back' | 'applied' = 'rolled-back',
-  ): Promise<string[][] | null> {
+  ): Promise<string[][]> {
     const blocks: string[][] = [];
     for (const app of group) {
       if (!app.preDeployCommand && !resolveMigration) continue;
       const workDir = inRootDirectory(releaseDir, app.rootDirectory);
       const detected = await detectProject(workDir, afs.readText, undefined, releaseDir, app.packageManager);
-      if (pruneOf(app, detected)) return null;
+      const prune = pruneOf(app, detected);
+      const installCommand = app.installCommand || detected.installCommand;
+      // same shapes as runBuild's install: npm installs take turns on one machine
+      const install = !prune
+        ? []
+        : detected.packageManager === 'npm'
+          ? [`( umask 000; : >> ${NPM_LOCK} ) 2>/dev/null || true; flock -w 1800 ${NPM_LOCK} sh -c ${q(installCommand)}`]
+          : [installCommand];
       const steps = [
         ...(resolveMigration ? [`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`] : []),
         ...(app.preDeployCommand ? [app.preDeployCommand] : []),
+        ...(prune ? [prune] : []),
       ];
       blocks.push(
         buildBlock({
           heading: group.length > 1 ? `${app.name}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}` : null,
           nodeVersion: detected.nodeVersion,
-          env: { ...envs.get(app.id), PORT: String(app.port || ''), CI: '1' },
-          installDir: workDir,
-          installs: [],
+          env: {
+            ...envs.get(app.id),
+            PORT: String(app.port || ''),
+            CI: '1',
+            ...(detected.packageManager === 'pnpm' && {
+              pnpm_config_dangerously_allow_all_builds: 'true',
+              pnpm_config_package_manager_strict: 'false',
+            }),
+          },
+          installDir: detected.installAtRoot ? releaseDir : workDir,
+          installs: install,
           workDir,
           steps,
         }),
@@ -1366,17 +1382,13 @@ export class DeploymentService {
       // monorepo, the same for every one of its apps.
       const envs = new Map(group.map((app) => [app.id, app.id === application.id ? envVars : readEnv(app.envVars)]));
       const buildKey = commitSha ? groupBuildKey(group.map((app) => buildKeyOf(app, commitSha!, envs.get(app.id)!))) : null;
-      let reused =
+      const reused =
         buildKey && !group.some((app) => app.type === 'PHP') ? await this.reusableRelease(afs, application.id, buildKey) : null;
       // the build is skipped, the migrations are not: the pre-deploy step runs in the reused tree
       const preDeploy = reused && !config.skipPreDeploy
         ? await this.preDeployPlan(afs, group, reused.path!, envs, config.resolveMigration, config.resolveAs)
         : [];
-      if (preDeploy === null) {
-        // pruned: the tree has no devDependencies (prisma CLI) to migrate with
-        await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] Same commit, but its build was pruned of devDependencies — rebuilding to run the pre-deploy step.` + NL);
-        reused = null;
-      } else if (reused) {
+      if (reused) {
         await afs.appendFile(
           buildLogPath,
           `[${new Date().toISOString()}] Nothing changed since the build of ${commitSha!.slice(0, 7)} ` +
@@ -1385,7 +1397,7 @@ export class DeploymentService {
         );
       }
       const buildResult: BuildResult = reused
-        ? await this.runPreDeploy(afs, group, buildLogPath, reused.path!, preDeploy ?? [])
+        ? await this.runPreDeploy(afs, group, buildLogPath, reused.path!, preDeploy)
         : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs, config.skipPreDeploy);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
