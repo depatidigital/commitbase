@@ -138,7 +138,7 @@ assert.strictEqual(preDeployOf(prismaPkg, 'pnpm'), 'pnpm prisma migrate deploy')
 assert.strictEqual(preDeployOf(prismaPkg, 'npm'), 'npx prisma migrate deploy');
 assert.strictEqual(preDeployOf(prismaPkg, 'bun', true), 'bunx prisma migrate deploy');
 // no prisma/migrations in the repo: the schema is pushed instead
-assert.strictEqual(preDeployOf(prismaPkg, 'yarn', false), 'yarn prisma db push --skip-generate');
+assert.strictEqual(preDeployOf(prismaPkg, 'yarn', false), 'yarn prisma db push');
 assert.strictEqual(preDeployOf({ 'package.json': JSON.stringify({ dependencies: { next: '15' } }) }, 'pnpm'), null);
 assert.strictEqual(detectFromFiles({ ...prismaPkg, 'pnpm-lock.yaml': '' }).preDeployCommand, 'pnpm prisma migrate deploy');
 assert.strictEqual(next.preDeployCommand, null);

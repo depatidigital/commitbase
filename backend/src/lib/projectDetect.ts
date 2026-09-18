@@ -279,7 +279,8 @@ export const EXEC: Record<PackageManager, string> = { npm: 'npx', pnpm: 'pnpm', 
  */
 export function preDeployOf(files: DetectInput, pm: PackageManager, migrations?: boolean): string | null {
   if (!usesPrisma(files)) return null;
-  return migrations === false ? `${EXEC[pm]} prisma db push --skip-generate` : `${EXEC[pm]} prisma migrate deploy`;
+  // no --skip-generate: Prisma 7 rejects it (its db push never generates)
+  return migrations === false ? `${EXEC[pm]} prisma db push` : `${EXEC[pm]} prisma migrate deploy`;
 }
 
 /**
