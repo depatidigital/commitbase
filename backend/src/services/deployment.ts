@@ -361,6 +361,72 @@ export class DeploymentService {
     }
   }
 
+  /**
+   * build.sh blocks for a reused tree: only the pre-deploy step (and a migration
+   * to resolve), in the same env and Node the build had. Empty when there is
+   * nothing to run; null when an app that has to run one was pruned of its
+   * devDependencies — the migration tool may be gone, so rebuild instead.
+   */
+  private async preDeployPlan(
+    afs: AppFs,
+    group: AppWithOrg[],
+    releaseDir: string,
+    envs: Map<string, Record<string, string>>,
+    resolveMigration?: string,
+    resolveAs: 'rolled-back' | 'applied' = 'rolled-back',
+  ): Promise<string[][] | null> {
+    const blocks: string[][] = [];
+    for (const app of group) {
+      if (!app.preDeployCommand && !resolveMigration) continue;
+      const workDir = inRootDirectory(releaseDir, app.rootDirectory);
+      const detected = await detectProject(workDir, afs.readText, undefined, releaseDir, app.packageManager);
+      if (pruneOf(app, detected)) return null;
+      const steps = [
+        ...(resolveMigration ? [`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`] : []),
+        ...(app.preDeployCommand ? [app.preDeployCommand] : []),
+      ];
+      blocks.push(
+        buildBlock({
+          heading: group.length > 1 ? `${app.name}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}` : null,
+          nodeVersion: detected.nodeVersion,
+          env: { ...envs.get(app.id), PORT: String(app.port || ''), CI: '1' },
+          installDir: workDir,
+          installs: [],
+          workDir,
+          steps,
+        }),
+      );
+    }
+    return blocks;
+  }
+
+  /** Runs preDeployPlan's blocks on the node, as a build would. The reused tree is the release. */
+  private async runPreDeploy(afs: AppFs, group: AppWithOrg[], buildLogPath: string, releaseDir: string, blocks: string[][]): Promise<BuildResult> {
+    if (blocks.length === 0) return { success: true, releaseDir };
+    const first = group[0]!;
+    try {
+      const slug = first.organization?.slug;
+      if (!afs.node || !slug) throw new Error('This app has no organization node to run on');
+      const scriptPath = join(afs.appDir, 'build.sh');
+      await afs.rm(scriptPath, { force: true }); // may be owned by the tenant after chown
+      await afs.writeFile(scriptPath, buildScript(blocks), { mode: 0o660 });
+      let appending: Promise<unknown> = Promise.resolve();
+      try {
+        await appBuild(slug, first.id, (text) => {
+          appending = appending.then(() => afs.appendFile(buildLogPath, text)).catch(() => {});
+        }, blocks.length);
+      } finally {
+        await appending;
+      }
+      await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] PRE-DEPLOY COMPLETED` + NL);
+      return { success: true, releaseDir };
+    } catch (error: any) {
+      const message = error.stderr || error.message || String(error);
+      await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] PRE-DEPLOY FAILED:` + NL + message + NL).catch(() => {});
+      return { success: false, error: message };
+    }
+  }
+
   /** Point `current` at a release. Symlink + rename, so the switch is atomic. */
   private async activateRelease(afs: AppFs, releaseDir: string): Promise<string | null> {
     const current = currentDirFor(afs.appDir);
@@ -1300,24 +1366,26 @@ export class DeploymentService {
       // monorepo, the same for every one of its apps.
       const envs = new Map(group.map((app) => [app.id, app.id === application.id ? envVars : readEnv(app.envVars)]));
       const buildKey = commitSha ? groupBuildKey(group.map((app) => buildKeyOf(app, commitSha!, envs.get(app.id)!))) : null;
-      // the pre-deploy step (migrations) runs inside the build — a reused tree
-      // would skip it, and a reset database would stay empty.
-      // ponytail: rebuilds for it; run just the pre-deploy step in the reused tree if rebuild time hurts (mind pruned devDeps)
-      const runsPreDeploy =
-        config.resetDatabase || (!config.skipPreDeploy && (!!config.resolveMigration || group.some((app) => app.preDeployCommand)));
-      const reused =
-        buildKey && !runsPreDeploy && !group.some((app) => app.type === 'PHP')
-          ? await this.reusableRelease(afs, application.id, buildKey)
-          : null;
-      if (reused) {
+      let reused =
+        buildKey && !group.some((app) => app.type === 'PHP') ? await this.reusableRelease(afs, application.id, buildKey) : null;
+      // the build is skipped, the migrations are not: the pre-deploy step runs in the reused tree
+      const preDeploy = reused && !config.skipPreDeploy
+        ? await this.preDeployPlan(afs, group, reused.path!, envs, config.resolveMigration, config.resolveAs)
+        : [];
+      if (preDeploy === null) {
+        // pruned: the tree has no devDependencies (prisma CLI) to migrate with
+        await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] Same commit, but its build was pruned of devDependencies — rebuilding to run the pre-deploy step.` + NL);
+        reused = null;
+      } else if (reused) {
         await afs.appendFile(
           buildLogPath,
           `[${new Date().toISOString()}] Nothing changed since the build of ${commitSha!.slice(0, 7)} ` +
-            `(same commit, build settings and environment) — reusing it, no rebuild.` + NL,
+            `(same commit, build settings and environment) — reusing it, no rebuild` +
+            (preDeploy.length ? ', running the pre-deploy step only.' : '.') + NL,
         );
       }
       const buildResult: BuildResult = reused
-        ? { success: true, releaseDir: reused.path! }
+        ? await this.runPreDeploy(afs, group, buildLogPath, reused.path!, preDeploy ?? [])
         : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs, config.skipPreDeploy);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
