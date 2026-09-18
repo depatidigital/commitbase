@@ -1089,7 +1089,13 @@ export async function controlPm2Process(
  * `pm2 resurrect` brings it back on the next reboot. Throws with pm2's words.
  */
 export async function deletePm2Process(node: SshTarget, processName: string): Promise<void> {
-  await exec(node, pm2(['delete', processName]), { maxBuffer: 5 * 1024 * 1024 });
+  try {
+    await exec(node, pm2(['delete', processName]), { maxBuffer: 5 * 1024 * 1024 });
+  } catch (error: any) {
+    // already gone (deleted by hand, or a stale row): what delete wanted is true
+    const output = `${error?.stderr ?? ''}${error?.stdout ?? ''}${error?.message ?? ''}`;
+    if (!/Process or Namespace .* not found/i.test(output)) throw error;
+  }
   await exec(node, pm2(['save']), { maxBuffer: 5 * 1024 * 1024 });
 }
 
