@@ -1300,8 +1300,15 @@ export class DeploymentService {
       // monorepo, the same for every one of its apps.
       const envs = new Map(group.map((app) => [app.id, app.id === application.id ? envVars : readEnv(app.envVars)]));
       const buildKey = commitSha ? groupBuildKey(group.map((app) => buildKeyOf(app, commitSha!, envs.get(app.id)!))) : null;
+      // the pre-deploy step (migrations) runs inside the build — a reused tree
+      // would skip it, and a reset database would stay empty.
+      // ponytail: rebuilds for it; run just the pre-deploy step in the reused tree if rebuild time hurts (mind pruned devDeps)
+      const runsPreDeploy =
+        config.resetDatabase || (!config.skipPreDeploy && (!!config.resolveMigration || group.some((app) => app.preDeployCommand)));
       const reused =
-        buildKey && !group.some((app) => app.type === 'PHP') ? await this.reusableRelease(afs, application.id, buildKey) : null;
+        buildKey && !runsPreDeploy && !group.some((app) => app.type === 'PHP')
+          ? await this.reusableRelease(afs, application.id, buildKey)
+          : null;
       if (reused) {
         await afs.appendFile(
           buildLogPath,
