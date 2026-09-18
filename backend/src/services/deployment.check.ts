@@ -70,11 +70,10 @@ assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'npm', star
 assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'bun', startCommand: 'bun dist/index.js' }), null);
 console.log('deployment: pruneOf OK');
 
-// a pruned devDependency that .next/node_modules links to is reinstalled
-{
-  const { execFileSync } = require('child_process');
+// a pruned devDependency that .next/node_modules links to is reinstalled (needs real symlinks: not on Windows)
+if (process.platform !== 'win32') {
   const { mkdtempSync, mkdirSync, symlinkSync, existsSync } = require('fs');
-  const dir = mkdtempSync(require('path').join(require('os').tmpdir(), 'prune-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'prune-'));
   mkdirSync(`${dir}/node_modules/pg`, { recursive: true });
   mkdirSync(`${dir}/.next/node_modules`, { recursive: true });
   symlinkSync('../../node_modules/pg', `${dir}/.next/node_modules/pg-abc123`);
