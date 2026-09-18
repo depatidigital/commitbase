@@ -365,7 +365,7 @@ export class DeploymentService {
    * build.sh blocks for a reused tree: only the pre-deploy step (and a migration
    * to resolve), in the same env and Node the build had. Empty when there is
    * nothing to run. A pruned tree lost its devDependencies (the prisma CLI):
-   * they are installed back for the step and pruned again after it.
+   * they are installed back for the step and pruned again after it, pass or fail.
    */
   private async preDeployPlan(
     afs: AppFs,
@@ -383,15 +383,17 @@ export class DeploymentService {
       const prune = pruneOf(app, detected);
       const installCommand = app.installCommand || detected.installCommand;
       // same shapes as runBuild's install: npm installs take turns on one machine
-      const install = !prune
-        ? []
-        : detected.packageManager === 'npm'
-          ? [`( umask 000; : >> ${NPM_LOCK} ) 2>/dev/null || true; flock -w 1800 ${NPM_LOCK} sh -c ${q(installCommand)}`]
-          : [installCommand];
+      const install =
+        detected.packageManager === 'npm'
+          ? `( umask 000; : >> ${NPM_LOCK} ) 2>/dev/null || true; flock -w 1800 ${NPM_LOCK} sh -c ${q(installCommand)}`
+          : installCommand;
+      const installDir = detected.installAtRoot ? releaseDir : workDir;
       const steps = [
+        // pruned again however the block ends — a failed install or migration too.
+        // The block is a subshell: its EXIT trap fires there, and keeps the exit status.
+        ...(prune ? [`trap ${q(`echo; echo ${q('$ ' + prune)}; cd ${q(workDir)} && ${prune}`)} EXIT`, `(cd ${q(installDir)} && ${install})`] : []),
         ...(resolveMigration ? [`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`] : []),
         ...(app.preDeployCommand ? [app.preDeployCommand] : []),
-        ...(prune ? [prune] : []),
       ];
       blocks.push(
         buildBlock({
@@ -406,8 +408,8 @@ export class DeploymentService {
               pnpm_config_package_manager_strict: 'false',
             }),
           },
-          installDir: detected.installAtRoot ? releaseDir : workDir,
-          installs: install,
+          installDir,
+          installs: [],
           workDir,
           steps,
         }),
