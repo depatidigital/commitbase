@@ -1702,6 +1702,8 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
       ...(req.body?.resetDatabase === true && { resetDatabase: true }),
       // skipPreDeploy: the code alone, the migrations left for a later deploy
       ...(req.body?.skipPreDeploy === true && { skipPreDeploy: true }),
+      // acceptDataLoss: `prisma db push` goes ahead where it would drop data — the UI confirms it
+      ...(req.body?.acceptDataLoss === true && { acceptDataLoss: true }),
     });
     if (!launched) {
       return res.status(409).json({

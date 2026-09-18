@@ -53,8 +53,11 @@ interface AppSetupCardProps {
 export function DeployFailureFixes({ application, failure, failedMigration, starting, onDeploy }: Pick<AppSetupCardProps, "application" | "failure" | "failedMigration" | "starting" | "onDeploy">) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmApplied, setConfirmApplied] = useState(false);
+  const [confirmDataLoss, setConfirmDataLoss] = useState(false);
   const [typed, setTyped] = useState("");
-  const aboutMigrations = !!failure && (!!failedMigration || /migrat|relation .* does not exist/i.test(failure));
+  // prisma db push stopped short of a change that drops data (a column, a table, a unique on duplicates)
+  const dataLoss = !!failure && /--accept-data-loss/.test(failure);
+  const aboutMigrations = !!failure && (!!failedMigration || dataLoss || /migrat|relation .* does not exist/i.test(failure));
   if (!aboutMigrations) return null;
 
   // one row an option: what is done on the left, why one would on the right
@@ -74,7 +77,11 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
   return (
     <div className="space-y-2 text-xs">
       <p className="font-medium">
-        {failedMigration ? t("Migration {name} is recorded as failed and blocks the rest.", { name: failedMigration }) : t("The migrations failed.")}{" "}
+        {failedMigration
+          ? t("Migration {name} is recorded as failed and blocks the rest.", { name: failedMigration })
+          : dataLoss
+            ? t("prisma db push stopped: the schema change would delete data.")
+            : t("The migrations failed.")}{" "}
         <span className="font-normal text-muted-foreground">{t("Ways out:")}</span>
       </p>
       <ol className="space-y-1.5">
@@ -87,6 +94,11 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
           option(
             button(t("Mark it as applied and deploy"), <CheckCircle className="mr-1.5 h-3 w-3" />, () => setConfirmApplied(true)),
             t("Not run, recorded as done. When its tables are already there — a squashed history."),
+          )}
+        {dataLoss &&
+          option(
+            button(t("Accept the data loss and deploy"), <AlertTriangle className="mr-1.5 h-3 w-3" />, () => setConfirmDataLoss(true), true),
+            t("Pushed with --accept-data-loss this once, after a snapshot. When the dropped columns or rows are not needed."),
           )}
         {option(
           button(t("Deploy without the migrations"), <SkipForward className="mr-1.5 h-3 w-3" />, () => onDeploy({ skipPreDeploy: true })),
@@ -115,6 +127,25 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => onDeploy({ resolveMigration: failedMigration!, resolveAs: "applied" })}>{t("Mark as applied and deploy")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDataLoss} onOpenChange={setConfirmDataLoss}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Push the schema and lose data?")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("prisma db push runs with --accept-data-loss: whatever the warnings in the log name — columns, tables, duplicate rows under a new unique — is deleted. A snapshot is taken first and can be restored from the deployment history.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDeploy({ acceptDataLoss: true })}
+            >
+              {t("Accept and deploy")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

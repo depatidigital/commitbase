@@ -106,7 +106,7 @@ export function useDeployConfirm(
     run(skipFor.length > 0 ? { ...pending, skipPreDeploy: true } : pending),
   );
   const deploy = (options: StartOptions = {}) => {
-    if (options.skipPreDeploy || options.resetDatabase || options.resolveMigration) return run(options);
+    if (options.skipPreDeploy || options.resetDatabase || options.resolveMigration || options.acceptDataLoss) return run(options);
     setPending(options);
     confirm.deploy();
   };

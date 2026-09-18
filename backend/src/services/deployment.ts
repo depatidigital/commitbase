@@ -170,7 +170,13 @@ export interface DeploymentConfig {
   resetDatabase?: boolean;
   /** the pre-deploy step (the migrations) left out this once — the code goes live on the schema as it is */
   skipPreDeploy?: boolean;
+  /** `prisma db push` told to go ahead this once where it would drop data — after the snapshot */
+  acceptDataLoss?: boolean;
 }
+
+/** The pre-deploy command, with `prisma db push` told to accept data loss when asked. Pure. */
+export const preDeployCommandOf = (command: string, acceptDataLoss = false): string =>
+  acceptDataLoss && !command.includes('--accept-data-loss') ? command.replace(/\bprisma db push\b/g, '$& --accept-data-loss') : command;
 
 export interface BuildResult {
   success: boolean;
@@ -374,6 +380,7 @@ export class DeploymentService {
     envs: Map<string, Record<string, string>>,
     resolveMigration?: string,
     resolveAs: 'rolled-back' | 'applied' = 'rolled-back',
+    acceptDataLoss = false,
   ): Promise<string[][]> {
     const blocks: string[][] = [];
     for (const app of group) {
@@ -393,7 +400,7 @@ export class DeploymentService {
         // The block is a subshell: its EXIT trap fires there, and keeps the exit status.
         ...(prune ? [`trap ${q(`echo; echo ${q('$ ' + prune)}; cd ${q(workDir)} && ${prune}`)} EXIT`, `(cd ${q(installDir)} && ${install})`] : []),
         ...(resolveMigration ? [`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`] : []),
-        ...(app.preDeployCommand ? [app.preDeployCommand] : []),
+        ...(app.preDeployCommand ? [preDeployCommandOf(app.preDeployCommand, acceptDataLoss)] : []),
       ];
       blocks.push(
         buildBlock({
@@ -482,6 +489,7 @@ export class DeploymentService {
     resolveMigration?: string,
     resolveAs: 'rolled-back' | 'applied' = 'rolled-back',
     skipPreDeploy = false,
+    acceptDataLoss = false,
   ): Promise<BuildResult> {
     const { appDir, sourcesDir } = afs;
     const first = group[0]!;
@@ -631,7 +639,7 @@ export class DeploymentService {
         // a migration Prisma recorded as failed (P3009) blocks every one after it: asked
         // for from the history, its record is cleared right before the migrations run again
         if (resolveMigration && !skipPreDeploy) steps.push(`${EXEC[detected.packageManager]} prisma migrate resolve --${resolveAs} ${resolveMigration}`);
-        if (app.preDeployCommand && !skipPreDeploy) steps.push(app.preDeployCommand);
+        if (app.preDeployCommand && !skipPreDeploy) steps.push(preDeployCommandOf(app.preDeployCommand, acceptDataLoss));
         if (app.preDeployCommand && skipPreDeploy) steps.push(`echo 'pre-deploy step skipped this once: ${app.preDeployCommand.replace(/'/g, "'\\''")}'`);
         const buildCommand = app.buildCommand || detected.buildCommand;
         if (buildCommand) steps.push(buildCommand);
@@ -1388,7 +1396,7 @@ export class DeploymentService {
         buildKey && !group.some((app) => app.type === 'PHP') ? await this.reusableRelease(afs, application.id, buildKey) : null;
       // the build is skipped, the migrations are not: the pre-deploy step runs in the reused tree
       const preDeploy = reused && !config.skipPreDeploy
-        ? await this.preDeployPlan(afs, group, reused.path!, envs, config.resolveMigration, config.resolveAs)
+        ? await this.preDeployPlan(afs, group, reused.path!, envs, config.resolveMigration, config.resolveAs, config.acceptDataLoss)
         : [];
       if (reused) {
         await afs.appendFile(
@@ -1400,7 +1408,7 @@ export class DeploymentService {
       }
       const buildResult: BuildResult = reused
         ? await this.runPreDeploy(afs, group, buildLogPath, reused.path!, preDeploy)
-        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs, config.skipPreDeploy);
+        : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs, config.skipPreDeploy, config.acceptDataLoss);
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(key);
