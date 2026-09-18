@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildScript, dotenvLine, pruneOf } from './deployment';
+import { buildBlock, buildScript, dotenvLine, guardedPrune, pruneOf } from './deployment';
 import { parseEnv } from 'util';
 
 // .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
@@ -69,3 +69,19 @@ assert.strictEqual(pruneOf({ pruneDevDeps: true, startCommand: 'tsx src/index.ts
 assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'npm', startCommand: 'nodemon server.js' }), null);
 assert.strictEqual(pruneOf({ pruneDevDeps: true }, { packageManager: 'bun', startCommand: 'bun dist/index.js' }), null);
 console.log('deployment: pruneOf OK');
+
+// a pruned devDependency that .next/node_modules links to is reinstalled
+{
+  const { execFileSync } = require('child_process');
+  const { mkdtempSync, mkdirSync, symlinkSync, existsSync } = require('fs');
+  const dir = mkdtempSync(require('path').join(require('os').tmpdir(), 'prune-'));
+  mkdirSync(`${dir}/node_modules/pg`, { recursive: true });
+  mkdirSync(`${dir}/.next/node_modules`, { recursive: true });
+  symlinkSync('../../node_modules/pg', `${dir}/.next/node_modules/pg-abc123`);
+  const script = guardedPrune('rm -rf node_modules/pg', dir, 'mkdir -p node_modules/pg');
+  const out = execFileSync('bash', ['-euo', 'pipefail', '-c', script], { cwd: dir, encoding: 'utf8' });
+  assert.ok(existsSync(`${dir}/node_modules/pg`) && out.includes('pg-abc123'), out);
+  // nothing dangling → nothing reinstalled
+  assert.strictEqual(execFileSync('bash', ['-euo', 'pipefail', '-c', guardedPrune('true', dir, 'echo reinstalled')], { cwd: dir, encoding: 'utf8' }), '');
+  console.log('deployment: guardedPrune OK');
+}
