@@ -151,8 +151,31 @@ export async function provisionOrgOnNode(
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown' | 'cancel-build';
 
-const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '2G';
+export const BUILD_MEMORY_MAX = process.env.BUILD_MEMORY_MAX || '3G';
 const BUILD_CPU_WEIGHT = process.env.BUILD_CPU_WEIGHT || '50';
+/**
+ * How long one app's build may run. Fifteen minutes fits an ordinary build,
+ * but a big Next app on a memory-tight node is told to use one page-data
+ * worker instead of one per core, and serial is slow. Raise it there rather
+ * than let a build that is still making progress be cut off as a failure.
+ */
+const BUILD_TIMEOUT_MS = Math.max(60_000, Number(process.env.BUILD_TIMEOUT_MS) || 15 * 60_000);
+
+/**
+ * Heap ceiling to hand the build's Node processes, in MiB: half of the build
+ * cgroup's MemoryMax. V8 sizes its old space from the *host's* RAM and knows
+ * nothing about the cgroup, so on a big box with a small cap it grows straight
+ * through MemoryMax and the kernel kills it — exit 137, no message from any
+ * tool. Half, because a build forks (next's page-data workers, tsc) and the
+ * children each get their own heap from the same NODE_OPTIONS.
+ */
+export const BUILD_HEAP_MB = (() => {
+  const m = /^([0-9]+)([KMGT]?)$/.exec(BUILD_MEMORY_MAX);
+  if (!m) return 1024;
+  const unit: Record<string, number> = { '': 1 / 1024 / 1024, K: 1 / 1024, M: 1, G: 1024, T: 1024 * 1024 };
+  const mib = Number(m[1]) * (unit[m[2] ?? ''] ?? 1);
+  return Math.max(512, Math.floor(mib / 2));
+})();
 
 /**
  * Manage an app's unit on the node the app runs on. `sourceId`: install only —
@@ -200,7 +223,7 @@ export async function removeAppTree(slug: string, dirId: string, tree: string, a
  * low CPU/IO weight) on its node. Its own, not its source's: two apps of one
  * source deploying at once must not run each other's script. Resolves with
  * the combined output; rejects with it attached when the script fails.
- * Fifteen minutes per app built. `onOutput` gets the output as it prints, for the live build log.
+ * BUILD_TIMEOUT_MS per app built (15 min default). `onOutput` gets the output as it prints, for the live build log.
  */
 export async function appBuild(slug: string, applicationId: string, onOutput?: (text: string) => void, apps = 1): Promise<string> {
   assertSlug(slug);
@@ -210,7 +233,7 @@ export async function appBuild(slug: string, applicationId: string, onOutput?: (
     await serverForApplication(applicationId),
     'cb-app-unit',
     ['build', slug, applicationId, BUILD_MEMORY_MAX, BUILD_CPU_WEIGHT],
-    { timeout: 900_000 * Math.max(1, apps), maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
+    { timeout: BUILD_TIMEOUT_MS * Math.max(1, apps), maxBuffer: 64 * 1024 * 1024, ...(onOutput && { onOutput }) }
   );
   return stdout + (stderr ? '\n' + stderr : '');
 }

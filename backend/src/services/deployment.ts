@@ -3,7 +3,7 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { staticRouteError } from './caddyService';
 import { serveApp, serveStatic } from './hostRouteService';
-import { appBuild, ensureOrgOnNode, removeAppTree, sourceTreeUnit } from './orgProvisionService';
+import { appBuild, BUILD_HEAP_MB, BUILD_MEMORY_MAX, ensureOrgOnNode, removeAppTree, sourceTreeUnit } from './orgProvisionService';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { isPublishable, uploadSiteObject } from './r2Service';
@@ -61,6 +61,27 @@ async function withBuildSlot<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const NL = '\n';
+/**
+ * What to write in the build log when a build fails: the reason first, then the
+ * build's own output. The reason has to be stated, because the cases that hurt
+ * most print nothing themselves — `stderr` alone was a bare dump of the output
+ * ending wherever the build died.
+ * 137 = SIGKILL: the build cgroup hit MemoryMax (BUILD_MEMORY_MAX, 3G by
+ * default) - next build's page-data workers are the usual ones to go over.
+ * A null code is the SSH side giving up: the timeout, whose message says so.
+ */
+export function buildFailureText(error: any): string {
+  const output = error?.stderr || error?.stdout || '';
+  const code = error?.code;
+  const reason =
+    code === 137
+      ? `Killed (exit 137): the build went over its memory limit (BUILD_MEMORY_MAX=${BUILD_MEMORY_MAX}). Raise it, or lower what the build runs at once.`
+      : typeof code === 'number'
+        ? `Exit ${code}`
+        : error?.message || String(error);
+  return output ? `${reason}${NL}${output}` : reason;
+}
+
 // Every app path is on a Linux box (the app's node), so posix.
 const join = path.posix.join;
 
@@ -457,7 +478,7 @@ export class DeploymentService {
       await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] PRE-DEPLOY COMPLETED` + NL);
       return { success: true, releaseDir };
     } catch (error: any) {
-      const message = error.stderr || error.message || String(error);
+      const message = buildFailureText(error);
       await afs.appendFile(buildLogPath, NL + `[${new Date().toISOString()}] PRE-DEPLOY FAILED:` + NL + message + NL).catch(() => {});
       return { success: false, error: message };
     }
@@ -685,6 +706,10 @@ export class DeploymentService {
               PORT: String(app.port || ''),
               CI: '1',
               NEXT_TELEMETRY_DISABLED: '1',
+              // V8 reads the host's RAM, not the build cgroup's MemoryMax, so it
+              // grows past the cap and the kernel kills the build with no message at
+              // all. An app that sets its own NODE_OPTIONS keeps it.
+              ...(!envVars.NODE_OPTIONS && { NODE_OPTIONS: `--max-old-space-size=${BUILD_HEAP_MB}` }),
               // pnpm's own prefix (11+); pnpm 10 gets the same from pnpm-workspace.yaml (the install step).
               // Not npm_config_*: that reaches npx in the app's own commands, and npm warns about each.
               // package_manager_strict: pnpm chosen over a package.json that names npm
@@ -729,7 +754,7 @@ export class DeploymentService {
       await log(NL + `[${new Date().toISOString()}] BUILD COMPLETED`);
       return { success: true, releaseDir, docroots };
     } catch (error: any) {
-      const message = error.stderr || error.message || String(error);
+      const message = buildFailureText(error);
       await log(NL + `[${new Date().toISOString()}] BUILD FAILED:` + NL + message).catch(() => {});
       // a failed build is never switched to, and node_modules is only ever
       // reused from the live release — its tree is dead weight. The log stays.
@@ -1119,6 +1144,10 @@ export class DeploymentService {
               ...envVars,
               CI: '1',
               NEXT_TELEMETRY_DISABLED: '1',
+              // V8 reads the host's RAM, not the build cgroup's MemoryMax, so it
+              // grows past the cap and the kernel kills the build with no message at
+              // all. An app that sets its own NODE_OPTIONS keeps it.
+              ...(!envVars.NODE_OPTIONS && { NODE_OPTIONS: `--max-old-space-size=${BUILD_HEAP_MB}` }),
               ...(detected.packageManager === 'pnpm' && {
                 pnpm_config_dangerously_allow_all_builds: 'true',
                 pnpm_config_package_manager_strict: 'false',
@@ -1329,7 +1358,7 @@ export class DeploymentService {
 
           return { success: true, buildLogs, deployLogs };
         } catch (error: any) {
-          const message = error.stderr || error.message || String(error);
+          const message = buildFailureText(error);
           await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] STATIC BUILD FAILED:` + NL + message + NL + NL).catch(() => {});
 
           const buildLogs = await readLog(buildLogPath, 'Build logs not available');

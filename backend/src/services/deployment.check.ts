@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildScript, dotenvLine, guardedPrune, pruneOf } from './deployment';
+import { buildBlock, buildFailureText, buildScript, dotenvLine, guardedPrune, pruneOf } from './deployment';
 import { parseEnv } from 'util';
 
 // .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
@@ -83,4 +83,20 @@ if (process.platform !== 'win32') {
   // nothing dangling → nothing reinstalled
   assert.strictEqual(execFileSync('bash', ['-euo', 'pipefail', '-c', guardedPrune('true', dir, 'echo reinstalled')], { cwd: dir, encoding: 'utf8' }), '');
   console.log('deployment: guardedPrune OK');
+}
+
+// a build the kernel killed prints no error of its own: the exit code is the whole diagnosis
+assert.ok(buildFailureText({ code: 137, stderr: 'Collecting page data ...' }).startsWith('Killed (exit 137)'));
+assert.ok(buildFailureText({ code: 137, stderr: 'out' }).endsWith('out'), 'the output is kept under the reason');
+assert.ok(buildFailureText({ code: 1, stderr: 'Type error' }).startsWith('Exit 1'));
+// a timeout has no exit code: its message is the only thing saying what happened
+assert.ok(buildFailureText({ code: null, message: 'Command timed out after 900000ms', stderr: 'compiling' }).startsWith('Command timed out'));
+assert.strictEqual(buildFailureText(new Error('no code')), 'no code');
+console.log('deployment: buildFailureText OK');
+
+// the build's Node heap is derived from the cgroup cap, halved for the workers it forks
+import { BUILD_HEAP_MB } from './orgProvisionService';
+if (!process.env.BUILD_MEMORY_MAX) {
+  assert.strictEqual(BUILD_HEAP_MB, 1536, 'default 3G cap -> 1536 MiB heap');
+  console.log('deployment: BUILD_HEAP_MB OK', BUILD_HEAP_MB);
 }

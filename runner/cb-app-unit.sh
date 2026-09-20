@@ -34,12 +34,12 @@ CB_GROUP="${CB_GROUP:-larika}"
 # Tenant build code (npm scripts, composer) runs as this user. Never the SSH
 # user: that one has passwordless root, and a postinstall script would get it.
 BUILD_USER="${BUILD_USER:-larika-build}"
-BUILD_MEMORY_MAX="2G"
+BUILD_MEMORY_MAX="3G"
 BUILD_CPU_WEIGHT="50"
 SOURCE_ID="$APP_ID"
 # the 4th and 5th arguments mean something different per action
 case "$ACTION" in
-  build)   BUILD_MEMORY_MAX="${4:-2G}"; BUILD_CPU_WEIGHT="${5:-50}" ;;
+  build)   BUILD_MEMORY_MAX="${4:-3G}"; BUILD_CPU_WEIGHT="${5:-50}" ;;
   install) SOURCE_ID="${4:-$APP_ID}" ;;
   rm-tree) TREE="${4-}" ;;
 esac
@@ -106,7 +106,7 @@ case "$ACTION" in
     exec systemd-run --wait --pipe --collect --quiet \
       --unit="cb-build-$SLUG-$APP_ID-$$" --slice=cb-build.slice \
       --uid="$BUILD_USER" --gid="$CB_GROUP" \
-      -p MemoryMax="$BUILD_MEMORY_MAX" -p MemorySwapMax=0 \
+      -p MemoryMax="$BUILD_MEMORY_MAX" -p MemorySwapMax=0       -p OOMScoreAdjust=500 \
       -p CPUWeight="$BUILD_CPU_WEIGHT" -p IOWeight="$BUILD_CPU_WEIGHT" -p Nice=10 \
       -p TimeoutStartSec=0 \
       -p UMask=0002 \
@@ -145,6 +145,12 @@ EnvironmentFile=-$APP_DIR/.env.runtime
 ExecStart=/bin/bash $APP_DIR/run.sh
 Restart=always
 RestartSec=5
+# A build in cb-build.slice may still ask for more than the box has. These two
+# decide who dies then: the app keeps a reclaim-protected working set, and its
+# OOM score is lowered so the kernel reaches for the build (OOMScoreAdjust=500
+# there) instead of an app that is serving traffic.
+MemoryLow=128M
+OOMScoreAdjust=-200
 StandardOutput=append:$APP_DIR/logs/out.log
 StandardError=append:$APP_DIR/logs/error.log
 
