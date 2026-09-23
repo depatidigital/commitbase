@@ -794,6 +794,21 @@ export function appFoldersOf(paths: string[], packageJson: (dir: string) => any)
 
 export type DetectedApp = { rootDirectory: string; detected: DetectedProject };
 
+/** Every folder an app could be created at, 3 deep at most, for the folder picker. Capped: a vendored tree is not a menu. */
+export function foldersOf(paths: string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of paths) {
+    const parts = file.split('/').slice(0, -1);
+    for (let depth = 1; depth <= Math.min(3, parts.length); depth++) {
+      const dir = parts.slice(0, depth).join('/');
+      if (NOT_APP_DIR.test(dir) || !ROOT_DIRECTORY_RE.test(dir)) break;
+      dirs.add(dir);
+    }
+    if (dirs.size >= 300) break;
+  }
+  return [...dirs].sort((a, b) => a.localeCompare(b));
+}
+
 /**
  * A new project's repository, detected in one clone: the root, and every app
  * in it (a monorepo's). Reads the whole tree (no blobs), then checks out only
@@ -804,7 +819,7 @@ export async function detectAppsFromRepo(
   repository: string,
   branch = 'main',
   auth: RemoteAuth = ANONYMOUS,
-): Promise<{ root: DetectedProject; apps: DetectedApp[] }> {
+): Promise<{ root: DetectedProject; apps: DetectedApp[]; folders: string[] }> {
   const tmp = await sparseClone(repository, branch, auth);
   try {
     const { stdout } = await execFileAsync('git', ['-C', tmp, 'ls-tree', '-r', '--name-only', 'HEAD'], {
@@ -846,7 +861,7 @@ export async function detectAppsFromRepo(
       detectAt(''),
       Promise.all(appFoldersOf(paths, packageJson).map(async (dir) => ({ rootDirectory: dir, detected: await detectAt(dir) }))),
     ]);
-    return { root, apps };
+    return { root, apps, folders: foldersOf(paths) };
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }

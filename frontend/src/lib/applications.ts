@@ -166,6 +166,8 @@ export interface CreateApplicationData {
   sourceId?: string;
   /** a new project's name, when its first app is named apart from it */
   projectName?: string;
+  /** COMPOSE: the compose files, in -f order; omitted = what detection found */
+  composeFiles?: string[];
 }
 
 export interface UpdateApplicationData {
@@ -403,8 +405,8 @@ export const detectApps = async (input: {
   repository: string;
   branch?: string;
   gitAccountId?: string;
-}): Promise<{ root: DetectedProject; apps: DetectedApp[] }> => {
-  const response = await apiRequest<{ root: DetectedProject; apps: DetectedApp[] }>('/applications/detect-apps', {
+}): Promise<{ root: DetectedProject; apps: DetectedApp[]; folders: string[] }> => {
+  const response = await apiRequest<{ root: DetectedProject; apps: DetectedApp[]; folders: string[] }>('/applications/detect-apps', {
     method: 'POST',
     body: JSON.stringify(input),
   });

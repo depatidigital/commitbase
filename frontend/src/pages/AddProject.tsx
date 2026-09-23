@@ -77,6 +77,8 @@ const slugify = (value?: string | null) =>
 
 // what the backend accepts as a repository (projectDetect.ts REPOSITORY_URL)
 const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
+// Radix Select has no empty value: the repository root, in the folder picker
+const ROOT_FOLDER = "__root__";
 
 /**
  * A new project — its name and where its code comes from; its first app's type
@@ -96,6 +98,8 @@ export default function AddProject() {
   });
   // the app's folder in the repository (monorepos); empty = the root
   const [rootDirectory, setRootDirectory] = useState("");
+  // COMPOSE: which compose file(s) — a repository can ship several (CKAN: with and without its database)
+  const [composeFile, setComposeFile] = useState("");
   const { toast } = useToast();
   const createApp = useCreateApplication();
   // Created first, deployed later: its hosts and its env are added on its page.
@@ -167,6 +171,9 @@ export default function AddProject() {
   // draft to tick. One app (or none found) keeps the single-app form.
   const [drafts, setDrafts] = useState<Array<DetectedApp & { name: string; checked: boolean }>>([]);
   const multi = drafts.length > 1;
+  // the repository's folders, from the scan — the folder picker's options
+  const [folders, setFolders] = useState<string[]>([]);
+  useEffect(() => setFolders([]), [sourceMode, formData.repository, formData.branch]);
   const checkedDrafts = drafts.filter((d) => d.checked);
   const updateDraft = (index: number, change: Partial<(typeof drafts)[number]>) =>
     setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...change } : d)));
@@ -300,8 +307,11 @@ export default function AddProject() {
           }));
           if (next.length && !next.some((d) => d.checked)) next[0].checked = true;
           setDrafts(next);
+          setFolders(scan.folders ?? []);
         }
         setDetected(result);
+        // the file detection found, relative to the folder — editable before creating
+        setComposeFile(result.type === "COMPOSE" ? result.composeFile?.split("/").pop() || "docker-compose.yml" : "");
         setFormData((prev) => ({
           ...prev,
           // an unrecognised project leaves the type blank, so the user has
@@ -351,6 +361,10 @@ export default function AddProject() {
       organizationId: projectId ? undefined : organizationId || myOrgs?.data[0]?.id,
       // Prisma's migrations: the tables have to exist before the release goes live
       preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
+      ...(formData.type === "COMPOSE" &&
+        composeFile.trim() && {
+          composeFiles: composeFile.split(",").map((file) => file.trim()).filter(Boolean),
+        }),
     };
     // a monorepo: the project with its first ticked app, then the rest added to it
     const [first, ...rest] = multi ? checkedDrafts : [];
@@ -830,12 +844,51 @@ export default function AddProject() {
                         <Label htmlFor="rootDirectory" title={t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}>
                           {t("Folder in the repository")}
                         </Label>
+                        {folders.length > 0 ? (
+                          <Select value={rootDirectory || ROOT_FOLDER} onValueChange={(value) => setRootDirectory(value === ROOT_FOLDER ? "" : value)}>
+                            <SelectTrigger id="rootDirectory">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={ROOT_FOLDER}>{t("(repository root)")}</SelectItem>
+                              {folders.map((folder) => (
+                                <SelectItem key={folder} value={folder} className="font-mono">
+                                  {folder}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            id="rootDirectory"
+                            placeholder={t("(repository root)")}
+                            value={rootDirectory}
+                            onChange={(e) => setRootDirectory(e.target.value)}
+                          />
+                        )}
+                        {/* what detection made of the folder — a new project is not asked, so say it */}
+                        {!projectId && !typeAsked && detected && (
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                            {t("Detected: {label}", { label: detected.label })}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {/* a stack can ship several compose files: pick which one runs */}
+                    {!multi && formData.type === "COMPOSE" && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="composeFile">{t("Compose files")}</Label>
                         <Input
-                          id="rootDirectory"
-                          placeholder={t("(repository root)")}
-                          value={rootDirectory}
-                          onChange={(e) => setRootDirectory(e.target.value)}
+                          id="composeFile"
+                          className="font-mono"
+                          value={composeFile}
+                          onChange={(e) => setComposeFile(e.target.value)}
+                          placeholder="docker-compose.yml"
                         />
+                        <p className="text-xs text-muted-foreground">
+                          {t("In the folder above; several, comma separated, override in order. Service, port and env files are set on the app's page.")}
+                        </p>
                       </div>
                     )}
                     </div>

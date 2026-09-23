@@ -117,4 +117,7 @@ export default {
   "The start script needs a look — open Build.": "Script start perlu dicek — buka Build.",
   "The ticked ones are created with the project. Each gets its hosts and env on its own page.":
     "Yang dicentang dibuat bersama proyek. Host dan env tiap aplikasi diatur di halamannya sendiri.",
+  "Compose files": "File compose",
+  "In the folder above; several, comma separated, override in order. Service, port and env files are set on the app's page.":
+    "Di folder di atas; beberapa file dipisah koma, yang belakangan menimpa yang sebelumnya. Service, port, dan file env diatur di halaman aplikasi.",
 };

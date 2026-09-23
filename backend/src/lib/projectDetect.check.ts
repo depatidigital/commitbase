@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { appFoldersOf, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
+import { appFoldersOf, foldersOf, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -321,3 +321,9 @@ const phpWithCompose = detectFromFiles({ 'docker-compose.yml': 'services: {}\n',
 assert.strictEqual(phpWithCompose.type, 'PHP');
 
 console.log('projectDetect: compose ok');
+
+// folder picker: every folder up to 3 deep, dependencies and dot-folders left out
+assert.deepStrictEqual(
+  foldersOf(['package.json', 'apps/web/src/pages/index.tsx', 'node_modules/x/index.js', '.github/workflows/ci.yml', 'compose/docker-compose.yml']),
+  ['apps', 'apps/web', 'apps/web/src', 'compose'],
+);
