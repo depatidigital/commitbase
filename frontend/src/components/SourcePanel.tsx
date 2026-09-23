@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Download, GitBranch, GitCommit, Loader2, Lock, RefreshCw, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,8 @@ interface SourcePanelProps {
   starting?: boolean;
   /** a deploy is running — nothing to offer until it ends */
   deploying?: boolean;
+  /** where its main button (pull, deploy the branch) goes — the page header; in the panel without it */
+  actionSlot?: HTMLElement | null;
 }
 
 /**
@@ -38,7 +41,10 @@ interface SourcePanelProps {
  * It is the project's — a pull or deploy here changes every app of it. The
  * deploy button shows only when there is something to ship.
  */
-export function SourcePanel({ projectId, onDeploy, starting, deploying }: SourcePanelProps) {
+export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSlot }: SourcePanelProps) {
+  // the main button, up in the header when there is a slot for it
+  const place = (node: ReactNode) => (actionSlot ? createPortal(node, actionSlot) : node);
+  const wide = actionSlot ? "" : "w-full";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: project } = useQuery({ queryKey: ["project", projectId], queryFn: () => getProject(projectId) });
@@ -268,8 +274,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
               </p>
             )}
             {/* only the operator touches a server by hand, and only when there is something to pull */}
-            {isSuperAdmin() && !changed && head && live && head !== live && (
-              <Button type="button" variant="outline" className="w-full" disabled={pull.isPending} onClick={() => setConfirmPull(true)}>
+            {isSuperAdmin() && !changed && head && live && head !== live && place(
+              <Button type="button" variant="outline" className={wide} disabled={pull.isPending} onClick={() => setConfirmPull(true)}>
                 {pull.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                 {t("Pull on server")}
               </Button>
@@ -341,9 +347,10 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
 
             {shippable && !neverLive && (
               <div className="flex flex-col gap-2">
+                {place(
                 <Button
                   type="button"
-                  className="w-full bg-gradient-primary"
+                  className={`${wide} bg-gradient-primary`}
                   disabled={starting || saveBranch.isPending || pull.isPending || (changed && deploying)}
                   onClick={() => (changed || needsDeploy ? void deployBranch() : setConfirmPull(true))}
                 >
@@ -356,7 +363,8 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                   )}
                   {/* same branch, newer commits: pulled, then every app built and switched. Another branch is a switch */}
                   {pull.isPending ? t("Pulling…") : changed || needsDeploy ? t("Deploy {branch}", { branch }) : t("Pull")}
-                </Button>
+                </Button>,
+                )}
                 {changed && (
                   <Button type="button" variant="ghost" size="sm" disabled={saveBranch.isPending} onClick={() => saveBranch.mutate()}>
                     {t("Save branch only")}

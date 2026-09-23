@@ -16,6 +16,7 @@ import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { MigrationChoices } from "@/components/DeployConfirmDialog";
 import { TYPES } from "@/components/AppTypeBadge";
 import { useToast } from "@/hooks/use-toast";
+import { timeAgo } from "@/lib/utils";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -26,15 +27,6 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
 const ALL = "__all__";
-
-/** Compact relative time — "3d ago". The exact stamp lives in the title. */
-const ago = (value: string) => {
-  const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
-  if (seconds < 3600) return t("{n}m ago", { n: Math.floor(seconds / 60) });
-  if (seconds < 86400) return t("{n}h ago", { n: Math.floor(seconds / 3600) });
-  return t("{n}d ago", { n: Math.floor(seconds / 86400) });
-};
-
 
 /**
  * Beside the name, and only when something is off — health as such is the
@@ -262,7 +254,7 @@ export default function Projects() {
         return (
           <div className="min-w-0 text-sm" title={new Date(last.createdAt).toLocaleString(locale)}>
             <span className={`block truncate ${failed ? "text-destructive" : ""}`}>{last.commitMessage || (failed ? t("Deploy failed") : t("Deployed"))}</span>
-            <span className="block text-xs text-muted-foreground">{ago(last.createdAt)}</span>
+            <span className="block text-xs text-muted-foreground">{timeAgo(last.createdAt)}</span>
           </div>
         );
       },

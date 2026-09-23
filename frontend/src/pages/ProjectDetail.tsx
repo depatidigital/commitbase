@@ -3,7 +3,8 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,6 +46,7 @@ import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
 import { APP_NAME } from "@/lib/branding";
+import { timeAgo } from "@/lib/utils";
 import { buildProject, deployProject, getProject, type ProjectApp } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
@@ -95,6 +97,8 @@ export default function ProjectDetail() {
   const [building, setBuilding] = useState(false);
   // where it runs, its folder, its ids: out of the way, a click from the header
   const [showDetails, setShowDetails] = useState(false);
+  // the header's place for the source panel's main button (the panel is in Settings)
+  const [sourceSlot, setSourceSlot] = useState<HTMLSpanElement | null>(null);
   // where the opened app's actions render: its header's right side
   const [panelSlot, setPanelSlot] = useState<HTMLDivElement | null>(null);
   // a panel-managed project deploys as one, from its source panel
@@ -218,6 +222,26 @@ export default function ProjectDetail() {
           <div ref={setPanelSlot} className="flex flex-wrap items-center gap-2" />
         ) : (
           <div className="flex flex-wrap items-center gap-2">
+            {/* what is live, and since when — the last deploy or pull */}
+            {project.lastDeployment && (
+              <span
+                className="mr-1 text-xs text-muted-foreground"
+                title={[new Date(project.lastDeployment.createdAt).toLocaleString(locale), project.lastDeployment.commitMessage].filter(Boolean).join("
+")}
+              >
+                {t("Last commit")}: {project.lastDeployment.commitHash ? <span className="font-mono">{project.lastDeployment.commitHash.slice(0, 7)}</span> : "—"} ·{" "}
+                {timeAgo(project.lastDeployment.createdAt)}
+              </span>
+            )}
+            {/* the source's main button (pull, deploy the branch), put here by its panel in Settings */}
+            <span ref={setSourceSlot} className="contents" />
+            {/* imported: every service built where it lives — the sites' files, then the processes */}
+            {imported && project.canSwitchBranch && (
+              <Button variant="outline" onClick={() => setConfirmBuild(true)}>
+                <Hammer className="mr-2 h-4 w-4" />
+                {t("Redeploy")}
+              </Button>
+            )}
             {!imported && (
               <Button variant="outline" asChild>
                 <Link to={`/apps/${project.id}/services/new`}>
@@ -235,7 +259,7 @@ export default function ProjectDetail() {
     >
       {/* the tabs with the project's panel beside them — or one app, a level deeper, with its own.
           The same for a project of one app as of many */}
-      <div className={appView ? "" : "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]"}>
+      <div>
       {appView ? (
         // rendered once the header's slot is there, so its actions go straight into it
         <div>
@@ -245,7 +269,7 @@ export default function ProjectDetail() {
       <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
-          <TabsTrigger value="env">{t("Env")}</TabsTrigger>
+          <TabsTrigger value="env">{t("Environment")}</TabsTrigger>
           <TabsTrigger value="build">{t("Build")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
@@ -322,7 +346,16 @@ export default function ProjectDetail() {
         )}
 
         {/* as the API allows it: the panel's own apps, anyone who manages them; apps set up on the server, a superadmin only */}
-        <TabsContent value="settings" className="space-y-6">
+        <TabsContent value="settings" forceMount className="space-y-6 data-[state=inactive]:hidden">
+          {project.repository && (
+            <SourcePanel
+              projectId={project.id}
+              onDeploy={(skipPreDeployFor) => deploy.mutate(skipPreDeployFor ?? [])}
+              starting={deploy.isPending}
+              deploying={project.status === "DEPLOYING"}
+              actionSlot={sourceSlot}
+            />
+          )}
           <ProjectMembersCard projectId={project.id} />
           {apps.length > 0 && (
             <Card className="border-destructive/50">
@@ -367,65 +400,6 @@ export default function ProjectDetail() {
       </Tabs>
       )}
 
-      {/* where its code comes from and where it lives — the project's, shared by every app of it;
-          a pull, a branch switch or a deploy changes them all */}
-      {!appView && (
-      <aside className="space-y-4 lg:sticky lg:top-4">
-        {/* the project's state: how many of its apps answer, each one's, and what can be done to them all */}
-        <Card className={`bg-gradient-card ${online < live.length ? "border-destructive/40" : "border-border/50"}`}>
-          <CardContent className="space-y-4 p-4">
-            <div className="flex items-start gap-3">
-              {online < live.length ? (
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-              ) : (
-                <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-success" />
-              )}
-              <div className="min-w-0">
-                <h3 className="font-semibold">{online < live.length ? t("{count} down", { count: live.length - online }) : t("All online")}</h3>
-                <p className="text-sm text-muted-foreground">{t("{online} of {total} online", { online, total: live.length })}</p>
-              </div>
-            </div>
-            <ul className="space-y-1">
-              {apps.map((app) => (
-                <li key={app.id}>
-                  <button
-                    type="button"
-                    onClick={() => openApp(app.id)}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-muted/50 ${
-                      app.id === opened?.id ? "bg-muted/50 font-medium" : ""
-                    } ${app.disabled ? "opacity-50" : ""}`}
-                  >
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} />
-                    <span className="min-w-0 flex-1 truncate">{app.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{statusOf(app.id).text}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {project.lastDeployment && (
-              <p className="text-xs text-muted-foreground">
-                {t("Last Deployment")}: {new Date(project.lastDeployment.createdAt).toLocaleString(locale)} · {deploymentStatusLabel(project.lastDeployment.status)}
-              </p>
-            )}
-            {/* imported: every app built where it lives — the sites' files, then the processes */}
-            {imported && project.canSwitchBranch && (
-              <Button variant="outline" className="w-full" onClick={() => setConfirmBuild(true)}>
-                <Hammer className="mr-2 h-4 w-4" />
-                {t("Redeploy")}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-        {project.repository && (
-          <SourcePanel
-            projectId={project.id}
-            onDeploy={(skipPreDeployFor) => deploy.mutate(skipPreDeployFor ?? [])}
-            starting={deploy.isPending}
-            deploying={project.status === "DEPLOYING"}
-          />
-        )}
-      </aside>
-      )}
       </div>
 
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
@@ -782,6 +756,7 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
   const stop = useStopApplication();
   const restart = useRestartApplication();
   const [confirmStop, setConfirmStop] = useState(false);
+  const [hostsOpen, setHostsOpen] = useState(false);
   const deploying = ["DEPLOYING", "BUILDING"].includes(app.status);
   // a process the panel or pm2 starts and stops — not a PHP site or static files, nor someone else's;
   // started again from its built release, so one never deployed is deployed, not started.
@@ -803,6 +778,10 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
         <span className="flex min-w-0 items-center gap-2">
           <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status.tone]}`} title={status.text} />
           <span className="truncate font-medium">{app.name}</span>
+          {/* rename in place: shown on row hover (and focus); its dialog's clicks must not open the row */}
+          <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+            <RenameAppDialog app={app} />
+          </span>
           {deploying && (
             <span className="flex shrink-0 items-center gap-1 text-xs text-warning">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -828,16 +807,30 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
         </span>
       </TableCell>
       <TableCell className="font-mono text-xs">
-        {bindings.length === 0 ? (
-          <span className="text-muted-foreground">{t("no route")}</span>
-        ) : (
-          bindings.map((d) => (
-            <span key={bindingLabel(d)} className="block truncate">
-              {d.host}
-              {d.path && <span className="text-muted-foreground">{d.path}</span>}
-            </span>
-          ))
-        )}
+        {/* its hosts, added and changed in the hosts dialog; the dialog's clicks must not open the row */}
+        <span className="flex items-start gap-1" onClick={(e) => e.stopPropagation()}>
+          {bindings.length === 0 ? (
+            <Button variant="outline" size="sm" className="h-7 font-sans text-xs" disabled={!application} onClick={() => setHostsOpen(true)}>
+              <Plus className="mr-1 h-3 w-3" />
+              {t("Add host")}
+            </Button>
+          ) : (
+            <>
+              <span className="min-w-0">
+                {bindings.map((d) => (
+                  <span key={bindingLabel(d)} className="block truncate">
+                    {d.host}
+                    {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                  </span>
+                ))}
+              </span>
+              <Button variant="ghost" size="icon" className="-my-1 h-6 w-6 shrink-0 text-muted-foreground" title={t("Edit hosts")} aria-label={t("Edit hosts")} disabled={!application} onClick={() => setHostsOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+          {application && <RoutingCard application={application} dialogOnly editOpen={hostsOpen} onEditOpenChange={setHostsOpen} />}
+        </span>
       </TableCell>
       <TableCell className="text-xs">
         {last ? (
@@ -870,7 +863,6 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
                 {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               </Button>
             ))}
-          <RenameAppDialog app={app} />
           <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
         </span>
         {/* stopping takes it offline: asked first, as on its page */}
