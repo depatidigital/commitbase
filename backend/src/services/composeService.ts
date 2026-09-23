@@ -3,7 +3,7 @@ import { Application } from '@prisma/client';
 import { currentDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, type AppFs } from '../lib/appFs';
 import { execOrg, type ExecResult, type SshTarget } from '../lib/runner';
-import { readEnv } from '../lib/appEnv';
+import { envForFile, readEnv, readEnvFiles } from '../lib/appEnv';
 import { prisma } from '../lib/prisma';
 import { serverForApplication } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
@@ -165,16 +165,17 @@ async function run(application: AppWithOrg, args: string[], opts: RunOpts = {}):
  * Write the env files the stack reads, and the port override.
  *
  * The env files merge the same way a PHP app's .env does: what the repository
- * ships is kept, except for the keys the platform sets, which win. Every file
- * in composeEnvFiles gets the same content — a stack that splits its
- * configuration across two files (CKAN's .env and .ckan-env) reads the same
- * variables from either.
+ * ships is kept, except for the keys the platform sets, which win. The first
+ * file gets the app's env, each other file its own (CKAN's .env and
+ * .ckan-env are configured apart).
  */
 export async function writeComposeEnv(application: AppWithOrg, afs: AppFs, workDir: string): Promise<void> {
   const env = readEnv(application.envVars);
-  const entries = Object.entries(env).filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key));
+  const extra = readEnvFiles(application.extraEnvVars);
 
-  for (const name of composeEnvFilesOf(application)) {
+  for (const [index, name] of composeEnvFilesOf(application).entries()) {
+    // the first file the app's env, each other its own
+    const entries = Object.entries(envForFile(name, index, env, extra)).filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key));
     const file = path.posix.join(workDir, name);
     const shipped = await afs.readText(file).catch(() => '');
     const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([key]) => line.startsWith(key + '=')));

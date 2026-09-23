@@ -396,7 +396,11 @@ model Application {
   /// `{ "$enc": <secretBox blob> }` once written through lib/appEnv; a plain
   /// object on rows from before encryption, read as is until next saved.
   envVars     Json?
-  
+  /// The other env files' own variables: { "<file>": { KEY: value } }, sealed
+  /// whole like envVars. envVars is the first env file's (and the one the
+  /// build and the service get); each file here is written with its own.
+  extraEnvVars Json?
+
   // Static sites: the R2 bucket holding the files and the public host Caddy
   // proxies to (Cloudflare caches in front of it)
   staticBucket String?
@@ -407,8 +411,8 @@ model Application {
   /// The compose files, in -f order. Several because a stack can ship its cron
   /// or its overrides in a second file. Empty = ["docker-compose.yml"].
   composeFiles    String[]
-  /// The env files the stack reads, written from envVars at deploy. Empty =
-  /// [".env"]; CKAN, for one, wants .env and .ckan-env.
+  /// The env files the deploy writes, any app type: the first from envVars,
+  /// the rest from extraEnvVars. Empty = [".env"]; CKAN has .env and .ckan-env.
   composeEnvFiles String[]
   /// The port inside the stack to publish. The host port stays in `port`, from
   /// the same pool as every other app, and is bound to loopback.

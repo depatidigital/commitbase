@@ -16,7 +16,7 @@ import { detectProject, nvmPreamble, EXEC, pnpmAllowBuildsInFolder, type Detecte
 const NPM_LOCK = '/tmp/larika-npm.lock';
 const LOCKFILES = ['pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'package-lock.json', 'bun.lockb'];
 import { gitAuthFor } from '../lib/gitCredentials';
-import { readEnv, sealEnv } from '../lib/appEnv';
+import { envForFile, readEnv, readEnvFiles, sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as compose from './composeService';
@@ -648,9 +648,11 @@ export class DeploymentService {
             await prisma.application.update({ where: { id: app.id }, data: { envVars: sealEnv(envVars) } });
             await log(`${named(app)}Generated APP_KEY and saved it to the app env`);
           }
-          const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
-          // every env file the app reads (default .env), each merged the same way
-          for (const name of entries.length > 0 ? compose.composeEnvFilesOf(app) : []) {
+          // every env file the app reads (default .env): the first gets its env, each other its own
+          const extraEnv = readEnvFiles(app.extraEnvVars);
+          for (const [index, name] of compose.composeEnvFilesOf(app).entries()) {
+            const entries = Object.entries(envForFile(name, index, envVars, extraEnv)).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+            if (entries.length === 0) continue;
             const shipped = await afs.readText(join(workDir, name)).catch(() => '');
             const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([k]) => line.startsWith(k + '=')));
             const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
@@ -664,8 +666,10 @@ export class DeploymentService {
           // itself: Prisma 7's prisma.config.ts loads '.env' and fails on
           // ENOENT without it, and so does anything calling loadEnvFile().
           // The platform's values win over a .env the repository shipped.
-          const envEntries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
-          for (const name of envEntries.length > 0 ? compose.composeEnvFilesOf(app) : []) {
+          const extraEnv = readEnvFiles(app.extraEnvVars);
+          for (const [index, name] of compose.composeEnvFilesOf(app).entries()) {
+            const envEntries = Object.entries(envForFile(name, index, envVars, extraEnv)).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+            if (envEntries.length === 0) continue;
             const shipped = await afs.readText(join(workDir, name)).catch(() => '');
             const kept = shipped.split(/\r?\n/).filter((line) => line.trim() && !envEntries.some(([k]) => line.startsWith(k + '=')));
             // as readable as build.sh, which already carries the same values

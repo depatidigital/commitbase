@@ -31,3 +31,30 @@ export function sealEnv(env: Env): Prisma.InputJsonValue {
   }
   return env;
 }
+
+/** Per-file env: { "<file>": { KEY: value } } — the env files after the first. */
+export type EnvFiles = Record<string, Env>;
+
+/** `extraEnvVars`, read: sealed as one blob, like envVars. */
+export function readEnvFiles(stored: unknown): EnvFiles {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+  const sealed = (stored as { $enc?: unknown }).$enc;
+  const plain = typeof sealed === 'string' ? JSON.parse(decrypt(sealed)) : stored;
+  return Object.fromEntries(Object.entries(plain as Record<string, unknown>).map(([file, env]) => [file, readEnv(env)]));
+}
+
+/** What to write to `extraEnvVars`; files with nothing in them are left out. */
+export function sealEnvFiles(files: EnvFiles): Prisma.InputJsonValue {
+  const kept = Object.fromEntries(Object.entries(files).filter(([, env]) => Object.keys(env).length > 0));
+  if (canEncrypt()) return { $enc: encrypt(JSON.stringify(kept)) };
+  return kept;
+}
+
+/**
+ * The variables one env file gets: the first file the app's env (envVars — what
+ * the build and the service also get, with whatever the deploy added), every
+ * other file its own from extraEnvVars.
+ */
+export function envForFile(file: string, index: number, env: Env, extra: EnvFiles): Env {
+  return index === 0 ? env : extra[file] ?? {};
+}
