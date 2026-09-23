@@ -33,7 +33,7 @@ import * as systemd from '../services/systemdService';
 import * as compose from '../services/composeService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
-import { queueOrgNode } from '../services/orgProvisionService';
+import { ensureOrgOnNode, queueOrgNode } from '../services/orgProvisionService';
 import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
@@ -741,7 +741,20 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     if (requested && !(await prisma.server.findUnique({ where: { id: requested }, select: { id: true } }))) {
       return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
     }
-    const serverId = requested ?? org?.defaultServerId ?? null;
+    let serverId = requested ?? org?.defaultServerId ?? null;
+    // A stack needs a container runtime: nobody picked a node and the default
+    // has none (or there is no default) → the first online node that runs one.
+    if (type === 'COMPOSE' && !requested) {
+      const runsContainers = { containerRuntime: { not: 'NONE' } };
+      const fits = serverId && (await prisma.server.findFirst({ where: { id: serverId, ...runsContainers }, select: { id: true } }));
+      if (!fits) {
+        const node = await prisma.server.findFirst({
+          where: { ...runsContainers, provisioned: true, status: 'ONLINE' },
+          select: { id: true },
+        });
+        serverId = node?.id ?? serverId;
+      }
+    }
     if (!serverId) {
       return res.status(400).json({
         success: false,
@@ -802,6 +815,26 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       await queueOrgNode(organizationId, serverId, { userId: req.user!.userId, trigger: 'app-create' }).catch(
         (error) => console.error(`Could not queue provisioning for ${domain}:`, error),
       );
+      // A new project from git: its code is pulled onto the node once, now —
+      // no build, no start — so it is there to look at before the first deploy.
+      // In the background: provisioning can take a while, the create does not wait.
+      if (!joining && repository) {
+        const userId = req.user!.userId;
+        const at = branch || 'main';
+        const log = (level: 'INFO' | 'ERROR', message: string) =>
+          prisma.log.create({ data: { level, message, userId, applicationId: application.id } }).catch(() => {});
+        void (async () => {
+          try {
+            await ensureOrgOnNode(organizationId, serverId, { userId, trigger: 'app-create' });
+            const afs = await sourceFsFor(application.id);
+            const dir = await deploymentService.syncRepository(afs, repository, at, gitAccountId ?? null);
+            const { stdout } = await afs.run(['git', 'log', '-1', '--format=%h %s'], { cwd: dir });
+            await log('INFO', `Code pulled for ${application.name}: ${at} is at ${stdout.trim()}`);
+          } catch (error: any) {
+            await log('ERROR', `First pull of ${application.name} failed: ${String(error?.message || error).slice(0, 500)}`);
+          }
+        })();
+      }
     }
 
     // Point the hostname at the platform now, so the app is reachable the

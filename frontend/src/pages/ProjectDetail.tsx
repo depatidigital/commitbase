@@ -296,6 +296,13 @@ export default function ProjectDetail() {
                       </span>
                       <span className="flex flex-wrap items-center gap-2">
                         <AppTypeBadge type={app.type} />
+                        {/* its folder in the repository (monorepos); none = the root */}
+                        {app.rootDirectory && (
+                          <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
+                            <FolderOpen className="h-3 w-3" />
+                            {app.rootDirectory}
+                          </span>
+                        )}
                         {/* only what is not the panel's own: an imported app's pm2 process or Caddy files */}
                         {app.runtime && (
                           <Badge variant="outline" className="truncate border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning" title={app.rootPath ?? undefined}>

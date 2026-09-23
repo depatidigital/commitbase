@@ -120,6 +120,13 @@ export default function AddProject() {
   const superadmin = isSuperAdmin();
   const [serverId, setServerId] = useState("");
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superadmin });
+  // a stack needs a node with a container runtime: preselect one, unless one was picked already
+  useEffect(() => {
+    const picked = servers.find((s) => s.id === serverId);
+    if (formData.type !== "COMPOSE" || (picked && picked.containerRuntime !== "NONE")) return;
+    const node = servers.find((s) => s.containerRuntime !== "NONE" && s.status === "ONLINE") ?? servers.find((s) => s.containerRuntime !== "NONE");
+    if (node) setServerId(node.id);
+  }, [formData.type, servers, serverId]);
   // what Create is doing after the click: creating, the picked files going up, the first deploy starting
   const [busy, setBusy] = useState<"" | "uploading" | "deploying">("");
   const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
@@ -261,6 +268,21 @@ export default function AddProject() {
       setBranchesLoading(false);
     };
   }, [gitSource, formData.repository]);
+
+  // The folder picker's options come with the root scan, which is skipped once
+  // a folder is set — a folder kept across a repository or branch change still gets its list.
+  const hasFolder = !!rootDirectory.trim();
+  const needFolders = !projectId && gitSource && hasFolder && !folders.length && !branchesLoading && !!remoteBranches?.length;
+  useEffect(() => {
+    if (!needFolders) return;
+    let cancelled = false;
+    detectApps({ repository: formData.repository.trim(), branch: formData.branch || "main", gitAccountId: manualAccountId || undefined })
+      .then((scan) => !cancelled && setFolders(scan.folders ?? []))
+      .catch(() => {}); // the typed folder still works without the list
+    return () => {
+      cancelled = true;
+    };
+  }, [needFolders, formData.repository, formData.branch, manualAccountId]);
 
   // Auto-detect the framework from the source (Vercel-style) and prefill the
   // build settings. Everything stays editable.
@@ -844,28 +866,23 @@ export default function AddProject() {
                         <Label htmlFor="rootDirectory" title={t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}>
                           {t("Folder in the repository")}
                         </Label>
-                        {folders.length > 0 ? (
-                          <Select value={rootDirectory || ROOT_FOLDER} onValueChange={(value) => setRootDirectory(value === ROOT_FOLDER ? "" : value)}>
-                            <SelectTrigger id="rootDirectory">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={ROOT_FOLDER}>{t("(repository root)")}</SelectItem>
-                              {folders.map((folder) => (
-                                <SelectItem key={folder} value={folder} className="font-mono">
-                                  {folder}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            id="rootDirectory"
-                            placeholder={t("(repository root)")}
-                            value={rootDirectory}
-                            onChange={(e) => setRootDirectory(e.target.value)}
-                          />
-                        )}
+                        {/* always a pick: the chosen folder stays an option while the list (re)loads */}
+                        <Select value={rootDirectory || ROOT_FOLDER} onValueChange={(value) => setRootDirectory(value === ROOT_FOLDER ? "" : value)}>
+                          <SelectTrigger id="rootDirectory">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={ROOT_FOLDER}>{t("(repository root)")}</SelectItem>
+                            {(rootDirectory && !folders.includes(rootDirectory) ? [rootDirectory, ...folders] : folders).map((folder) => (
+                              <SelectItem key={folder} value={folder} className="font-mono">
+                                {folder}
+                              </SelectItem>
+                            ))}
+                            {!folders.length && (detecting || needFolders) && (
+                              <p className="px-2 py-1.5 text-xs text-muted-foreground">{t("Loading folders…")}</p>
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )}
                     </div>
@@ -917,7 +934,8 @@ export default function AddProject() {
           </Card>
         )}
 
-        {stepComplete(1) && (projectId || typeAsked || superadmin) && (
+        {/* a compose stack always shows: which compose file runs is its choice to make */}
+        {stepComplete(1) && (projectId || typeAsked || superadmin || (!multi && formData.type === "COMPOSE")) && (
           <>
             {/* an app of a project: its name, then the type — next to what detection
                 guessed, so a wrong guess is fixed where it is shown. A new project
