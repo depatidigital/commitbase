@@ -1,11 +1,9 @@
 ﻿import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Square, Terminal, Trash2, Upload } from "lucide-react";
-import { RoutingCard } from "@/components/RoutingCard";
+import { AlertTriangle, CheckCircle, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +15,7 @@ import { testDatabaseUrl } from "@/lib/databases";
 import { stripAnsi } from "@/lib/ansi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,14 +40,12 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
-import { SiteFilesCard } from "@/components/SiteFilesCard";
-import { formatBytes } from "@/lib/utils";
+import { type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
 import { APP_NAME } from "@/lib/branding";
-import { buildProject, deployProject, getProject } from "@/lib/projects";
+import { buildProject, deployProject, getProject, type ProjectApp } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
   up: "bg-success",
@@ -96,14 +93,6 @@ export default function ProjectDetail() {
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [buildConsent, setBuildConsent] = useState(false);
   const [building, setBuilding] = useState(false);
-  // the app cards flipped from how they start (open until the project's first deploy, closed after)
-  const [toggled, setToggled] = useState<Set<string>>(new Set());
-  const toggle = (appId: string) =>
-    setToggled((open) => {
-      const next = new Set(open);
-      if (!next.delete(appId)) next.add(appId);
-      return next;
-    });
   // where it runs, its folder, its ids: out of the way, a click from the header
   const [showDetails, setShowDetails] = useState(false);
   // where the opened app's actions render: its header's right side
@@ -120,7 +109,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the project's tab (?tab=), or one of its apps opened a level deeper (?service=)
-  const tab = ["env", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["env", "build", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   const openApp = (appId: string) => setSearchParams({ service: appId });
@@ -149,9 +138,6 @@ export default function ProjectDetail() {
   const imported = project.kind === "IMPORTED";
   // releases and a build cache on its node: the panel's own projects, but for static sites (their files are in R2)
   const hasStorage = !imported && !!apps[0] && !apps.every((app) => app.type === "STATIC");
-  // never deployed: every card starts open on its setup checklist — env, then deploy
-  const startsOpen = !imported && !project.lastDeployment && !project.activeRelease;
-  const isOpen = (appId: string) => toggled.has(appId) !== startsOpen;
 
   const origin = project.repository ? (
     <>
@@ -260,110 +246,62 @@ export default function ProjectDetail() {
         <TabsList>
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
           <TabsTrigger value="env">{t("Env")}</TabsTrigger>
-          <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
+          <TabsTrigger value="build">{t("Build")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
+          <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
         </TabsList>
 
         {/* its apps and their routes — an app has many (host, host/path), a route belongs to one app.
             A card opens that app a level deeper */}
-        <TabsContent value="apps">
-          {apps.length === 0 && <p className="py-8 text-center text-muted-foreground">{t("No services")}</p>}
-          <ul className="space-y-2">
-            {apps.map((app) => {
-              // what serves it on the box — its pm2 process, Caddy's files or proxy — as the projects list says it
-              const runtime = `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`;
-              const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
-              return (
-                <li key={app.id} className={`rounded-lg border border-border/60 bg-card transition-colors hover:border-primary/40 ${app.disabled ? "opacity-50" : ""}`}>
-                  <div className="flex items-stretch">
-                  {/* the row opens it here for a quick edit — its hosts and actions — without leaving the list */}
-                  <button
-                    type="button"
-                    aria-expanded={isOpen(app.id)}
-                    onClick={() => toggle(app.id)}
-                    className="flex min-w-0 flex-1 flex-wrap items-center gap-x-6 gap-y-3 rounded-l-lg py-4 pl-3 pr-4 text-left transition-colors hover:bg-muted/30"
-                  >
-                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isOpen(app.id) ? "" : "-rotate-90"}`} />
-                    <span className="min-w-0 space-y-1.5 sm:w-72">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[statusOf(app.id).tone]}`} title={statusOf(app.id).text} />
-                        <span className="truncate font-medium">{app.name}</span>
-                        {/* mid-deploy, said on the row itself: the dot alone is too quiet */}
-                        {["DEPLOYING", "BUILDING"].includes(app.status) && (
-                          <span className="flex shrink-0 items-center gap-1 text-xs font-normal text-warning">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            {t("Deploying")}
-                          </span>
-                        )}
-                      </span>
-                      <span className="flex flex-wrap items-center gap-2">
-                        <AppTypeBadge type={app.type} />
-                        {/* its folder in the repository (monorepos); none = the root */}
-                        {app.rootDirectory && (
-                          <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
-                            <FolderOpen className="h-3 w-3" />
-                            {app.rootDirectory}
-                          </span>
-                        )}
-                        {/* only what is not the panel's own: an imported app's pm2 process or Caddy files */}
-                        {app.runtime && (
-                          <Badge variant="outline" className="truncate border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning" title={app.rootPath ?? undefined}>
-                            {runtime}
-                          </Badge>
-                        )}
-                      </span>
-                    </span>
-                    {/* where visitors reach it — opened, the quick edit below lists them instead */}
-                    <span className={`min-w-0 flex-1 items-start gap-1.5 font-mono text-xs ${isOpen(app.id) ? "hidden" : "flex"}`}>
-                      <Route className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-                      {bindings.length === 0 ? (
-                        <span className="text-muted-foreground">{t("no route")}</span>
-                      ) : (
-                        // one line, comma-separated, wrapping as it must
-                        <span className="min-w-0 break-words">
-                          {bindings.map((d, i) => (
-                            <span key={bindingLabel(d)}>
-                              {d.host}
-                              {d.path && <span className="text-muted-foreground">{d.path}</span>}
-                              {i < bindings.length - 1 && <span className="text-muted-foreground">, </span>}
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {/* the opened card's start/stop/restart, icons only, up here by the name (AppQuickEdit portals them in) */}
-                  <div id={`app-actions-${app.id}`} className="flex items-center gap-1 pr-2">
-                    <RenameAppDialog app={app} />
-                  </div>
-                  {/* its whole page, a level deeper */}
-                  <button
-                    type="button"
-                    aria-label={t("Open details")}
-                    title={t("Open details")}
-                    onClick={() => openApp(app.id)}
-                    className="group flex shrink-0 items-center rounded-r-lg border-l border-border/60 px-4 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  >
-                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                  </div>
-                  {isOpen(app.id) && <AppQuickEdit appId={app.id} />}
-                </li>
-              );
-            })}
-          </ul>
+        {/* what is going on — a deploy running or failed, a setup checklist — above the rows; one row per service */}
+        <TabsContent value="apps" className="space-y-3">
+          {apps.map((app) => (
+            <ServiceAlerts key={app.id} appId={app.id} named={apps.length > 1} />
+          ))}
+          {apps.length === 0 ? (
+            <p className="py-8 text-center text-muted-foreground">{t("No services")}</p>
+          ) : (
+            <div className="overflow-hidden rounded-lg border bg-card">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="text-xs uppercase tracking-wide">{t("Service")}</TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide">{t("Host")}</TableHead>
+                    <TableHead className="text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
+                    <TableHead className="w-40">
+                      <span className="sr-only">{t("Actions")}</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {apps.map((app) => (
+                    <ServiceRow key={app.id} app={app} status={statusOf(app.id)} onOpen={() => openApp(app.id)} />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </TabsContent>
 
-        {/* every app's log in one live stream, or one app's — followed only while this tab is open */}
         {/* every service's env on one tab, one section each — no need to open a service for it */}
-        <TabsContent value="env" className="space-y-4">
+        {/* side by side when there are several and all are read-only lists (imported: their .env on the
+            server); the panel's own get an editable form each, which needs the full width */}
+        <TabsContent value="env" className={apps.length > 1 && apps.every((app) => app.runtime) ? "grid items-start gap-4 lg:grid-cols-2" : "space-y-4"}>
           {apps.map((app) => (
             <ServiceEnvSection key={app.id} appId={app.id} />
           ))}
         </TabsContent>
 
+        {/* how each service is built and run: its deployment settings, one section each */}
+        <TabsContent value="build" className="space-y-4">
+          {apps.map((app) => (
+            <ServiceBuildSection key={app.id} appId={app.id} />
+          ))}
+        </TabsContent>
+
+        {/* every service's log in one live stream, or one service's — followed only while this tab is open */}
         <TabsContent value="logs">
           <ProjectLogs projectId={project.id} apps={apps} />
         </TabsContent>
@@ -629,27 +567,19 @@ export default function ProjectDetail() {
 }
 
 /**
- * An app card opened in the list, for a quick edit without leaving it: its
- * hosts (each opens in a new tab; edited in their dialog) and what its state
- * allows — Stop and Restart while it runs, Start when it is stopped. The rest
- * is on its page — the card's › button.
+ * What is going on with one service, above the app's service rows: a deploy
+ * running (its progress and newest log lines), the last one failed (why, and
+ * the ways out), or — never deployed — its setup checklist. Nothing otherwise.
  */
-function AppQuickEdit({ appId }: { appId: string }) {
+function ServiceAlerts({ appId, named }: { appId: string; /** several services: say whose */ named: boolean }) {
   // refetched by hand after a change made here (a host, a deploy): its own query, whatever a cache-wide invalidation reaches
-  const { data: application, isLoading, refetch: refetchApp } = useApplication(appId);
+  const { data: application, refetch: refetchApp } = useApplication(appId);
   const { toast } = useToast();
-  const start = useStartExistingApplication();
   // the checklist's Deploy: this app — every app deploys on its own
   const firstDeploy = useStartApplication();
   const queryClient = useQueryClient();
-  const stop = useStopApplication();
-  const restart = useRestartApplication();
-  const [confirmStop, setConfirmStop] = useState(false);
-  const [envOpen, setEnvOpen] = useState(false);
-  // its hosts dialog: from the Host card, and from the checklist's Host step
-  const [hostsOpen, setHostsOpen] = useState(false);
-  // its build settings, from the checklist's Build step — the form its page has
-  const [buildOpen, setBuildOpen] = useState(false);
+  // the checklist's steps: env and build are the app's tabs, hosts the service's own page
+  const [, setSearchParams] = useSearchParams();
   // never deployed, and ours to deploy: its setup checklist, as on its page
   const needsSetup =
     !!application && !(application.type === "STATIC" && !application.repository) && !application.runtime && !hasBeenDeployed(application);
@@ -706,30 +636,12 @@ function AppQuickEdit({ appId }: { appId: string }) {
       void queryClient.invalidateQueries({ queryKey: ["project"] });
     }
   }, [inFlight, refetchApp, queryClient]);
-  // the row header's slot for the controls: in the DOM once the row is
-  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => setActionsSlot(document.getElementById(`app-actions-${appId}`)), [appId]);
   const cancelDeploy = useMutation({
     mutationFn: () => cancelDeployment(appId),
     onSuccess: () => toast({ title: t("Cancelling the deployment…") }),
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not cancel the deployment"), description: error.message }),
   });
-  if (isLoading || !application) {
-    return (
-      <div className="border-t border-border/60 p-4">
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  // a process the panel or pm2 starts and stops — not a PHP site or static files, nor someone else's.
-  // Started again from its built release: one never deployed is deployed from its page
-  const controllable =
-    (!application.runtime || application.runtime === "PM2") && !["STATIC", "PHP"].includes(application.type) && (!!application.runtime || hasBeenDeployed(application));
-  // COMPOSE is deliberately not in that exclusion list: start/stop/restart map
-  // to compose up/stop/force-recreate, so a stack is controllable like a unit.
-  const running = application.status === "RUNNING";
-  const pending = start.isPending || stop.isPending || restart.isPending;
-  const env = Object.keys(application.envVars ?? {});
+  if (!application) return null;
   const lastDeployment = application.deployments?.[0];
   // a site uploaded as files: nothing is built or run, and it is given no env — its files are what there is
   const uploadedSite = application.type === "STATIC" && !application.repository;
@@ -744,8 +656,10 @@ function AppQuickEdit({ appId }: { appId: string }) {
     lastDeployment?.status === "FAILED"
       ? stripAnsi(lastDeployment.deployLogs || lastDeployment.buildLogs?.trim().split("\n").slice(-15).join("\n") || "")
       : "";
+  if (!inFlight && !lastFailed && !needsSetup) return null;
   return (
-    <div className="space-y-3 border-t border-border/60 p-4">
+    <div className="space-y-3 rounded-lg border bg-card p-3">
+      {named && <p className="text-sm font-medium">{application.name}</p>}
       {inFlight && (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
           {/* where it is; its log in the dialog (Logs) */}
@@ -825,6 +739,26 @@ function AppQuickEdit({ appId }: { appId: string }) {
           </div>
         </div>
       )}
+      {/* while it deploys, the progress above says what the checklist would */}
+      {needsSetup && !inFlight && (
+        <AppSetupCard
+          compact
+          onEditHosts={() => setSearchParams({ service: appId })}
+          application={application}
+          detected={detection.data}
+          detecting={detection.isLoading}
+          env={{ missing, warnings, dirty: false }}
+          dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
+          // the failure and its ways out are above, not in the checklist
+          failure={undefined}
+          failedMigration={null}
+          starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
+          onDeploy={(options) => startDeploy(application.id, options)}
+          onEditEnv={() => setSearchParams({ tab: "env" })}
+          onEditBuild={() => setSearchParams({ tab: "build" })}
+          onShowLog={() => setLogOpen(true)}
+        />
+      )}
       {confirmDeploy.dialog}
       <DeployLogDialog
         application={application}
@@ -834,201 +768,137 @@ function AppQuickEdit({ appId }: { appId: string }) {
         onCancel={application.runtime ? undefined : () => cancelDeploy.mutate()}
         cancelling={cancelDeploy.isPending}
       />
-      {/* bento: its hosts and how it is built and run side by side; under them what it is given,
-          the full width, beside the actions — read at a glance, hosts managed here.
-          Never deployed: its setup checklist beside its hosts, and nothing else — the checklist has the env and the build */}
-      {/* items-start: each card as tall as its content — a short host list is not stretched to the checklist */}
-      <div className="grid items-start gap-3 md:grid-cols-2">
-        <RoutingCard application={application} compact editOpen={hostsOpen} onEditOpenChange={setHostsOpen} onChange={() => void refetchApp()} />
-        {/* while it deploys, the progress above says what the checklist would */}
-        {needsSetup && !inFlight ? (
-          <AppSetupCard
-            compact
-            onEditHosts={() => setHostsOpen(true)}
-            application={application}
-            detected={detection.data}
-            detecting={detection.isLoading}
-            env={{ missing, warnings, dirty: false }}
-            dbCheck={dbCheck.isFetching ? "pending" : dbCheck.data ?? null}
-            // the failure and its ways out are on the card above, not in the checklist
-            failure={undefined}
-            failedMigration={null}
-            starting={firstDeploy.isPending || ["DEPLOYING", "BUILDING"].includes(application.status)}
-            onDeploy={(options) => startDeploy(application.id, options)}
-            onEditEnv={() => setEnvOpen(true)}
-            onEditBuild={() => setBuildOpen(true)}
-            onShowLog={() => setLogOpen(true)}
-          />
-        ) : (
-        <MiniCard
-          icon={Rocket}
-          title={t("Deployments")}
-          action={
-            <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setLogOpen(true)}>
-              <Terminal className="mr-1 h-3 w-3" />
-              {t("Logs")}
-            </Button>
-          }
-        >
-          {!uploadedSite && (
-            <>
-              {/* what it is built and run with: its own commands, else detection's defaults */}
-              {application.runtime === "DOCKER" ? (
-                // docker runs it, not the panel: no build or start command —
-                // where Caddy sends it and where compose started it are what matter
-                <>
-                  <MiniLine label={t("Proxy target")}>{application.port ? `127.0.0.1:${application.port}` : "—"}</MiniLine>
-                  <MiniLine label={t("Folder")}>{application.rootPath || t("not started by compose")}</MiniLine>
-                </>
-              ) : application.type === "COMPOSE" ? (
-                // A stack is not built or started by a command of its own: the
-                // compose files are what it runs, so name those instead.
-                <MiniLine label={t("Compose files")}>
-                  {(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}
-                </MiniLine>
-              ) : (
-                <>
-              <MiniLine label={t("Build Command")}>{application.buildCommand || detection.data?.buildCommand || "—"}</MiniLine>
-              {application.type !== "STATIC" && (
-                <MiniLine label={t("Start Command")}>
-                  {application.runtime === "PM2" && application.processName
-                    ? `pm2 restart ${application.processName}`
-                    : application.startCommand || detection.data?.startCommand || "—"}
-                </MiniLine>
-              )}
-                </>
-              )}
-            </>
-          )}
-          <MiniLine label={t("Last Deployment")} mono={false}>
-            {lastDeployment
-              ? `${new Date(lastDeployment.createdAt).toLocaleString(locale)} · ${deploymentStatusLabel(lastDeployment.status)}`
-              : t("Never deployed")}
-          </MiniLine>
-        </MiniCard>
-        )}
-      </div>
-      {/* the panel's own apps: the env form. An imported one's is its .env on the server — read, searched, not edited */}
-      <Dialog
-        open={envOpen}
-        onOpenChange={(open) => {
-          setEnvOpen(open);
-          // closed: read it again, so the card and its checklist show what is saved now
-          if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
-        }}
-      >
-        {/* a flex column bounded to the screen: the title and Save stay, only the form's body scrolls */}
-        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>{t("Env")} — {application.name}</DialogTitle>
-          </DialogHeader>
-          {application.runtime ? (
-            <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
-          ) : (
-            <FreshEnvironment appId={application.id} detected={detection.data} />
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog open={buildOpen} onOpenChange={setBuildOpen}>
-        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>{t("Build Settings")} — {application.name}</DialogTitle>
-          </DialogHeader>
-          <ApplicationSettingsForm application={application} detected={detection.data} />
-        </DialogContent>
-      </Dialog>
-      {!needsSetup && (
-      <div className="flex flex-wrap items-center gap-3 md:flex-nowrap">
-        <div className="min-w-0 flex-1">
-          {uploadedSite ? (
-            <SiteFilesMini appId={application.id} />
-          ) : (
-          <MiniCard
-            icon={KeyRound}
-            title={`${t("Env")} (${env.length})`}
-            action={
-              <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setEnvOpen(true)}>
-                <Pencil className="mr-1 h-3 w-3" />
-                {t("Manage")}
-              </Button>
-            }
-          >
-            {env.length === 0 ? (
-              <p className="text-muted-foreground">{t("No environment variables configured")}</p>
-            ) : (
-              // names only, two lines at most — values can be secrets; all of them in Manage
-              <p className="line-clamp-2 break-all font-mono" title={env.join(", ")}>
-                {env.join(", ")}
-              </p>
-            )}
-          </MiniCard>
-          )}
-        </div>
-      {/* mid-deploy the process is the deploy's: not stopped or started by hand meanwhile */}
-      {actionsSlot &&
-        controllable &&
-        !inFlight &&
-        createPortal(
-          running ? (
-            <>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title={t("Restart")} aria-label={t("Restart")} disabled={pending} onClick={() => restart.mutate(application.id)}>
-                <RefreshCw className={`h-4 w-4 ${restart.isPending ? "animate-spin" : ""}`} />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title={t("Stop")} aria-label={t("Stop")} disabled={pending} onClick={() => setConfirmStop(true)}>
-                <Square className="h-4 w-4" />
-              </Button>
-            </>
-          ) : (
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title={t("Start")} aria-label={t("Start")} disabled={pending} onClick={() => start.mutate(application.id)}>
-              {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            </Button>
-          ),
-          actionsSlot,
-        )}
-      </div>
-      )}
-      {/* stopping takes it offline: asked first, as on its page */}
-      <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("Stop Service")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: application.name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                stop.mutate(application.id);
-                setConfirmStop(false);
-              }}
-            >
-              {t("Stop Service")}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
 
 /**
- * The env form in the card's dialog, on the app as the server has it now: read
- * again each time it opens, and shown once that answer is in — never a copy the
- * page held from before a save.
+ * One service as a row of the app's Services tab: what it is, where it
+ * answers, its last deploy, start/stop. The row opens its page.
  */
-function FreshEnvironment({ appId, detected }: { appId: string; detected?: DetectedProject | null }) {
-  const { data: application, isFetchedAfterMount } = useQuery({
-    queryKey: ["application", appId],
-    queryFn: () => getApplication(appId),
-    refetchOnMount: "always",
-  });
-  if (!application || !isFetchedAfterMount) {
-    return <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" />;
-  }
-  return <AppEnvironment application={application} detected={detected} />;
+function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: string; tone: string }; onOpen: () => void }) {
+  const { data: application } = useApplication(app.id);
+  const start = useStartExistingApplication();
+  const stop = useStopApplication();
+  const restart = useRestartApplication();
+  const [confirmStop, setConfirmStop] = useState(false);
+  const deploying = ["DEPLOYING", "BUILDING"].includes(app.status);
+  // a process the panel or pm2 starts and stops — not a PHP site or static files, nor someone else's;
+  // started again from its built release, so one never deployed is deployed, not started.
+  // COMPOSE is controllable: start/stop/restart map to compose up/stop/force-recreate
+  const controllable =
+    !!application &&
+    (!application.runtime || application.runtime === "PM2") &&
+    !["STATIC", "PHP"].includes(application.type) &&
+    (!!application.runtime || hasBeenDeployed(application));
+  const running = app.status === "RUNNING";
+  const pending = start.isPending || stop.isPending || restart.isPending;
+  const last = application?.deployments?.[0];
+  // what serves it on the box: its pm2 process, Caddy's files or proxy
+  const runtime = `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`;
+  const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
+  return (
+    <TableRow onClick={onOpen} className={`group cursor-pointer ${app.disabled ? "opacity-50" : ""}`}>
+      <TableCell className="py-3">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status.tone]}`} title={status.text} />
+          <span className="truncate font-medium">{app.name}</span>
+          {deploying && (
+            <span className="flex shrink-0 items-center gap-1 text-xs text-warning">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t("Deploying")}
+            </span>
+          )}
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-2">
+          <AppTypeBadge type={app.type} />
+          {/* its folder in the repository (monorepos); none = the root */}
+          {app.rootDirectory && (
+            <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
+              <FolderOpen className="h-3 w-3" />
+              {app.rootDirectory}
+            </span>
+          )}
+          {/* only what is not the panel's own: an imported service's pm2 process or Caddy files */}
+          {app.runtime && (
+            <Badge variant="outline" className="truncate border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning" title={app.rootPath ?? undefined}>
+              {runtime}
+            </Badge>
+          )}
+        </span>
+      </TableCell>
+      <TableCell className="font-mono text-xs">
+        {bindings.length === 0 ? (
+          <span className="text-muted-foreground">{t("no route")}</span>
+        ) : (
+          bindings.map((d) => (
+            <span key={bindingLabel(d)} className="block truncate">
+              {d.host}
+              {d.path && <span className="text-muted-foreground">{d.path}</span>}
+            </span>
+          ))
+        )}
+      </TableCell>
+      <TableCell className="text-xs">
+        {last ? (
+          <span title={new Date(last.createdAt).toLocaleString(locale)}>
+            <span className={last.status === "FAILED" ? "text-destructive" : ""}>{deploymentStatusLabel(last.status)}</span>
+            <span className="block text-muted-foreground">
+              {new Date(last.createdAt).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}
+            </span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{t("Never deployed")}</span>
+        )}
+      </TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <span className="flex items-center justify-end gap-1">
+          {/* mid-deploy the process is the deploy's: not stopped or started by hand meanwhile */}
+          {controllable &&
+            !deploying &&
+            (running ? (
+              <>
+                <Button variant="ghost" size="icon" className="h-8 w-8" title={t("Restart")} aria-label={t("Restart")} disabled={pending} onClick={() => restart.mutate(app.id)}>
+                  <RefreshCw className={`h-4 w-4 ${restart.isPending ? "animate-spin" : ""}`} />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title={t("Stop")} aria-label={t("Stop")} disabled={pending} onClick={() => setConfirmStop(true)}>
+                  <Square className="h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title={t("Start")} aria-label={t("Start")} disabled={pending} onClick={() => start.mutate(app.id)}>
+                {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              </Button>
+            ))}
+          <RenameAppDialog app={app} />
+          <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </span>
+        {/* stopping takes it offline: asked first, as on its page */}
+        <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Stop Service")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: app.name })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  stop.mutate(app.id);
+                  setConfirmStop(false);
+                }}
+              >
+                {t("Stop Service")}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </TableCell>
+    </TableRow>
+  );
 }
 
 /**
@@ -1054,7 +924,7 @@ function ServiceEnvSection({ appId }: { appId: string }) {
         <CardTitle className="flex min-w-0 items-center gap-2 text-base">
           <KeyRound className="h-4 w-4 shrink-0 text-primary" />
           <span className="truncate">{application.name}</span>
-          {host && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
+          {host && !application.name.includes(host) && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -1070,23 +940,60 @@ function ServiceEnvSection({ appId }: { appId: string }) {
   );
 }
 
-/** A small read-only card of the quick edit's bento. */
-function MiniCard({ icon: Icon, title, action, children }: { icon: typeof Rocket; title: string; /** a button beside the title */ action?: React.ReactNode; children: React.ReactNode }) {
+/**
+ * One service's deployment settings on the app's Build tab: the panel's own
+ * services get the form (commands, port, folder); one run by pm2, docker or
+ * compose on its server is shown as it runs there; uploaded files are not built.
+ */
+function ServiceBuildSection({ appId }: { appId: string }) {
+  const { data: application } = useApplication(appId);
+  const detection = useQuery({
+    queryKey: ["application", appId, "detect"],
+    queryFn: () => getAppDetection(appId),
+    enabled: !!application && !application.runtime && !!application.repository,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  if (!application) return <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />;
+  const host = application.domains.map((d) => d.host).find(isPublicHost);
+  const uploadedSite = application.type === "STATIC" && !application.repository;
   return (
-    <div className="min-w-0 space-y-1.5 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 font-medium text-muted-foreground">
-          <Icon className="h-3.5 w-3.5 text-primary" />
-          {title}
-        </p>
-        {action}
-      </div>
-      {children}
-    </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+          <Hammer className="h-4 w-4 shrink-0 text-primary" />
+          <span className="truncate">{application.name}</span>
+          {host && !application.name.includes(host) && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5 text-sm">
+        {uploadedSite ? (
+          <p className="text-muted-foreground">{t("Uploaded files are served as they are — nothing is built.")}</p>
+        ) : application.runtime === "DOCKER" ? (
+          // docker runs it, not the panel: where Caddy sends it and where compose started it are what matter
+          <>
+            <MiniLine label={t("Proxy target")}>{application.port ? `127.0.0.1:${application.port}` : "—"}</MiniLine>
+            <MiniLine label={t("Folder")}>{application.rootPath || t("not started by compose")}</MiniLine>
+          </>
+        ) : application.runtime ? (
+          // run on its server by whoever set it up: shown, not edited here
+          <>
+            <MiniLine label={t("Build Command")}>{application.buildCommand || "—"}</MiniLine>
+            {application.type !== "STATIC" && (
+              <MiniLine label={t("Start Command")}>
+                {application.runtime === "PM2" && application.processName ? `pm2 restart ${application.processName}` : application.startCommand || "—"}
+              </MiniLine>
+            )}
+          </>
+        ) : (
+          <ApplicationSettingsForm application={application} detected={detection.data} />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-/** Label left, value right — a line of a MiniCard. */
+/** Label left, value right — a line of read-only settings. */
 function MiniLine({ label, children, mono = true }: { label: string; children: React.ReactNode; /** commands: monospace */ mono?: boolean }) {
   return (
     <p className="flex items-start justify-between gap-3">
@@ -1096,41 +1003,3 @@ function MiniLine({ label, children, mono = true }: { label: string; children: R
   );
 }
 
-/** A site uploaded as files, in the quick edit's bento: how many and how big, a few of their names — managed in a dialog. */
-function SiteFilesMini({ appId }: { appId: string }) {
-  const [open, setOpen] = useState(false);
-  // the same list the dialog's card reads — one request between them
-  const { data, isLoading } = useQuery({ queryKey: ["site-files", appId], queryFn: () => getSiteFiles(appId) });
-  const files = data?.files ?? [];
-  const bytes = files.reduce((sum, file) => sum + (file.size ?? 0), 0);
-  return (
-    <MiniCard
-      icon={FolderOpen}
-      title={`${t("Site files")}${data ? ` (${files.length} · ${formatBytes(bytes, locale)})` : ""}`}
-      action={
-        <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setOpen(true)}>
-          <Pencil className="mr-1 h-3 w-3" />
-          {t("Manage")}
-        </Button>
-      }
-    >
-      {isLoading ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-      ) : files.length === 0 ? (
-        <p className="text-muted-foreground">{t("No files uploaded yet")}</p>
-      ) : (
-        <p className="line-clamp-2 break-all font-mono" title={files.map((file) => file.key).join(", ")}>
-          {files.map((file) => file.key).join(", ")}
-        </p>
-      )}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
-          <DialogHeader>
-            <DialogTitle>{t("Site files")}</DialogTitle>
-          </DialogHeader>
-          <SiteFilesCard appId={appId} />
-        </DialogContent>
-      </Dialog>
-    </MiniCard>
-  );
-}

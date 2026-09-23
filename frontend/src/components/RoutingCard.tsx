@@ -43,6 +43,7 @@ export function RoutingCard({
   onRepoint,
   children,
   compact = false,
+  dialogOnly = false,
   editOpen: controlledOpen,
   onEditOpenChange,
   onChange,
@@ -54,6 +55,8 @@ export function RoutingCard({
   children?: React.ReactNode;
   /** one line — the hosts and Edit — for an app card opened in a list */
   compact?: boolean;
+  /** the hosts dialog alone, opened with editOpen — a row elsewhere shows the hosts */
+  dialogOnly?: boolean;
   /** the hosts dialog, opened from outside too (the setup checklist's Host step) */
   editOpen?: boolean;
   onEditOpenChange?: (open: boolean) => void;
@@ -230,6 +233,8 @@ export function RoutingCard({
       {t("Add domain / host")}
     </Button>
   );
+
+  if (dialogOnly) return editDialog;
 
   if (compact) {
     return (
