@@ -137,11 +137,32 @@ if command -v podman >/dev/null 2>&1; then
     done
     echo "subuid/subgid: $OS_USER $SUB_START+$SUB_COUNT"
 
+    # Podman's layer store: the user's own group and no setgid. The home is
+    # 2770 group $CB_GROUP, which every directory under it would inherit — and
+    # inside the user namespace that group is not mapped, so the kernel refuses
+    # the overlay mount ("failed to mount overlay for metacopy check ...
+    # permission denied") and podman.service dies until the socket gives up.
+    # A store made under the setgid home never held a layer (no mount ever
+    # worked), so fixing its group and mode in place loses nothing.
+    STORE="$HOME_DIR/.local/share/containers"
+    install -d -o "$OS_USER" -g "$CB_GROUP" -m 2770 "$HOME_DIR/.local" "$HOME_DIR/.local/share"
+    if [ ! -d "$STORE" ]; then
+      install -d -o "$OS_USER" -g "$OS_USER" -m 0700 "$STORE"
+    elif [ -g "$STORE" ] || [ "$(stat -c %G "$STORE")" != "$OS_USER" ]; then
+      chgrp -R "$OS_USER" "$STORE"
+      find "$STORE" -type d -perm -2000 -exec chmod g-s {} +
+      chmod 0700 "$STORE"
+      echo "podman store of $OS_USER: own group, no setgid"
+    fi
+
     # The compose CLI talks to this user's own podman socket (see cb-compose,
     # written by install.sh). Enabling it here also proves the user manager is
-    # up, which is the part lingering is responsible for.
+    # up, which is the part lingering is responsible for. reset-failed first:
+    # a socket that hit its trigger limit stays failed until told otherwise.
     RUN_DIR="/run/user/$(id -u "$OS_USER")"
     if [ -d "$RUN_DIR" ]; then
+      runuser -u "$OS_USER" -- env "XDG_RUNTIME_DIR=$RUN_DIR" "DBUS_SESSION_BUS_ADDRESS=unix:path=$RUN_DIR/bus" \
+        systemctl --user reset-failed podman.socket podman.service >/dev/null 2>&1 || true
       runuser -u "$OS_USER" -- env "XDG_RUNTIME_DIR=$RUN_DIR" "DBUS_SESSION_BUS_ADDRESS=unix:path=$RUN_DIR/bus" \
         systemctl --user enable --now podman.socket >/dev/null 2>&1 \
         && echo "podman socket enabled for $OS_USER" \
