@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertTriangle, Check, CheckCircle2, ChevronsUpDown, ClipboardPaste, Eye, EyeOff, Info, FileUp, Loader2, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
@@ -166,7 +166,19 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     };
   };
 
-  const indexed: Indexed[] = list.map((row, index) => ({ row, index }));
+  // By name, so one prefix sits together (POSTGRES_*, CKAN_SYSADMIN_*); a row still
+  // unnamed last. Re-sorted when rows come or go, not per keystroke: a row being
+  // renamed does not jump away under the cursor.
+  const order = useMemo(
+    () =>
+      list
+        .map((row, index) => ({ key: row.key, index }))
+        .sort((a, b) => (!a.key ? 1 : !b.key ? -1 : a.key.localeCompare(b.key)) || a.index - b.index)
+        .map(({ index }) => index),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [list.length],
+  );
+  const indexed: Indexed[] = order.filter((index) => index < list.length).map((index) => ({ row: list[index]!, index }));
   // needs a look: expected but empty, a name that cannot be exported, an address that cannot work on the server
   const isFlagged = ({ row, index }: Indexed) => {
     const v = view(row, index);
@@ -381,7 +393,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   };
 
   const columns: Column<Indexed>[] = [
-    { header: "#", className: "w-10 align-top pt-4 text-xs text-muted-foreground", cell: ({ index }) => index + 1 },
+    { header: "#", className: "w-10 align-top pt-4 text-xs text-muted-foreground", cell: ({ index }) => indexed.findIndex((entry) => entry.index === index) + 1 },
     { header: t("Name"), className: "w-[28%] align-top", cell: nameCell },
     { header: t("Value"), className: "align-top", cell: valueCell },
     // the eye and the bin

@@ -528,7 +528,26 @@ const DB_ENV: Record<string, (c: Credentials) => string | null> = {
   PGDATABASE: (c) => (c.engine === 'POSTGRESQL' ? c.database : null),
   PGUSER: (c) => (c.engine === 'POSTGRESQL' ? c.username : null),
   PGPASSWORD: (c) => (c.engine === 'POSTGRESQL' ? c.password : null),
+  // the postgres image's and its compose stacks' (CKAN: POSTGRES_HOST, _PORT, _PASSWORD)
+  POSTGRES_HOST: (c) => (c.engine === 'POSTGRESQL' ? c.host : null),
+  POSTGRES_PORT: (c) => (c.engine === 'POSTGRESQL' ? String(c.port) : null),
+  POSTGRES_DB: (c) => (c.engine === 'POSTGRESQL' ? c.database : null),
+  POSTGRES_DATABASE: (c) => (c.engine === 'POSTGRESQL' ? c.database : null),
+  POSTGRES_USER: (c) => (c.engine === 'POSTGRESQL' ? c.username : null),
+  POSTGRES_USERNAME: (c) => (c.engine === 'POSTGRESQL' ? c.username : null),
+  POSTGRES_PASSWORD: (c) => (c.engine === 'POSTGRESQL' ? c.password : null),
 };
+
+/**
+ * Loopback seen from a container is the container itself: a stack on the
+ * database's own node reaches the host as host.containers.internal (Podman's
+ * name for it). Pure.
+ */
+export function forContainers<T extends { host: string; url: string }>(c: T): T {
+  if (!/^(127\.0\.0\.1|localhost|::1)$/.test(c.host)) return c;
+  const host = 'host.containers.internal';
+  return { ...c, host, url: c.url.replace(/@(127\.0\.0\.1|localhost|\[::1\])(?=[:/])/, `@${host}`) };
+}
 
 /**
  * Connect a database to an app: link it, and put its connection URL in the
@@ -549,7 +568,7 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
 
     const application = await prisma.application.findFirst({
       where: { id: String(req.body?.applicationId ?? ''), ...(await appScope(req)) },
-      select: { id: true, organizationId: true, envVars: true },
+      select: { id: true, organizationId: true, envVars: true, type: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
@@ -597,7 +616,9 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
     // the host as the app's own node reaches it: loopback when it shares the
     // database's node, an address other nodes can reach otherwise
     const appNode = await serverForApplication(application.id).catch(() => null);
-    const credentials = await databaseCredentials(database.id, accountId, appNode?.id ?? null);
+    const reached = await databaseCredentials(database.id, accountId, appNode?.id ?? null);
+    // a compose stack connects from inside its containers
+    const credentials = application.type === 'COMPOSE' ? forContainers(reached) : reached;
     // only names from the list, and only for this engine — never an arbitrary key
     const also = (Array.isArray(req.body?.alsoKeys) ? req.body.alsoKeys : [])
       .map(String)
