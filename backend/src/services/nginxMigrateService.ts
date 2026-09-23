@@ -28,8 +28,12 @@ export type SitePlan = {
   serve: Serve | null;
   /** hostnames whose DNS does not point at this node — ACME would fail for them */
   danglingHosts: string[];
+  /** hostnames behind Cloudflare's proxy: their origin cannot be read from DNS, so not called dangling */
+  proxiedHosts?: string[];
   /** why it cannot be migrated, when it cannot */
   blocked: string | null;
+  /** the Caddy route it becomes, exactly as it will be loaded — for the preview */
+  route?: any;
 };
 
 export type MigrationPlan = {
@@ -38,6 +42,8 @@ export type MigrationPlan = {
   sites: SitePlan[];
   /** true when nothing blocks the switch */
   ready: boolean;
+  /** caddy-api.service is on the node — Set up installs it, stopped, beside a running nginx */
+  caddyInstalled: boolean;
 };
 
 /** Read the enabled site files off the node, concatenated with a marker per file. */
@@ -73,6 +79,7 @@ export function serveOf(site: NginxSite): Serve | null {
     ...(site.maxBodyBytes !== undefined && { maxBodyBytes: site.maxBodyBytes }),
     ...(site.readTimeout !== undefined && { readTimeout: site.readTimeout }),
     ...(site.streaming !== undefined && { streaming: site.streaming }),
+    ...(site.deny?.length && { deny: site.deny }),
   };
   if (site.kind === 'proxy' && site.port) return { kind: 'proxy', port: site.port, ...tuning };
   if (site.kind === 'php' && site.root && site.socket) return { kind: 'php', root: site.root, socket: site.socket, ...tuning };
@@ -89,6 +96,7 @@ export function targetOf(serve: Serve): Target {
       ...(serve.maxBodyBytes !== undefined && { maxBodyBytes: serve.maxBodyBytes }),
       ...(serve.readTimeout !== undefined && { readTimeout: serve.readTimeout }),
       ...(serve.streaming !== undefined && { streaming: serve.streaming }),
+      ...(serve.deny?.length && { deny: serve.deny }),
     };
   }
   if (serve.kind === 'php') {
@@ -97,6 +105,7 @@ export function targetOf(serve: Serve): Target {
       root: serve.root,
       socket: serve.socket,
       ...(serve.maxBodyBytes !== undefined && { maxBodyBytes: serve.maxBodyBytes }),
+      ...(serve.deny?.length && { deny: serve.deny }),
     };
   }
   if (serve.kind === 'files') return { type: 'split', parts: [{ path: null, root: serve.root, spa: serve.spa }] };
@@ -109,28 +118,60 @@ export function targetOf(serve: Serve): Target {
  * the challenge — noisily, and forever. nginx never noticed because certbot
  * was told which names to ask for; Caddy asks for all of them.
  */
-async function resolvesHere(host: string, publicIp: string): Promise<boolean> {
+async function whereItResolves(host: string, publicIp: string): Promise<'here' | 'cloudflare' | 'elsewhere'> {
   const addresses = await dns.resolve4(host).catch(() => [] as string[]);
   const v6 = await dns.resolve6(host).catch(() => [] as string[]);
-  if (addresses.length === 0 && v6.length === 0) return false;
-  return addresses.includes(publicIp) || v6.includes(publicIp);
+  if (addresses.includes(publicIp) || v6.includes(publicIp)) return 'here';
+  // an orange-cloud record answers with Cloudflare's addresses, whatever its origin is
+  if (addresses.length > 0 && addresses.every(isCloudflareIp)) return 'cloudflare';
+  return 'elsewhere';
+}
+
+// ponytail: Cloudflare's published IPv4 ranges (cloudflare.com/ips-v4), hardcoded — they change
+// about once in years; fetch that list instead if one ever goes missing here
+const CLOUDFLARE_V4 = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18',
+  '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17',
+  '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+];
+const ipv4 = (ip: string) => ip.split('.').reduce((n, part) => n * 256 + Number(part), 0);
+
+/** Is this IPv4 address one of Cloudflare's? Pure. */
+export function isCloudflareIp(ip: string): boolean {
+  return CLOUDFLARE_V4.some((cidr) => {
+    const [base, bits] = cidr.split('/');
+    const size = 2 ** (32 - Number(bits));
+    return Math.floor(ipv4(ip) / size) === Math.floor(ipv4(base!) / size);
+  });
 }
 
 /** Read the node's nginx configuration and say what migrating it would do. */
 export async function planMigration(node: SshTarget & { publicIp: string }): Promise<MigrationPlan> {
-  const files = await readNginxFiles(node);
+  const [files, caddyInstalled] = await Promise.all([
+    readNginxFiles(node),
+    exec(node, ['systemctl', 'cat', 'caddy-api'], { timeout: 20_000 }).then(() => true, () => false),
+  ]);
   const sites = [...files.values()].flatMap((text) => sitesOf(text));
 
   const plans: SitePlan[] = await Promise.all(
     sites.map(async (site) => {
       const serve = serveOf(site);
       const dangling: string[] = [];
-      for (const host of site.hosts) if (!(await resolvesHere(host, node.publicIp))) dangling.push(host);
+      const proxied: string[] = [];
+      for (const host of site.hosts) {
+        const where = await whereItResolves(host, node.publicIp);
+        if (where === 'elsewhere') dangling.push(host);
+        if (where === 'cloudflare') proxied.push(host);
+      }
+      // static files have no place to carry a deny: better not switched than exposed
+      const exposes = serve?.kind === 'files' && site.deny?.length ? 'nginx denies some paths here, and a static site cannot carry that over' : null;
       return {
         site,
         serve,
         danglingHosts: dangling,
-        blocked: serve ? null : site.warnings[0] ?? 'this site is not something the panel can serve',
+        proxiedHosts: proxied,
+        blocked: exposes ?? (serve ? null : site.warnings[0] ?? 'this site is not something the panel can serve'),
+        ...(serve && { route: buildRoute(site.hosts, targetOf(serve)) }),
       };
     }),
   );
@@ -139,7 +180,8 @@ export async function planMigration(node: SshTarget & { publicIp: string }): Pro
     files: [...files.keys()],
     sites: plans,
     // a site the panel cannot serve would simply go dark after the switch
-    ready: plans.length > 0 && plans.every((plan) => !plan.blocked),
+    ready: caddyInstalled && plans.length > 0 && plans.every((plan) => !plan.blocked),
+    caddyInstalled,
   };
 }
 
@@ -154,25 +196,60 @@ export function configFor(plan: MigrationPlan): any {
 const systemctl = (node: SshTarget, ...args: string[]) =>
   execRoot(node, ['systemctl', ...args], { timeout: 60_000 });
 
-/** Ask a host for its home page through the node's own loopback. */
-async function answersLocally(node: SshTarget, host: string): Promise<boolean> {
-  const { stdout } = await exec(
-    node,
-    ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '10', '-H', `Host: ${host}`, 'http://127.0.0.1/'],
-    { timeout: 30_000 },
-  ).catch(() => ({ stdout: '000' }) as any);
-  const code = Number(String(stdout).trim());
-  // any answer at all is Caddy serving the name; 502 is the site's own upstream
-  // being down, which is not something the switch caused
-  return code > 0 && code !== 0;
+/** How long certificates get to arrive after the switch before it is undone. */
+const VERIFY_DEADLINE_MS = 120_000;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One request to a host's home page through this node's own web server — HTTPS
+ * on 127.0.0.1:443 under the host's real name, so the certificate is the one
+ * visitors get. `insecure` skips checking it. 0 when nothing answered.
+ */
+async function localCode(node: SshTarget, host: string, opts: { insecure?: boolean; http?: boolean } = {}): Promise<number> {
+  const target = opts.http
+    ? ['-H', `Host: ${host}`, 'http://127.0.0.1/']
+    : ['--resolve', `${host}:443:127.0.0.1`, ...(opts.insecure ? ['-k'] : []), `https://${host}/`];
+  const { stdout } = await exec(node, ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '10', ...target], {
+    timeout: 30_000,
+  }).catch(() => ({ stdout: '000' }) as any);
+  return Number(String(stdout).trim()) || 0;
+}
+
+/** What nginx answers for a host right now: the bar Caddy has to meet. */
+async function baselineCode(node: SshTarget, host: string): Promise<number> {
+  return (await localCode(node, host, { insecure: true })) || localCode(node, host, { http: true });
+}
+
+/**
+ * Does Caddy serve this host at least as well as nginx did? It has to answer
+ * over HTTPS with a certificate that checks out, and not fail where nginx did
+ * not: a 502 from Caddy over nginx's 200 is an upstream it cannot reach (an FPM
+ * socket it may not open, say), which is exactly the breakage to undo.
+ * null when it does, else why not.
+ */
+export async function verifyHost(node: SshTarget, host: string, before: number, deadline: number): Promise<string | null> {
+  let code = 0;
+  // the first answers wait on the certificate: TLS has nothing to offer until it is issued
+  while (!(code = await localCode(node, host, { insecure: true }))) {
+    if (Date.now() > deadline) return `${host}: Caddy did not answer over HTTPS`;
+    await sleep(3000);
+  }
+  if (code >= 500 && before > 0 && before < 500) return `${host}: Caddy answers ${code} where nginx answered ${before}`;
+  while (!(await localCode(node, host))) {
+    if (Date.now() > deadline) return `${host}: no valid certificate`;
+    await sleep(3000);
+  }
+  return null;
 }
 
 export type MigrationResult = {
   switched: boolean;
   /** hosts that answered after the switch */
   verified: string[];
-  /** hosts that did not, which is what triggers the rollback */
+  /** why hosts did not, which is what triggers the rollback */
   failed: string[];
+  /** hosts not checked: their DNS points elsewhere, or nginx was not serving them either */
+  unchecked: string[];
   rolledBack: boolean;
   message: string;
 };
@@ -183,12 +260,25 @@ export type MigrationResult = {
  * touched, so that is only a matter of starting it again.
  */
 export async function migrateToCaddy(node: SshTarget & { publicIp: string }, plan: MigrationPlan): Promise<MigrationResult> {
+  if (!plan.caddyInstalled) {
+    return { switched: false, verified: [], failed: [], unchecked: [], rolledBack: false, message: 'Caddy is not installed on this node — run Set up first (nginx keeps serving while it installs).' };
+  }
   if (!plan.ready) {
-    return { switched: false, verified: [], failed: [], rolledBack: false, message: 'The plan has sites that cannot be migrated — resolve those first.' };
+    return { switched: false, verified: [], failed: [], unchecked: [], rolledBack: false, message: 'The plan has sites that cannot be migrated — resolve those first.' };
   }
 
   const config = configFor(plan);
   const hosts = plan.sites.flatMap((site) => site.site.hosts);
+  const dangling = new Set(plan.sites.flatMap((site) => site.danglingHosts));
+
+  // measured before anything changes: what each host answers under nginx
+  const before = new Map(
+    await Promise.all(hosts.filter((host) => !dangling.has(host)).map(async (host) => [host, await baselineCode(node, host)] as const)),
+  );
+  // a certificate for a name pointing elsewhere can never be issued, and a host
+  // nginx does not answer for sets no bar — neither can tell a good switch from a bad one
+  const checked = [...before].filter(([, code]) => code > 0).map(([host]) => host);
+  const unchecked = hosts.filter((host) => !checked.includes(host));
 
   // Anything Caddy is already serving here is kept: this is an adoption, not a reset.
   const existing = await getCaddyConfig(node).catch(() => null);
@@ -208,14 +298,16 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
       switched: false,
       verified: [],
       failed: hosts,
+      unchecked: [],
       rolledBack: true,
       message: `Caddy would not take the configuration (${error?.message || error}) — nginx has been started again.`,
     };
   }
 
-  const verified: string[] = [];
-  const failed: string[] = [];
-  for (const host of hosts) ((await answersLocally(node, host)) ? verified : failed).push(host);
+  const deadline = Date.now() + VERIFY_DEADLINE_MS;
+  const outcomes = await Promise.all(checked.map(async (host) => [host, await verifyHost(node, host, before.get(host)!, deadline)] as const));
+  const verified = outcomes.filter(([, why]) => !why).map(([host]) => host);
+  const failed = outcomes.flatMap(([, why]) => (why ? [why] : []));
 
   if (failed.length > 0) {
     await systemctl(node, 'disable', '--now', 'caddy-api').catch(() => {});
@@ -224,8 +316,9 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
       switched: false,
       verified,
       failed,
+      unchecked,
       rolledBack: true,
-      message: `${failed.length} of ${hosts.length} hostnames did not answer through Caddy — nginx has been started again and is serving as before.`,
+      message: `${failed.length} of ${checked.length} hostnames were not served properly by Caddy (${failed.join('; ')}) — nginx has been started again and is serving as before.`,
     };
   }
 
@@ -237,7 +330,10 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
     switched: true,
     verified,
     failed: [],
+    unchecked,
     rolledBack: false,
-    message: `${verified.length} hostname${verified.length === 1 ? '' : 's'} now served by Caddy. nginx is stopped and disabled; its configuration is untouched.`,
+    message:
+      `${verified.length} hostname${verified.length === 1 ? '' : 's'} now served by Caddy over HTTPS. nginx is stopped and disabled; its configuration is untouched.` +
+      (unchecked.length ? ` Not checked (DNS elsewhere, or not served before): ${unchecked.join(', ')}.` : ''),
   };
 }

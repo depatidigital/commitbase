@@ -44,6 +44,10 @@ export function readTuning(raw: any): ServeTuning {
   if (Number.isInteger(raw?.maxBodyBytes) && raw.maxBodyBytes > 0) out.maxBodyBytes = raw.maxBodyBytes;
   if (typeof raw?.readTimeout === 'string' && /^\d+(ms|s|m|h)?$/.test(raw.readTimeout)) out.readTimeout = raw.readTimeout;
   if (raw?.streaming === true) out.streaming = true;
+  if (Array.isArray(raw?.deny)) {
+    const deny = raw.deny.filter((p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 500).slice(0, 50);
+    if (deny.length) out.deny = deny;
+  }
   return out;
 }
 

@@ -394,7 +394,9 @@ router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN'])
     if (!plan.ready) {
       return res.status(409).json({
         success: false,
-        error: 'Some sites cannot be migrated — review them first.',
+        error: plan.caddyInstalled
+          ? 'Some sites cannot be migrated — review them first.'
+          : 'Caddy is not installed on this node — run Set up first (nginx keeps serving while it installs).',
         data: plan,
       } as ApiResponse);
     }

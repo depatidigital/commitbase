@@ -93,6 +93,8 @@ export type ServeTuning = {
   readTimeout?: string | undefined;
   /** proxy_buffering off — send each write on as it arrives */
   streaming?: boolean | undefined;
+  /** paths nginx answered with `deny all` (RE2 patterns): 403 here too, never served */
+  deny?: string[] | undefined;
 };
 
 type RuntimeTarget = {
@@ -321,10 +323,25 @@ export function bodyLimitHandle(tuning: ServeTuning): any[] {
   return tuning.maxBodyBytes ? [{ handler: 'request_body', max_size: tuning.maxBodyBytes }] : [];
 }
 
+/**
+ * `location ... { deny all; }` as Caddy writes it: a 403 before anything else
+ * runs. static_response ends the chain, so a matched path never reaches the app.
+ */
+export function denyHandle(tuning: ServeTuning): any[] {
+  if (!tuning.deny?.length) return [];
+  return [
+    {
+      handler: 'subroute',
+      routes: [{ match: tuning.deny.map((pattern) => ({ path_regexp: { pattern } })), handle: [{ handler: 'static_response', status_code: 403 }] }],
+    },
+  ];
+}
+
 function buildPhpRoute(hosts: string[], target: PhpTarget): any {
   return {
     match: [{ host: hosts }],
     handle: [
+      ...denyHandle(target),
       ...bodyLimitHandle(target),
       {
         handler: 'subroute',
@@ -402,7 +419,7 @@ export function buildRoute(names: string | string[], target: Target): any {
   };
 
   if (target.type === 'runtime') {
-    route.handle.push(...bodyLimitHandle(target), {
+    route.handle.push(...denyHandle(target), ...bodyLimitHandle(target), {
       handler: 'reverse_proxy',
       upstreams: [
         {

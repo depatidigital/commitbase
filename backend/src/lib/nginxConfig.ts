@@ -120,6 +120,8 @@ export type NginxSite = {
   readTimeout?: string;
   /** proxy_buffering off — the site streams */
   streaming?: boolean;
+  /** `location ... { deny all; }` paths, as RE2 patterns Caddy can match */
+  deny?: string[];
   /** what it could not account for; a site with these is one to look at */
   warnings: string[];
 };
@@ -162,6 +164,21 @@ function isRedirectOnly(block: NginxDirective[]): boolean {
   return returns.length > 0 || ifs.length > 0;
 }
 
+/**
+ * A location's match as a regular expression over the path, or null for a
+ * named one (`@fallback`), which matches no request by itself. Pure.
+ */
+export function locationPattern(args: string[]): string | null {
+  const [a, b] = args;
+  const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (a === '=' && b) return `^${literal(b)}$`;
+  if (a === '^~' && b) return `^${literal(b)}`;
+  if (a === '~' && b) return b;
+  if (a === '~*' && b) return `(?i)${b}`;
+  if (a && !b && a.startsWith('/')) return `^${literal(a)}`;
+  return null;
+}
+
 /** What one `server { }` block serves. */
 export function siteOf(server: NginxDirective): NginxSite {
   const block = server.block ?? [];
@@ -194,6 +211,23 @@ export function siteOf(server: NginxDirective): NginxSite {
   const rootLocation = locations.find((d) => d.args[0] === '/') ?? null;
   const phpLocation = locations.find((d) => /\\?\.php\$?/.test(d.args.join(' ')));
   const root = first(block, 'root')?.args[0] ?? first(rootLocation?.block ?? [], 'root')?.args[0];
+
+  // Every other location. A `deny all` one is carried over: dropping it would
+  // serve what nginx kept hidden (roundcube's config/, logs/, temp/). Anything
+  // else is said out loud rather than silently lost in the switch.
+  for (const location of locations) {
+    if (location === rootLocation || location === phpLocation) continue;
+    const pattern = locationPattern(location.args);
+    if (pattern === null) continue;
+    const inner = location.block ?? [];
+    const label = `location ${location.args.join(' ')}`;
+    if (all(inner, 'deny').some((d) => d.args[0] === 'all')) {
+      (site.deny ??= []).push(pattern);
+      if (all(inner, 'allow').length) warnings.push(`${label}: its allow rules are not carried over, so it is denied to everyone`);
+    } else {
+      warnings.push(`${label} is not carried over — requests to it get what the rest of the site serves`);
+    }
+  }
 
   // a proxy to a port on this box — the shape the panel already models
   const proxyPass = first(rootLocation?.block ?? [], 'proxy_pass')?.args[0];

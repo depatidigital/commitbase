@@ -248,18 +248,26 @@ export interface NginxSitePlan {
     maxBodyBytes?: number;
     readTimeout?: string;
     streaming?: boolean;
+    /** paths nginx denies, carried over as 403s */
+    deny?: string[];
     warnings: string[];
   };
   serve: Record<string, unknown> | null;
   /** hostnames whose DNS does not point here — their certificates would fail */
   danglingHosts: string[];
+  /** behind Cloudflare's proxy: the origin is not visible in DNS, so not called dangling */
+  proxiedHosts?: string[];
   blocked: string | null;
+  /** the Caddy route it becomes, exactly as it will be loaded */
+  route?: unknown;
 }
 
 export interface NginxPlan {
   files: string[];
   sites: NginxSitePlan[];
   ready: boolean;
+  /** caddy-api is on the node; Set up installs it (stopped) beside a running nginx */
+  caddyInstalled: boolean;
 }
 
 export interface NginxMigration {

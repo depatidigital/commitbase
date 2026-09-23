@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { t } from "@/lib/i18n";
-import { getNginxPlan, migrateNginx, type NginxSitePlan } from "@/lib/servers";
+import { getNginxPlan, migrateNginx, setupServer, type NginxSitePlan } from "@/lib/servers";
 
 /** What each site becomes, in one line. */
 const becomes = (plan: NginxSitePlan): string => {
@@ -33,6 +33,7 @@ const kept = (plan: NginxSitePlan): string[] => {
   if (plan.site.maxBodyBytes) out.push(t("uploads up to {mb} MB", { mb: String(Math.round(plan.site.maxBodyBytes / 1024 / 1024)) }));
   if (plan.site.readTimeout) out.push(t("waits {timeout} for the app", { timeout: plan.site.readTimeout }));
   if (plan.site.streaming) out.push(t("streams the response"));
+  if (plan.site.deny?.length) out.push(t("{n} denied path(s) stay 403", { n: String(plan.site.deny.length) }));
   return out;
 };
 
@@ -45,6 +46,16 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
+  const [preview, setPreview] = useState<number | null>(null);
+
+  const install = useMutation({
+    mutationFn: () => setupServer(serverId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["servers", serverId] });
+      toast({ title: t("Setup queued"), description: t("Caddy is installed stopped; nginx keeps serving. Re-read this tab when setup is done.") });
+    },
+    onError: (error: Error) => toast({ title: t("Setup failed"), description: error.message, variant: "destructive" }),
+  });
 
   const plan = useQuery({
     queryKey: ["servers", serverId, "nginx"],
@@ -113,6 +124,19 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
         </div>
       </div>
 
+      {plan.data && !plan.data.caddyInstalled && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 p-3">
+          <p className="flex items-start gap-2 text-sm text-warning">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            {t("Caddy is not installed on this node. Set up installs it without starting it, so nginx keeps serving until you migrate.")}
+          </p>
+          <Button size="sm" variant="outline" onClick={() => install.mutate()} disabled={install.isPending}>
+            {install.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("Install Caddy (Set up)")}
+          </Button>
+        </div>
+      )}
+
       {blocked.length > 0 && (
         <p className="flex items-start gap-2 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -150,7 +174,19 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
                     {site.site.kind}
                   </Badge>
                 )}
+                {site.route !== undefined && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => setPreview(preview === index ? null : index)}
+                  >
+                    {preview === index ? t("Hide Caddy route") : t("Preview Caddy route")}
+                  </button>
+                )}
               </div>
+              {preview === index && (
+                <pre className="ml-6 max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(site.route, null, 2)}</pre>
+              )}
               <p className="pl-6 text-xs text-muted-foreground">{site.blocked ?? becomes(site)}</p>
               {kept(site).length > 0 && (
                 <p className="pl-6 text-xs text-muted-foreground">{t("kept:")} {kept(site).join(" · ")}</p>
@@ -160,6 +196,11 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
                   {warning}
                 </p>
               ))}
+              {!!site.proxiedHosts?.length && (
+                <p className="pl-6 text-xs text-muted-foreground">
+                  {t("via Cloudflare proxy:")} {site.proxiedHosts.join(", ")}
+                </p>
+              )}
               {site.danglingHosts.length > 0 && (
                 <p className="pl-6 text-xs text-warning">
                   {t("does not resolve here:")} {site.danglingHosts.join(", ")}
@@ -176,7 +217,7 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
             <AlertDialogTitle>{t("Switch this node to Caddy?")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t(
-                "nginx is stopped, Caddy starts with every site above loaded at once, and each hostname is checked. If any does not answer, nginx is started again and nothing has changed. Its configuration files are never edited or removed, so the way back is always `systemctl enable --now nginx`. Expect a few seconds where the sites are not reachable, and a short wait afterwards while Caddy gets its certificates.",
+                "nginx is stopped, Caddy starts with every site above loaded at once, and each hostname is checked. If any does not answer, nginx is started again and nothing has changed. Its configuration files are never edited or removed, so the way back is always `systemctl enable --now nginx`. Certificates are not copied from nginx: Caddy gets its own, so expect up to two minutes where HTTPS is not reachable. Each hostname must then answer over HTTPS with a valid certificate, and no worse than it did under nginx, or the switch is undone.",
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

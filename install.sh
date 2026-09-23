@@ -70,7 +70,23 @@ fi
 # ---------------------------------------------------------------- 1. packages
 say "System packages"
 export DEBIAN_FRONTEND=noninteractive
+
+# A box that is already serving often has apt half-broken: an install that was
+# interrupted, or a package whose dependencies no longer line up. Every
+# apt-get install below would then fail with "Unmet dependencies". Repair it,
+# but only the kind of repair that adds or finishes packages — one that removes
+# something could be taking docker, php or nginx off a live box, and that is a
+# decision for a person, not for setup.
+dpkg --configure -a >/dev/null 2>&1 || true
 apt-get update -qq
+if ! apt-get check >/dev/null 2>&1; then
+  REMOVALS="$(apt-get -f install -s 2>/dev/null | sed -n 's/^Remv \([^ ]*\).*/\1/p' | tr '\n' ' ' || true)"
+  if [ -n "$REMOVALS" ]; then
+    die "apt is broken on this box, and fixing it would REMOVE: ${REMOVALS}- nothing was removed. Check with 'apt --fix-broken install --dry-run', repair it by hand, then run setup again."
+  fi
+  note "apt had unmet dependencies - completing them (nothing is removed)"
+  apt-get -f install -y -qq >/dev/null || die "apt --fix-broken install failed - see 'apt --fix-broken install' on the box"
+fi
 # git + build-essential: tenant apps are cloned and built here, not on the panel.
 apt-get install -y -qq sudo curl git build-essential quota debian-keyring debian-archive-keyring \
   apt-transport-https ca-certificates gnupg >/dev/null

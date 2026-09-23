@@ -5,7 +5,8 @@
 import assert from 'assert';
 import { sitesOf } from '../lib/nginxConfig';
 import { buildRoute } from './caddyService';
-import { configFor, serveOf, targetOf, type MigrationPlan } from './nginxMigrateService';
+import { configFor, isCloudflareIp, serveOf, targetOf, type MigrationPlan } from './nginxMigrateService';
+import { readTuning } from './hostRouteService';
 
 const site = (text: string) => sitesOf(text)[0]!;
 
@@ -63,6 +64,7 @@ const plan: MigrationPlan = {
     { site: php, serve: phpServe, danglingHosts: [], blocked: null },
   ],
   ready: true,
+  caddyInstalled: true,
 };
 const config = configFor(plan);
 assert.deepStrictEqual(config.apps.http.servers.larika.listen, [':80', ':443']);
@@ -75,5 +77,31 @@ assert.ok(hosts.includes('webmail.other.id'));
 // a site that cannot be served is never silently dropped from the switch
 const blocked: MigrationPlan = { ...plan, sites: [...plan.sites, { site: proxy, serve: null, danglingHosts: [], blocked: 'nope' }], ready: false };
 assert.strictEqual(configFor(blocked).apps.http.servers.larika.routes.length, 2);
+
+// roundcube's deny rules come along: dropping them would serve config/ and logs/
+const guarded = site(`server {
+  server_name webmail.example.go.id;
+  root /usr/share/roundcube;
+  location / { try_files $uri $uri/ /index.php; }
+  location ~ ^/(config|temp|logs)/ { deny all; }
+  location = /composer.json { deny all; }
+  location /admin { allow 10.0.0.0/8; deny all; }
+  location /static { alias /srv/static; }
+  location ~ \\.php$ { fastcgi_pass unix:/run/php/php8.3-fpm.sock; }
+}`);
+assert.deepStrictEqual(guarded.deny, ['^/(config|temp|logs)/', '^/composer\\.json$', '^/admin']);
+assert.ok(guarded.warnings.some((w) => w.includes('allow rules are not carried over')));
+assert.ok(guarded.warnings.some((w) => w.includes('location /static is not carried over')));
+const guardedRoute = buildRoute(guarded.hosts, targetOf(serveOf(guarded)!));
+// the 403 runs first, before PHP ever sees the request
+assert.strictEqual(guardedRoute.handle[0].routes[0].handle[0].status_code, 403);
+assert.deepStrictEqual(guardedRoute.handle[0].routes[0].match[0], { path_regexp: { pattern: '^/(config|temp|logs)/' } });
+// and survives being stored and read back as a serve
+assert.deepStrictEqual(readTuning(serveOf(guarded)).deny, guarded.deny);
+
+// an orange-cloud record is not a name pointing elsewhere
+assert.ok(isCloudflareIp('104.21.3.4'));
+assert.ok(isCloudflareIp('172.67.1.1'));
+assert.ok(!isCloudflareIp('103.55.38.63'));
 
 console.log('nginxMigrateService: ok');
