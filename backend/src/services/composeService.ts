@@ -6,6 +6,7 @@ import { execOrg, type ExecResult, type SshTarget } from '../lib/runner';
 import { envForFile, readEnv, readEnvFiles } from '../lib/appEnv';
 import { prisma } from '../lib/prisma';
 import { serverForApplication } from '../lib/servers';
+import { sourceTreeUnit } from './orgProvisionService';
 import type { AppWithOrg } from './systemdService';
 
 /**
@@ -181,9 +182,22 @@ export async function writeComposeEnv(application: AppWithOrg, afs: AppFs, workD
     const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([key]) => line.startsWith(key + '=')));
     const own = entries.map(([key, value]) => `${key}=${quoteEnv(String(value))}`);
     await afs.writeFile(file, [...kept, ...own].join('\n').replace(/\n+$/, '') + '\n', { mode: 0o660 });
+    // secrets: never world-readable. The mode above only applies to a new file, and the
+    // repository's copy arrives 0664. Fails harmlessly once the tenant owns it (already 660).
+    await afs.run(['chmod', '660', file]).catch(() => {});
   }
 
+  // Compose runs as the organization's user, not as the panel's that wrote these: the
+  // tree is handed over before `compose config` (in writeOverride) reads the env files
+  // as that user, and again after, for the override it just wrote.
+  await handToTenant(application);
   await writeOverride(application, afs, workDir);
+  await handToTenant(application);
+}
+
+/** The app's tree to the organization's user (cb-app-unit chown) — what PHP's publish does too. */
+async function handToTenant(application: AppWithOrg): Promise<void> {
+  await sourceTreeUnit('chown', slugOf(application), application.sourceId ?? application.id, application.id);
 }
 
 /**
