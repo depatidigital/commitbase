@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, Globe, Loader2, Plus, Rocket, Server } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, Globe, Loader2, Plus, Rocket, Server, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageLayout } from "@/components/PageLayout";
@@ -10,6 +10,8 @@ import { getProjects, projectPath } from "@/lib/projects";
 import { getDomainsPage } from "@/lib/domains";
 import { expiryTone, needsRenewal } from "@/lib/domainExpiry";
 import { ago } from "./Projects";
+import { isSuperAdmin } from "@/lib/auth";
+import { getUsers } from "@/lib/admin";
 
 function Stat({ label, value, icon: Icon, tone = "" }: { label: string; value: number | string; icon: typeof Boxes; tone?: string }) {
   return (
@@ -54,6 +56,14 @@ export default function Dashboard() {
   });
   const renewals = (domainsPage?.data ?? []).filter(needsRenewal);
 
+  // platform-wide counts: superadmin only
+  const superAdmin = isSuperAdmin();
+  const { data: usersPage } = useQuery({
+    queryKey: ["users", "dashboard"],
+    queryFn: () => getUsers({ page: 1, limit: 1, search: "" }),
+    enabled: superAdmin,
+  });
+
   const statuses = apps.map(({ app, project }) => ({ app, project, ...appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled) }));
   const attention = statuses.filter((s) => s.rank === 0).sort((a, b) => a.app.name.localeCompare(b.app.name));
   const online = statuses.filter((s) => s.tone === "up").length;
@@ -82,11 +92,12 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
             <Stat label={t("Projects")} value={projectsPage?.pagination.total ?? 0} icon={Boxes} />
             <Stat label={t("Apps online")} value={`${online}/${apps.length}`} icon={Server} />
             <Stat label={t("Need attention")} value={attention.length} icon={AlertTriangle} tone={attention.length ? "text-destructive" : ""} />
             <Stat label={t("Domains to renew")} value={renewals.length} icon={Globe} tone={renewals.length ? "text-warning" : ""} />
+            {superAdmin && <Stat label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

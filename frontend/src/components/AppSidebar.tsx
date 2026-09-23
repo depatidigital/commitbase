@@ -1,4 +1,4 @@
-import { LayoutDashboard, Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog, HardDrive, DatabaseZap } from "lucide-react";
+import { Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, FolderGit2, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -15,18 +15,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
-import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
+import { APP_NAME } from "@/lib/branding";
 import { t } from "@/lib/i18n";
 
-const items = [
-  { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
-  { title: t("Projects"), url: "/projects", icon: Server },
-  { title: t("Databases"), url: "/database", icon: Database },
-  { title: t("Domains"), url: "/domains", icon: Globe },
-  { title: t("Logs"), url: "/logs", icon: Terminal },
-  { title: t("Team"), url: "/team", icon: Users },
-  { title: t("Settings"), url: "/settings", icon: Settings },
-];
+type Item = { title: string; url: string; icon: LucideIcon; show?: boolean };
+
+// the active item says where you are, it does not shout: a tint and a hairline
+const ACTIVE = "data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:ring-1 data-[active=true]:ring-primary/30";
 
 export function AppSidebar() {
   const { state } = useSidebar();
@@ -36,12 +31,53 @@ export function AppSidebar() {
   const superadmin = isSuperAdmin();
 
   const isActive = (path: string) => {
-    // projects, the apps in them and the flat app list are one section
     if (path === "/") return location.pathname === "/";
-    if (path === "/projects") return /^\/(projects?|application|applications|add-project)(\/|$)/.test(location.pathname);
+    // projects, the apps in them and the flat app list are one section
+    if (path === "/projects") return /^\/(projects?|applications?|add-project)(\/|$)/.test(location.pathname);
     // whole segments: /database must not light up on /database-servers
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
+
+  // Grouped by what the user is after: their code on top, what it runs on,
+  // then the organization. Settings and logs live elsewhere (the account menu,
+  // the project and app pages).
+  const groups: Array<{ label?: string; items: Item[] }> = [
+    {
+      items: [
+        { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
+        { title: t("Projects"), url: "/projects", icon: FolderGit2 },
+      ],
+    },
+    {
+      label: t("Infrastructure"),
+      items: [
+        { title: t("Databases"), url: "/database", icon: Database },
+        { title: t("Domains"), url: "/domains", icon: Globe },
+      ],
+    },
+    {
+      label: t("Organization"),
+      items: [{ title: t("Team"), url: "/team", icon: Users, show: !admin }],
+    },
+    // ponytail: the admin side as it was, restyled only — to be narrowed to organizations, users and billing
+    {
+      label: t("Administration"),
+      items: [
+        { title: t("Servers"), url: "/servers", icon: HardDrive, show: superadmin },
+        { title: t("Database Servers"), url: "/database-servers", icon: DatabaseZap, show: superadmin },
+        { title: t("Organizations"), url: "/organizations", icon: Building2, show: admin },
+        { title: t("Users"), url: "/users", icon: UserCog, show: admin },
+        { title: t("Administration"), url: "/admin", icon: ShieldCheck, show: admin },
+      ],
+    },
+  ];
+
+  const integrations = [
+    { title: "Rdash", url: "/integrations/rdash" },
+    { title: "Cloudflare", url: "/integrations/cloudflare" },
+    { title: "Google Search Console", url: "/integrations/google" },
+    { title: "GitHub & GitLab", url: "/integrations/git" },
+  ];
 
   return (
     <Sidebar collapsible="icon">
@@ -52,12 +88,9 @@ export function AppSidebar() {
               <>
                 {/* the favicon is the logo — one file for both */}
                 <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg shadow-glow" />
-                <div>
-                  <h1 className="text-lg font-bold bg-gradient-primary bg-clip-text text-transparent">
-                    {APP_NAME}
-                  </h1>
-                  <p className="text-xs text-muted-foreground">{APP_TAGLINE}</p>
-                </div>
+                <h1 className="text-lg font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  {APP_NAME}
+                </h1>
               </>
             )}
             {collapsed && (
@@ -66,150 +99,51 @@ export function AppSidebar() {
           </div>
         </div>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>{t("Platform")}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {items
-                .filter((item) => item.url !== "/team" || !admin)
-                .map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink
-                      to={item.url}
-                      className={
-                        isActive(item.url)
-                          ? "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg bg-gradient-primary text-primary-foreground shadow-elegant"
-                          : "flex items-center space-x-2 transition-all duration-200 px-3 py-2 rounded-lg text-sidebar-foreground hover:bg-primary hover:text-primary-foreground"
-                      }
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span className={collapsed ? "sr-only" : undefined}>
-                        {item.title}
-                      </span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+        {groups.map((group, index) => {
+          const items = group.items.filter((item) => item.show !== false);
+          if (!items.length) return null;
+          return (
+            <SidebarGroup key={group.label ?? index}>
+              {group.label && <SidebarGroupLabel className="uppercase tracking-wide">{group.label}</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {items.map((item) => (
+                    <SidebarMenuItem key={item.url}>
+                      <SidebarMenuButton asChild tooltip={item.title} isActive={isActive(item.url)} className={ACTIVE}>
+                        <NavLink to={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          );
+        })}
 
-              {superadmin && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/servers")}>
-                  <NavLink to="/servers" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
-                    <HardDrive className="h-4 w-4" />
-                    <span className={collapsed ? "sr-only" : undefined}>
-                      {t("Servers")}
-                    </span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              )}
-
-              {superadmin && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/database-servers")}>
-                  <NavLink to="/database-servers" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
-                    <DatabaseZap className="h-4 w-4" />
-                    <span className={collapsed ? "sr-only" : undefined}>
-                      {t("Database Servers")}
-                    </span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              )}
-
-              {admin && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/organizations")}>
-                  <NavLink to="/organizations" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
-                    <Building2 className="h-4 w-4" />
-                    <span className={collapsed ? "sr-only" : undefined}>
-                      {t("Organizations")}
-                    </span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              )}
-
-              {admin && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location.pathname.startsWith("/users")}>
-                  <NavLink to="/users" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
-                    <UserCog className="h-4 w-4" />
-                    <span className={collapsed ? "sr-only" : undefined}>
-                      {t("Users")}
-                    </span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              )}
-
-              {admin && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip={t("Administration")} isActive={location.pathname.startsWith("/admin")}>
-                  <NavLink to="/admin" className="flex items-center space-x-2 px-3 py-2 rounded-lg">
-                    <ShieldCheck className="h-4 w-4" />
-                    <span className={collapsed ? "sr-only" : undefined}>
-                      {t("Administration")}
-                    </span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              )}
-
-              {superadmin && (
-              <SidebarMenuItem>
-                <div className="flex items-center space-x-2 px-3 py-2 text-muted-foreground">
-                  <Link2 className="h-4 w-4" />
-                  {!collapsed && <span className="text-xs font-medium uppercase tracking-wide">{t("Integrations")}</span>}
-                </div>
-                <SidebarMenuSub>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={location.pathname.startsWith("/integrations/rdash")}
-                    >
-                      <NavLink to="/integrations/rdash">
-                        <span>Rdash</span>
+        {superadmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="uppercase tracking-wide">
+              <Link2 className="mr-2 h-3 w-3" />
+              {t("Integrations")}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenuSub>
+                {integrations.map((item) => (
+                  <SidebarMenuSubItem key={item.url}>
+                    <SidebarMenuSubButton asChild isActive={isActive(item.url)} className={ACTIVE}>
+                      <NavLink to={item.url}>
+                        <span>{item.title}</span>
                       </NavLink>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={location.pathname.startsWith("/integrations/cloudflare")}
-                    >
-                      <NavLink to="/integrations/cloudflare">
-                        <span>Cloudflare</span>
-                      </NavLink>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={location.pathname.startsWith("/integrations/google")}
-                    >
-                      <NavLink to="/integrations/google">
-                        <span>Google Search Console</span>
-                      </NavLink>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={location.pathname.startsWith("/integrations/git")}
-                    >
-                      <NavLink to="/integrations/git">
-                        <span>GitHub & GitLab</span>
-                      </NavLink>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                </SidebarMenuSub>
-              </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                ))}
+              </SidebarMenuSub>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   );

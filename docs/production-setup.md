@@ -371,7 +371,6 @@ only) after first login.
 ```
 VITE_API_URL=https://panel.example.com/api
 VITE_APP_NAME=Larika
-VITE_APP_TAGLINE=Self-hosted platform
 ```
 
 ---

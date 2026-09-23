@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Link } from "react-router-dom";
-import { Settings, LogOut, ChevronDown } from "lucide-react";
+import { Settings, LogOut, ChevronDown, Check, Languages } from "lucide-react";
 
 import { useLogout } from "@/hooks/useAuth";
 import { API_BASE_URL } from "@/lib/api";
@@ -68,24 +68,8 @@ export function Layout() {
             <div className="pl-4 md:pl-6">
               <Breadcrumbs />
             </div>
-            {/* language: a reload applies it, see lib/i18n */}
-            <div className="ml-auto mr-3 flex items-center rounded-full border border-border p-0.5 text-xs font-medium">
-              {(["id", "en"] as const).map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => setLang(code)}
-                  aria-pressed={lang === code}
-                  className={`rounded-full px-2 py-0.5 uppercase transition-colors ${
-                    lang === code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {code}
-                </button>
-              ))}
-            </div>
             <div
-              className={`flex items-center space-x-1 px-2 py-1 rounded-full border mr-4 ${
+              className={`flex items-center space-x-1 px-2 py-1 rounded-full border ml-auto mr-4 ${
                 healthy === false
                   ? "bg-destructive/10 border-destructive/20"
                   : "bg-success/10 border-success/20"
@@ -144,6 +128,18 @@ export function Layout() {
                       <span>{t("Settings")}</span>
                     </Link>
                   </DropdownMenuItem>
+                  {/* language: a reload applies it, see lib/i18n */}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="flex items-center text-xs font-normal text-muted-foreground">
+                    <Languages className="mr-2 h-4 w-4" />
+                    {t("Language")}
+                  </DropdownMenuLabel>
+                  {([["id", "Bahasa Indonesia"], ["en", "English"]] as const).map(([code, name]) => (
+                    <DropdownMenuItem key={code} onClick={() => lang !== code && setLang(code)} className="cursor-pointer">
+                      <Check className={`mr-2 h-4 w-4 ${lang === code ? "" : "invisible"}`} />
+                      <span>{name}</span>
+                    </DropdownMenuItem>
+                  ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={handleLogout}

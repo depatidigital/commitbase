@@ -130,7 +130,7 @@ export default {
   "What needs a look, at a glance.": "Yang perlu dicek, sekilas.",
   "Apps online": "Aplikasi online",
   "Need attention": "Perlu perhatian",
-  "Domains to renew": "Domain perlu diperpanjang",
+  "Domains to renew": "Domain hampir expired",
   "All apps are fine.": "Semua aplikasi baik-baik saja.",
   "Recent deploys": "Deploy terbaru",
   "No deploys yet.": "Belum ada deploy.",

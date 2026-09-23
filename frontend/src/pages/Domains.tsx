@@ -118,7 +118,6 @@ import { locale, t } from "@/lib/i18n";
 
 // radix Select rejects an empty string value, so "no organization" needs a sentinel
 const UNASSIGNED = "__unassigned__";
-const ANY = "__any__";
 
 const STATUS_LABELS: Record<string, string> = {
   ACTIVE: t("active"),
@@ -165,9 +164,6 @@ export default function Domains() {
   const [newDomainName, setNewDomainName] = useState("");
   const [newDomainOrgId, setNewDomainOrgId] = useState("");
   // register flow: search the registrar, pick an offer, buy it
-  const [listFilter, setListFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState(ANY);
-  const [expiryFilter, setExpiryFilter] = useState(ANY);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [assignTarget, setAssignTarget] = useState<{
@@ -197,12 +193,7 @@ export default function Domains() {
     data: domainsData,
     isLoading,
     error,
-  } = useDomainsPage({
-    ...query.params,
-    ...(listFilter !== "all" && { filter: listFilter }),
-    ...(statusFilter !== ANY && { status: statusFilter }),
-    ...(expiryFilter !== ANY && { expiring: expiryFilter }),
-  });
+  } = useDomainsPage(query.params);
   const {
     data: domainDetail,
     isLoading: domainLoading,
@@ -352,15 +343,6 @@ export default function Domains() {
             )}
           </div>
         );
-      },
-    },
-    {
-      // where it points is each app's business now — the list says how many live here
-      header: t("Apps"),
-      className: "w-20",
-      cell: (domain) => {
-        const apps = domain._count?.appDomains ?? 0;
-        return apps ? <span>{apps}</span> : <span className="text-muted-foreground">-</span>;
       },
     },
     {
@@ -1540,8 +1522,19 @@ export default function Domains() {
               title={t("Domains")}
               description={t("Manage your custom domains and SSL certificates.")}
               actions={
-                admin ? (
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
+                  {/* ponytail: tenants see it but cannot buy yet — a purchase spends the platform's reseller balance until billing exists */}
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate("/domains/register")}
+                    disabled={!admin}
+                    title={admin ? undefined : t("Buying domains opens once billing is available.")}
+                  >
+                    <Globe className="h-4 w-4 mr-2" />
+                    {t("Buy domain")}
+                  </Button>
+                  {admin && (
+                  <>
                     <Button
                       variant="outline"
                       onClick={() => syncDomains.mutate()}
@@ -1566,13 +1559,6 @@ export default function Domains() {
                       >
                         <Plus className="h-4 w-4 mr-2" />
                         {t("Connect domain")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => navigate("/domains/register")}
-                      >
-                        <Globe className="h-4 w-4 mr-2" />
-                        {t("Register domain")}
                       </Button>
                       <DialogContent className="max-w-lg">
                         <DialogHeader>
@@ -1657,63 +1643,13 @@ export default function Domains() {
                         </form>
                       </DialogContent>
                     </Dialog>
-                  </div>
-                ) : null
+                  </>
+                  )}
+                </div>
               }
             >
               <div className="flex flex-wrap items-center gap-3">
-                <Tabs
-                  value={listFilter}
-                  onValueChange={(value) => {
-                    setListFilter(value);
-                    query.setPage(1);
-                  }}
-                >
-                  <TabsList>
-                    <TabsTrigger value="all">{t("All")}</TabsTrigger>
-                    <TabsTrigger value="unassigned">{t("Unassigned")}</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-
                 <OrganizationFilter query={query} />
-
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    setStatusFilter(value);
-                    query.setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-44">
-                    <SelectValue placeholder={t("Any status")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ANY}>{t("Any status")}</SelectItem>
-                    <SelectItem value="ACTIVE">{t("Active")}</SelectItem>
-                    <SelectItem value="PENDING">{t("Pending")}</SelectItem>
-                    <SelectItem value="INACTIVE">{t("Inactive")}</SelectItem>
-                    <SelectItem value="ERROR">{t("Error")}</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={expiryFilter}
-                  onValueChange={(value) => {
-                    setExpiryFilter(value);
-                    query.setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder={t("Any expiration")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ANY}>{t("Any expiration")}</SelectItem>
-                    <SelectItem value="expired">{t("Expired")}</SelectItem>
-                    <SelectItem value="30">{t("Expiring in {days} days", { days: 30 })}</SelectItem>
-                    <SelectItem value="60">{t("Expiring in {days} days", { days: 60 })}</SelectItem>
-                    <SelectItem value="90">{t("Expiring in {days} days", { days: 90 })}</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               {admin && selectedIds.length > 0 && (
