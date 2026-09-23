@@ -708,9 +708,10 @@ export const checkHostname = async (
 
 // Delete application
 /** An imported app is removed from its server too — every step of getTeardownPlan, or nothing. */
-export const deleteApplication = async (id: string): Promise<void> => {
+export const deleteApplication = async (id: string, opts: { removeVolumes?: boolean } = {}): Promise<void> => {
   const response = await apiRequest(`/applications/${id}`, {
     method: 'DELETE',
+    body: JSON.stringify(opts),
   });
 
   if (!response.success) {

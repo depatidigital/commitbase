@@ -210,7 +210,7 @@ export const cleanupServerDisk = async (
   );
 
 /** The node's own clutter, by target id; a target missing from the node is absent. */
-export const SYSTEM_TARGETS = ['journal', 'rotatedLogs', 'pm2Logs', 'aptCache', 'packageCaches', 'docker', 'crashDumps', 'oldTmp'] as const;
+export const SYSTEM_TARGETS = ['journal', 'rotatedLogs', 'pm2Logs', 'aptCache', 'packageCaches', 'docker', 'podman', 'podmanVolumes', 'crashDumps', 'oldTmp'] as const;
 export type SystemTarget = (typeof SYSTEM_TARGETS)[number];
 
 export interface SystemCleanup {

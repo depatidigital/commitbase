@@ -21,6 +21,8 @@ export default {
   "Delete project": "Hapus proyek",
   "Delete {name}?": "Hapus {name}?",
   "Every app of this project is deleted, one after the other:": "Semua aplikasi di proyek ini dihapus satu per satu:",
+  "Also delete the containers' data (volumes). Their databases are gone for good.":
+    "Hapus juga data kontainer (volume). Database di dalamnya hilang permanen.",
   "They were set up on the server: their process, Caddy route, DNS record and folder are removed from it too.":
     "Aplikasi ini dipasang langsung di server: proses, route Caddy, record DNS, dan foldernya ikut dihapus dari server.",
   "Type the project's name to confirm.": "Ketik nama proyek untuk konfirmasi.",

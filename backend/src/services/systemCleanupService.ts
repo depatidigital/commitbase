@@ -1,4 +1,5 @@
-import { execRoot, type SshTarget } from '../lib/runner';
+import { execOrg, execRoot, type SshTarget } from '../lib/runner';
+import { prisma } from '../lib/prisma';
 
 /**
  * The node's own clutter, outside any app tree: logs, package caches, crash
@@ -64,14 +65,106 @@ export const SYSTEM_TARGETS = {
   },
 } as const;
 
-export type SystemTarget = keyof typeof SYSTEM_TARGETS;
-export const SYSTEM_TARGET_IDS = Object.keys(SYSTEM_TARGETS) as SystemTarget[];
+/**
+ * Compose stacks run in each organization's rootless Podman (cb-<slug>), where
+ * root's `docker` never looks. A stack is the panel's when its compose project
+ * is `cb-<slug>-<appId>` (composeService.projectName) and a leftover when that
+ * app is gone. Stacks the panel did not make are never touched.
+ */
+const PODMAN_TARGETS = ['podman', 'podmanVolumes'] as const;
+type PodmanTarget = (typeof PODMAN_TARGETS)[number];
 
-/** Bytes per target; a target missing from the node is left out. One SSH round trip. */
+export type SystemTarget = keyof typeof SYSTEM_TARGETS | PodmanTarget;
+export const SYSTEM_TARGET_IDS = [...Object.keys(SYSTEM_TARGETS), ...PODMAN_TARGETS] as SystemTarget[];
+
+const isPodman = (id: SystemTarget): id is PodmanTarget => (PODMAN_TARGETS as readonly string[]).includes(id);
+
+type OrgScan = {
+  user: { slug: string; uid: number };
+  /** containers of deleted apps' stacks */
+  orphans: string[];
+  /** images no container would use once the orphans are gone — what `image prune -a` removes */
+  imageBytes: number;
+  /** volumes of deleted apps' stacks: their data */
+  volumes: { name: string; mountpoint: string }[];
+};
+
+/** Every org user's podman, or null when the node has no podman. An org podman cannot read is left out. */
+async function scanPodman(node: SshTarget): Promise<OrgScan[] | null> {
+  const passwd = await execRoot(node, ['sh', '-c', 'command -v podman >/dev/null && getent passwd'], { timeout: 60_000 }).catch(() => null);
+  if (!passwd) return null;
+  const users = passwd.stdout.split('\n').flatMap((line) => {
+    const m = /^cb-([a-z0-9-]+):[^:]*:(\d+):/.exec(line);
+    return m ? [{ slug: m[1]!, uid: Number(m[2]) }] : [];
+  });
+  const live = new Set((await prisma.application.findMany({ select: { id: true } })).map((app) => app.id.toLowerCase()));
+
+  const scans = await Promise.all(
+    users.map(async (user): Promise<OrgScan | null> => {
+      const podman = async (args: string[]): Promise<any[]> =>
+        JSON.parse((await execOrg(node, user.slug, user.uid, ['podman', ...args], { timeout: 120_000 })).stdout || '[]') ?? [];
+      try {
+        const [containers, images, volumes] = await Promise.all([
+          podman(['ps', '-a', '--format', 'json']),
+          podman(['images', '--format', 'json']),
+          podman(['volume', 'ls', '--format', 'json']),
+        ]);
+        const prefix = `cb-${user.slug}-`;
+        const orphan = (labels: any) => {
+          const project = labels?.['com.docker.compose.project'];
+          return typeof project === 'string' && project.startsWith(prefix) && !live.has(project.slice(prefix.length));
+        };
+        const used = new Set(containers.filter((c) => !orphan(c.Labels)).map((c) => c.ImageID));
+        return {
+          user,
+          orphans: containers.filter((c) => orphan(c.Labels)).map((c) => String(c.Id)),
+          // ponytail: sums image sizes, so layers two images share count twice — an upper bound, like the journal's
+          imageBytes: images.filter((i) => !used.has(i.Id)).reduce((sum, i) => sum + (Number(i.Size) || 0), 0),
+          volumes: volumes
+            .filter((v) => orphan(v.Labels) && typeof v.Mountpoint === 'string' && v.Mountpoint.startsWith('/'))
+            .map((v) => ({ name: String(v.Name), mountpoint: v.Mountpoint as string })),
+        };
+      } catch (error: any) {
+        console.warn(`podman scan of cb-${user.slug}: ${error?.stderr || error?.message || error}`);
+        return null;
+      }
+    }),
+  );
+  return scans.filter((scan): scan is OrgScan => scan !== null);
+}
+
+async function measurePodman(node: SshTarget): Promise<Partial<Record<PodmanTarget, number>>> {
+  const scans = await scanPodman(node);
+  if (!scans) return {};
+  const mounts = scans.flatMap((scan) => scan.volumes.map((v) => v.mountpoint));
+  // as root: a volume's files belong to the container's mapped uids, not the org user
+  const du = mounts.length ? await execRoot(node, ['du', '-scb', '--', ...mounts], { timeout: 300_000 }).catch(() => null) : null;
+  // the last line is the total
+  const volumeBytes = Number(du?.stdout.trim().split('\n').pop()?.split('\t')[0]) || 0;
+  return { podman: scans.reduce((sum, scan) => sum + scan.imageBytes, 0), podmanVolumes: volumeBytes };
+}
+
+/** Scanned again rather than trusting the measure: an app deployed since then is not a leftover. */
+async function cleanPodman(node: SshTarget, id: PodmanTarget): Promise<void> {
+  for (const scan of (await scanPodman(node)) ?? []) {
+    const podman = (args: string[]) => execOrg(node, scan.user.slug, scan.user.uid, ['podman', ...args], { timeout: 300_000 });
+    if (id === 'podman') {
+      if (scan.orphans.length) await podman(['rm', '-f', '--', ...scan.orphans]);
+      // images no container uses (a stopped stack's containers still hold theirs), and the networks likewise
+      await podman(['image', 'prune', '-af']);
+      await podman(['network', 'prune', '-f']);
+    } else if (scan.volumes.length) {
+      await podman(['volume', 'rm', '-f', '--', ...scan.volumes.map((v) => v.name)]);
+    }
+  }
+}
+
+/** Bytes per target; a target missing from the node is left out. */
 export async function measureSystem(node: SshTarget): Promise<Partial<Record<SystemTarget, number>>> {
-  const script = SYSTEM_TARGET_IDS.map((id) => `printf '${id}\\t%s\\n' "$(${SYSTEM_TARGETS[id].measure})"`).join('\n');
-  const { stdout } = await execRoot(node, ['sh', '-c', script], { timeout: 300_000 });
-  const out: Partial<Record<SystemTarget, number>> = {};
+  const ids = Object.keys(SYSTEM_TARGETS) as (keyof typeof SYSTEM_TARGETS)[];
+  const script = ids.map((id) => `printf '${id}\\t%s\\n' "$(${SYSTEM_TARGETS[id].measure})"`).join('\n');
+  const [{ stdout }, podman] = await Promise.all([execRoot(node, ['sh', '-c', script], { timeout: 300_000 }), measurePodman(node)]);
+  const out: Partial<Record<SystemTarget, number>> = { ...podman };
   for (const line of stdout.split('\n')) {
     const [id = '', value] = line.split('\t');
     if (id in SYSTEM_TARGETS && value && /^\d+$/.test(value.trim())) out[id as SystemTarget] = Number(value);
@@ -83,9 +176,10 @@ export async function measureSystem(node: SshTarget): Promise<Partial<Record<Sys
 export async function cleanSystem(node: SshTarget, targets: SystemTarget[]): Promise<{ freedBytes: number; failed: string[] }> {
   const before = await measureSystem(node);
   const failed: string[] = [];
-  for (const id of targets) {
+  // the leftover containers first: a volume one of them still holds would take it along anyway
+  for (const id of [...targets].sort((a, b) => Number(b === 'podman') - Number(a === 'podman'))) {
     if (before[id] === undefined) continue;
-    await execRoot(node, ['sh', '-c', SYSTEM_TARGETS[id].clean], { timeout: 300_000 }).catch((error: any) => {
+    await (isPodman(id) ? cleanPodman(node, id) : execRoot(node, ['sh', '-c', SYSTEM_TARGETS[id].clean], { timeout: 300_000 })).catch((error: any) => {
       console.warn(`system cleanup ${id}: ${error?.stderr || error?.message || error}`);
       failed.push(id);
     });

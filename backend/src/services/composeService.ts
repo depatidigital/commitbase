@@ -140,6 +140,8 @@ type RunOpts = {
   cwd?: string;
   /** leave the platform's override out — to read what the app's own files say */
   withoutOverride?: boolean;
+  /** no -f at all: the stack by its project name, for `down` when its files are gone */
+  withoutFiles?: boolean;
 };
 
 /** Run one compose command in the stack's directory, as the org's user. */
@@ -149,8 +151,8 @@ async function run(application: AppWithOrg, args: string[], opts: RunOpts = {}):
   const cwd = opts.cwd ?? (await stackDirOf(application, afs));
   // The override is only written when there is a port to republish, and compose
   // fails on a -f file that is not there — so it joins the list only if it does.
-  const hasOverride = !opts.withoutOverride && (await afs.exists(path.posix.join(cwd, OVERRIDE_FILE)));
-  const files = hasOverride ? [...composeFilesOf(application), OVERRIDE_FILE] : composeFilesOf(application);
+  const hasOverride = !opts.withoutOverride && !opts.withoutFiles && (await afs.exists(path.posix.join(cwd, OVERRIDE_FILE)));
+  const files = opts.withoutFiles ? [] : hasOverride ? [...composeFilesOf(application), OVERRIDE_FILE] : composeFilesOf(application);
   // `cd` in its own argv element, not spliced into a string: the directory comes
   // from the app's root directory, which is user input.
   return execOrg(
@@ -257,7 +259,14 @@ export async function restartApplication(application: AppWithOrg): Promise<void>
  * its data is meant to be.
  */
 export async function removeApplication(application: AppWithOrg, opts: { volumes?: boolean } = {}): Promise<void> {
-  await run(application, ['down', '--remove-orphans', ...(opts.volumes ? ['-v'] : [])], { timeout: 10 * 60_000 });
+  // no org or no UID: compose never ran for it, so there is no stack to take down
+  if (!application.organization?.slug || !(await uidOf(application).catch(() => null))) return;
+  // images built from the repository go too — nothing else would ever remove them
+  const args = ['down', '--remove-orphans', '--rmi', 'local', ...(opts.volumes ? ['-v'] : [])];
+  await run(application, args, { timeout: 10 * 60_000 }).catch(() =>
+    // the files may be gone (never deployed, a broken release): compose finds the stack by its project name alone
+    run(application, args, { timeout: 10 * 60_000, cwd: '/', withoutFiles: true }),
+  );
 }
 
 /** Follow the stack's logs, the same shape as systemdService.followLogs. */

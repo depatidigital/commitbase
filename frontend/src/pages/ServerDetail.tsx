@@ -26,7 +26,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLayout } from "@/components/PageLayout";
 import { ServerStorage } from "@/components/ServerStorage";
-import { ServerSystemCleanup } from "@/components/ServerSystemCleanup";
 import { ProvisionBadge } from "@/components/ProvisionBadge";
 import { NginxMigrateCard } from "@/components/NginxMigrateCard";
 import { DockerContainersCard } from "@/components/DockerContainersCard";
@@ -224,7 +223,6 @@ const ServerDetail = () => {
           <TabsTrigger value="docker">Docker</TabsTrigger>
           <TabsTrigger value="snapshots">{t("Snapshots")}</TabsTrigger>
           <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>
-          <TabsTrigger value="cleanup">{t("Cleanup")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -456,10 +454,6 @@ const ServerDetail = () => {
 
         <TabsContent value="storage">
           <ServerStorage serverId={id} />
-        </TabsContent>
-
-        <TabsContent value="cleanup">
-          <ServerSystemCleanup serverId={id} />
         </TabsContent>
 
         <TabsContent value="snapshots">

@@ -1608,9 +1608,17 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       if (compose.needsCompose(application.type)) {
         // Volumes are a compose app's database, and an app is deleted far more
         // often than its data is meant to be — so they go only when asked.
-        await compose.removeApplication(application, { volumes: req.body?.removeVolumes === true }).catch((error) => {
+        // A stack that did not come down keeps the row: without it (and its files,
+        // removed below) nothing would ever find those containers again.
+        try {
+          await compose.removeApplication(application, { volumes: req.body?.removeVolumes === true });
+        } catch (error: any) {
           console.error(`Failed to take down the stack for ${application.name}:`, error);
-        });
+          return res.status(502).json({
+            success: false,
+            error: `Could not take down the containers: ${error?.message || 'compose down failed'}. The app was not deleted.`,
+          } as ApiResponse);
+        }
       }
       await systemd.removeApplication(application).catch((error) => {
         console.error(`Failed to remove unit for ${application.name}:`, error);

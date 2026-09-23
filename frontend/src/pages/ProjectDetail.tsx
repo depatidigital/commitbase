@@ -89,6 +89,8 @@ export default function ProjectDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  // compose apps' volumes (their databases) are kept unless ticked
+  const [removeVolumes, setRemoveVolumes] = useState(false);
   // build every imported app where it lives — asked first, with a tick
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [buildConsent, setBuildConsent] = useState(false);
@@ -170,7 +172,7 @@ export default function ProjectDetail() {
     for (const app of apps) {
       setDeleting(app.name);
       try {
-        await deleteApplication(app.id);
+        await deleteApplication(app.id, { removeVolumes });
       } catch (err) {
         setDeleting(null);
         setConfirmDelete(false);
@@ -578,6 +580,12 @@ export default function ProjectDetail() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={project.name} disabled={!!deleting} />
+          {apps.some((app) => app.type === "COMPOSE") && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={removeVolumes} onCheckedChange={(checked) => setRemoveVolumes(checked === true)} disabled={!!deleting} className="mt-0.5" />
+              <span>{t("Also delete the containers' data (volumes). Their databases are gone for good.")}</span>
+            </label>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={!!deleting}>{t("Cancel")}</AlertDialogCancel>
             <Button variant="destructive" disabled={typed.trim() !== project.name || !!deleting} onClick={() => void deleteAll()}>

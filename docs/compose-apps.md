@@ -71,8 +71,11 @@ Named volumes belong to the stack, not to the panel. They are not backed up,
 not measured, and not listed anywhere in the UI. A database inside a compose
 file is invisible to the Databases page.
 
-`Stop` runs `compose stop`. Deleting the app runs `compose down`, which keeps
-volumes; pass `removeVolumes` to the delete call to run `down -v` instead.
+`Stop` runs `compose stop`. Deleting the app runs `compose down --rmi local`,
+which removes the containers and the images built from the repository but keeps
+volumes; pass `removeVolumes` to the delete call (or tick "Also delete the
+containers' data" when deleting a project) to run `down -v` instead. A `down`
+that fails keeps the app, so its containers are never orphaned.
 
 ## Running commands in a stack
 

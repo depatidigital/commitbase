@@ -2,9 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,11 +25,21 @@ const LABELS: Record<SystemTarget, { title: string; path: string; note: string }
   aptCache: { title: "APT package cache", path: "/var/cache/apt/archives", note: "Downloaded .deb files, fetched again when needed." },
   packageCaches: { title: "npm / Yarn caches", path: "~/.npm/_cacache, ~/.cache/yarn", note: "The next install downloads again." },
   docker: { title: "Docker leftovers", path: "dangling images, build cache", note: "Containers and tagged images are kept." },
+  podman: {
+    title: "Podman leftovers",
+    path: "containers of deleted apps, unused images and networks",
+    note: "Per organization. Running and stopped apps keep theirs; the next deploy pulls what it needs again.",
+  },
+  podmanVolumes: {
+    title: "Data of deleted apps",
+    path: "Podman volumes of deleted compose apps",
+    note: "Their databases and uploads, gone for good. Kept when the app was deleted.",
+  },
   crashDumps: { title: "Crash dumps", path: "/var/crash, /var/lib/systemd/coredump", note: "" },
   oldTmp: { title: "Old temp files", path: "/tmp, /var/tmp", note: "Files untouched for 7 days." },
 };
 
-/** Clutter outside the app trees: logs, caches, dumps. Measured when the tab opens, not polled. */
+/** Clutter outside the app trees: logs, caches, dumps, deleted apps' containers. Measured when the tab opens, not polled. */
 export function ServerSystemCleanup({ serverId }: { serverId: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -64,7 +72,6 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
 
   const present = SYSTEM_TARGETS.filter((id) => data?.targets[id] !== undefined);
   const selected = present.reduce((sum, id) => sum + (picked.has(id) ? data!.targets[id]! : 0), 0);
-  const usedPct = data?.disk ? Math.round((data.disk.used / data.disk.size) * 100) : 0;
   const toggle = (id: SystemTarget, on: boolean) =>
     setPicked((prev) => {
       const next = new Set(prev);
@@ -74,8 +81,22 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
     });
 
   return (
-    <Card>
-      <CardContent className="space-y-4 pt-6">
+    <section className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">{t("Node leftovers")}</p>
+          <p className="text-xs text-muted-foreground">{t("Outside the apps: logs, caches, containers and images of deleted apps. Nothing running is touched.")}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} aria-label={t("Refresh")}>
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          <Button variant="outline" size="sm" disabled={cleanup.isPending || picked.size === 0} onClick={() => setConfirming(true)}>
+            {cleanup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+            {t("Clean up selected")}
+          </Button>
+        </div>
+      </div>
         {isLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -85,33 +106,6 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
           <p className="text-sm text-destructive">{(error as Error).message}</p>
         ) : data ? (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 flex-1 space-y-1">
-                {data.disk ? (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span>{t("{used} of {size} used", { used: bytes(data.disk.used), size: bytes(data.disk.size) })}</span>
-                      <span className={usedPct >= 90 ? "font-medium text-destructive" : "text-muted-foreground"}>
-                        {t("{free} free", { free: bytes(data.disk.avail) })}
-                      </span>
-                    </div>
-                    <Progress value={usedPct} className={`h-2 ${usedPct >= 90 ? "[&>div]:bg-destructive" : ""}`} />
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t("The node did not report its disk.")}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} aria-label={t("Refresh")}>
-                  <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-                </Button>
-                <Button variant="outline" size="sm" disabled={cleanup.isPending || picked.size === 0} onClick={() => setConfirming(true)}>
-                  {cleanup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                  {t("Clean up selected")}
-                </Button>
-              </div>
-            </div>
-
             <div className="divide-y rounded-md border text-sm">
               {present.map((id) => (
                 <label key={id} className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-muted/40">
@@ -132,7 +126,6 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
             </div>
           </>
         ) : null}
-      </CardContent>
 
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
@@ -142,6 +135,9 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
               {[...picked].map((id) => t(LABELS[id].title)).join(", ")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {picked.has("podmanVolumes") && (
+            <p className="text-sm font-medium text-destructive">{t("The data of deleted apps cannot be brought back.")}</p>
+          )}
           <p className="text-sm">{t("Up to {size} will be freed.", { size: bytes(selected) })}</p>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
@@ -149,6 +145,6 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </section>
   );
 }

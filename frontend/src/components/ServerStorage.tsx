@@ -20,10 +20,12 @@ import { useToast } from "@/hooks/use-toast";
 import { cleanupServerDisk, diskUsedPct, DISK_RED_PCT, getServerDisk } from "@/lib/servers";
 import { locale, t } from "@/lib/i18n";
 import { formatBytes } from "@/lib/utils";
+import { ServerSystemCleanup } from "@/components/ServerSystemCleanup";
 
 /**
  * A node's disk: how full the filesystem tenant homes live on is, which apps
- * take the most, and one button that cleans up all of them. Measured when the
+ * take the most, one button that cleans up all of them, and below them what
+ * the node collects outside the apps. Measured when the
  * tab opens — one du per app over SSH — not polled.
  */
 export function ServerStorage({ serverId }: { serverId: string }) {
@@ -91,7 +93,7 @@ export function ServerStorage({ serverId }: { serverId: string }) {
                 </Button>
                 <Button variant="outline" size="sm" disabled={cleanup.isPending || data.apps.length === 0} onClick={() => setConfirming(true)}>
                   {cleanup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                  {t("Clean up all")}
+                  {t("Clean up all apps")}
                 </Button>
               </div>
             </div>
@@ -118,6 +120,9 @@ export function ServerStorage({ serverId }: { serverId: string }) {
             )}
           </>
         ) : null}
+        <div className="border-t pt-4">
+          <ServerSystemCleanup serverId={serverId} />
+        </div>
       </CardContent>
 
       <AlertDialog open={confirming} onOpenChange={setConfirming}>

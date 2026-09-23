@@ -38,7 +38,17 @@ export default {
     "Release yang tidak dipakai dihapus di setiap aplikasi. Release aktif dan cadangan rollback tetap disimpan; aplikasi yang sedang deploy dilewati.",
   "Also delete the build caches": "Hapus juga cache build",
   "Each app's next build is slower while it rebuilds its cache.": "Build berikutnya tiap aplikasi lebih lambat karena cache dibangun ulang.",
-  Cleanup: "Pembersihan",
+  "Clean up all apps": "Bersihkan semua aplikasi",
+  "Node leftovers": "Sisa di node",
+  "Outside the apps: logs, caches, containers and images of deleted apps. Nothing running is touched.":
+    "Di luar aplikasi: log, cache, container dan image aplikasi yang sudah dihapus. Yang sedang berjalan tidak disentuh.",
+  "Podman leftovers": "Sisa Podman",
+  "Per organization. Running and stopped apps keep theirs; the next deploy pulls what it needs again.":
+    "Per organisasi. Aplikasi yang berjalan maupun berhenti tetap menyimpan miliknya; deploy berikutnya mengunduh ulang yang dibutuhkan.",
+  "Data of deleted apps": "Data aplikasi yang sudah dihapus",
+  "Their databases and uploads, gone for good. Kept when the app was deleted.":
+    "Database dan file upload-nya, hilang permanen. Disimpan saat aplikasinya dihapus.",
+  "The data of deleted apps cannot be brought back.": "Data aplikasi yang sudah dihapus tidak bisa dikembalikan.",
   "Clean up selected": "Bersihkan yang dipilih",
   "Clean up the selected items?": "Bersihkan item yang dipilih?",
   "Up to {size} will be freed.": "Hingga {size} akan dibebaskan.",
