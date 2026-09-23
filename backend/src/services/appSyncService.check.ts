@@ -293,6 +293,9 @@ assert.deepStrictEqual(containers[0], { name: 'jdih-app', image: 'jdih:latest', 
 assert.deepStrictEqual(containers[1]!.ports, [8081]);
 // a container that publishes nothing is still a container
 assert.deepStrictEqual(containers[2]!.ports, []);
+// started by compose: the project folder rides along as a label
+assert.strictEqual(parseDockerPs('jdih-app\tjdih:latest\tUp\t127.0.0.1:8082->80/tcp\t/srv/jdih')[0]!.dir, '/srv/jdih');
+assert.strictEqual(parseDockerPs('solo\tx:1\tUp\t\t')[0]!.dir, undefined);
 // no docker on the box at all
 assert.deepStrictEqual(parseDockerPs(''), []);
 

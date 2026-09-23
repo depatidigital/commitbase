@@ -18,14 +18,16 @@ export const APPS_ROOT_DIR = process.env.APPS_ROOT_DIR || '/var/www/html';
 export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | 'DOCKER';
 
 /** One container on the node, from `docker ps`. Discovery only — nothing here starts or stops one. */
-export type DockerContainer = { name: string; image: string; status: string; ports: number[] };
+/** `dir`: the compose project folder it was started from, when compose started it. */
+export type DockerContainer = { name: string; image: string; status: string; ports: number[]; dir?: string | undefined };
 
 /**
  * The containers running on the node, with the host ports they publish.
  * Empty when there is no docker on the box, which is the usual case.
  */
 export async function listDockerContainers(node: SshTarget): Promise<DockerContainer[]> {
-  const argv = ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'];
+  // the compose label is the folder `docker compose up` ran in — the app's code, as far as docker knows
+  const argv = ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.Label "com.docker.compose.project.working_dir"}}'];
   // the docker socket is root's (or the docker group's): root first, the SSH user on a box not set up
   const { stdout } = await execRoot(node, argv, { timeout: 20_000 })
     .catch(() => exec(node, argv, { timeout: 20_000 }))
@@ -42,10 +44,16 @@ export function parseDockerPs(stdout: string): DockerContainer[] {
   const out: DockerContainer[] = [];
   for (const line of stdout.split(/\r?\n/)) {
     if (!line.trim()) continue;
-    const [name, image, status, ports] = line.split('\t');
+    const [name, image, status, ports, dir] = line.split('\t');
     if (!name) continue;
     const published = [...String(ports ?? '').matchAll(/(?:^|,\s*)(?:[\d.:\[\]]*:)?(\d+)->/g)].map((m) => Number(m[1]));
-    out.push({ name, image: image ?? '', status: status ?? '', ports: [...new Set(published)].filter((p) => p > 0) });
+    out.push({
+      name,
+      image: image ?? '',
+      status: status ?? '',
+      ports: [...new Set(published)].filter((p) => p > 0),
+      ...(dir?.trim().startsWith('/') && { dir: dir.trim() }),
+    });
   }
   return out;
 }
@@ -598,7 +606,8 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
 
         const container = spec.port && !process ? byDockerPort.get(spec.port) : undefined;
         const runtime: Runtime = spec.port ? (process ? 'PM2' : container ? 'DOCKER' : 'CADDY_PROXY') : spec.type === 'PHP' ? 'CADDY_PHP' : 'CADDY_STATIC';
-        const knownRoot = spec.rootPath || process?.cwd || (pid ? cwds.get(pid) : undefined);
+        // a container's port is held by docker-proxy, whose cwd is `/` — its folder is compose's label
+        const knownRoot = container ? container.dir : spec.rootPath || process?.cwd || (pid ? cwds.get(pid) : undefined);
         // a bucket-proxied site has no directory on the node; a PHP/static route
         // that does not say gets the conventional folder — checked below, kept only if it is there
         const guessedRoot = knownRoot || spec.port || spec.origin ? undefined : path.posix.join(APPS_ROOT_DIR, domain);

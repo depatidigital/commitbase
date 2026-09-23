@@ -835,7 +835,14 @@ function AppQuickEdit({ appId }: { appId: string }) {
           {!uploadedSite && (
             <>
               {/* what it is built and run with: its own commands, else detection's defaults */}
-              {application.type === "COMPOSE" ? (
+              {application.runtime === "DOCKER" ? (
+                // docker runs it, not the panel: no build or start command —
+                // where Caddy sends it and where compose started it are what matter
+                <>
+                  <MiniLine label={t("Proxy target")}>{application.port ? `127.0.0.1:${application.port}` : "—"}</MiniLine>
+                  <MiniLine label={t("Folder")}>{application.rootPath || t("not started by compose")}</MiniLine>
+                </>
+              ) : application.type === "COMPOSE" ? (
                 // A stack is not built or started by a command of its own: the
                 // compose files are what it runs, so name those instead.
                 <MiniLine label={t("Compose files")}>

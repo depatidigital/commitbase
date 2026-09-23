@@ -109,6 +109,8 @@ export async function importDockerContainer(node: SshTarget, userId: string, nam
     port,
     serve: { kind: 'proxy', port },
     status: container.status.startsWith('Up') ? 'RUNNING' : 'STOPPED',
+    // the compose folder, when compose started it — never deleted with the app (appTeardownService)
+    rootPath: container.dir ?? null,
     lastSyncedAt: new Date(),
   } as const;
 
