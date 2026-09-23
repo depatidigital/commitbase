@@ -30,7 +30,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BuildLogTail, DeployLogDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import DeploymentHistory, { BuildLogTail, DeployLogDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
+import { DangerZoneCard } from "@/components/DangerZoneCard";
+import { StackExecCard } from "@/components/StackExecCard";
+import { SiteFilesCard } from "@/components/SiteFilesCard";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
@@ -111,7 +115,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the app's tab (?tab=). Its services have no page of their own anymore: everything is on these tabs
-  const tab = ["env", "build", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["env", "build", "deployments", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   if (isLoading) {
@@ -228,6 +232,7 @@ export default function ProjectDetail() {
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
           <TabsTrigger value="env">{t("Environment")}</TabsTrigger>
           <TabsTrigger value="build">{t("Build")}</TabsTrigger>
+          <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
@@ -251,14 +256,14 @@ export default function ProjectDetail() {
                     <TableHead className="text-xs uppercase tracking-wide">{t("Service")}</TableHead>
                     <TableHead className="text-xs uppercase tracking-wide">{t("Host")}</TableHead>
                     <TableHead className="text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
-                    <TableHead className="w-40">
+                    <TableHead className="w-32">
                       <span className="sr-only">{t("Actions")}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {apps.map((app) => (
-                    <ServiceRow key={app.id} app={app} status={statusOf(app.id)} onOpen={() => openApp(app.id)} />
+                    <ServiceRow key={app.id} app={app} status={statusOf(app.id)} only={apps.length === 1} />
                   ))}
                 </TableBody>
               </Table>
@@ -283,6 +288,9 @@ export default function ProjectDetail() {
         </TabsContent>
 
         {/* every service's log in one live stream, or one service's — followed only while this tab is open */}
+        {/* every deploy of the app, newest first — each names its service when there are several */}
+        <TabsContent value="deployments">{apps[0] && <AppDeployments appId={apps[0].id} showApp={apps.length > 1} />}</TabsContent>
+
         <TabsContent value="logs">
           <ProjectLogs projectId={project.id} apps={apps} />
         </TabsContent>
@@ -355,9 +363,6 @@ export default function ProjectDetail() {
           )}
         </TabsContent>
       </Tabs>
-      )}
-
-      </div>
 
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent className="max-w-lg">
@@ -509,8 +514,9 @@ function ServiceAlerts({ appId, named }: { appId: string; /** several services: 
   // the checklist's Deploy: this app — every app deploys on its own
   const firstDeploy = useStartApplication();
   const queryClient = useQueryClient();
-  // the checklist's steps: env and build are the app's tabs, hosts the service's own page
+  // the checklist's steps: env and build are the app's tabs, hosts a dialog here
   const [, setSearchParams] = useSearchParams();
+  const [hostsOpen, setHostsOpen] = useState(false);
   // never deployed, and ours to deploy: its setup checklist, as on its page
   const needsSetup =
     !!application && !(application.type === "STATIC" && !application.repository) && !application.runtime && !hasBeenDeployed(application);
@@ -674,7 +680,7 @@ function ServiceAlerts({ appId, named }: { appId: string; /** several services: 
       {needsSetup && !inFlight && (
         <AppSetupCard
           compact
-          onEditHosts={() => setSearchParams({ service: appId })}
+          onEditHosts={() => setHostsOpen(true)}
           application={application}
           detected={detection.data}
           detecting={detection.isLoading}
@@ -690,6 +696,7 @@ function ServiceAlerts({ appId, named }: { appId: string; /** several services: 
           onShowLog={() => setLogOpen(true)}
         />
       )}
+      <RoutingCard application={application} dialogOnly editOpen={hostsOpen} onEditOpenChange={setHostsOpen} onChange={() => void refetchApp()} />
       {confirmDeploy.dialog}
       <DeployLogDialog
         application={application}
@@ -705,10 +712,15 @@ function ServiceAlerts({ appId, named }: { appId: string; /** several services: 
 
 /**
  * One service as a row of the app's Services tab: what it is, where it
- * answers, its last deploy, start/stop. The row opens its page.
+ * answers, its last deploy, start/stop, and a menu for the rest (its files,
+ * its console, deleting it). Services have no page of their own.
  */
-function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: string; tone: string }; onOpen: () => void }) {
+function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: string; tone: string }; /** the app's one service: deleting it deletes the app */ only: boolean }) {
   const { data: application } = useApplication(app.id);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // the menu's dialogs
+  const [dialog, setDialog] = useState<"files" | "console" | "delete" | null>(null);
   const start = useStartExistingApplication();
   const stop = useStopApplication();
   const restart = useRestartApplication();
@@ -730,13 +742,13 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
   const runtime = `${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`;
   const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
   return (
-    <TableRow onClick={onOpen} className={`group cursor-pointer ${app.disabled ? "opacity-50" : ""}`}>
+    <TableRow className={`group ${app.disabled ? "opacity-50" : ""}`}>
       <TableCell className="py-3">
         <span className="flex min-w-0 items-center gap-2">
           <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status.tone]}`} title={status.text} />
           <span className="truncate font-medium">{app.name}</span>
-          {/* rename in place: shown on row hover (and focus); its dialog's clicks must not open the row */}
-          <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+          {/* rename in place: shown on row hover (and focus) */}
+          <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
             <RenameAppDialog app={app} />
           </span>
           {deploying && (
@@ -764,8 +776,8 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
         </span>
       </TableCell>
       <TableCell className="font-mono text-xs">
-        {/* its hosts, added and changed in the hosts dialog; the dialog's clicks must not open the row */}
-        <span className="flex items-start gap-1" onClick={(e) => e.stopPropagation()}>
+        {/* its hosts, added and changed in the hosts dialog */}
+        <span className="flex items-start gap-1">
           {bindings.length === 0 ? (
             <Button variant="outline" size="sm" className="h-7 font-sans text-xs" disabled={!application} onClick={() => setHostsOpen(true)}>
               <Plus className="mr-1 h-3 w-3" />
@@ -801,7 +813,7 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
           <span className="text-muted-foreground">{t("Never deployed")}</span>
         )}
       </TableCell>
-      <TableCell onClick={(e) => e.stopPropagation()}>
+      <TableCell>
         <span className="flex items-center justify-end gap-1">
           {/* mid-deploy the process is the deploy's: not stopped or started by hand meanwhile */}
           {controllable &&
@@ -820,8 +832,57 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
                 {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               </Button>
             ))}
-          <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t("Actions for {name}", { name: app.name })} disabled={!application}>
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {/* a site uploaded as files: its files are what there is */}
+              {application?.type === "STATIC" && !application.repository && (
+                <DropdownMenuItem onClick={() => setDialog("files")}>
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  {t("Site files")}
+                </DropdownMenuItem>
+              )}
+              {application?.type === "COMPOSE" && (
+                <DropdownMenuItem onClick={() => setDialog("console")}>
+                  <Terminal className="mr-2 h-4 w-4" />
+                  {t("Console")}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDialog("delete")}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                {t("Delete service")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
+        {application && (
+          <Dialog open={!!dialog} onOpenChange={(open) => !open && setDialog(null)}>
+            <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
+              <DialogHeader>
+                <DialogTitle>
+                  {dialog === "files" ? t("Site files") : dialog === "console" ? t("Console") : t("Delete service")} — {app.name}
+                </DialogTitle>
+              </DialogHeader>
+              {dialog === "files" && <SiteFilesCard appId={app.id} />}
+              {dialog === "console" && <StackExecCard applicationId={app.id} defaultService={application.composeService ?? null} />}
+              {dialog === "delete" && (
+                <DangerZoneCard
+                  application={application}
+                  // the app's last service takes the app with it: back to the list; else stay on the app
+                  onDeleted={() => {
+                    setDialog(null);
+                    if (only) navigate("/apps");
+                    else void queryClient.invalidateQueries({ queryKey: ["project"] });
+                  }}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        )}
         {/* stopping takes it offline: asked first, as on its page */}
         <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
           <AlertDialogContent>
@@ -998,7 +1059,6 @@ function ServiceBuildSection({ appId }: { appId: string }) {
           <>
             <MiniLine label={t("Compose files")}>{(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}</MiniLine>
             <MiniLine label={t("Service")}>{application.composeService || "—"}</MiniLine>
-            <MiniLine label={t("Port")}>{application.composePort ?? "—"}</MiniLine>
           </>
         ) : (
           <>
@@ -1009,7 +1069,6 @@ function ServiceBuildSection({ appId }: { appId: string }) {
             {application.type !== "STATIC" && (
               <>
                 <MiniLine label={t("Start Command")}>{value(application.startCommand, detected?.startCommand)}</MiniLine>
-                <MiniLine label={t("Port")}>{application.port ?? "—"}</MiniLine>
               </>
             )}
           </>
@@ -1033,6 +1092,13 @@ function ServiceBuildSection({ appId }: { appId: string }) {
       </Dialog>
     </Card>
   );
+}
+
+/** The app's deploy history: the history is its source's, read through any of its services. */
+function AppDeployments({ appId, showApp }: { appId: string; showApp: boolean }) {
+  const { data: application } = useApplication(appId);
+  if (!application) return <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />;
+  return <DeploymentHistory application={application} showApp={showApp} />;
 }
 
 /** Label left, value right — a line of read-only settings. */
