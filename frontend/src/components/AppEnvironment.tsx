@@ -8,7 +8,7 @@ import { DatabaseValue } from "@/components/DatabaseSource";
 import { getAppDatabases, testDatabaseUrl } from "@/lib/databases";
 import { getProject } from "@/lib/projects";
 import { useToast } from "@/hooks/use-toast";
-import { Application, DetectedProject, getApplication, hasBeenDeployed, hostsOf, updateApplication } from "@/lib/applications";
+import { Application, DetectedProject, getApplication, getStackServices, hasBeenDeployed, isDatabaseService, hostsOf, updateApplication, type StackService } from "@/lib/applications";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -179,6 +179,65 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   const databaseKeys = rows.map((row) => row.key).filter((key) => DATABASE_KEYS.has(key));
   // where the Connect button goes: DATABASE_URL, else the first of the others (Laravel's DB_HOST)
   const databaseAnchor = databaseKeys.includes("DATABASE_URL") ? "DATABASE_URL" : databaseKeys.find((key) => /HOST$/.test(key)) ?? databaseKeys[0];
+
+  // A database given in parts (POSTGRES_HOST, _PORT, _PASSWORD; DB_*; PG*) is one
+  // row: its names folded, its value the database picker — they are filled together.
+  // "Edit manually" unfolds them, for a database the panel does not manage.
+  const [unfolded, setUnfolded] = useState(false);
+  // a stack's own services — a database among them is offered in the database dialog
+  const { data: stackServices } = useQuery({
+    queryKey: ["application", application.id, "compose-services"],
+    queryFn: () => getStackServices(application.id),
+    enabled: application.type === "COMPOSE",
+    retry: false,
+    staleTime: 60_000,
+  });
+  const stackDb = (host: string) => stackServices?.filter(isDatabaseService).find((service) => service.name === host);
+  /** The stack's own database: host = its service name, its engine's port; a password kept (the container is made with it), else a fresh one. */
+  const pickStackDb = (service: StackService) => {
+    const mysql = /mysql|mariadb/i.test(`${service.image ?? ""} ${service.name}`);
+    const prefix = dbGroup ? /^(PG|[A-Z]+_)/.exec(dbGroup.keys[0]!)?.[1] ?? "POSTGRES_" : mysql ? "DB_" : "POSTGRES_";
+    const set: EnvRow[] = [
+      { key: `${prefix}HOST`, value: service.name },
+      { key: `${prefix}PORT`, value: mysql ? "3306" : "5432" },
+    ];
+    const password = rows.find((row) => row.key === `${prefix}PASSWORD`);
+    if (!password?.value) set.push({ key: `${prefix}PASSWORD`, value: generateSecret(`${prefix}PASSWORD`) ?? crypto.randomUUID().replace(/-/g, "") });
+    setRows((prev) => mergeRows(prev, set, true));
+    setDirty(true);
+  };
+  const dbGroup = useMemo(() => {
+    if (unfolded || !databaseAnchor || databaseAnchor === "DATABASE_URL") return null;
+    const prefix = /^(PG|[A-Z]+_)/.exec(databaseAnchor)?.[1] ?? "";
+    const keys = databaseKeys.filter((key) => key.startsWith(prefix) && !/URL/.test(key)).sort();
+    if (keys.length < 2) return null;
+    const value = (suffix: RegExp) => rows.find((row) => keys.includes(row.key) && suffix.test(row.key.slice(prefix.length)))?.value ?? "";
+    const host = value(/^HOST$/);
+    const name = value(/^(DB|DATABASE|NAME)$/);
+    const port = value(/^PORT$/);
+    // something DatabaseValue can read the host and name from — never the password
+    const address = host ? `postgresql://${host}${port ? `:${port}` : ""}/${name}` : "";
+    return {
+      keys,
+      label: `${prefix}(${keys.map((key) => key.slice(prefix.length)).join(", ")})`,
+      value: (
+        <div className="space-y-1">
+          <DatabaseValue
+            value={address}
+            dbName={name ? appDatabases?.find((db) => !db.discovered && db.dbName === name)?.dbName : undefined}
+            // the stack's own database container, by its service name
+            stackService={stackDb(host)?.name}
+            disabled={saving}
+            onOpen={() => setDbOpen(true)}
+          />
+          <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setUnfolded(true)}>
+            {t("Edit manually")}
+          </button>
+        </div>
+      ),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unfolded, databaseAnchor, databaseKeys.join(","), rows, appDatabases, saving, stackServices]);
 
   const hints = useMemo(() => {
     const from: Record<string, string> = {};
@@ -360,7 +419,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         hints={hints}
         // an app without DATABASE_URL (Laravel's DB_*): its first database variable stays a field, the dialog beside it
         renderAction={(row) =>
-          row.key === databaseAnchor && row.key !== "DATABASE_URL" ? (
+          !dbGroup && row.key === databaseAnchor && row.key !== "DATABASE_URL" ? (
             <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDbOpen(true)} disabled={saving}>
               <DatabaseIcon className="h-3.5 w-3.5 sm:mr-2" />
               <span className="hidden sm:inline">{t("Connect database")}</span>
@@ -380,6 +439,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         // tried from the node the app runs on, with the value as typed
         verify={(row) => (isDatabaseUrl(row) ? () => testDatabaseUrl(application.id, row.key, row.value) : null)}
         urlOptions={urlOptions}
+        group={dbGroup}
         disabled={saving}
         onChange={(next) => {
           setRows(next);
@@ -459,6 +519,9 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           setRows((prev) => mergeRows(prev, [{ key: "DATABASE_URL", value: url }], true));
           setDirty(true);
         }}
+        // the stack's own database container, when it has one
+        stackServices={stackServices}
+        onStack={pickStackDb}
       />
     </div>
   );

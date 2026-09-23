@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Check, CheckCircle2, ChevronsUpDown, ClipboardPaste, Eye, EyeOff, Info, FileUp, Loader2, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronsUpDown, ClipboardPaste, Database as DatabaseIcon, Eye, EyeOff, Info, FileUp, Loader2, Lock, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +45,11 @@ interface EnvEditorProps {
   verify?: (row: EnvRow) => (() => Promise<{ ok: boolean; message: string }>) | null;
   /** addresses offered on *_URL / *_URI / *_ORIGIN rows (the project's hosts) — picked or typed over */
   urlOptions?: string[];
+  /**
+   * Rows shown as one: its members (POSTGRES_HOST, _PORT, _PASSWORD…) folded into a
+   * read-only name, the value what the caller renders (a database picker); its bin removes them all.
+   */
+  group?: { keys: string[]; label: string; value: React.ReactNode } | null;
   disabled?: boolean;
 }
 
@@ -65,7 +70,7 @@ const CONNECTION_NAME = /(DATABASE|DB|POSTGRES|MYSQL|MONGO|REDIS|AMQP|RABBIT|KAF
  * whole .env into any name field splits it into rows, which is how most people
  * arrive with their variables.
  */
-export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, generate, verify, urlOptions = [], disabled }: EnvEditorProps) {
+export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, generate, verify, urlOptions = [], group, disabled }: EnvEditorProps) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [pasting, setPasting] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -178,7 +183,13 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [list.length],
   );
-  const indexed: Indexed[] = order.filter((index) => index < list.length).map((index) => ({ row: list[index]!, index }));
+  const grouped = new Set(group?.keys ?? []);
+  // the group shows as its first member; the others are behind it
+  const groupAt = order.find((index) => index < list.length && grouped.has(list[index]!.key));
+  const inGroup = (index: number) => grouped.has(list[index]?.key ?? '');
+  const indexed: Indexed[] = order
+    .filter((index) => index < list.length && (!inGroup(index) || index === groupAt))
+    .map((index) => ({ row: list[index]!, index }));
   // needs a look: expected but empty, a name that cannot be exported, an address that cannot work on the server
   const isFlagged = ({ row, index }: Indexed) => {
     const v = view(row, index);
@@ -188,8 +199,26 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   const tableRows = onlyFlagged ? indexed.filter(isFlagged) : indexed;
 
   const nameCell = ({ row, index }: Indexed) => {
+    if (group && index === groupAt) {
+      // text, not a field: nothing to type — its members are set together, from the value
+      return (
+        <p className="flex min-h-8 items-start gap-1.5 py-1.5 font-mono text-xs" title={group.keys.join(", ")}>
+          <DatabaseIcon className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="break-all">{group.label}</span>
+        </p>
+      );
+    }
     const { invalid, missing, fixed } = view(row, index);
     const hint = hints?.[row.key];
+    // a name the code expects: text with a mark, not a field that cannot be typed in
+    if (fixed && !invalid) {
+      return (
+        <p className="flex min-h-8 items-start gap-1.5 py-1.5 font-mono text-xs" title={hint ? `${t("The code expects this name")} — ${hint}` : t("The code expects this name")}>
+          <Lock className="mt-px h-3 w-3 shrink-0 text-muted-foreground" />
+          <span className="break-all">{row.key}</span>
+        </p>
+      );
+    }
     return (
       <div className="space-y-1">
         <div className="relative">
@@ -224,6 +253,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   };
 
   const valueCell = ({ row, index }: Indexed) => {
+    if (group && index === groupAt) return group.value;
     const { missing, secret, shown, multiline, check, checked, local, suggestion, generatable, platform, customValue } = view(row, index);
     const action = renderAction?.(row);
     const invalidValue = missing || (checked && checked !== "pending" && !checked.ok);
@@ -368,6 +398,15 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   };
 
   const actionCell = ({ row, index }: Indexed) => {
+    if (group && index === groupAt) {
+      return (
+        <div className="flex items-center justify-end">
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title={t("Remove")} disabled={disabled} onClick={() => onChange(list.filter((row) => !grouped.has(row.key)))}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      );
+    }
     const { secret, shown } = view(row, index);
     return (
       <div className="flex items-center justify-end gap-1">
@@ -394,7 +433,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
 
   const columns: Column<Indexed>[] = [
     { header: "#", className: "w-10 align-top pt-4 text-xs text-muted-foreground", cell: ({ index }) => indexed.findIndex((entry) => entry.index === index) + 1 },
-    { header: t("Name"), className: "w-[28%] align-top", cell: nameCell },
+    { header: t("Name"), className: "w-[38%] align-top", cell: nameCell },
     { header: t("Value"), className: "align-top", cell: valueCell },
     // the eye and the bin
     { header: "", className: "w-20 align-top", cell: actionCell },

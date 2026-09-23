@@ -515,6 +515,13 @@ export default {
   "needs {services}": "butuh {services}",
   "Serves traffic": "Melayani trafik",
   "Point the host here": "Arahkan host ke sini",
+  "Edit manually": "Ubah manual",
+  "In the stack": "Di stack",
+  Stack: "Stack",
+  "{service} (in the stack)": "{service} (di stack)",
+  "Use {service}": "Pakai {service}",
+  "The app reaches it by its service name inside the stack. Its host and port go in the form; the password stays — the container is created with it.":
+    "Aplikasi menjangkaunya lewat nama service di dalam stack. Host dan port-nya masuk ke form; password tetap — container dibuat dengan password itu.",
   "Env ({count})": "Env ({count})",
   "From {files}, then the compose file's environment:": "Dari {files}, lalu environment di file compose:",
   "From the compose file's environment:": "Dari environment di file compose:",

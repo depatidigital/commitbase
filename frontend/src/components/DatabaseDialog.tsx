@@ -19,6 +19,7 @@ import {
   testDatabaseUrl,
 } from "@/lib/databases";
 import { parseDatabaseUrl, toDbName } from "@/lib/env";
+import { isDatabaseService, type StackService } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
 interface DatabaseDialogProps {
@@ -34,6 +35,10 @@ interface DatabaseDialogProps {
   onConnected: (keys: string[]) => void;
   /** "Custom": the URL typed — put in the form (saved with it), not written by this dialog */
   onCustom: (url: string) => void;
+  /** a compose app's services: a database among them can be picked — the stack's own */
+  stackServices?: StackService[];
+  /** "In the stack": the service picked — its host and port go in the form, like a custom URL */
+  onStack?: (service: StackService) => void;
 }
 
 /** a database name from the app's hostname: `shop.acme.id` → `shop` */
@@ -76,11 +81,13 @@ function Choice<T extends string>({ value, options, onChange }: { value: T; opti
  * Connect. Its URL lands in the app's env server-side (DATABASE_URL); the
  * password never reaches this page.
  */
-export function DatabaseDialog({ open, onOpenChange, application, currentUrl, alsoKeys = [], onConnected, onCustom }: DatabaseDialogProps) {
+export function DatabaseDialog({ open, onOpenChange, application, currentUrl, alsoKeys = [], onConnected, onCustom, stackServices = [], onStack }: DatabaseDialogProps) {
   const { toast } = useToast();
   const orgId = application.organizationId ?? "";
   // where the value comes from: one of the organization's databases, or a URL of its own
-  const [source, setSource] = useState<"ours" | "custom">("ours");
+  const [source, setSource] = useState<"ours" | "custom" | "stack">("ours");
+  const stackDbs = stackServices.filter(isDatabaseService);
+  const [stackPick, setStackPick] = useState("");
   const [customUrl, setCustomUrl] = useState("");
   const [customCheck, setCustomCheck] = useState<"pending" | { ok: boolean; message: string } | null>(null);
   const [mode, setMode] = useState<"create" | "existing">("create");
@@ -96,7 +103,9 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   // each opening starts from what DATABASE_URL says, else from the hostname
   useEffect(() => {
     if (!open) return;
-    setSource("ours");
+    // a stack with a database of its own: that is what it runs with, so it comes first
+    setSource(stackDbs.length ? "stack" : "ours");
+    setStackPick(stackDbs[0]?.name ?? "");
     setCustomUrl(currentUrl ?? "");
     setCustomCheck(null);
     setMode("create");
@@ -164,7 +173,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
       ? choices.find((db) => !db.discovered && (db.dbName === fromUrl.name || db.name === fromUrl.name))
       : undefined;
     if (currentUrl?.trim() && !named) {
-      setSource("custom");
+      if (!stackDbs.length) setSource("custom");
       return;
     }
     const pick = named ?? choices.find((db) => siblingsOf(db.id).length > 0);
@@ -192,7 +201,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   const orgLogin = logins.data?.logins.find((login) => login.username.startsWith("org_"))?.username ?? `org_${prefix.replace(/_+$/, "")}`;
   const customEngine = parseDatabaseUrl(customUrl).engine;
   const valid =
-    source === "custom" ? !!customEngine : mode === "create" ? /^[a-z][a-z0-9_]{0,40}$/.test(name) && !!serverId : !!existingId;
+    source === "stack" ? !!stackPick : source === "custom" ? !!customEngine : mode === "create" ? /^[a-z][a-z0-9_]{0,40}$/.test(name) && !!serverId : !!existingId;
 
   const server = servers.data?.find((s) => s.id === serverId);
   const summaryDb = mode === "create" ? `${prefix}${name}` : chosen?.dbName || chosen?.name || "";
@@ -201,6 +210,13 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!valid) return;
+    // the stack's own database: its host and port into the form, saved with the rest of the env
+    if (source === "stack") {
+      const service = stackDbs.find((s) => s.name === stackPick);
+      if (service) onStack?.(service);
+      onOpenChange(false);
+      return;
+    }
     // a URL of its own: into the form, saved with the rest of the env
     if (source === "custom") {
       onCustom(customUrl.trim());
@@ -251,9 +267,10 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           <div className="flex border-b border-border/60 text-sm" role="tablist">
             {(
               [
-                ["ours", t("Larika database")],
-                ["custom", t("Custom URL")],
-              ] as const
+                ...(stackDbs.length ? [["stack", t("In the stack")] as const] : []),
+                ["ours", t("Larika database")] as const,
+                ["custom", t("Custom URL")] as const,
+              ]
             ).map(([option, label]) => (
               <button
                 key={option}
@@ -270,7 +287,33 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
             ))}
           </div>
 
-          {source === "custom" ? (
+          {source === "stack" ? (
+            // a database container of the stack itself: reached by its service name, inside the stack's network
+            <div className="space-y-2">
+              <ul className="divide-y divide-border/60 rounded-md border border-border/60" role="listbox">
+                {stackDbs.map((service) => (
+                  <li key={service.name}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={stackPick === service.name}
+                      onClick={() => setStackPick(service.name)}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${stackPick === service.name ? "bg-primary/10" : "hover:bg-muted/50"}`}
+                    >
+                      <DatabaseIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className={`font-mono ${stackPick === service.name ? "font-medium text-primary" : ""}`}>{service.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-right font-mono text-xs text-muted-foreground">
+                        {service.build ? t("built from the repository") : service.image}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                {t("The app reaches it by its service name inside the stack. Its host and port go in the form; the password stays — the container is created with it.")}
+              </p>
+            </div>
+          ) : source === "custom" ? (
             // a database the panel does not manage: its URL, tried from the app's node before it is used
             <div className="space-y-2">
               <Label htmlFor="custom-url">{t("Connection URL")}</Label>
@@ -449,7 +492,9 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           </Button>
           <Button type="submit" form="database-connect" disabled={!valid || busy}>
             {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {source === "custom"
+            {source === "stack"
+              ? t("Use {service}", { service: stackPick })
+              : source === "custom"
               ? t("Use this URL")
               : mode === "create"
                 ? t("Create & connect")

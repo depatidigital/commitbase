@@ -12,12 +12,15 @@ import { t } from "@/lib/i18n";
 export function DatabaseValue({
   value,
   dbName,
+  stackService,
   onOpen,
   disabled,
 }: {
   value: string;
   /** set when the value is one of ours */
   dbName?: string | null;
+  /** set when it is a database container of the app's own compose stack, by service name */
+  stackService?: string | null;
   onOpen: () => void;
   disabled?: boolean;
 }) {
@@ -30,7 +33,7 @@ export function DatabaseValue({
     );
   }
   const ours = !!dbName;
-  const Icon = ours ? DatabaseIcon : Link2;
+  const Icon = ours || stackService ? DatabaseIcon : Link2;
   return (
     <button
       type="button"
@@ -41,9 +44,9 @@ export function DatabaseValue({
     >
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="shrink-0 rounded bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-        {ours ? t("Larika") : t("Custom")}
+        {stackService ? t("Stack") : ours ? t("Larika") : t("Custom")}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono">{ours ? dbName : databaseAddress(value)}</span>
+      <span className="min-w-0 flex-1 truncate font-mono">{stackService ? t("{service} (in the stack)", { service: stackService }) : ours ? dbName : databaseAddress(value)}</span>
       <ArrowLeftRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     </button>
   );

@@ -390,6 +390,10 @@ export type StackService = {
   envFiles: string[];
 };
 
+/** A stack service that is a database, by its image or its name. */
+export const isDatabaseService = (service: StackService) =>
+  /postgres|postgis|mysql|mariadb|mongo/i.test(service.image ?? "") || /^(db|database|postgres|postgresql|pg|mysql|mariadb|mongo)(-|_|\d|$)/i.test(service.name);
+
 /** A compose app's services, as `compose config` reads its saved files on the node. */
 export const getStackServices = async (id: string): Promise<StackService[]> => {
   const response = await apiRequest<StackService[]>(`/applications/${id}/compose/services`);
