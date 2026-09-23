@@ -52,7 +52,14 @@ const apiRequest = async <T>(
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    const data = await response.json();
+    // a proxy, a gateway or a limiter can answer in plain text: say what it said, not a JSON parse error
+    const text = await response.text();
+    let data: ApiResponse<T>;
+    try {
+      data = text ? JSON.parse(text) : { success: response.ok };
+    } catch {
+      data = { success: false, error: text.trim().slice(0, 300) || `HTTP ${response.status}` };
+    }
 
     if (!response.ok) {
       // Handle 401 Unauthorized
