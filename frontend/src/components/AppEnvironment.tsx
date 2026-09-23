@@ -148,8 +148,11 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useEffect(() => {
-    if (!dirtyRef.current) setRows(initial);
-  }, [initial]);
+    if (!dirtyRef.current) {
+      setRows(initial);
+      setExtraRows(initialExtra);
+    }
+  }, [initial, initialExtra]);
 
   // counted from what is on screen, not what is saved: a value just typed is no longer "empty"
   // an expected key that was removed is not missing — the app said it does not use it
@@ -193,12 +196,23 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   const save = async (quiet = false) => {
     setSaving(true);
     try {
-      const updated = await updateApplication(application.id, { envVars: rowsToEnv(rows) });
+      // every other file its own; a found file with variables set joins the files the deploy writes
+      const extraEnvVars = Object.fromEntries(
+        files.slice(1).map((file) => [file, rowsToEnv(extraRows[file] ?? [])] as const).filter(([, env]) => Object.keys(env).length > 0),
+      );
+      const written = [...new Set([...configuredFiles, ...Object.keys(extraEnvVars)])];
+      const updated = await updateApplication(application.id, {
+        envVars: rowsToEnv(rows),
+        extraEnvVars,
+        ...(written.length !== configuredFiles.length && { composeEnvFiles: written }),
+      });
       // The page's copy of the app first, then mark the form clean: the other
       // way round, the form resets to the stale "saved" env for a render and
       // what was just saved appears to have reverted.
       queryClient.setQueryData<Application>(["application", application.id], (prev) =>
-        prev ? { ...prev, envVars: updated.envVars ?? rowsToEnv(rows), envConfirmed: true } : prev,
+        prev
+          ? { ...prev, envVars: updated.envVars ?? rowsToEnv(rows), extraEnvVars: updated.extraEnvVars ?? extraEnvVars, composeEnvFiles: updated.composeEnvFiles ?? written, envConfirmed: true }
+          : prev,
       );
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
@@ -235,21 +249,76 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           })}
         </p>
       )}
-      {/* which files the deploy writes these into — a setup guide names each file apart */}
-      {!application.staticBucket && (
-        <p className="text-xs text-muted-foreground">
-          {t("Written into {files} on every deploy — the same keys in each; the rest of what those files ship stays.", {
-            files: (application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"]).join(", "),
+      {/* a tab per env file — a setup guide edits each file apart (CKAN: .env, then .ckan-env) */}
+      {files.length > 1 && (
+        <div className="flex shrink-0 flex-wrap gap-1 border-b border-border/60">
+          {files.map((file) => {
+            const count = file === firstFile ? rows.length : (extraRows[file] ?? []).length;
+            return (
+              <button
+                key={file}
+                type="button"
+                aria-pressed={activeFile === file}
+                onClick={() => setActiveFile(file)}
+                className={`-mb-px border-b-2 px-3 py-1.5 font-mono text-sm transition-colors ${
+                  activeFile === file ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {file}
+                {count > 0 && <span className="ml-1.5 font-sans text-xs text-muted-foreground">{count}</span>}
+              </button>
+            );
           })}
+        </div>
+      )}
+      {!application.staticBucket && (
+        <p className="shrink-0 text-xs text-muted-foreground">
+          {activeFile === firstFile && files.length > 1
+            ? t("Written into {file} on every deploy — also what the build and the app get. The rest of the file stays as the repository ships it.", { file: activeFile })
+            : t("Written into {file} on every deploy. The rest of the file stays as the repository ships it.", { file: activeFile })}
         </p>
       )}
-      {!!detected?.env.production.length && (
+      {/* what the repository ships in this file and is not set here: kept as is — folded, it can be long */}
+      {(() => {
+        const set = activeFile === firstFile ? rows : extraRows[activeFile] ?? [];
+        const shipped = shippedOf(activeFile, set);
+        if (!shipped.length) return null;
+        return (
+          <details className="shrink-0 rounded-md border border-border/60 px-3 py-2 text-xs">
+            <summary className="cursor-pointer text-muted-foreground">
+              {t("{count} more in {file} from the repository — kept as they are", { count: shipped.length, file: activeFile })}
+            </summary>
+            <div className="mt-2 max-h-40 overflow-y-auto font-mono">
+              {shipped.map((v) => (
+                <div key={v.key} className="flex gap-2">
+                  <span className="shrink-0">{v.key}</span>
+                  <span className="truncate text-muted-foreground">{v.value}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="mt-2 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              disabled={saving}
+              onClick={() => {
+                // into this tab, to change them
+                if (activeFile === firstFile) setRows((prev) => mergeRows(prev, shipped));
+                else setExtraRows((prev) => ({ ...prev, [activeFile]: mergeRows(prev[activeFile] ?? [], shipped) }));
+                setDirty(true);
+              }}
+            >
+              {t("Add them to change")}
+            </button>
+          </details>
+        );
+      })()}
+      {activeFile === firstFile && !!detected?.env.production.length && (
         <p className="text-xs text-muted-foreground">
           {t("The repository's .env.production also sets {keys} at build time.", { keys: detected.env.production.join(", ") })}
         </p>
       )}
 
-      {absent.length > 0 && (
+      {activeFile === firstFile && absent.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span>
             {t("In {file} but not set: {keys}", { file: detected?.env.example?.file ?? ".env.example", keys: absent.map((row) => row.key).join(", ") })}
@@ -268,6 +337,21 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         </p>
       )}
 
+      {activeFile !== firstFile ? (
+        // another file's own variables: plain rows, no database or checklist of its own
+        <EnvEditor
+          key={activeFile}
+          rows={extraRows[activeFile] ?? []}
+          suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
+          generate={(row) => (row.value ? null : generateSecret(row.key))}
+          urlOptions={urlOptions}
+          disabled={saving}
+          onChange={(next) => {
+            setExtraRows((prev) => ({ ...prev, [activeFile]: next }));
+            setDirty(true);
+          }}
+        />
+      ) : (
       <EnvEditor
         rows={rows}
         // only what is still to fill: a key saved empty on purpose is not flagged
@@ -306,7 +390,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
       {/* pinned to the dialog's bottom edge: Save is reachable without scrolling past a long env */}
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-end gap-2 border-t border-border/60 bg-background px-1 pt-3">
         {dirty && (
-          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); }} disabled={saving}>
+          <Button type="button" variant="ghost" onClick={() => { setRows(initial); setExtraRows(initialExtra); setDirty(false); }} disabled={saving}>
             {t("Reset")}
           </Button>
         )}
