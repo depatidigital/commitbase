@@ -41,7 +41,7 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, repoName, runtimeLabel } from "@/lib/applications";
+import { type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, getSiteFiles, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -120,7 +120,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the project's tab (?tab=), or one of its apps opened a level deeper (?service=)
-  const tab = ["logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["env", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   const openApp = (appId: string) => setSearchParams({ service: appId });
@@ -259,6 +259,7 @@ export default function ProjectDetail() {
       <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
+          <TabsTrigger value="env">{t("Env")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
@@ -356,6 +357,13 @@ export default function ProjectDetail() {
         </TabsContent>
 
         {/* every app's log in one live stream, or one app's — followed only while this tab is open */}
+        {/* every service's env on one tab, one section each — no need to open a service for it */}
+        <TabsContent value="env" className="space-y-4">
+          {apps.map((app) => (
+            <ServiceEnvSection key={app.id} appId={app.id} />
+          ))}
+        </TabsContent>
+
         <TabsContent value="logs">
           <ProjectLogs projectId={project.id} apps={apps} />
         </TabsContent>
@@ -1021,6 +1029,45 @@ function FreshEnvironment({ appId, detected }: { appId: string; detected?: Detec
     return <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" />;
   }
   return <AppEnvironment application={application} detected={detected} />;
+}
+
+/**
+ * One service's env on the app's Env tab: the panel's own services get the
+ * form, an imported one its .env on the server (read, not edited), and uploaded
+ * files have none.
+ */
+function ServiceEnvSection({ appId }: { appId: string }) {
+  const { data: application } = useApplication(appId);
+  // the same query (and cache) as the service's page and card
+  const detection = useQuery({
+    queryKey: ["application", appId, "detect"],
+    queryFn: () => getAppDetection(appId),
+    enabled: !!application && !application.runtime && !!application.repository,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  if (!application) return <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />;
+  const host = application.domains.map((d) => d.host).find(isPublicHost);
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+          <KeyRound className="h-4 w-4 shrink-0 text-primary" />
+          <span className="truncate">{application.name}</span>
+          {host && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {application.type === "STATIC" && !application.repository ? (
+          <p className="text-sm text-muted-foreground">{t("Uploaded files have no environment variables.")}</p>
+        ) : application.runtime ? (
+          <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
+        ) : (
+          <AppEnvironment application={application} detected={detection.data} />
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 /** A small read-only card of the quick edit's bento. */
