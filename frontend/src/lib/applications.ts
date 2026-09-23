@@ -379,7 +379,16 @@ export const getAppDetection = async (id: string): Promise<DetectedProject> => {
   throw new Error(response.error || t("Could not inspect the project"));
 };
 
-export type StackService = { name: string; image: string | null; build: boolean; ports: string[]; dependsOn: string[] };
+export type StackService = {
+  name: string;
+  image: string | null;
+  build: boolean;
+  ports: string[];
+  dependsOn: string[];
+  /** what the container gets: env_file(s) and environment: merged, ${...} filled in */
+  environment: Record<string, string>;
+  envFiles: string[];
+};
 
 /** A compose app's services, as `compose config` reads its saved files on the node. */
 export const getStackServices = async (id: string): Promise<StackService[]> => {

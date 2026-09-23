@@ -119,15 +119,29 @@ assert.strictEqual(readPsStatus('not json'), 'STOPPED');
 assert.deepStrictEqual(
   servicesOf({
     services: {
-      ckan: { build: { context: '.' }, ports: [{ target: 5000, published: '5000' }], depends_on: { db: {}, redis: {} } },
+      ckan: {
+        build: { context: '.' },
+        ports: [{ target: 5000, published: '5000' }],
+        depends_on: { db: {}, redis: {} },
+        environment: { CKAN_SITE_URL: 'https://x', EMPTY: null },
+        env_file: [{ path: '/srv/app/compose/.ckan-env', required: true }],
+      },
       redis: { image: 'redis:6.0.14' },
       solr: { image: 'x', build: { context: '.' }, ports: [{ target: 8983 }] },
     },
   }),
   [
-    { name: 'ckan', image: null, build: true, ports: ['5000:5000'], dependsOn: ['db', 'redis'] },
-    { name: 'redis', image: 'redis:6.0.14', build: false, ports: [], dependsOn: [] },
-    { name: 'solr', image: null, build: true, ports: ['8983'], dependsOn: [] },
+    {
+      name: 'ckan',
+      image: null,
+      build: true,
+      ports: ['5000:5000'],
+      dependsOn: ['db', 'redis'],
+      environment: { CKAN_SITE_URL: 'https://x', EMPTY: '' },
+      envFiles: ['.ckan-env'],
+    },
+    { name: 'redis', image: 'redis:6.0.14', build: false, ports: [], dependsOn: [], environment: {}, envFiles: [] },
+    { name: 'solr', image: null, build: true, ports: ['8983'], dependsOn: [], environment: {}, envFiles: [] },
   ],
 );
 assert.deepStrictEqual(servicesOf(null), []);

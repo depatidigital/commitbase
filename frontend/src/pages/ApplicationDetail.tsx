@@ -1516,7 +1516,7 @@ export function AppWorkspace({
           {/* stacked: the same form, in the Deployment card's Edit dialog */}
           {showBuild && stacked && (
             <Dialog open={buildOpen} onOpenChange={setBuildOpen}>
-              <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
+              <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
                 <DialogHeader>
                   <DialogTitle>{t("Build Settings")}</DialogTitle>
                 </DialogHeader>
@@ -1781,7 +1781,9 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
     command ? t("Empty uses the detected one: {command}", { command }) : t("Empty uses the detected one.");
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    // header (the dialog's), body that scrolls, footer that stays — the same shell as the env dialog
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
       {/* Package manager — the lockfile's unless chosen; pnpm over npm's lockfile runs pnpm import */}
       {buildable && (
         <div className="space-y-2">
@@ -1966,8 +1968,31 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       </div>
       </>}
 
-      {/* Action Buttons */}
-      <div className="flex items-center justify-between pt-4 border-t">
+      {/* Help Section */}
+      {buildable && <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+        <h4 className="text-sm font-medium">{t("Help & Examples")}</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div>
+            <p className="font-medium mb-1">Node.js</p>
+            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
+            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn start" })}</p>
+          </div>
+          <div>
+            <p className="font-medium mb-1">React</p>
+            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
+            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn start" })}</p>
+          </div>
+          <div>
+            <p className="font-medium mb-1">Vue.js</p>
+            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
+            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn run serve" })}</p>
+          </div>
+        </div>
+      </div>}
+      </div>
+
+      {/* Action Buttons — the footer: outside what scrolls, so Save stays in view in a dialog */}
+      <div className="mt-4 flex shrink-0 items-center justify-between border-t pt-4">
         <div className="flex items-center space-x-2">
           <Button
             type="button"
@@ -2004,28 +2029,6 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
           </Button>
         </div>
       </div>
-
-      {/* Help Section */}
-      {buildable && <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-        <h4 className="text-sm font-medium">{t("Help & Examples")}</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          <div>
-            <p className="font-medium mb-1">Node.js</p>
-            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
-            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn start" })}</p>
-          </div>
-          <div>
-            <p className="font-medium mb-1">React</p>
-            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
-            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn start" })}</p>
-          </div>
-          <div>
-            <p className="font-medium mb-1">Vue.js</p>
-            <p className="text-muted-foreground">{t("Build: {command}", { command: "yarn build" })}</p>
-            <p className="text-muted-foreground">{t("Start: {command}", { command: "yarn run serve" })}</p>
-          </div>
-        </div>
-      </div>}
     </form>
   );
 } 

@@ -899,7 +899,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
         </DialogContent>
       </Dialog>
       <Dialog open={buildOpen} onOpenChange={setBuildOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>{t("Build Settings")} — {application.name}</DialogTitle>
           </DialogHeader>

@@ -386,9 +386,10 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           setDirty(true);
         }}
       />
+      )}
 
-      {/* pinned to the dialog's bottom edge: Save is reachable without scrolling past a long env */}
-      <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-end gap-2 border-t border-border/60 bg-background px-1 pt-3">
+      {/* the footer: outside what scrolls, so Save stays in view in a dialog */}
+      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/60 pt-3">
         {dirty && (
           <Button type="button" variant="ghost" onClick={() => { setRows(initial); setExtraRows(initialExtra); setDirty(false); }} disabled={saving}>
             {t("Reset")}

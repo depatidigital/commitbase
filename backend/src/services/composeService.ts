@@ -278,7 +278,17 @@ export async function execInService(
   return run(application, ['exec', '-T', target, ...argv], { timeout: 30 * 60_000, ...(onOutput ? { onOutput } : {}) });
 }
 
-export type StackService = { name: string; image: string | null; build: boolean; ports: string[]; dependsOn: string[] };
+export type StackService = {
+  name: string;
+  image: string | null;
+  build: boolean;
+  ports: string[];
+  dependsOn: string[];
+  /** what the container gets: its env_file(s) and environment: merged, ${...} filled in */
+  environment: Record<string, string>;
+  /** the env files it loads, by name */
+  envFiles: string[];
+};
 
 /** The stack's services as `compose config` reads its files — the app's own, without the platform's override. Pure. */
 export function servicesOf(config: any): StackService[] {
@@ -290,6 +300,11 @@ export function servicesOf(config: any): StackService[] {
       .filter((p: any) => p?.target)
       .map((p: any) => (p.published ? `${p.published}:${p.target}` : String(p.target))),
     dependsOn: Object.keys(spec?.depends_on ?? {}),
+    environment: Object.fromEntries(Object.entries<any>(spec?.environment ?? {}).map(([key, value]) => [key, value == null ? '' : String(value)])),
+    // compose prints env_file as paths (absolute, after config) or { path } objects
+    envFiles: (Array.isArray(spec?.env_file) ? spec.env_file : spec?.env_file ? [spec.env_file] : []).map((e: any) =>
+      path.posix.basename(String(typeof e === 'string' ? e : e?.path ?? '')),
+    ),
   }));
 }
 
