@@ -127,6 +127,12 @@ export default {
     "{n} file compose di folder ini. Service, port, dan file env diatur di halaman aplikasi.",
   // the dashboard
   Dashboard: "Dasbor",
+  Services: "Layanan",
+  Invoices: "Tagihan",
+  "Coming soon": "Segera hadir",
+  "Connect a number and send messages from your apps.": "Hubungkan nomor dan kirim pesan dari aplikasi Anda.",
+  "Automatic invoices, with WhatsApp reminders before they are due.": "Tagihan otomatis, dengan pengingat WhatsApp sebelum jatuh tempo.",
+  "Email addresses on your own domain.": "Alamat email dengan domain Anda sendiri.",
   "What needs a look, at a glance.": "Yang perlu dicek, sekilas.",
   "Apps online": "Aplikasi online",
   "Need attention": "Perlu perhatian",

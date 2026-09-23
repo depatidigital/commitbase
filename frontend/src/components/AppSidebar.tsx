@@ -1,4 +1,4 @@
-import { Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, FolderGit2, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Mail, MessageCircle, ReceiptText, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, FolderGit2, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -39,14 +39,19 @@ export function AppSidebar() {
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
-  // Grouped by what the user is after: their code on top, what it runs on,
-  // then the organization. Settings and logs live elsewhere (the account menu,
+  // Grouped by what the user is after: the services they use, what those run
+  // on, then the organization. Settings and logs live elsewhere (the account menu,
   // the project and app pages).
   const groups: Array<{ label?: string; items: Item[] }> = [
+    { items: [{ title: t("Dashboard"), url: "/", icon: LayoutDashboard }] },
+    // what the platform runs for you; new services join Proyek here
     {
+      label: t("Services"),
       items: [
-        { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
         { title: t("Projects"), url: "/projects", icon: FolderGit2 },
+        { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle },
+        { title: t("Invoices"), url: "/invoices", icon: ReceiptText },
+        { title: "Email", url: "/email", icon: Mail },
       ],
     },
     {

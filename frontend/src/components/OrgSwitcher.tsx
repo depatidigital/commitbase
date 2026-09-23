@@ -37,13 +37,13 @@ export function OrgSwitcher() {
 
   return (
     <Select value={current.id} onValueChange={pick}>
-      <SelectTrigger aria-label={t("Organization")} className="h-10 w-full bg-card">
-        <span className="flex min-w-0 items-center gap-2">
-          <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            <SelectValue />
-          </span>
-        </span>
+      {/* no wrapper span: the trigger line-clamps its direct spans, which stacks a flex row */}
+      <SelectTrigger
+        aria-label={t("Organization")}
+        className="h-10 w-full justify-start gap-2 bg-card text-left [&>span]:min-w-0 [&>svg:last-child]:ml-auto [&>svg:last-child]:shrink-0"
+      >
+        <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <SelectValue />
       </SelectTrigger>
       <SelectContent>
         {organizations.map((org) => (
