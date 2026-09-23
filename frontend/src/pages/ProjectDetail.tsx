@@ -8,7 +8,7 @@ import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
+import { useApplication, useCreateApplication, useRestartApplication, useStartApplication, useStartExistingApplication, useStopApplication } from "@/hooks/useApplications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { envWarnings, parseDatabaseUrl, requiredKeys } from "@/lib/env";
@@ -45,7 +45,7 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -101,6 +101,7 @@ export default function ProjectDetail() {
   const [building, setBuilding] = useState(false);
   // where it runs, its folder, its ids: out of the way, a click from the header
   const [showDetails, setShowDetails] = useState(false);
+  const [addingService, setAddingService] = useState(false);
   // the header's place for the source panel's main button (the panel is in Settings)
   const [sourceSlot, setSourceSlot] = useState<HTMLSpanElement | null>(null);
   // a panel-managed project deploys as one, from its source panel
@@ -212,14 +213,6 @@ export default function ProjectDetail() {
                 {t("Redeploy")}
               </Button>
             )}
-            {!imported && (
-              <Button variant="outline" asChild>
-                <Link to={`/apps/${project.id}/services/new`}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t("Add service")}
-                </Link>
-              </Button>
-            )}
             <Button variant="ghost" size="icon" onClick={() => setShowDetails(true)} aria-label={t("Advanced details")} title={t("Advanced details")}>
               <Info className="h-4 w-4" />
             </Button>
@@ -270,6 +263,16 @@ export default function ProjectDetail() {
                   ))}
                 </TableBody>
               </Table>
+              {/* one more service from this app's repository — a folder, the rest detected */}
+              {!imported && project.repository && (
+                <div className="border-t px-2 py-1.5">
+                  <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => setAddingService(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t("Add service")}
+                  </Button>
+                  <QuickAddService projectId={project.id} open={addingService} onOpenChange={setAddingService} />
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -1106,6 +1109,132 @@ function ServiceBuildSection({ appId }: { appId: string }) {
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+const slugify = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+
+/**
+ * One more service from the app's repository: its folder (a monorepo's apps/web;
+ * empty = the root), the type and commands detected from it, a name. Its hosts
+ * and env come after, from the checklist above the rows — then its first deploy.
+ */
+function QuickAddService({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const queryClient = useQueryClient();
+  const createApp = useCreateApplication();
+  const [folder, setFolder] = useState("");
+  const [name, setName] = useState("");
+  const [named, setNamed] = useState(false);
+  // read once typing pauses: every read clones the repository
+  const [asked, setAsked] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setAsked(folder.trim().replace(/^\/+|\/+$/g, "")), 600);
+    return () => clearTimeout(timer);
+  }, [folder]);
+  const detection = useQuery({
+    queryKey: ["detect-folder", projectId, asked],
+    queryFn: () => detectProject({ sourceId: projectId, rootDirectory: asked || undefined }),
+    enabled: open,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  // named after its folder until someone types a name
+  const suggested = slugify(asked.split("/").pop() || "") || "web";
+  const finalName = named ? name : suggested;
+  const reset = () => {
+    setFolder("");
+    setAsked("");
+    setName("");
+    setNamed(false);
+  };
+  const detected = detection.data;
+  const ready = !!detected && !detection.isFetching && asked === folder.trim().replace(/^\/+|\/+$/g, "") && !!finalName.trim();
+  const add = async () => {
+    if (!detected) return;
+    try {
+      await createApp.mutateAsync({
+        name: finalName.trim(),
+        type: detected.type,
+        rootDirectory: asked || undefined,
+        sourceId: projectId,
+        // Prisma's migrations: the tables have to exist before the release goes live
+        preDeployCommand: (detected.type !== "STATIC" && detected.preDeployCommand) || undefined,
+      });
+    } catch {
+      return; // createApp says why
+    }
+    void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    reset();
+    onOpenChange(false);
+  };
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) reset();
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("Add service")}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ready) void add();
+          }}
+        >
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">{t("Folder in the repository")}</label>
+            <Input autoFocus value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="apps/web" className="font-mono" />
+            <p className="text-xs text-muted-foreground">{t("Empty = the repository's root.")}</p>
+          </div>
+          {/* what it is, read from that folder */}
+          <p className="flex min-h-5 items-center gap-1.5 text-sm">
+            {detection.isFetching || asked !== folder.trim().replace(/^\/+|\/+$/g, "") ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                <span className="text-muted-foreground">{t("Reading the folder…")}</span>
+              </>
+            ) : detection.error ? (
+              <span className="text-destructive">{(detection.error as Error).message}</span>
+            ) : detected ? (
+              <>
+                <AppTypeBadge type={detected.type} />
+                <span className="text-muted-foreground">{detected.label}</span>
+              </>
+            ) : null}
+          </p>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">{t("Name")}</label>
+            <Input
+              value={finalName}
+              onChange={(e) => {
+                setNamed(true);
+                setName(slugify(e.target.value));
+              }}
+              className="font-mono"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              {t("Cancel")}
+            </Button>
+            <Button type="submit" disabled={!ready || createApp.isPending}>
+              {createApp.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("Add")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

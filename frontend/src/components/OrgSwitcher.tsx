@@ -25,7 +25,8 @@ import { t } from "@/lib/i18n";
  * request (lib/api), and the API narrows its lists to it — so pages need no
  * organization column or filter of their own.
  */
-const MINE = ["organizations", "mine"];
+// its own key: ["organizations", "mine"] is a paged answer elsewhere (AddProject), and sharing it broke the list here
+const MINE = ["organizations", "switcher"];
 
 export function OrgSwitcher() {
   const queryClient = useQueryClient();

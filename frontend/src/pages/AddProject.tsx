@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { getActiveOrg } from "@/lib/api";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { SourcePicker } from "@/components/SourcePicker";
 import { getOrganizationsPage } from "@/lib/organizations";
@@ -62,7 +63,7 @@ import {
 } from "@/lib/applications";
 import { getGithubAuthUrl, getGitlabAuthUrl, listGitRepositories, type GitRepositoryListing } from "@/lib/git";
 import { t } from "@/lib/i18n";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { getServers } from "@/lib/servers";
 
 const PENDING_REPOSITORY = "addApp.pendingRepository";
@@ -185,10 +186,10 @@ export default function AddProject() {
   const updateDraft = (index: number, change: Partial<(typeof drafts)[number]>) =>
     setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...change } : d)));
 
-  // No host to decide the org: a new project is the caller's org's — only
-  // someone with a choice of orgs (several, or a platform admin seeing all)
-  // picks one. An app added to a project is the project's org's.
-  const needsOrg = !projectId && (myOrgs?.pagination?.total ?? 0) > 1;
+  // No host to decide the workspace: a new app is the one picked in the sidebar's.
+  // Only a platform admin (who has no switch, and sees them all) picks one here.
+  // A service added to an app is the app's workspace's.
+  const needsOrg = !projectId && isAdmin() && (myOrgs?.pagination?.total ?? 0) > 1;
   // a new project is not asked its first app's type — detection's is used; asked only when it cannot tell
   const typeAsked = !multi && (!formData.type || !!detectError || detecting);
 
@@ -380,7 +381,7 @@ export default function AddProject() {
       // an app of a project runs on the project's server
       serverId: (!projectId && serverId) || undefined,
       // with one org there is nothing to pick — but say which, for an admin who is not its member
-      organizationId: projectId ? undefined : organizationId || myOrgs?.data[0]?.id,
+      organizationId: projectId ? undefined : organizationId || getActiveOrg() || myOrgs?.data[0]?.id,
       // Prisma's migrations: the tables have to exist before the release goes live
       preDeployCommand: (formData.type !== "STATIC" && detected?.preDeployCommand) || undefined,
       ...(formData.type === "COMPOSE" &&
@@ -584,7 +585,7 @@ export default function AddProject() {
             {/* a project is a name and where its code comes from — one card, no scrolling */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardContent className="space-y-4 pt-6">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className={`grid gap-4 ${needsOrg ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                   <div className="space-y-1.5">
                     <Label htmlFor="name">
                       {t("App name")} <span className="text-red-500">*</span>
@@ -613,34 +614,34 @@ export default function AddProject() {
                       />
                     </div>
                   )}
-                </div>
-
-                {/* where the code comes from: a repository, or files from this machine */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Label>{t("Source")}</Label>
-                  <div className="inline-flex rounded-md border border-border/60 p-0.5 text-sm">
-                    {(
-                      [
-                        ["git", GitBranch, t("Git repository"), t("Clone from GitHub, GitLab, or any repository URL.")],
-                        ["upload", Upload, t("Upload files or folder"), t("Send files straight from this machine. No repository needed.")],
-                      ] as const
-                    ).map(([mode, Icon, label, hint]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        title={hint}
-                        aria-pressed={sourceMode === mode}
-                        onClick={() => setSourceMode(mode)}
-                        className={`flex items-center gap-1.5 rounded px-3 py-1 transition-colors ${
-                          sourceMode === mode ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <Icon className="h-3.5 w-3.5" />
-                        {label}
-                      </button>
-                    ))}
+                  {/* where the code comes from: a repository, or files from this machine */}
+                  <div className="space-y-1.5">
+                    <Label>{t("Source")}</Label>
+                    <div className="flex w-full rounded-md border border-border/60 p-0.5 text-sm">
+                      {(
+                        [
+                          ["git", GitBranch, t("Git repository"), t("Clone from GitHub, GitLab, or any repository URL.")],
+                          ["upload", Upload, t("Upload files or folder"), t("Send files straight from this machine. No repository needed.")],
+                        ] as const
+                      ).map(([mode, Icon, label, hint]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          title={hint}
+                          aria-pressed={sourceMode === mode}
+                          onClick={() => setSourceMode(mode)}
+                          className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 transition-colors ${
+                            sourceMode === mode ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
+
 
                 {sourceMode === "upload" && (
                   <div className="space-y-4">
