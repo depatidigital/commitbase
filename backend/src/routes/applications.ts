@@ -351,11 +351,11 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
           return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources, application.packageManager);
         })();
 
-    // A stack's env files are its configuration, not a leaked secret file: the
-    // deploy keeps what they ship and overrides the keys set here. Their keys
-    // and defaults are offered like an .env.example's — read from the checkout
-    // pulled on the node (the clone above never downloads a .env).
-    if (application.type === 'COMPOSE' && !detected.env.example) {
+    // A committed .env (a stack's env files) is what the app runs with: the
+    // deploy keeps what it ships and overrides the keys set here. Its keys and
+    // values are offered like an .env.example's — read from the checkout pulled
+    // on the node (the clone above never downloads a .env).
+    if (!detected.env.example) {
       const names = compose.composeEnvFilesOf(application);
       const afs = await sourceFsFor(application.id).catch(() => null);
       const dir = afs && inRootDirectory(afs.sourcesDir, application.rootDirectory);

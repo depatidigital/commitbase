@@ -649,11 +649,12 @@ export class DeploymentService {
             await log(`${named(app)}Generated APP_KEY and saved it to the app env`);
           }
           const entries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
-          if (entries.length > 0) {
-            const shipped = await afs.readText(join(workDir, '.env')).catch(() => '');
+          // every env file the app reads (default .env), each merged the same way
+          for (const name of entries.length > 0 ? compose.composeEnvFilesOf(app) : []) {
+            const shipped = await afs.readText(join(workDir, name)).catch(() => '');
             const kept = shipped.split(/\r?\n/).filter((line) => !entries.some(([k]) => line.startsWith(k + '=')));
             const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
-            await afs.writeFile(join(workDir, '.env'), [...kept, ...own].join(NL) + NL);
+            await afs.writeFile(join(workDir, name), [...kept, ...own].join(NL) + NL);
           }
           // A Python app that also ships a package.json (Django with a Vite front
           // end) installs its Node dependencies only when it has a build command
@@ -664,11 +665,11 @@ export class DeploymentService {
           // ENOENT without it, and so does anything calling loadEnvFile().
           // The platform's values win over a .env the repository shipped.
           const envEntries = Object.entries(envVars).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
-          if (envEntries.length > 0) {
-            const shipped = await afs.readText(join(workDir, '.env')).catch(() => '');
+          for (const name of envEntries.length > 0 ? compose.composeEnvFilesOf(app) : []) {
+            const shipped = await afs.readText(join(workDir, name)).catch(() => '');
             const kept = shipped.split(/\r?\n/).filter((line) => line.trim() && !envEntries.some(([k]) => line.startsWith(k + '=')));
             // as readable as build.sh, which already carries the same values
-            await afs.writeFile(join(workDir, '.env'), [...kept, ...envEntries.map(([k, v]) => dotenvLine(k, String(v)))].join(NL) + NL, { mode: 0o660 });
+            await afs.writeFile(join(workDir, name), [...kept, ...envEntries.map(([k, v]) => dotenvLine(k, String(v)))].join(NL) + NL, { mode: 0o660 });
           }
 
           if (firstInstall(installCommand)) {

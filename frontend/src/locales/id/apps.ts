@@ -502,6 +502,8 @@ export default {
   "Not live yet — deploy each app from its setup checklist first.": "Belum live — deploy tiap aplikasi dari checklist-nya dulu.",
   "Code pulled — {sha} is on the server.": "Kode sudah ditarik — {sha} ada di server.",
   "Env files": "File env",
+  "Written into {files} on every deploy — the same keys in each; the rest of what those files ship stays.":
+    "Ditulis ke {files} tiap deploy — key yang sama di tiap file; isi lain dari file itu tetap.",
   "Could not read the compose files": "Tidak bisa membaca file compose",
   "Services in the stack": "Service di stack",
   "Reading the compose files…": "Membaca file compose…",

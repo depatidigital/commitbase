@@ -66,7 +66,7 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getStackServices, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { ComposePreview } from "@/components/ComposePreview";
@@ -139,6 +139,50 @@ export const Field = ({ label, children }: { label: string; children: React.Reac
     <div className="min-w-0 text-right">{children}</div>
   </div>
 );
+
+/** A stack's services, one line each — the Deployment card's; picking one is on the settings form (ComposePreview). */
+const StackServicesField = ({ applicationId }: { applicationId: string }) => {
+  const { data, error } = useQuery({
+    // the settings form's query: one read serves both
+    queryKey: ["application", applicationId, "compose-services"],
+    queryFn: () => getStackServices(applicationId),
+    retry: false,
+    staleTime: 60_000,
+  });
+  return (
+    <div className="space-y-1.5 border-b border-border/60 py-2 text-sm">
+      <span className="text-muted-foreground">{t("Services")}</span>
+      {error ? (
+        <p className="break-all text-xs text-destructive">{(error as Error).message}</p>
+      ) : !data ? (
+        <p className="text-xs text-muted-foreground">{t("Reading the compose files…")}</p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border/60">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/40 text-left text-muted-foreground">
+              <tr>
+                <th className="px-2 py-1 font-medium">{t("Service")}</th>
+                <th className="px-2 py-1 font-medium">{t("Image")}</th>
+                <th className="px-2 py-1 font-medium">{t("Port")}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60 font-mono">
+              {data.map((service) => (
+                <tr key={service.name}>
+                  <td className="whitespace-nowrap px-2 py-1">{service.name}</td>
+                  <td className="break-all px-2 py-1 text-muted-foreground">
+                    {service.build ? <span className="font-sans">{t("built from the repository")}</span> : service.image}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1">{service.ports.join(", ") || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface ApplicationLogs {
   build?: string;
@@ -554,14 +598,17 @@ export function AppWorkspace({
           <span className="break-all font-mono text-xs">{application.rootDirectory || t("(repository root)")}</span>
         </Field>
       )}
+      {/* the panel's app, any type: the files its deploy writes the env into */}
+      {!application.runtime && !application.staticBucket && (
+        <Field label={t("Env files")}>
+          <span className="break-all font-mono text-xs">{(application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"]).join(", ")}</span>
+        </Field>
+      )}
       {/* a stack: which files compose reads, all in that folder, and what Caddy proxies to */}
       {application.type === "COMPOSE" && (
         <>
           <Field label={t("Compose files")}>
             <span className="break-all font-mono text-xs">{(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}</span>
-          </Field>
-          <Field label={t("Env files")}>
-            <span className="break-all font-mono text-xs">{(application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"]).join(", ")}</span>
           </Field>
           <Field label={t("Service")}>
             {application.composeService ? (
@@ -589,7 +636,22 @@ export function AppWorkspace({
     </>
   );
   // how it is built and run
-  const commands = (
+  const commands = application.type === "COMPOSE" ? (
+    // a stack has no build or start command: `compose up --build` on these files is both
+    <>
+      <Field label={t("Compose files")}>
+        <span className="break-all font-mono text-xs">{(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}</span>
+      </Field>
+      <Field label={t("Service")}>
+        {application.composeService ? (
+          <span className="font-mono text-xs">{application.composeService}:{application.composePort ?? "—"}</span>
+        ) : (
+          <span className="text-xs text-warning">{t("Not set — pick the service and port Caddy sends traffic to")}</span>
+        )}
+      </Field>
+      <StackServicesField applicationId={application.id} />
+    </>
+  ) : (
     <>
       {application.repository && (
         <Field label={t("Build Command")}>
@@ -1680,9 +1742,10 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         pruneDevDeps: formData.pruneDevDeps,
         startCommand: formData.startCommand || undefined,
         port: formData.port ? parseInt(formData.port) : undefined,
+        // every type's: where its deploy writes the env
+        composeEnvFiles: splitList(formData.composeEnvFiles),
         ...(isCompose && {
           composeFiles: splitList(formData.composeFiles),
-          composeEnvFiles: splitList(formData.composeEnvFiles),
           composePort: formData.composePort ? parseInt(formData.composePort) : null,
           composeService: formData.composeService || null,
         }),
@@ -1737,6 +1800,20 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         </div>
       )}
 
+      {/* every type: an app (or stack) can read its env from more than one file */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">{t("Env files")}</label>
+        <Input
+          value={formData.composeEnvFiles}
+          onChange={(e) => handleInputChange('composeEnvFiles', e.target.value)}
+          placeholder=".env"
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">
+          {t("Where this app's environment variables are written on every deploy. Separated by commas; empty = .env. What the repository ships in them is kept, except for the keys set here.")}
+        </p>
+      </div>
+
       {isCompose && (
         <>
           <div className="space-y-2">
@@ -1749,19 +1826,6 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             />
             <p className="text-xs text-muted-foreground">
               {t("Separated by commas, in the order compose reads them — a later file overrides an earlier one. Relative to the app's folder. Empty = docker-compose.yml.")}
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("Env files")}</label>
-            <Input
-              value={formData.composeEnvFiles}
-              onChange={(e) => handleInputChange('composeEnvFiles', e.target.value)}
-              placeholder=".env"
-              className="font-mono"
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("Where this app's environment variables are written on every deploy. Separated by commas; empty = .env. What the repository ships in them is kept, except for the keys set here.")}
             </p>
           </div>
 

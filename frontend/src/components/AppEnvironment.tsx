@@ -213,6 +213,14 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           })}
         </p>
       )}
+      {/* which files the deploy writes these into — a setup guide names each file apart */}
+      {!application.staticBucket && (
+        <p className="text-xs text-muted-foreground">
+          {t("Written into {files} on every deploy — the same keys in each; the rest of what those files ship stays.", {
+            files: (application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"]).join(", "),
+          })}
+        </p>
+      )}
       {!!detected?.env.production.length && (
         <p className="text-xs text-muted-foreground">
           {t("The repository's .env.production also sets {keys} at build time.", { keys: detected.env.production.join(", ") })}
@@ -273,7 +281,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         }}
       />
 
-      <div className="flex items-center justify-end gap-2">
+      {/* pinned to the dialog's bottom edge: Save is reachable without scrolling past a long env */}
+      <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-end gap-2 border-t border-border/60 bg-background px-1 pt-3">
         {dirty && (
           <Button type="button" variant="ghost" onClick={() => { setRows(initial); setDirty(false); }} disabled={saving}>
             {t("Reset")}

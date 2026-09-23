@@ -114,7 +114,7 @@ const composePathList = (what: string) =>
     .max(10)
     .optional();
 
-/** The four columns only a COMPOSE app reads. Shared by create and update. */
+/** A COMPOSE app's columns — composeEnvFiles is every app type's: the env files its deploy writes. Shared by create and update. */
 const composeFields = {
   composeFiles: composePathList('A compose file'),
   composeEnvFiles: composePathList('An env file'),
