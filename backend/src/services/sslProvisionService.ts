@@ -5,12 +5,13 @@ import { findCloudflareZone, listCloudflareDnsRecords, updateDnsRecord } from '.
 import { localCode } from './nginxMigrateService';
 
 /**
- * A first certificate for a hostname behind Cloudflare's proxy.
+ * First certificates for hostnames behind Cloudflare's proxy.
  *
  * Let's Encrypt cannot reach the node through an orange-cloud record when the
  * zone forces HTTPS: the challenge is redirected to an origin that has no
- * certificate yet, and fails with a 525. So: grey-cloud the record, let Caddy
- * ask again, wait for the certificate, orange-cloud it back.
+ * certificate yet, and fails with a 525. So: grey-cloud the records, let Caddy
+ * ask again, wait for the certificates, orange-cloud them back. Done for every
+ * name at once, so Caddy restarts once however many need it.
  *
  * Only the first one needs this. Once Caddy holds a certificate, renewals get
  * through the proxy — Caddy answers the ACME challenge over HTTPS too.
@@ -23,7 +24,15 @@ const DNS_WAIT_MS = 5 * 60_000;
 const CERT_WAIT_MS = 6 * 60_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export type SslProvisionResult = { ok: boolean; message: string; steps: string[] };
+export type SslProvisionResult = {
+  ok: boolean;
+  message: string;
+  steps: string[];
+  /** hosts that have a valid certificate now (including those that already did) */
+  issued: string[];
+  /** hosts left as they were, and why */
+  skipped: Array<{ host: string; reason: string }>;
+};
 
 /** The zone in the panel's Cloudflare account that holds this hostname, and its A/AAAA records. */
 async function recordsOf(host: string): Promise<{ zoneId: string; records: any[] } | null> {
@@ -42,67 +51,98 @@ const setProxied = (zoneId: string, record: any, proxied: boolean) =>
     type: record.type,
     name: record.name,
     content: record.content,
-    // a short TTL while grey, so resolvers let go of it quickly; auto when proxied again
+    // a short TTL while grey, so resolvers let go of it quickly; its own when proxied again
     ttl: proxied ? record.ttl : 60,
     proxied,
   });
 
-export async function provisionCertificate(node: SshTarget & { publicIp: string }, rawHost: string): Promise<SslProvisionResult> {
-  const host = rawHost.trim().toLowerCase();
+/** Every hostname Caddy routes on this node that is not the panel's own infrastructure. */
+export function caddyHostsOf(config: any): string[] {
+  return [
+    ...new Set(
+      allRoutesOf(config).flatMap((route: any) => (route?.match ?? []).flatMap((m: any) => (Array.isArray(m?.host) ? m.host : []))),
+    ),
+  ].filter((host): host is string => typeof host === 'string' && !host.startsWith('*.'));
+}
+
+export async function provisionCertificates(node: SshTarget & { publicIp: string }, rawHosts: string[]): Promise<SslProvisionResult> {
   const steps: string[] = [];
+  const issued: string[] = [];
+  const skipped: SslProvisionResult['skipped'] = [];
+  const done = (ok: boolean, message: string): SslProvisionResult => ({ ok, message, steps, issued, skipped });
 
   const config = await getCaddyConfig(node).catch(() => null);
-  if (!config) return { ok: false, message: 'Caddy is not running on this node.', steps };
-  const served = allRoutesOf(config).some((route: any) => (route?.match ?? []).some((m: any) => (m?.host ?? []).includes(host)));
-  if (!served) return { ok: false, message: `Caddy has no route for ${host} on this node.`, steps };
+  if (!config) return done(false, 'Caddy is not running on this node.');
+  const routed = new Set(caddyHostsOf(config));
 
-  if (await localCode(node, host)) return { ok: true, message: `${host} already has a valid certificate.`, steps };
+  // which of them need one: routed here, no valid certificate yet, and a proxied record the panel can switch
+  const todo: Array<{ host: string; zoneId: string; proxied: any[] }> = [];
+  await Promise.all(
+    [...new Set(rawHosts.map((host) => host.trim().toLowerCase()))].map(async (host) => {
+      if (!routed.has(host)) return skipped.push({ host, reason: 'Caddy has no route for it here' });
+      if (await localCode(node, host)) return issued.push(host);
+      const found = await recordsOf(host);
+      if (!found) return skipped.push({ host, reason: "not in a zone of the panel's Cloudflare account" });
+      if (!found.records.some((r) => r.content === node.publicIp)) return skipped.push({ host, reason: `does not point at ${node.publicIp} in Cloudflare` });
+      todo.push({ host, zoneId: found.zoneId, proxied: found.records.filter((r) => r.proxied === true) });
+    }),
+  );
+  if (todo.length === 0) return done(skipped.length === 0, issued.length ? 'Every hostname has a certificate.' : 'Nothing to provision.');
 
-  const found = await recordsOf(host);
-  if (!found) return { ok: false, message: `${host} is not in a zone of the panel's Cloudflare account, so its proxy cannot be switched from here.`, steps };
-  if (!found.records.some((r) => r.content === node.publicIp)) {
-    return { ok: false, message: `${host} does not point at this node (${node.publicIp}) in Cloudflare.`, steps };
-  }
-  const proxied = found.records.filter((r) => r.proxied === true);
-
+  const names = todo.map((t) => t.host).join(', ');
   try {
-    for (const record of proxied) await setProxied(found.zoneId, record, false);
-    if (proxied.length) steps.push('Cloudflare proxy off (DNS only)');
+    for (const { zoneId, proxied } of todo) for (const record of proxied) await setProxied(zoneId, record, false);
+    steps.push(`Cloudflare proxy off: ${names}`);
 
     // Cloudflare's own resolver answers from the authoritative data straight away
     const resolver = new Resolver();
     resolver.setServers(['1.1.1.1']);
     const dnsDeadline = Date.now() + DNS_WAIT_MS;
-    while (!(await resolver.resolve4(host).catch(() => [] as string[])).includes(node.publicIp)) {
-      if (Date.now() > dnsDeadline) throw new Error(`${host} still does not resolve to ${node.publicIp} after ${DNS_WAIT_MS / 60_000} minutes`);
-      await sleep(5000);
+    for (const { host } of todo) {
+      while (!(await resolver.resolve4(host).catch(() => [] as string[])).includes(node.publicIp)) {
+        if (Date.now() > dnsDeadline) throw new Error(`${host} still does not resolve to ${node.publicIp} after ${DNS_WAIT_MS / 60_000} minutes`);
+        await sleep(5000);
+      }
     }
-    steps.push(`${host} resolves to the node`);
+    steps.push('resolving to the node');
 
     // a restart makes Caddy ask for every missing certificate now, not at its next retry
     await execRoot(node, ['systemctl', 'restart', 'caddy-api'], { timeout: 60_000 });
     steps.push('Caddy restarted');
 
     const certDeadline = Date.now() + CERT_WAIT_MS;
-    while (!(await localCode(node, host))) {
-      if (Date.now() > certDeadline) throw new Error(`no certificate for ${host} after ${CERT_WAIT_MS / 60_000} minutes — see journalctl -u caddy-api on the node`);
+    let waiting = todo.map((t) => t.host);
+    while (waiting.length) {
+      const answered = await Promise.all(waiting.map(async (host) => [host, (await localCode(node, host)) > 0] as const));
+      for (const [host, ok] of answered) if (ok) issued.push(host);
+      waiting = answered.filter(([, ok]) => !ok).map(([host]) => host);
+      if (!waiting.length) break;
+      if (Date.now() > certDeadline) {
+        for (const host of waiting) skipped.push({ host, reason: `no certificate after ${CERT_WAIT_MS / 60_000} minutes — see journalctl -u caddy-api` });
+        break;
+      }
       await sleep(5000);
     }
-    steps.push('Certificate issued');
-    return { ok: true, message: `${host} has a valid certificate now.`, steps };
+    steps.push(`certificates issued: ${todo.filter((t) => issued.includes(t.host)).length} of ${todo.length}`);
+    return done(skipped.length === 0, `${issued.length} hostname(s) have a valid certificate.`);
   } catch (error: any) {
-    return { ok: false, message: String(error?.message || error), steps };
+    for (const { host } of todo) if (!issued.includes(host)) skipped.push({ host, reason: String(error?.message || error) });
+    return done(false, String(error?.message || error));
   } finally {
-    // put the proxy back no matter what: tried three times before giving up loudly
-    for (const record of proxied) {
-      let restored = false;
-      for (let attempt = 0; attempt < 3 && !restored; attempt++) {
-        restored = await setProxied(found.zoneId, record, true).then(
-          () => true,
-          async () => (await sleep(2000), false),
-        );
+    // put every proxy back no matter what: three tries each before giving up loudly
+    const stuck: string[] = [];
+    for (const { zoneId, proxied } of todo) {
+      for (const record of proxied) {
+        let restored = false;
+        for (let attempt = 0; attempt < 3 && !restored; attempt++) {
+          restored = await setProxied(zoneId, record, true).then(
+            () => true,
+            async () => (await sleep(2000), false),
+          );
+        }
+        if (!restored) stuck.push(record.name);
       }
-      steps.push(restored ? 'Cloudflare proxy back on' : `COULD NOT turn the Cloudflare proxy back on for ${record.name} — do it by hand`);
     }
+    steps.push(stuck.length ? `COULD NOT turn the Cloudflare proxy back on for ${stuck.join(', ')} — do it by hand` : 'Cloudflare proxy back on');
   }
 }

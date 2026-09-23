@@ -18,7 +18,7 @@ import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
 import { cleanSystem, measureSystem, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
 import { dockerView, importDockerContainer } from '../services/dockerAdoptService';
-import { provisionCertificate } from '../services/sslProvisionService';
+import { caddyHostsOf, provisionCertificates, type SslProvisionResult } from '../services/sslProvisionService';
 import { DeploymentService } from '../services/deployment';
 
 const router: Router = Router();
@@ -435,6 +435,20 @@ router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN'])
   }
 });
 
+// ponytail: in-process — one run per node at a time; a second backend process would not see it
+const sslRunning = new Set<string>();
+
+const logSsl = (serverName: string, userId: string, result: SslProvisionResult) =>
+  prisma.log.create({
+    data: {
+      level: result.ok ? 'INFO' : 'WARN',
+      message:
+        `SSL on ${serverName}: ${result.message} [${result.steps.join(' → ')}]` +
+        (result.skipped.length ? ` Skipped: ${result.skipped.map((s) => `${s.host} (${s.reason})`).join('; ')}` : ''),
+      userId,
+    },
+  });
+
 /**
  * Get a first certificate for a hostname behind Cloudflare's proxy: proxy off,
  * Caddy restarted, wait for the certificate, proxy back on — always back on.
@@ -447,10 +461,10 @@ router.post('/:id/ssl', authenticateToken, requireRole(['SUPERADMIN']), async (r
     const host = typeof req.body?.host === 'string' ? req.body.host : '';
     if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return res.status(400).json({ success: false, error: 'host is a hostname' } as ApiResponse);
 
-    const result = await provisionCertificate(server, host);
-    await prisma.log.create({
-      data: { level: result.ok ? 'INFO' : 'WARN', message: `SSL for ${host} on ${server.name}: ${result.message} [${result.steps.join(' → ')}]`, userId: req.user!.userId },
-    });
+    if (sslRunning.has(server.id)) return res.status(409).json({ success: false, error: 'Certificates are already being provisioned on this node' } as ApiResponse);
+    sslRunning.add(server.id);
+    const result = await provisionCertificates(server, [host]).finally(() => sslRunning.delete(server.id));
+    await logSsl(server.name, req.user!.userId, result);
     return res.status(result.ok ? 200 : 409).json({
       success: result.ok,
       data: result,
@@ -510,10 +524,27 @@ router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), as
 
     const result = await syncServerApps(req.user!.userId, server);
 
+    // Imported sites should be reachable: any routed name still without a
+    // certificate gets one, behind Cloudflare's proxy included. Minutes of
+    // work, so after the answer — the outcome lands in the log.
+    const config = await getCaddyConfig(server).catch(() => null);
+    const hosts = config ? caddyHostsOf(config).filter((host) => !isNotAnApp(host)) : [];
+    const sslStarted = hosts.length > 0 && !sslRunning.has(server.id);
+    if (sslStarted) {
+      sslRunning.add(server.id);
+      const userId = req.user!.userId;
+      void provisionCertificates(server, hosts)
+        .then((ssl) => (ssl.steps.length || ssl.skipped.length ? logSsl(server.name, userId, ssl) : undefined))
+        .catch((error) => console.error(`SSL after import on ${server.name}:`, error?.message))
+        .finally(() => sslRunning.delete(server.id));
+    }
+
     return res.json({
       success: true,
       data: result,
-      message: `${result.discovered} site(s) found — ${result.created} imported, ${result.updated} updated`,
+      message:
+        `${result.discovered} site(s) found — ${result.created} imported, ${result.updated} updated` +
+        (sslStarted ? '. Missing certificates are being provisioned in the background — see Log.' : ''),
     } as ApiResponse);
   } catch (error: any) {
     console.error('Error syncing apps from server:', error);
