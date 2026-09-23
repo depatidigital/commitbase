@@ -34,7 +34,7 @@ export function AppSidebar() {
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
     // projects, the apps in them and the flat app list are one section
-    if (path === "/projects") return /^\/(projects?|applications?|add-project)(\/|$)/.test(location.pathname);
+    if (path === "/apps") return /^\/(apps|services)(\/|$)/.test(location.pathname);
     // whole segments: /database must not light up on /database-servers
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
@@ -47,7 +47,7 @@ export function AppSidebar() {
     {
       items: [
         { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
-        { title: t("Apps"), url: "/projects", icon: AppWindow },
+        { title: t("Apps"), url: "/apps", icon: AppWindow },
       ],
     },
     {

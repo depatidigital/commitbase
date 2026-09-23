@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, type Params } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { AuthGuard } from "./components/AuthGuard";
 import Application from "./pages/Application";
@@ -78,13 +78,20 @@ const UserRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-// /add-app from before the split, links and bookmarks: ?project= to that project's, else a new project
+// An old URL (links, bookmarks) to its new one, query and all.
+const Moved = ({ to }: { to: (params: Params) => string }) => {
+  const params = useParams();
+  const { search, hash } = useLocation();
+  return <Navigate to={`${to(params)}${search}${hash}`} replace />;
+};
+
+// /add-app from before the split, links and bookmarks: ?project= to that app's, else a new app
 const LegacyAddApp = () => {
   const params = new URLSearchParams(useLocation().search);
   const project = params.get("project");
   params.delete("project");
   const rest = params.toString();
-  return <Navigate to={`${project ? `/project/${project}/add-app` : "/add-project"}${rest ? `?${rest}` : ""}`} replace />;
+  return <Navigate to={`${project ? `/apps/${project}/services/new` : "/apps/new"}${rest ? `?${rest}` : ""}`} replace />;
 };
 
 const SuperAdminRoute = ({ children }: { children: React.ReactNode }) => {
@@ -116,15 +123,22 @@ const App = () => (
           >
             {/* the dashboard; the projects and the flat list of every hostname one click away */}
             <Route index element={<Dashboard />} />
-            <Route path="projects" element={<Projects />} />
+            {/* an app (API: source) and the services (API: applications) it runs */}
+            <Route path="apps" element={<Projects />} />
+            <Route path="apps/new" element={<AddProject />} />
+            <Route path="apps/:id" element={<ProjectDetail />} />
+            <Route path="apps/:id/services/new" element={<AddProject />} />
+            <Route path="services" element={<Application />} />
+            <Route path="services/:id" element={<ApplicationDetail />} />
+            {/* the URLs before the rename */}
+            <Route path="projects" element={<Moved to={() => "/apps"} />} />
+            <Route path="project/:id" element={<Moved to={({ id }) => `/apps/${id}`} />} />
+            <Route path="project/:id/add-app" element={<Moved to={({ id }) => `/apps/${id}/services/new`} />} />
+            <Route path="add-project" element={<Moved to={() => "/apps/new"} />} />
+            <Route path="applications" element={<Moved to={() => "/services"} />} />
+            <Route path="application/:id" element={<Moved to={({ id }) => `/services/${id}`} />} />
             {/* on the menu, built next */}
             <Route path="email" element={<ComingSoon icon={Mail} title="Email" description={t("Email addresses on your own domain.")} />} />
-            <Route path="applications" element={<Application />} />
-            <Route path="project/:id" element={<ProjectDetail />} />
-            <Route path="application/:id" element={<ApplicationDetail />} />
-            {/* a new project (its source and first app), or one more app in a project */}
-            <Route path="add-project" element={<AddProject />} />
-            <Route path="project/:id/add-app" element={<AddProject />} />
             <Route path="add-app" element={<LegacyAddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />

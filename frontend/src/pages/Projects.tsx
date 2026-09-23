@@ -393,7 +393,7 @@ export default function Projects() {
         <div className="flex flex-wrap items-center gap-2">
           {/* the flat list, one row per hostname, with its uptime checks */}
           <Button variant="ghost" asChild>
-            <Link to="/applications">
+            <Link to="/services">
               <List className="mr-2 h-4 w-4" />
               {t("All services")}
             </Link>
@@ -411,7 +411,7 @@ export default function Projects() {
             </Button>
           )}
           <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
-            <Link to="/add-project">
+            <Link to="/apps/new">
               <Plus className="mr-2 h-4 w-4" />
               {t("Add app")}
             </Link>

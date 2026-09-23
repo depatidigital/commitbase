@@ -365,7 +365,7 @@ export default function Application() {
           <div className="min-w-0">
             {named || internal ? (
               <span className="flex min-w-0 items-center gap-1.5">
-                <Link to={`/application/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
+                <Link to={`/services/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
                   {app.name}
                 </Link>
               </span>
@@ -373,7 +373,7 @@ export default function Application() {
               // named after its hostnames: those are the name — each one, none leading
               app.domains.map((d) => (
                 <span key={d.host} className="flex min-w-0 items-center gap-1.5">
-                  <Link to={`/application/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
+                  <Link to={`/services/${app.id}`} className="truncate font-medium transition-colors hover:text-primary">
                     {d.host}
                   </Link>
                   <DomainExpiryBadge domain={d.parentDomain} />
@@ -520,7 +520,7 @@ export default function Application() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onClick={() => navigate(`/application/${app.id}`)}>
+            <DropdownMenuItem onClick={() => navigate(`/services/${app.id}`)}>
               <Eye className="mr-2 h-4 w-4" />
               {t("Manage")}
             </DropdownMenuItem>
@@ -587,7 +587,7 @@ export default function Application() {
           <div className="flex flex-wrap items-center gap-2">
             {/* back to the list by project, the way here came */}
             <Button variant="ghost" asChild>
-              <Link to="/projects">
+              <Link to="/apps">
                 <ServerIcon className="mr-2 h-4 w-4" />
                 {t("By app")}
               </Link>
@@ -606,7 +606,7 @@ export default function Application() {
                 {syncApps.isPending ? t("Syncing…") : t("Sync Services")}
               </Button>
             )}
-            <Link to="/add-project">
+            <Link to="/apps/new">
             <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
               <Plus className="mr-2 h-4 w-4" />
               {t("Add Service")}
@@ -624,7 +624,7 @@ export default function Application() {
           isLoading={isLoading}
           searchPlaceholder={t("Search name or domain…")}
           empty={t("No services yet — deploy your first one.")}
-          onRowClick={(app) => navigate(`/application/${app.id}`)}
+          onRowClick={(app) => navigate(`/services/${app.id}`)}
           toolbar={
             // the imported-sites workflow: fifty unassigned rows, one owner —
             // while something is selected the bar is for that, not for filters

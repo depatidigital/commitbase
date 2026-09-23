@@ -61,7 +61,7 @@ const DOT: Record<string, string> = {
  * A project ("Proyek") and its apps ("Aplikasi"), on one page: the project's
  * tabs — its apps and their routes, logs, history, databases, storage,
  * settings — beside its state, source and server. An app card opens in the
- * list for a quick edit, or a level deeper (?app=) with its own header and
+ * list for a quick edit, or a level deeper (?service=) with its own header and
  * page; the back arrow returns. The same for a project of one app as of many.
  */
 export default function ProjectDetail() {
@@ -116,11 +116,11 @@ export default function ProjectDetail() {
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
-  // the project's tab (?tab=), or one of its apps opened a level deeper (?app=)
+  // the project's tab (?tab=), or one of its apps opened a level deeper (?service=)
   const tab = ["logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
-  const openApp = (appId: string) => setSearchParams({ app: appId });
+  const openApp = (appId: string) => setSearchParams({ service: appId });
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -133,7 +133,8 @@ export default function ProjectDetail() {
   }
 
   const apps = project.applications;
-  const opened = apps.find((app) => app.id === searchParams.get("app"));
+  // ?app= is the name before the rename, from old links
+  const opened = apps.find((app) => app.id === (searchParams.get("service") ?? searchParams.get("app")));
   // a level deeper: the app's own header and page instead of the project's header and tabs
   const appView = opened;
   const statusOf = (appId: string) => {
@@ -188,12 +189,12 @@ export default function ProjectDetail() {
     void queryClient.invalidateQueries({ queryKey: ["projects"] });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
     toast({ title: t("App deleted"), description: t("{count} services deleted", { count: apps.length }) });
-    navigate("/projects");
+    navigate("/apps");
   };
 
   return (
     <PageLayout
-      backTo={appView ? `/project/${project.id}` : "/projects"}
+      backTo={appView ? `/apps/${project.id}` : "/apps"}
       title={
         appView ? (
           <span className="flex items-center gap-2">
@@ -210,7 +211,7 @@ export default function ProjectDetail() {
       description={
         appView ? (
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-muted-foreground">
-            <Link to={`/project/${project.id}`} className="hover:text-primary hover:underline">
+            <Link to={`/apps/${project.id}`} className="hover:text-primary hover:underline">
               {project.name}
             </Link>
             <span>›</span>
@@ -238,7 +239,7 @@ export default function ProjectDetail() {
           <div ref={setPanelSlot} className="flex flex-wrap items-center gap-2" />
         ) : !imported && (
           <Button variant="outline" asChild>
-            <Link to={`/project/${project.id}/add-app`}>
+            <Link to={`/apps/${project.id}/services/new`}>
               <Plus className="mr-2 h-4 w-4" />
               {t("Add service")}
             </Link>

@@ -79,7 +79,7 @@ export default function Dashboard() {
       description={t("What needs a look, at a glance.")}
       actions={
         <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
-          <Link to="/add-project">
+          <Link to="/apps/new">
             <Plus className="mr-2 h-4 w-4" />
             {t("Add app")}
           </Link>
@@ -120,7 +120,7 @@ export default function Dashboard() {
                       const health = healthById[app.id] as Health | undefined;
                       return (
                         <li key={app.id}>
-                          <Link to={`/application/${app.id}`} className="flex items-center gap-2 py-2 text-sm hover:text-primary">
+                          <Link to={`/services/${app.id}`} className="flex items-center gap-2 py-2 text-sm hover:text-primary">
                             <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone === "down" ? "bg-destructive" : "bg-warning"}`} />
                             <span className="min-w-0 flex-1 truncate">
                               <span className="font-medium">{app.domains[0]?.host ?? app.name}</span>
@@ -202,7 +202,7 @@ export default function Dashboard() {
 
           <div>
             <Button variant="ghost" asChild>
-              <Link to="/projects">
+              <Link to="/apps">
                 {t("All apps")}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>

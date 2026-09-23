@@ -82,7 +82,7 @@ const ROOT_FOLDER = "__root__";
 
 /**
  * A new project — its name and where its code comes from; its first app's type
- * is detected (asked only when it cannot be) — or (/project/:id/add-app) one
+ * is detected (asked only when it cannot be) — or (/apps/:id/services/new) one
  * more app in a project. Created first: hosts and env are added on its page,
  * then it is deployed.
  */
@@ -428,7 +428,7 @@ export default function AddProject() {
     setBusy("");
 
     // the project's page takes it from here: each app's hosts and env, then the first deploy
-    navigate(`/project/${projectId || createdId}`);
+    navigate(`/apps/${projectId || createdId}`);
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -533,7 +533,7 @@ export default function AddProject() {
 
   return (
     <PageLayout
-      backTo={projectId ? `/project/${projectId}` : "/projects"}
+      backTo={projectId ? `/apps/${projectId}` : "/apps"}
       // without ?project=, this makes a project: its source, and its first app
       title={joining ? t("Add a service to {name}", { name: joining.name }) : t("Add app")}
       description={
@@ -1140,7 +1140,7 @@ export default function AddProject() {
         )}
 
         <div className="flex items-center justify-between">
-          <Button type="button" variant="outline" onClick={() => navigate("/projects")}>
+          <Button type="button" variant="outline" onClick={() => navigate("/apps")}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             {t("Cancel")}
           </Button>

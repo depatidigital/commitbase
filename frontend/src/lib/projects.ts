@@ -219,4 +219,4 @@ export function appParts(app: ProjectApp): AppPart[] {
 }
 
 /** Where a project goes: always its own page — its apps are opened from there. */
-export const projectPath = (project: Pick<Project, "id">) => `/project/${project.id}`;
+export const projectPath = (project: Pick<Project, "id">) => `/apps/${project.id}`;

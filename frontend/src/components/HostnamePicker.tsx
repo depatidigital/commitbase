@@ -266,7 +266,7 @@ export function HostnamePicker({
           />
           <span>
             {t("{host} is already used by", { host: route })}{" "}
-            <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
+            <Link to={`/services/${current.usedBy.id}`} className="font-medium underline">
               {current.usedBy.name}
             </Link>
             . {t("Move it to this service — {app} stops answering on it.", { app: current.usedBy.name ?? "" })}
@@ -280,7 +280,7 @@ export function HostnamePicker({
             {current.usedBy.id ? (
               <>
                 {t("{host} is already used by", { host: route })}{" "}
-                <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
+                <Link to={`/services/${current.usedBy.id}`} className="font-medium underline">
                   {current.usedBy.name}
                 </Link>
                 .

@@ -117,7 +117,7 @@ export function DockerContainersCard({ serverId }: { serverId: string }) {
                     </div>
                     <div className="flex items-center gap-2">
                       {map.app && (
-                        <Link to={`/application/${map.app.id}`} className="text-xs text-primary hover:underline">
+                        <Link to={`/services/${map.app.id}`} className="text-xs text-primary hover:underline">
                           {map.app.name}
                         </Link>
                       )}

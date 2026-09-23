@@ -196,7 +196,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
             <Button
               variant="destructive"
               disabled={!ready || blocked || deleteApp.isPending}
-              onClick={() => deleteApp.mutate(application.id, { onSuccess: () => navigate("/projects") })}
+              onClick={() => deleteApp.mutate(application.id, { onSuccess: () => navigate("/apps") })}
             >
               {deleteApp.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
               {t("Delete permanently")}

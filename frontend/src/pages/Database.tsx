@@ -251,7 +251,7 @@ export default function Database() {
       className: "w-[16%]",
       cell: (db) =>
         db.application ? (
-          <Link to={`/application/${db.application.id}`} className="block truncate text-primary hover:underline">
+          <Link to={`/services/${db.application.id}`} className="block truncate text-primary hover:underline">
             {db.application.name}
           </Link>
         ) : (

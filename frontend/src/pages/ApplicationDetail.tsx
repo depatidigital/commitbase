@@ -192,7 +192,7 @@ interface ApplicationLogs {
 }
 
 /**
- * /application/:id — an app lives on its project's page now: go there with the
+ * /services/:id — a service lives on its app's page now: go there with the
  * app picked. An app without a project (none should be left once the startup
  * backfill ran) keeps a page of its own.
  */
@@ -206,7 +206,7 @@ export default function ApplicationDetail() {
       </div>
     );
   }
-  if (app?.sourceId) return <Navigate to={`/project/${app.sourceId}?app=${app.id}`} replace />;
+  if (app?.sourceId) return <Navigate to={`/apps/${app.sourceId}?service=${app.id}`} replace />;
   return <AppWorkspace appId={id!} />;
 }
 
