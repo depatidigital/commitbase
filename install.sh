@@ -136,7 +136,14 @@ fi
 # rootless network, fuse-overlayfs the layer store.
 if [ "$WITH_PODMAN" = "1" ]; then
   note "rootless Podman"
-  apt-get install -y -qq podman uidmap slirp4netns fuse-overlayfs docker-compose-v2 >/dev/null
+  apt-get install -y -qq podman uidmap slirp4netns fuse-overlayfs >/dev/null
+  # Compose v2 may be here already: Docker CE's docker-compose-plugin owns the
+  # very file Ubuntu's docker-compose-v2 would write, and dpkg refuses to
+  # overwrite it ("Sub-process /usr/bin/dpkg returned an error code (1)").
+  # Either binary works against podman's socket, so an existing one is used.
+  if [ ! -x /usr/libexec/docker/cli-plugins/docker-compose ] && ! command -v docker-compose >/dev/null; then
+    apt-get install -y -qq docker-compose-v2 >/dev/null
+  fi
 
   # 3.4 (Ubuntu 22.04) accepts these commands and then fails in ways that read
   # as application bugs in a deploy log. Refuse it here instead.

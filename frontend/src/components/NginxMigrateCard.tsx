@@ -212,7 +212,7 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
       </Card>
 
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-3xl">
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Switch this node to Caddy?")}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -221,6 +221,43 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* exactly what goes into Caddy, one hostname per row */}
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t("Hostname")}</th>
+                  <th className="px-3 py-2 font-medium">{t("Caddy serves")}</th>
+                  <th className="px-3 py-2 font-medium">{t("Kept")}</th>
+                  <th className="px-3 py-2 font-medium">{t("Checked after the switch")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sites
+                  .filter((site) => !site.blocked)
+                  .flatMap((site) =>
+                    site.site.hosts.map((host) => {
+                      const dangling = site.danglingHosts.includes(host);
+                      const proxied = site.proxiedHosts?.includes(host);
+                      return (
+                        <tr key={host} className="border-t align-top">
+                          <td className="px-3 py-2 font-medium">{host}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{becomes(site)}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{kept(site).join(" · ") || "—"}</td>
+                          <td className={`px-3 py-2 ${dangling ? "text-warning" : "text-muted-foreground"}`}>
+                            {dangling
+                              ? t("not checked — DNS points elsewhere")
+                              : proxied
+                                ? t("HTTPS + certificate (via Cloudflare)")
+                                : t("HTTPS + certificate")}
+                          </td>
+                        </tr>
+                      );
+                    }),
+                  )}
+              </tbody>
+            </table>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => migrate.mutate()}>{t("Switch over")}</AlertDialogAction>
