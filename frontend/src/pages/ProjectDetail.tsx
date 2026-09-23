@@ -3,8 +3,9 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, FolderOpen, Globe, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
+import { ComposePreview } from "@/components/ComposePreview";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,7 +46,7 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, updateApplication, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -117,7 +118,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the app's tab (?tab=). Its services have no page of their own anymore: everything is on these tabs
-  const tab = ["env", "build", "deployments", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["env", "build", "deployments", "stack", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   if (isLoading) {
@@ -227,6 +228,7 @@ export default function ProjectDetail() {
           <TabsTrigger value="env">{t("Environment")}</TabsTrigger>
           <TabsTrigger value="build">{t("Build")}</TabsTrigger>
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
+          {apps.some((app) => app.type === "COMPOSE") && <TabsTrigger value="stack">{t("Stack")}</TabsTrigger>}
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
@@ -297,6 +299,15 @@ export default function ProjectDetail() {
         {/* every service's log in one live stream, or one service's — followed only while this tab is open */}
         {/* every deploy of the app, newest first — each names its service when there are several */}
         <TabsContent value="deployments">{apps[0] && <AppDeployments appId={apps[0].id} showApp={apps.length > 1} />}</TabsContent>
+
+        {/* a compose service's own services (web, db, solr…), as its compose files define them */}
+        <TabsContent value="stack" className="space-y-4">
+          {apps
+            .filter((app) => app.type === "COMPOSE")
+            .map((app) => (
+              <StackSection key={app.id} app={app} />
+            ))}
+        </TabsContent>
 
         <TabsContent value="logs">
           <ProjectLogs projectId={project.id} apps={apps} />
@@ -1278,6 +1289,43 @@ function QuickAddService({ projectId, open, onOpenChange }: { projectId: string;
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * A compose service's stack, as `compose config` reads its files on the node:
+ * each of its services, image, ports, what it depends on. Picking one makes it
+ * the one the domain points at — saved, used at the next deploy.
+ */
+function StackSection({ app }: { app: ProjectApp }) {
+  const { data: application } = useApplication(app.id);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const pick = useMutation({
+    mutationFn: ({ service, port }: { service: string; port: string }) =>
+      updateApplication(app.id, { composeService: service, ...(port && { composePort: Number(port) }) }),
+    onSuccess: (_, { service }) => {
+      void queryClient.invalidateQueries({ queryKey: ["application", app.id] });
+      toast({ title: t("Saved"), description: t("{service} serves the domain from the next deploy.", { service }) });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not save"), description: error.message }),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Layers className="h-4 w-4 text-primary" />
+          {app.name}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ComposePreview
+          applicationId={app.id}
+          selected={application?.composeService ?? ""}
+          onPick={(service, port) => pick.mutate({ service, port })}
+        />
+      </CardContent>
+    </Card>
   );
 }
 

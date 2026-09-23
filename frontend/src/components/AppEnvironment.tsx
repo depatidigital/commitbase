@@ -206,6 +206,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     setRows((prev) => mergeRows(prev, set, true));
     setDirty(true);
   };
+  const ownDb = stackServices?.find(isDatabaseService);
   const dbGroup = useMemo(() => {
     if (unfolded || !databaseAnchor || databaseAnchor === "DATABASE_URL") return null;
     const prefix = /^(PG|[A-Z]+_)/.exec(databaseAnchor)?.[1] ?? "";
@@ -230,6 +231,15 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
             disabled={saving}
             onOpen={() => setDbOpen(true)}
           />
+          {/* the stack runs a database of its own and this points elsewhere (the repository's localhost): offer it */}
+          {ownDb && !stackDb(host) && (
+            <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-primary">
+              <span>{t("This stack has its own database: {service}", { service: ownDb.name })}</span>
+              <button type="button" className="font-medium underline underline-offset-2" disabled={saving} onClick={() => pickStackDb(ownDb)}>
+                {t("Use it")}
+              </button>
+            </p>
+          )}
           <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setUnfolded(true)}>
             {t("Edit manually")}
           </button>
