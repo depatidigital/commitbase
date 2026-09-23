@@ -36,8 +36,14 @@ Four fields, on the app's Settings tab:
 
 Service and container port go together. With both set, the deploy writes a
 `docker-compose.override.larika.yml` that republishes that port on
-`127.0.0.1:<allocated>`, and points the app's domain at it. With either empty,
-the stack keeps whatever its own files publish and the panel routes nothing.
+`127.0.0.1:<allocated>`, and points the app's domain at it — and moves every
+other port the stack publishes to loopback at its own host port (read from
+`compose config`). With either empty, the stack keeps whatever its own files
+publish and the panel routes nothing.
+
+The override uses `ports: !override`, because compose *merges* a later file's
+ports into the earlier list rather than replacing it. That needs Compose
+2.24.4 or newer on the node.
 
 Republishing is not cosmetic: compose files name fixed host ports (5000, 8080,
 3306), which collide between two stacks on one node, and a published database
@@ -50,8 +56,9 @@ port would otherwise be open on every interface.
    repository ships in an env file is kept, except for keys the app sets, which win.
 3. `current` is switched to the new release.
 4. `cb-compose up -d --build` — images are built on the node, by the tenant user.
-5. The deploy waits for an answer on the allocated port, and rolls `current`
-   back if nothing comes.
+5. The deploy waits for an answer on the allocated port — up to
+   `COMPOSE_HEALTH_TIMEOUT_MS` (10 minutes; a first CKAN start initialises its
+   database and search index) — and rolls `current` back if nothing comes.
 
 **The compose project name is `cb-<slug>-<appId>` and never the directory.**
 Compose would otherwise name the project after the release directory, which
@@ -69,7 +76,8 @@ volumes; pass `removeVolumes` to the delete call to run `down -v` instead.
 
 ## Running commands in a stack
 
-`POST /api/applications/:id/exec` with `{ "argv": ["..."], "service": "..." }`.
+`POST /api/applications/:id/exec` with `{ "argv": ["..."], "service": "..." }`,
+or the **Run a command in the stack** box under the app's build settings.
 Org admins and above; every call is logged with the command.
 
 Deliberately narrow: a fixed `compose exec <service> <argv>`, argv as a list so
@@ -78,31 +86,41 @@ other podman subcommand.
 
 ## Walkthrough: CKAN
 
-The Bappenas install guide for the Satu Data portal, as a Larika app. Its nginx
-and certbot steps are not needed — Caddy does both, and takes :80/:443 on the
-node.
+The Bappenas install guide for the Satu Data portal, as a Larika app. Its
+Docker, nginx, ufw and certbot steps are not needed — the node's Podman,
+Caddy and Set up do those.
 
-**By hand, once, on the database box:** PostgreSQL 13 with PostGIS, the `ckan`
-and `datastore` databases and the `datastore_ro` role, exactly as the guide has
-them. The panel's database provisioning creates none of that.
+**By hand, once, on the database server** (not the node — rootless containers
+cannot reach the node's own 127.0.0.1): PostgreSQL 13+ with PostGIS, exactly
+as the guide's pages 5–8: `listen_addresses`, a `pg_hba.conf` line for the
+node's IP, the `ckan` user, the `ckan` and `datastore` databases, the
+`datastore_ro` role, and `CREATE EXTENSION postgis; CREATE EXTENSION
+postgis_topology;` in `ckan`. The panel's database provisioning creates none of that.
 
 **In the panel:**
 
-1. Node: container runtime Podman, Set up.
+1. Node: container runtime Podman, Set up. Ubuntu 24.04+.
 2. New app, repository `https://github.com/apteksdi/ckan-walidata`, type
-   **Compose stack** (detection picks it: no `package.json`, and a compose file
-   in `compose/`).
+   **Compose stack**.
 3. Root directory `compose`. Compose files `docker-compose.yml`. Env files
    `.env, .ckan-env`. Service `ckan`, container port `5000`.
-4. Env vars: `POSTGRES_HOST`, `POSTGRES_PASSWORD`, `DATASTORE_READONLY_PASSWORD`,
-   `CKAN_SITE_URL` (the real https URL — CKAN builds its links from it), and
-   `CKAN_ROOT_PATH=/data/` if it is served under a subdirectory.
-5. Deploy.
-6. Add the hostname. For a subdirectory, bind it at path `/data/*` and leave
-   **strip prefix off** — CKAN expects to receive `/data/...` intact.
-7. Post-install, through exec:
-   `{"argv": ["ckan", "-c", "production.ini", "user", "add", "admin"]}` and
-   `{"argv": ["ckan", "-c", "production.ini", "resourceauthorizer", "initdb"]}`.
+4. Env vars: `POSTGRES_HOST` (the database server's IP), `POSTGRES_PASSWORD`,
+   `DATASTORE_READONLY_PASSWORD`, `CKAN_SITE_URL` (the real https URL — CKAN
+   builds its links from it), `SECRET_KEY`, `CKAN_SYSADMIN_NAME`,
+   `CKAN_SYSADMIN_PASSWORD`, `CKAN_SYSADMIN_EMAIL` (the first sysadmin is
+   created from these on start), and `CKAN__PLUGINS` with `resourceauthorizer`
+   added to the repository's list if resource ACL is wanted.
+5. Deploy. The first build is long (five services from one Dockerfile, solr);
+   the first start waits up to ten minutes.
+6. Add the hostname. Give CKAN a name of its own (`data.example.go.id`): a
+   subdirectory needs `CKAN_ROOT_PATH` baked into the Dockerfile and `who.ini`
+   edited, which the upstream repository does not do — fork it first if a
+   subdirectory is a must, and bind it at `/data/*` with **strip prefix off**.
+7. Post-install, in **Run a command in the stack** (service `ckan`):
+   `ckan -c production.ini resourceauthorizer initdb`. More users:
+   `ckan -c production.ini user add NAME email=... password=...` — with the
+   answers as arguments, since there is no terminal to prompt on — and
+   `ckan -c production.ini sysadmin add NAME`.
 
 ## Self-check
 

@@ -145,6 +145,17 @@ if [ "$WITH_PODMAN" = "1" ]; then
     apt-get install -y -qq docker-compose-v2 >/dev/null
   fi
 
+  # Compose files are written for Docker, where `redis:6` and `FROM solr:6.6.6`
+  # mean Docker Hub. Podman asks which registry a short name means, and with no
+  # terminal to ask on the build fails with "short-name did not resolve". Say
+  # Docker Hub, as Docker would.
+  mkdir -p /etc/containers/registries.conf.d
+  cat > /etc/containers/registries.conf.d/50-larika.conf <<'EOF'
+# Written by install.sh: short image names resolve on Docker Hub, as they do under Docker.
+unqualified-search-registries = ["docker.io"]
+short-name-mode = "permissive"
+EOF
+
   # 3.4 (Ubuntu 22.04) accepts these commands and then fails in ways that read
   # as application bugs in a deploy log. Refuse it here instead.
   PODMAN_MAJOR="$(podman --version | sed -n 's/^podman version \([0-9]*\).*/\1/p')"

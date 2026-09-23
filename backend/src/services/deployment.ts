@@ -31,6 +31,9 @@ import { resetDatabase } from './databaseProvisionService';
 const PORT_POOL_START = Number(process.env.APP_PORT_POOL_START || 20000);
 const PORT_POOL_END = Number(process.env.APP_PORT_POOL_END || 29999);
 const HEALTH_TIMEOUT_MS = Number(process.env.APP_HEALTH_TIMEOUT_MS || 60000);
+// a stack's first start migrates its database and builds its search index
+// (CKAN: several minutes) before its web service answers at all
+const COMPOSE_HEALTH_TIMEOUT_MS = Number(process.env.COMPOSE_HEALTH_TIMEOUT_MS || 10 * 60_000);
 // Builds are the memory hogs (next build ≈ 1-2 GB). One at a time by default.
 const BUILD_CONCURRENCY = Math.max(1, Number(process.env.BUILD_CONCURRENCY || 1));
 
@@ -965,12 +968,15 @@ export class DeploymentService {
         }
         await deployLog(`Bringing the stack up: ${compose.composeFilesOf(application).join(', ')} in ${workDir}`);
         const up = await compose.startApplication(application, { onOutput: (text) => void deployLog(text.trimEnd()) });
-        if (up && application.port) {
-          await deployLog(`Waiting for the stack to answer on 127.0.0.1:${application.port}`);
+        // only a republished service answers on the allocated port; without one
+        // there is nothing of ours to wait on, and the stack being up is the answer
+        const probePort = application.composeService && application.composePort ? application.port : null;
+        if (up && probePort) {
+          await deployLog(`Waiting for the stack to answer on 127.0.0.1:${probePort}`);
         }
-        const healthy = up && application.port ? await this.waitForHealthy(afs, application.port) : up;
+        const healthy = up && probePort ? await this.waitForHealthy(afs, probePort, COMPOSE_HEALTH_TIMEOUT_MS) : up;
         if (up && !healthy) {
-          await deployLog(`Nothing answered on port ${application.port} within ${HEALTH_TIMEOUT_MS / 1000}s. Check that the service publishes ${application.composePort}.`);
+          await deployLog(`Nothing answered on port ${application.port} within ${COMPOSE_HEALTH_TIMEOUT_MS / 1000}s. Check that the service publishes ${application.composePort}.`);
         }
         if (!up) await deployLog('The stack did not come up.');
         await deployLog(`[${new Date().toISOString()}] DEPLOYMENT ${healthy ? 'COMPLETED' : 'FAILED'}`);
@@ -1683,6 +1689,8 @@ export class DeploymentService {
       let routeWarning = '';
       for (const app of group) {
         if (app.type === 'PHP') continue;
+        // a stack with no service to republish publishes nothing on its port: no route to it
+        if (compose.needsCompose(app.type) && !(app.composeService && app.composePort)) continue;
         try {
           await serveApp(await serverForApplication(app.id), app.id, { kind: 'proxy', port: portOf(app) });
         } catch (error: any) {

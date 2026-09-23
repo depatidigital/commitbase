@@ -61,22 +61,47 @@ export function composeArgv(project: string, files: string[], args: string[]): s
   return ['cb-compose', '--project-name', project, '--project-directory', '.', ...files.flatMap((file) => ['-f', file]), ...args];
 }
 
+/** One service's ports as the override writes them. */
+export type PortRule = { service: string; ports: string[] };
+
 /**
- * The override compose reads last: it republishes every port on loopback, at
- * the port the platform allocated. Compose files name their own host ports
- * (5000, 8080, 3306 among the ones we run), which collide between apps on one
- * node and, worse, publish databases on every interface.
+ * The override compose reads last. Every port the stack publishes is put on
+ * loopback: the serving one at the port the platform allocated (Caddy's
+ * upstream), every other one at its own host port. Compose files name fixed
+ * host ports (5000, 8000, 3306 among the ones we run) on every interface —
+ * a datapusher or a database open to the internet, and a collision with the
+ * next stack on the node.
+ *
+ * `!override`, because compose MERGES a later file's ports into the earlier
+ * list rather than replacing it: without the tag the stack would keep
+ * 0.0.0.0:5000 beside the loopback one. Needs Compose 2.24.4 or newer. Pure.
  */
-export function overrideYaml(service: string, hostPort: number, containerPort: number): string {
+export function overrideYaml(rules: PortRule[]): string {
   return [
     '# Written by Larika on every deploy — edits here are overwritten.',
     '# The app is reached through Caddy, so the stack is published on loopback only.',
     'services:',
-    `  ${service}:`,
-    '    ports:',
-    `      - "127.0.0.1:${hostPort}:${containerPort}"`,
+    ...rules.flatMap(({ service, ports }) => [`  ${service}:`, '    ports: !override', ...ports.map((port) => `      - "${port}"`)]),
     '',
   ].join('\n');
+}
+
+/**
+ * What to publish, from `compose config --format json`: the serving service at
+ * the allocated port, every other published port kept but on loopback. Pure.
+ */
+export function portRules(config: any, main: { service: string; hostPort: number; containerPort: number }): PortRule[] {
+  const services: Record<string, any> = config?.services ?? {};
+  const rules: PortRule[] = [{ service: main.service, ports: [`127.0.0.1:${main.hostPort}:${main.containerPort}`] }];
+  for (const [service, spec] of Object.entries(services)) {
+    if (service === main.service || !Array.isArray(spec?.ports) || spec.ports.length === 0) continue;
+    const ports = spec.ports
+      .filter((p: any) => p?.published && p?.target)
+      .map((p: any) => `127.0.0.1:${p.published}:${p.target}${p.protocol && p.protocol !== 'tcp' ? `/${p.protocol}` : ''}`);
+    // an empty !override list is still an override: nothing of this service stays published
+    rules.push({ service, ports });
+  }
+  return rules;
 }
 
 function slugOf(application: AppWithOrg): string {
@@ -107,14 +132,23 @@ export async function stackDirOf(application: AppWithOrg, afs: AppFs): Promise<s
   return inRootDirectory(tree, application.rootDirectory);
 }
 
+type RunOpts = {
+  timeout?: number;
+  onOutput?: (text: string) => void;
+  /** where to run: the live stack when omitted, or a release not live yet */
+  cwd?: string;
+  /** leave the platform's override out — to read what the app's own files say */
+  withoutOverride?: boolean;
+};
+
 /** Run one compose command in the stack's directory, as the org's user. */
-async function run(application: AppWithOrg, args: string[], opts: { timeout?: number; onOutput?: (text: string) => void } = {}): Promise<ExecResult> {
+async function run(application: AppWithOrg, args: string[], opts: RunOpts = {}): Promise<ExecResult> {
   const slug = slugOf(application);
   const [uid, node, afs] = await Promise.all([uidOf(application), serverForApplication(application.id), appFsFor(application.id)]);
-  const cwd = await stackDirOf(application, afs);
+  const cwd = opts.cwd ?? (await stackDirOf(application, afs));
   // The override is only written when there is a port to republish, and compose
   // fails on a -f file that is not there — so it joins the list only if it does.
-  const hasOverride = await afs.exists(path.posix.join(cwd, OVERRIDE_FILE));
+  const hasOverride = !opts.withoutOverride && (await afs.exists(path.posix.join(cwd, OVERRIDE_FILE)));
   const files = hasOverride ? [...composeFilesOf(application), OVERRIDE_FILE] : composeFilesOf(application);
   // `cd` in its own argv element, not spliced into a string: the directory comes
   // from the app's root directory, which is user input.
@@ -123,7 +157,7 @@ async function run(application: AppWithOrg, args: string[], opts: { timeout?: nu
     slug,
     uid,
     ['sh', '-c', 'cd -- "$1" || exit 1; shift; exec "$@"', 'sh', cwd, ...composeArgv(projectName(slug, application.id), files, args)],
-    { timeout: 30 * 60_000, ...opts },
+    { timeout: opts.timeout ?? 30 * 60_000, ...(opts.onOutput && { onOutput: opts.onOutput }) },
   );
 }
 
@@ -172,7 +206,16 @@ export async function writeOverride(application: AppWithOrg, afs: AppFs, workDir
     await afs.rm(path.posix.join(workDir, OVERRIDE_FILE), { force: true }).catch(() => {});
     return;
   }
-  await afs.writeFile(path.posix.join(workDir, OVERRIDE_FILE), overrideYaml(service, hostPort, containerPort), { mode: 0o660 });
+  const main = { service, hostPort, containerPort };
+  // what the app's own files publish, with its env already in place to interpolate
+  const config = await run(application, ['config', '--format', 'json'], { cwd: workDir, withoutOverride: true, timeout: 2 * 60_000 })
+    .then((result) => JSON.parse(result.stdout))
+    .catch((error: any) => {
+      // the serving port alone is still loopback-only; the others stay as the files say
+      console.error(`compose config failed for ${application.name}, rebinding only ${service}:`, error?.message);
+      return null;
+    });
+  await afs.writeFile(path.posix.join(workDir, OVERRIDE_FILE), overrideYaml(portRules(config, main)), { mode: 0o660 });
 }
 
 /** Bring the stack up, building images that are built from the repository. */

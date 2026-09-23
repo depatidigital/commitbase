@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { StackExecCard } from "@/components/StackExecCard";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -1430,6 +1431,7 @@ export function AppWorkspace({
                   <DialogTitle>{t("Build Settings")}</DialogTitle>
                 </DialogHeader>
                 <ApplicationSettingsForm application={application} detected={detection.data} />
+                {application.type === "COMPOSE" && <StackExecCard applicationId={application.id} defaultService={application.composeService ?? null} />}
               </DialogContent>
             </Dialog>
           )}
@@ -1444,6 +1446,7 @@ export function AppWorkspace({
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <ApplicationSettingsForm application={application} detected={detection.data} />
+                {application.type === "COMPOSE" && <StackExecCard applicationId={application.id} defaultService={application.composeService ?? null} />}
                 </CardContent>
               </Card>
             </TabsContent>
