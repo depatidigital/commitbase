@@ -318,3 +318,10 @@ export const importDockerContainer = async (
     await apiRequest(`/servers/${id}/docker/import`, { method: 'POST', body: JSON.stringify({ container, port }) }),
     t('Could not import the container'),
   );
+
+/** First certificate for a hostname behind Cloudflare: proxy off, Caddy restarted, proxy back on. Takes minutes. */
+export const provisionSsl = async (id: string, host: string): Promise<{ ok: boolean; message: string; steps: string[] }> =>
+  unwrap(
+    await apiRequest(`/servers/${id}/ssl`, { method: 'POST', body: JSON.stringify({ host }) }),
+    t('Could not provision SSL'),
+  );

@@ -18,6 +18,7 @@ import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
 import { cleanSystem, measureSystem, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
 import { dockerView, importDockerContainer } from '../services/dockerAdoptService';
+import { provisionCertificate } from '../services/sslProvisionService';
 import { DeploymentService } from '../services/deployment';
 
 const router: Router = Router();
@@ -431,6 +432,33 @@ router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN'])
   } catch (error: any) {
     console.error('Error migrating nginx to Caddy:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not migrate this node' } as ApiResponse);
+  }
+});
+
+/**
+ * Get a first certificate for a hostname behind Cloudflare's proxy: proxy off,
+ * Caddy restarted, wait for the certificate, proxy back on — always back on.
+ * Takes minutes; the steps it took come back with the answer.
+ */
+router.post('/:id/ssl', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+    const host = typeof req.body?.host === 'string' ? req.body.host : '';
+    if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return res.status(400).json({ success: false, error: 'host is a hostname' } as ApiResponse);
+
+    const result = await provisionCertificate(server, host);
+    await prisma.log.create({
+      data: { level: result.ok ? 'INFO' : 'WARN', message: `SSL for ${host} on ${server.name}: ${result.message} [${result.steps.join(' → ')}]`, userId: req.user!.userId },
+    });
+    return res.status(result.ok ? 200 : 409).json({
+      success: result.ok,
+      data: result,
+      ...(result.ok ? { message: result.message } : { error: `${result.message}${result.steps.length ? ` (${result.steps.join(' → ')})` : ''}` }),
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error provisioning SSL:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not provision SSL' } as ApiResponse);
   }
 });
 

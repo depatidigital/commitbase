@@ -9,6 +9,7 @@ import {
   Globe,
   HardDrive,
   Loader2,
+  Lock,
   RefreshCw,
 } from "lucide-react";
 
@@ -41,6 +42,7 @@ import {
   pingServer,
   restoreServerSnapshot,
   snapshotServerCaddy,
+  provisionSsl,
   syncServerApps,
   type CaddySnapshotMeta,
 } from "@/lib/servers";
@@ -146,6 +148,13 @@ const ServerDetail = () => {
       toast({ title: t("Restore failed"), description: error.message, variant: "destructive" }),
     // the restore keeps the replaced config as a new snapshot, and routes change
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["servers", id] }),
+  });
+
+  // one hostname at a time: it toggles that name's Cloudflare proxy and restarts Caddy
+  const ssl = useMutation({
+    mutationFn: (host: string) => provisionSsl(id!, host),
+    onSuccess: (result) => toast({ title: result.message, description: result.steps.join(" → ") }),
+    onError: (error: Error) => toast({ title: t("SSL not provisioned"), description: error.message, variant: "destructive" }),
   });
 
   const importApps = useMutation({
@@ -338,7 +347,24 @@ const ServerDetail = () => {
                           </Badge>
                         )}
                       </span>
-                      <span className="shrink-0 text-right text-xs text-muted-foreground">
+                      <span className="flex shrink-0 items-center gap-2 text-right text-xs text-muted-foreground">
+                        {site.managed && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2"
+                            disabled={ssl.isPending}
+                            title={t("Get a certificate: turns the Cloudflare proxy off, restarts Caddy, waits for the certificate, turns the proxy back on. Takes a few minutes.")}
+                            onClick={() => ssl.mutate(site.host)}
+                          >
+                            {ssl.isPending && ssl.variables === site.host ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Lock className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            SSL
+                          </Button>
+                        )}
                         <Badge variant="outline" className="mr-2">
                           {site.kind.toLowerCase()}
                         </Badge>
