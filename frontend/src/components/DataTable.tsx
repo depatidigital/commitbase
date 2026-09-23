@@ -45,6 +45,8 @@ export interface Column<T> {
   className?: string;
   /** Server-side sort field. Set it and the header becomes a sort toggle. */
   sortKey?: string;
+  /** the direction a first click sorts in — "desc" for dates, so newest comes first */
+  sortFirst?: "asc" | "desc";
 }
 
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -79,13 +81,13 @@ export function useTableQuery(
     setPage(1);
   };
 
-  /** First click sorts ascending, clicking the same column flips direction. */
-  const toggleSort = (key: string) => {
+  /** First click sorts ascending (or the column's sortFirst), clicking the same column flips direction. */
+  const toggleSort = (key: string, first: "asc" | "desc" = "asc") => {
     if (sort === key) {
       setOrder(order === "asc" ? "desc" : "asc");
     } else {
       setSort(key);
-      setOrder("asc");
+      setOrder(first);
     }
     setPage(1);
   };
@@ -231,7 +233,7 @@ export function DataTable<T>({
                   {c.sortKey ? (
                     <button
                       type="button"
-                      onClick={() => toggleSort(c.sortKey as string)}
+                      onClick={() => toggleSort(c.sortKey as string, c.sortFirst)}
                       className="flex items-center gap-1 uppercase hover:text-foreground"
                     >
                       {c.header}

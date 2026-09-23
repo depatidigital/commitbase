@@ -268,6 +268,17 @@ export default function Projects() {
       },
     },
     {
+      header: t("Created"),
+      className: "w-24 whitespace-nowrap align-top text-xs text-muted-foreground",
+      sortKey: "createdAt",
+      sortFirst: "desc",
+      cell: (project) => (
+        <span title={new Date(project.createdAt).toLocaleString(locale)}>
+          {new Date(project.createdAt).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}
+        </span>
+      ),
+    },
+    {
       // measured after each deploy and a few times a day (cron app-disk)
       header: t("Size"),
       className: "w-24 whitespace-nowrap align-top text-right text-xs",

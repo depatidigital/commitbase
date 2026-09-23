@@ -168,6 +168,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           return direction * (a.organization?.name ?? '').localeCompare(b.organization?.name ?? '') || byName(a, b);
         case 'server':
           return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || byName(a, b);
+        case 'createdAt':
+          return direction * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || byName(a, b);
         case 'apps':
           return direction * (a.applications.length - b.applications.length) || byName(a, b);
         case 'disk': {

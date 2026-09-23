@@ -225,7 +225,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * on 127.0.0.1:443 under the host's real name, so the certificate is the one
  * visitors get. `insecure` skips checking it. 0 when nothing answered.
  */
-async function localCode(node: SshTarget, host: string, opts: { insecure?: boolean; http?: boolean } = {}): Promise<number> {
+export async function localCode(node: SshTarget, host: string, opts: { insecure?: boolean; http?: boolean } = {}): Promise<number> {
   const target = opts.http
     ? ['-H', `Host: ${host}`, 'http://127.0.0.1/']
     : ['--resolve', `${host}:443:127.0.0.1`, ...(opts.insecure ? ['-k'] : []), `https://${host}/`];
