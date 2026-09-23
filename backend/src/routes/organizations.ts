@@ -147,25 +147,49 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
 });
 
 // Create an organization — platform admin only; the creator is its first OWNER
+// Any user may open a workspace (one per client or business); they own it.
+// ponytail: no cap on how many — a plan limit belongs here once billing exists
 router.post(
   '/',
   authenticateToken,
-  requireRole(['ADMIN']),
   validateRequest(CreateOrgSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { name } = req.body;
-      const slug = (req.body.slug as string | undefined) || slugify(name);
+      const given = req.body.slug as string | undefined;
+      let slug = given || slugify(name);
 
-      const clash = await prisma.organization.findUnique({ where: { slug } });
-      if (clash) {
-        return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
+      // a slug someone typed must be theirs as typed; one made from the name
+      // just takes the next free number — two users may both call theirs "Toko"
+      for (let n = 2; await prisma.organization.findUnique({ where: { slug }, select: { id: true } }); n++) {
+        if (given) return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
+        slug = `${slugify(name).slice(0, 36)}-${n}`;
       }
+
+      // Where it runs: the same servers as the workspace it was opened from (the
+      // switch's X-Organization-Id, if the caller is in it), else their first
+      // placed one — so its first deploy does not wait on an administrator.
+      const memberships = await getMemberships(req);
+      const active = req.header('x-organization-id');
+      const fromIds = [active, ...memberships.map((m) => m.organizationId)].filter(
+        (id): id is string => !!id && memberships.some((m) => m.organizationId === id),
+      );
+      const from = fromIds.length
+        ? (
+            await prisma.organization.findMany({
+              where: { id: { in: fromIds }, defaultServerId: { not: null } },
+              select: { id: true, defaultServerId: true, postgresServerId: true, mysqlServerId: true },
+            })
+          ).sort((a, b) => fromIds.indexOf(a.id) - fromIds.indexOf(b.id))[0]
+        : undefined;
 
       const created = await prisma.organization.create({
         data: {
           name,
           slug,
+          defaultServerId: from?.defaultServerId ?? null,
+          postgresServerId: from?.postgresServerId ?? null,
+          mysqlServerId: from?.mysqlServerId ?? null,
           members: { create: { userId: req.user!.userId, role: 'OWNER' } },
         },
         select: { id: true },
