@@ -124,6 +124,20 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
         </div>
       </div>
 
+      {plan.data?.lastAttempt && (
+        <div
+          className={`rounded-md border p-3 text-sm ${
+            plan.data.lastAttempt.switched ? "border-success/40 text-success" : "border-destructive/40 text-destructive"
+          }`}
+        >
+          <p className="font-medium">
+            {plan.data.lastAttempt.switched ? t("Last migration: switched") : t("Last migration: rolled back — nginx is serving")}{" "}
+            <span className="font-normal text-muted-foreground">{new Date(plan.data.lastAttempt.at).toLocaleString()}</span>
+          </p>
+          <p className="mt-1 text-xs">{plan.data.lastAttempt.message}</p>
+        </div>
+      )}
+
       {plan.data && !plan.data.caddyInstalled && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 p-3">
           <p className="flex items-start gap-2 text-sm text-warning">

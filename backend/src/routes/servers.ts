@@ -370,8 +370,21 @@ router.get('/:id/nginx', authenticateToken, requireRole(['SUPERADMIN']), async (
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
 
-    const plan = await planMigration(server);
-    return res.json({ success: true, data: plan } as ApiResponse);
+    const [plan, last] = await Promise.all([
+      planMigration(server),
+      // the migrate route logs every attempt; the latest one is what the tab shows
+      prisma.log.findFirst({
+        where: { message: { startsWith: `nginx → Caddy on ${server.name}:` } },
+        orderBy: { timestamp: 'desc' },
+        select: { level: true, message: true, timestamp: true },
+      }),
+    ]);
+    const lastAttempt = last && {
+      at: last.timestamp,
+      switched: last.level === 'INFO',
+      message: last.message.slice(`nginx → Caddy on ${server.name}: `.length),
+    };
+    return res.json({ success: true, data: { ...plan, lastAttempt } } as ApiResponse);
   } catch (error: any) {
     console.error('Error reading nginx config:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not read this node' } as ApiResponse);

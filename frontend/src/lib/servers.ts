@@ -268,6 +268,8 @@ export interface NginxPlan {
   ready: boolean;
   /** caddy-api is on the node; Set up installs it (stopped) beside a running nginx */
   caddyInstalled: boolean;
+  /** the latest migrate attempt on this node, from the panel's log */
+  lastAttempt: { at: string; switched: boolean; message: string } | null;
 }
 
 export interface NginxMigration {
