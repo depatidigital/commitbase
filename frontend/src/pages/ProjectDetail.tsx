@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
@@ -41,7 +41,7 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -137,8 +137,6 @@ export default function ProjectDetail() {
     const app = apps.find((a) => a.id === appId)!;
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
   };
-  const live = apps.filter((app) => !app.disabled);
-  const online = live.filter((app) => statusOf(app.id).tone === "up").length;
   const imported = project.kind === "IMPORTED";
   // releases and a build cache on its node: the panel's own projects, but for static sites (their files are in R2)
   const hasStorage = !imported && !!apps[0] && !apps.every((app) => app.type === "STATIC");
@@ -226,8 +224,7 @@ export default function ProjectDetail() {
             {project.lastDeployment && (
               <span
                 className="mr-1 text-xs text-muted-foreground"
-                title={[new Date(project.lastDeployment.createdAt).toLocaleString(locale), project.lastDeployment.commitMessage].filter(Boolean).join("
-")}
+                title={[new Date(project.lastDeployment.createdAt).toLocaleString(locale), project.lastDeployment.commitMessage].filter(Boolean).join(" · ")}
               >
                 {t("Last commit")}: {project.lastDeployment.commitHash ? <span className="font-mono">{project.lastDeployment.commitHash.slice(0, 7)}</span> : "—"} ·{" "}
                 {timeAgo(project.lastDeployment.createdAt)}
@@ -310,16 +307,16 @@ export default function ProjectDetail() {
         </TabsContent>
 
         {/* every service's env on one tab, one section each — no need to open a service for it */}
-        {/* side by side when there are several and all are read-only lists (imported: their .env on the
-            server); the panel's own get an editable form each, which needs the full width */}
-        <TabsContent value="env" className={apps.length > 1 && apps.every((app) => app.runtime) ? "grid items-start gap-4 lg:grid-cols-2" : "space-y-4"}>
+        {/* side by side when there are several: web's env next to the api's, where they must agree
+            (an editable form needs the room: two columns from xl) */}
+        <TabsContent value="env" className={apps.length > 1 ? "grid items-start gap-4 xl:grid-cols-2" : "space-y-4"}>
           {apps.map((app) => (
             <ServiceEnvSection key={app.id} appId={app.id} />
           ))}
         </TabsContent>
 
-        {/* how each service is built and run: its deployment settings, one section each */}
-        <TabsContent value="build" className="space-y-4">
+        {/* how each service is built and run: its deployment settings, one section each — side by side like Environment */}
+        <TabsContent value="build" className={apps.length > 1 ? "grid items-start gap-4 xl:grid-cols-2" : "space-y-4"}>
           {apps.map((app) => (
             <ServiceBuildSection key={app.id} appId={app.id} />
           ))}
@@ -894,51 +891,16 @@ function ServiceRow({ app, status, onOpen }: { app: ProjectApp; status: { text: 
 }
 
 /**
- * One service's env on the app's Env tab: the panel's own services get the
- * form, an imported one its .env on the server (read, not edited), and uploaded
+ * One service's env on the app's Environment tab, read: names, values masked
+ * until shown, searchable. The panel's own services are edited in a dialog
+ * (Edit); an imported one's is its .env on the server — changed there; uploaded
  * files have none.
  */
 function ServiceEnvSection({ appId }: { appId: string }) {
   const { data: application } = useApplication(appId);
-  // the same query (and cache) as the service's page and card
-  const detection = useQuery({
-    queryKey: ["application", appId, "detect"],
-    queryFn: () => getAppDetection(appId),
-    enabled: !!application && !application.runtime && !!application.repository,
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-  if (!application) return <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />;
-  const host = application.domains.map((d) => d.host).find(isPublicHost);
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex min-w-0 items-center gap-2 text-base">
-          <KeyRound className="h-4 w-4 shrink-0 text-primary" />
-          <span className="truncate">{application.name}</span>
-          {host && !application.name.includes(host) && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {application.type === "STATIC" && !application.repository ? (
-          <p className="text-sm text-muted-foreground">{t("Uploaded files have no environment variables.")}</p>
-        ) : application.runtime ? (
-          <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
-        ) : (
-          <AppEnvironment application={application} detected={detection.data} />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * One service's deployment settings on the app's Build tab: the panel's own
- * services get the form (commands, port, folder); one run by pm2, docker or
- * compose on its server is shown as it runs there; uploaded files are not built.
- */
-function ServiceBuildSection({ appId }: { appId: string }) {
-  const { data: application } = useApplication(appId);
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  // the same query (and cache) as the service's page
   const detection = useQuery({
     queryKey: ["application", appId, "detect"],
     queryFn: () => getAppDetection(appId),
@@ -949,14 +911,109 @@ function ServiceBuildSection({ appId }: { appId: string }) {
   if (!application) return <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />;
   const host = application.domains.map((d) => d.host).find(isPublicHost);
   const uploadedSite = application.type === "STATIC" && !application.repository;
+  const editable = !uploadedSite && !application.runtime;
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
+        <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+          <KeyRound className="h-4 w-4 shrink-0 text-primary" />
+          <span className="truncate">{application.name}</span>
+          {host && !application.name.includes(host) && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
+        </CardTitle>
+        {editable && (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />
+            {t("Edit env")}
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        {uploadedSite ? (
+          <p className="text-sm text-muted-foreground">{t("Uploaded files have no environment variables.")}</p>
+        ) : application.runtime ? (
+          <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
+        ) : (
+          <ServerEnv env={application.envVars ?? {}} note={t("What the service gets at its next deploy.")} />
+        )}
+      </CardContent>
+      <Dialog
+        open={editing}
+        onOpenChange={(open) => {
+          setEditing(open);
+          // closed: read it again, so the view shows what is saved now
+          if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
+        }}
+      >
+        {/* a flex column bounded to the screen: the title and Save stay, only the form's body scrolls */}
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>
+              {t("Environment")} — {application.name}
+            </DialogTitle>
+          </DialogHeader>
+          {editing && <Fresh appId={appId}>{(fresh) => <AppEnvironment application={fresh} detected={detection.data} />}</Fresh>}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+/**
+ * An edit dialog's form, on the service as the server has it now: read again
+ * each time it opens, and shown once that answer is in — never a copy the page
+ * held from before a save.
+ */
+function Fresh({ appId, children }: { appId: string; children: (application: Application) => React.ReactNode }) {
+  const { data: application, isFetchedAfterMount } = useQuery({
+    queryKey: ["application", appId],
+    queryFn: () => getApplication(appId),
+    refetchOnMount: "always",
+  });
+  if (!application || !isFetchedAfterMount) {
+    return <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" />;
+  }
+  return <>{children(application)}</>;
+}
+
+/**
+ * One service's deployment settings on the app's Build tab, read: its commands
+ * (its own, else what detection found — marked so) and port. The panel's own
+ * services are edited in a dialog (Edit); one run by pm2, docker or compose on
+ * its server is shown as it runs there; uploaded files are not built.
+ */
+function ServiceBuildSection({ appId }: { appId: string }) {
+  const { data: application } = useApplication(appId);
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const detection = useQuery({
+    queryKey: ["application", appId, "detect"],
+    queryFn: () => getAppDetection(appId),
+    enabled: !!application && !application.runtime && !!application.repository,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  if (!application) return <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />;
+  const host = application.domains.map((d) => d.host).find(isPublicHost);
+  const uploadedSite = application.type === "STATIC" && !application.repository;
+  const editable = !uploadedSite && !application.runtime;
+  const detected = detection.data;
+  // its own setting, else detection's default in grey — what a deploy uses either way
+  const value = (own?: string | null, fallback?: string | null) =>
+    own ? own : fallback ? <span className="text-muted-foreground" title={t("Detected — used while empty")}>{fallback}</span> : "—";
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
         <CardTitle className="flex min-w-0 items-center gap-2 text-base">
           <Hammer className="h-4 w-4 shrink-0 text-primary" />
           <span className="truncate">{application.name}</span>
           {host && !application.name.includes(host) && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
         </CardTitle>
+        {editable && (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />
+            {t("Edit build")}
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="space-y-1.5 text-sm">
         {uploadedSite ? (
@@ -977,10 +1034,43 @@ function ServiceBuildSection({ appId }: { appId: string }) {
               </MiniLine>
             )}
           </>
+        ) : application.type === "COMPOSE" ? (
+          <>
+            <MiniLine label={t("Compose files")}>{(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}</MiniLine>
+            <MiniLine label={t("Service")}>{application.composeService || "—"}</MiniLine>
+            <MiniLine label={t("Port")}>{application.composePort ?? "—"}</MiniLine>
+          </>
         ) : (
-          <ApplicationSettingsForm application={application} detected={detection.data} />
+          <>
+            <MiniLine label={t("Package manager")}>{value(application.packageManager, detected?.packageManager ?? t("Automatic"))}</MiniLine>
+            <MiniLine label={t("Install Command")}>{value(application.installCommand, detected?.installCommand)}</MiniLine>
+            <MiniLine label={t("Build Command")}>{value(application.buildCommand, detected?.buildCommand)}</MiniLine>
+            <MiniLine label={t("Pre-deploy Command")}>{value(application.preDeployCommand, detected?.preDeployCommand)}</MiniLine>
+            {application.type !== "STATIC" && (
+              <>
+                <MiniLine label={t("Start Command")}>{value(application.startCommand, detected?.startCommand)}</MiniLine>
+                <MiniLine label={t("Port")}>{application.port ?? "—"}</MiniLine>
+              </>
+            )}
+          </>
         )}
       </CardContent>
+      <Dialog
+        open={editing}
+        onOpenChange={(open) => {
+          setEditing(open);
+          if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
+        }}
+      >
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {t("Build Settings")} — {application.name}
+            </DialogTitle>
+          </DialogHeader>
+          {editing && <Fresh appId={appId}>{(fresh) => <ApplicationSettingsForm application={fresh} detected={detected} />}</Fresh>}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

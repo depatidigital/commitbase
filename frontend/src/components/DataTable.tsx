@@ -137,6 +137,8 @@ interface DataTableProps<T> {
   className?: string;
   /** "Showing 1–3 of 3" under the rows — false where every row is on screen anyway (a form's rows) */
   showCount?: boolean;
+  /** the "Show [25] entries" picker — off where every row fits anyway (a form's rows): the toolbar and search then share one line */
+  sizePicker?: boolean;
 }
 
 // what a click inside a clickable row should leave alone — menu items too: a
@@ -158,6 +160,7 @@ export function DataTable<T>({
   bodyClassName = "",
   className = "",
   showCount = true,
+  sizePicker = true,
 }: DataTableProps<T>) {
   const { page, setPage, limit, setLimit, input, setInput, search, sort, order, toggleSort } =
     query;
@@ -181,6 +184,7 @@ export function DataTable<T>({
     <div data-fill className={`flex min-h-[20rem] flex-col gap-4 ${className}`}>
       {/* every list alike: page size on the left, search (and filters) on the right */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        {sizePicker && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>{t("Show")}</span>
           <Select
@@ -201,10 +205,11 @@ export function DataTable<T>({
           </Select>
           <span>{t("entries")}</span>
         </div>
+        )}
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className={sizePicker ? "flex flex-wrap items-center gap-2 sm:justify-end" : "flex w-full min-w-0 items-center gap-2"}>
           {toolbar}
-          <div className="relative w-full sm:w-80">
+          <div className={sizePicker ? "relative w-full sm:w-80" : "relative min-w-40 flex-1"}>
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-8"

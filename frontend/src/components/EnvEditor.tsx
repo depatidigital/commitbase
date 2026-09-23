@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Check, CheckCircle2, ChevronsUpDown, ClipboardPaste, Database as DatabaseIcon, Eye, EyeOff, Info, FileUp, Loader2, Lock, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronsUpDown, ClipboardPaste, Database as DatabaseIcon, Eye, EyeOff, FileCode2, Info, FileUp, Loader2, PlugZap, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -171,17 +171,22 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     };
   };
 
-  // By name, so one prefix sits together (POSTGRES_*, CKAN_SYSADMIN_*); a row still
-  // unnamed last. Re-sorted when rows come or go, not per keystroke: a row being
+  // The names the code expects first (they want a value), then by name, so one
+  // prefix sits together (POSTGRES_*, CKAN_SYSADMIN_*); a row still unnamed last. Re-sorted when rows come or go, not per keystroke: a row being
   // renamed does not jump away under the cursor.
   const order = useMemo(
     () =>
       list
         .map((row, index) => ({ key: row.key, index }))
-        .sort((a, b) => (!a.key ? 1 : !b.key ? -1 : a.key.localeCompare(b.key)) || a.index - b.index)
+        .sort(
+          (a, b) =>
+            Number(!!locked?.has(b.key)) - Number(!!locked?.has(a.key)) ||
+            (!a.key ? 1 : !b.key ? -1 : a.key.localeCompare(b.key)) ||
+            a.index - b.index,
+        )
         .map(({ index }) => index),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [list.length],
+    [list.length, locked],
   );
   const grouped = new Set(group?.keys ?? []);
   // the group shows as its first member; the others are behind it
@@ -214,7 +219,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     if (fixed && !invalid) {
       return (
         <p className="flex min-h-8 items-start gap-1.5 py-1.5 font-mono text-xs" title={hint ? `${t("The code expects this name")} — ${hint}` : t("The code expects this name")}>
-          <Lock className="mt-px h-3 w-3 shrink-0 text-muted-foreground" />
+          <FileCode2 className="mt-px h-3 w-3 shrink-0 text-primary" />
           <span className="break-all">{row.key}</span>
         </p>
       );
@@ -260,7 +265,21 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     return (
       <div className="space-y-1">
         <div className="flex min-w-0 items-start gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+        {/* a secret's show/hide, inside its box */}
+        {secret && !customValue && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-0.5 top-0.5 z-10 h-7 w-7 text-muted-foreground"
+            title={shown ? t("Hide") : t("Show")}
+            aria-label={shown ? t("Hide") : t("Show")}
+            onClick={() => toggle(index)}
+          >
+            {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </Button>
+        )}
         {customValue ? (
           customValue
         ) : PLATFORM_KEYS[row.key] === "ignored" ? (
@@ -277,7 +296,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
           // grows with what is in it (field-sizing), a line at first — a masked secret stays an input
           <Textarea
             aria-label={t("Value")}
-            className={`max-h-40 min-h-8 resize-y py-1.5 font-mono text-xs [field-sizing:content] ${
+            className={`max-h-40 min-h-8 resize-y py-1.5 font-mono text-xs [field-sizing:content] ${secret ? "pr-9" : ""} ${
               invalidValue ? "border-destructive" : local ? "border-amber-500" : ""
             }`}
             rows={1}
@@ -294,7 +313,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             type={shown || CSS_MASK ? "text" : "password"}
             autoComplete={shown || CSS_MASK ? "off" : "new-password"}
             style={!shown && CSS_MASK ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
-            className={`h-8 font-mono text-xs ${invalidValue ? "border-destructive" : local ? "border-amber-500" : ""}`}
+            className={`h-8 font-mono text-xs ${secret ? "pr-9" : ""} ${invalidValue ? "border-destructive" : local ? "border-amber-500" : ""}`}
             placeholder={missing ? t("required") : t("value")}
             value={multiline && !shown ? "••••••" : row.value}
             readOnly={multiline && !shown}
@@ -407,14 +426,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         </div>
       );
     }
-    const { secret, shown } = view(row, index);
     return (
       <div className="flex items-center justify-end gap-1">
-        {secret && (
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title={shown ? t("Hide") : t("Show")} onClick={() => toggle(index)}>
-            {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </Button>
-        )}
         <Button
           type="button"
           variant="ghost"
@@ -435,8 +448,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
     { header: "#", className: "w-10 align-top pt-4 text-xs text-muted-foreground", cell: ({ index }) => indexed.findIndex((entry) => entry.index === index) + 1 },
     { header: t("Name"), className: "w-[38%] align-top", cell: nameCell },
     { header: t("Value"), className: "align-top", cell: valueCell },
-    // the eye and the bin
-    { header: "", className: "w-20 align-top", cell: actionCell },
+    // the bin (a secret's eye is in its value box)
+    { header: "", className: "w-12 align-top", cell: actionCell },
   ];
 
   return (
@@ -446,6 +459,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         className="min-h-[12rem] flex-1"
         // every row is on screen (it scrolls): a count under them says nothing
         showCount={false}
+        // nor a page size: the toolbar and search on one line
+        sizePicker={false}
         columns={columns}
         rows={tableRows}
         rowKey={({ index }) => String(index)}
