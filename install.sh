@@ -280,7 +280,27 @@ done
 http_port_taken() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ':(80|443)$'; }
 
 # Setup never resets a running app: whatever Caddy is serving keeps serving.
-if systemctl is-active --quiet caddy && caddyfile_serves_sites; then
+#
+# The adoption case is checked first, before anything that would start Caddy:
+# on this box another server owns :80/:443 and the only safe move is to leave
+# Caddy stopped, whatever state its own units are in.
+if [ -n "$OTHER_HTTP" ] || http_port_taken; then
+  # Nothing here stops or reconfigures the other server, and none of its
+  # configuration is touched: taking a live box's sites down is a decision with
+  # a person behind it, not a side effect of running setup.
+  #
+  # Both units are disabled, not merely left alone. Installing the caddy package
+  # enables caddy.service, and at the next reboot systemd starts units in
+  # parallel — Caddy could win :80 and nginx would be the one that fails to
+  # start. That break would arrive weeks later, at a reboot nobody connected to
+  # this. Disabled now, it cannot happen.
+  systemctl disable --now caddy >/dev/null 2>&1 || true
+  systemctl disable --now caddy-api >/dev/null 2>&1 || true
+  note "WARNING: ${OTHER_HTTP:-something else} is serving on :80/:443 - Caddy is installed but stopped and disabled, and nothing of that server's configuration was changed."
+  note "This node is set up in every other way. Routing and TLS for new apps stay off until Caddy can have those ports."
+  note "In the panel: open the node's nginx tab, review the plan, then Migrate to Caddy - it previews every site and puts nginx back if any stops answering."
+  CADDY_HELD_BACK=1
+elif systemctl is-active --quiet caddy && caddyfile_serves_sites; then
   # Sites served from a Caddyfile (the panel's own box, or a hand-built one).
   # Moving them into the API is a deliberate step, not something setup does.
   note "WARNING: caddy.service serves sites from /etc/caddy/Caddyfile - left exactly as it is."
@@ -314,14 +334,6 @@ elif systemctl is-active --quiet caddy; then
     die "could not move the Caddy config to caddy-api.service - caddy.service restored with its routes"
   fi
   rm -f "$LIVE"
-elif [ -n "$OTHER_HTTP" ] || http_port_taken; then
-  # Left alone on purpose. Nothing here stops or reconfigures the other server,
-  # and none of its configuration is touched: taking a live box's sites down is
-  # a decision with a person behind it, not a side effect of running setup.
-  note "WARNING: ${OTHER_HTTP:-something else} is serving on :80/:443 - caddy-api.service NOT started, and nothing of its configuration was changed."
-  note "This node is set up in every other way. Routing and TLS for new apps stay off until Caddy can have those ports."
-  note "In the panel: sync this node's apps, then use Migrate to Caddy, which previews every site before it switches."
-  CADDY_HELD_BACK=1
 else
   systemctl enable --now caddy-api >/dev/null 2>&1 || die "could not start caddy-api.service"
   note "caddy-api.service running - routes arrive through the admin API and persist in Caddy's autosave"
