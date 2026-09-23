@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { appFoldersOf, foldersOf, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
+import { appFoldersOf, foldersOf, isEnvFile, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -327,3 +327,9 @@ assert.deepStrictEqual(
   foldersOf(['package.json', 'apps/web/src/pages/index.tsx', 'node_modules/x/index.js', '.github/workflows/ci.yml', 'compose/docker-compose.yml']),
   ['apps', 'apps/web', 'apps/web/src', 'compose'],
 );
+
+// env editor tabs: files an app reads, never their examples or look-alikes
+for (const name of ['.env', '.ckan-env', '.env.local', '.env.production', 'app.env', 'prod_env']) assert.ok(isEnvFile(name), name);
+for (const name of ['.env.example', '.env.sample', '.env.template', '.env.dist', 'environment.ts', 'docker-compose.yml', 'venv', 'envs', 'Dockerfile', '.envrc']) {
+  assert.ok(!isEnvFile(name), name);
+}

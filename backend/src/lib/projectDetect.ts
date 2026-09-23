@@ -69,6 +69,8 @@ export interface RepoEnv {
   committed: string[];
   /** a SQL client or ORM in the dependencies — the app will want a DATABASE_URL */
   needsDatabase: boolean;
+  /** the env files in the app's folder on its node (not the examples), each as the repository ships it — the env editor's tabs */
+  files?: Array<{ file: string; vars: Array<{ key: string; value: string }> }>;
 }
 
 // what a Node app talks to Postgres/MySQL through (Mongo is not something Larika hosts)
@@ -966,3 +968,7 @@ export function nvmPreamble(version: string | null, install: boolean): string[] 
   lines.push('  set -u', 'fi');
   return lines;
 }
+
+/** An env file the app reads, by its name — not an example of one. Pure. */
+export const isEnvFile = (name: string): boolean =>
+  /(^|[._-])env($|[._-])/i.test(name) && !/example|sample|template|dist|\.(ya?ml|json|js|ts|py|sh)$/i.test(name);

@@ -164,6 +164,8 @@ export const UpdateApplicationSchema = z.object({
   preDeployCommand: z.string().optional(),
   startCommand: z.string().optional(),
   envVars: z.record(z.string()).optional(),
+  // the env files after the first, each its own variables: { ".ckan-env": { KEY: value } }
+  extraEnvVars: z.record(z.string().regex(COMPOSE_PATH_RE, 'An env file is a file in the repository, like .env'), z.record(z.string())).optional(),
   dnsConsent: z.boolean().optional(),
   ...composeFields,
 });

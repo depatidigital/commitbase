@@ -34,11 +34,11 @@ import * as compose from '../services/composeService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
 import { ensureOrgOnNode, queueOrgNode } from '../services/orgProvisionService';
-import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, listRemoteBranches, parseEnvFile, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, isEnvFile, listRemoteBranches, parseEnvFile, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
-import { readEnv, sealEnv } from '../lib/appEnv';
+import { readEnv, readEnvFiles, sealEnv, sealEnvFiles } from '../lib/appEnv';
 import { createApplicationWithSource, dropOrphanSources, setSourceOrganization, withSourceFields } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
@@ -351,23 +351,20 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
           return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources, application.packageManager);
         })();
 
-    // A committed .env (a stack's env files) is what the app runs with: the
-    // deploy keeps what it ships and overrides the keys set here. Its keys and
-    // values are offered like an .env.example's — read from the checkout pulled
-    // on the node (the clone above never downloads a .env).
-    if (!detected.env.example) {
-      const names = compose.composeEnvFilesOf(application);
-      const afs = await sourceFsFor(application.id).catch(() => null);
-      const dir = afs && inRootDirectory(afs.sourcesDir, application.rootDirectory);
-      const vars = new Map<string, string>();
-      for (const name of names) {
-        const text = dir ? await afs.readText(path.posix.join(dir, name)).catch(() => '') : '';
-        // the later file wins, as in the stack
-        for (const [key, value] of parseEnvFile(text)) vars.set(key, value);
-      }
-      if (vars.size) {
-        detected.env.example = { file: names.join(', '), vars: [...vars].map(([key, value]) => ({ key, value })) };
-      }
+    // The env files the app reads — configured, or found in its folder — each as
+    // the repository ships it: what the deploy keeps, and overrides key by key.
+    // From the checkout pulled on the node (the clone above never downloads a .env).
+    const afs = await sourceFsFor(application.id).catch(() => null);
+    if (afs) {
+      const dir = inRootDirectory(afs.sourcesDir, application.rootDirectory);
+      const found = (await afs.readdir(dir).catch(() => [] as string[])).filter(isEnvFile);
+      const names = [...new Set([...compose.composeEnvFilesOf(application), ...found.sort()])];
+      detected.env.files = await Promise.all(
+        names.map(async (file) => ({
+          file,
+          vars: parseEnvFile(await afs.readText(path.posix.join(dir, file)).catch(() => '')).map(([key, value]) => ({ key, value })),
+        })),
+      );
     }
 
     return res.json({ success: true, data: detected } as ApiResponse);
@@ -665,6 +662,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
         ...withSourceFields(application),
         // the detail page edits them; everywhere else only the sealed blob goes out
         envVars: readEnv(application.envVars),
+        extraEnvVars: readEnvFiles(application.extraEnvVars),
         // saved once, even empty: someone looked at it — the setup checklist waits for that
         envConfirmed: application.envVars !== null,
         placement: application.server ?? application.organization?.defaultServer ?? null,
@@ -1169,7 +1167,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // no request logging here: the body carries the app's env vars (secrets)
     const { id } = req.params || {};
     // hostnames are not edited here: POST/DELETE /:id/domains
-    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, pruneDevDeps, startCommand, port, envVars, gitAccountId, rootDirectory, packageManager } =
+    const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, pruneDevDeps, startCommand, port, envVars, extraEnvVars, gitAccountId, rootDirectory, packageManager } =
       req.body || {};
     const { composeFiles, composeEnvFiles, composePort, composeService } = req.body || {};
     if (packageManager !== undefined && packageManager !== null && packageManager !== '' && !['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
@@ -1199,7 +1197,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 
     if (!(await assertOwnGitAccount(gitAccountId, req.user!.userId, res))) return;
     // an imported app's env is its .env on the server, mirrored by the sync — an edit here would reach nothing
-    if (envVars !== undefined && existingApp.runtime) {
+    if ((envVars !== undefined || extraEnvVars !== undefined) && existingApp.runtime) {
       return res.status(400).json({ success: false, error: "An imported app's environment is its .env on the server — change it there, then sync" } as ApiResponse);
     }
 
@@ -1231,6 +1229,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         startCommand,
         port,
         ...(envVars !== undefined && { envVars: sealEnv(envVars) }),
+        ...(extraEnvVars !== undefined && { extraEnvVars: sealEnvFiles(extraEnvVars) }),
         // '' / null on either of the last two: no port is republished and no
         // default service for exec — the stack keeps what its own files say.
         ...(composeFiles !== undefined && { composeFiles }),
@@ -1242,7 +1241,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 
     return res.json({
       success: true,
-      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars), envConfirmed: updatedApp.envVars !== null },
+      data: { ...withSourceFields(updatedApp), envVars: readEnv(updatedApp.envVars), extraEnvVars: readEnvFiles(updatedApp.extraEnvVars), envConfirmed: updatedApp.envVars !== null },
       message: 'Application updated successfully',
     } as ApiResponse<Application>);
   } catch (error) {
