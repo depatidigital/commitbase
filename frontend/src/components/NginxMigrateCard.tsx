@@ -198,7 +198,7 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
               ))}
               {!!site.proxiedHosts?.length && (
                 <p className="pl-6 text-xs text-muted-foreground">
-                  {t("via Cloudflare proxy:")} {site.proxiedHosts.join(", ")}
+                  {t("behind Cloudflare, origin not visible to the panel (a failure there only warns):")} {site.proxiedHosts.join(", ")}
                 </p>
               )}
               {site.danglingHosts.length > 0 && (
@@ -248,7 +248,7 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
                             {dangling
                               ? t("not checked — DNS points elsewhere")
                               : proxied
-                                ? t("HTTPS + certificate (via Cloudflare)")
+                                ? t("warning only — behind Cloudflare, origin not visible to the panel")
                                 : t("HTTPS + certificate")}
                           </td>
                         </tr>

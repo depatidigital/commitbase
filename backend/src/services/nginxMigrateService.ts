@@ -2,6 +2,7 @@ import * as dns from 'dns/promises';
 import { exec, execRoot, type SshTarget } from '../lib/runner';
 import { sitesOf, type NginxSite } from '../lib/nginxConfig';
 import { buildRoute, getCaddyConfig, loadCaddyConfig, type Target } from './caddyService';
+import { findCloudflareZone, listCloudflareDnsRecords } from './cloudflareService';
 import type { Serve } from './hostRouteService';
 
 /**
@@ -28,7 +29,11 @@ export type SitePlan = {
   serve: Serve | null;
   /** hostnames whose DNS does not point at this node — ACME would fail for them */
   danglingHosts: string[];
-  /** hostnames behind Cloudflare's proxy: their origin cannot be read from DNS, so not called dangling */
+  /**
+   * hostnames behind Cloudflare's proxy whose origin could not be read (a zone
+   * in another account): checked after the switch, but a failure there only
+   * warns — it may well not be this node's traffic at all
+   */
   proxiedHosts?: string[];
   /** why it cannot be migrated, when it cannot */
   blocked: string | null;
@@ -122,9 +127,25 @@ async function whereItResolves(host: string, publicIp: string): Promise<'here' |
   const addresses = await dns.resolve4(host).catch(() => [] as string[]);
   const v6 = await dns.resolve6(host).catch(() => [] as string[]);
   if (addresses.includes(publicIp) || v6.includes(publicIp)) return 'here';
-  // an orange-cloud record answers with Cloudflare's addresses, whatever its origin is
-  if (addresses.length > 0 && addresses.every(isCloudflareIp)) return 'cloudflare';
+  // an orange-cloud record answers with Cloudflare's addresses, whatever its
+  // origin is — the panel's own Cloudflare account can say what that origin is
+  if (addresses.length > 0 && addresses.every(isCloudflareIp)) return (await cloudflareOrigin(host, publicIp)) ?? 'cloudflare';
   return 'elsewhere';
+}
+
+/** Where a proxied record really points, from the zone in the panel's Cloudflare account. null: not known. */
+async function cloudflareOrigin(host: string, publicIp: string): Promise<'here' | 'elsewhere' | null> {
+  const labels = host.split('.');
+  // the zone is the host itself or one of its parents: sub.example.co.id → example.co.id
+  for (let i = 0; i < labels.length - 1; i++) {
+    const zone = await findCloudflareZone(labels.slice(i).join('.')).catch(() => null);
+    if (!zone) continue;
+    const records = (await listCloudflareDnsRecords(zone.id).catch(() => null)) ?? [];
+    const own = records.filter((r: any) => String(r?.name).toLowerCase() === host && (r?.type === 'A' || r?.type === 'AAAA'));
+    if (own.length === 0) return null;
+    return own.some((r: any) => r.content === publicIp) ? 'here' : 'elsewhere';
+  }
+  return null;
 }
 
 // ponytail: Cloudflare's published IPv4 ranges (cloudflare.com/ips-v4), hardcoded — they change
@@ -248,6 +269,8 @@ export type MigrationResult = {
   verified: string[];
   /** why hosts did not, which is what triggers the rollback */
   failed: string[];
+  /** proxied hosts whose origin is not known to be here that did not pass: said, never rolled back for */
+  warnings?: string[];
   /** hosts not checked: their DNS points elsewhere, or nginx was not serving them either */
   unchecked: string[];
   rolledBack: boolean;
@@ -307,7 +330,13 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
   const deadline = Date.now() + VERIFY_DEADLINE_MS;
   const outcomes = await Promise.all(checked.map(async (host) => [host, await verifyHost(node, host, before.get(host)!, deadline)] as const));
   const verified = outcomes.filter(([, why]) => !why).map(([host]) => host);
-  const failed = outcomes.flatMap(([, why]) => (why ? [why] : []));
+  // Rolled back only for a host whose visitors are known to arrive here. A
+  // proxied one with an origin nobody could read may be another server's: its
+  // certificate cannot be issued here, and failing the switch for it would undo
+  // sites that work, to protect traffic that never came.
+  const unknownOrigin = new Set(plan.sites.flatMap((site) => site.proxiedHosts ?? []));
+  const failed = outcomes.flatMap(([host, why]) => (why && !unknownOrigin.has(host) ? [why] : []));
+  const warnings = outcomes.flatMap(([host, why]) => (why && unknownOrigin.has(host) ? [why] : []));
 
   if (failed.length > 0) {
     await systemctl(node, 'disable', '--now', 'caddy-api').catch(() => {});
@@ -331,9 +360,11 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
     verified,
     failed: [],
     unchecked,
+    warnings,
     rolledBack: false,
     message:
       `${verified.length} hostname${verified.length === 1 ? '' : 's'} now served by Caddy over HTTPS. nginx is stopped and disabled; its configuration is untouched.` +
-      (unchecked.length ? ` Not checked (DNS elsewhere, or not served before): ${unchecked.join(', ')}.` : ''),
+      (unchecked.length ? ` Not checked (DNS elsewhere, or not served before): ${unchecked.join(', ')}.` : '') +
+      (warnings.length ? ` Behind Cloudflare with an origin the panel cannot see, and not served here yet: ${warnings.join('; ')} — fine if they point to another server.` : ''),
   };
 }
