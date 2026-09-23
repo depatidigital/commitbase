@@ -191,17 +191,21 @@ function buildSplitHandle(parts: SplitPart[]): any[] {
  * null means the node did not answer or answered with an error — never an
  * empty config: an error read as `{}` and written back would wipe every site.
  */
+/** The node's config; throws with the reason (Caddy down, HTTP error) — fetchCaddyConfig for "or null". */
+async function readCaddyConfig(server: SshTarget): Promise<any> {
+  const response = await caddyRequest(server, 'GET', '/config/');
+  if (response.status >= 400) {
+    throw new Error(`Could not read Caddy config from ${server.hostname}: HTTP ${response.status} ${response.body.slice(0, 200)}`);
+  }
+  // a Caddy with nothing loaded answers `null`
+  return JSON.parse(response.body || '{}') || {};
+}
+
 async function fetchCaddyConfig(server: SshTarget): Promise<any | null> {
   try {
-    const response = await caddyRequest(server, 'GET', '/config/');
-    if (response.status >= 400) {
-      console.error(`Could not read Caddy config from ${server.hostname}: HTTP ${response.status} ${response.body.slice(0, 200)}`);
-      return null;
-    }
-    // a Caddy with nothing loaded answers `null`
-    return JSON.parse(response.body || '{}') || {};
+    return await readCaddyConfig(server);
   } catch (error: any) {
-    console.error(`Could not read Caddy config from ${server.hostname}:`, error?.message);
+    console.error(error?.message);
     return null;
   }
 }
@@ -550,10 +554,10 @@ const changeRoutes = (node: SshTarget, change: RouteChange) => withNodeLock(node
 
 async function changeRoutesUnlocked(node: SshTarget, change: RouteChange): Promise<void> {
   const names = 'set' in change ? change.set : 'drop' in change ? change.drop : [change.add];
-  const existing = await fetchCaddyConfig(node);
-  if (existing === null) {
-    throw new Error(`Caddy on ${node.hostname} did not return its config — route for ${names.join(', ')} left unchanged`);
-  }
+  // the reason, not just "no config": "Caddy is not running" has a different fix from a bad response
+  const existing = await readCaddyConfig(node).catch((error: any) => {
+    throw new Error(`${error?.message || error} — route for ${names.join(', ')} left unchanged`);
+  });
 
   const reason =
     'set' in change

@@ -500,6 +500,10 @@ export default {
   "Pick a database…": "Pilih database…",
   "Custom URL": "URL kustom",
   "Not live yet — deploy each app from its setup checklist first.": "Belum live — deploy tiap aplikasi dari checklist-nya dulu.",
+  "Code pulled — {sha} is on the server.": "Kode sudah ditarik — {sha} ada di server.",
+  "Env files": "File env",
+  Service: "Service",
+  "Not set — pick the service and port Caddy sends traffic to": "Belum diisi — pilih service dan port tujuan trafik dari Caddy",
   "Pull & redeploy": "Pull & deploy ulang",
   "It is {app}'s only host: nobody reaches it until another one is added.":
     "Ini satu-satunya host {app}: aplikasi tidak bisa diakses sampai host lain ditambahkan.",

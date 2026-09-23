@@ -51,6 +51,12 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
     staleTime: 60_000,
     retry: false,
     enabled: !!project?.repository,
+    // a new project's code is pulled in the background after create: look again until it is there (first 2 minutes only)
+    refetchInterval: (query) =>
+      query.state.data && !query.state.data.checkoutCommit && !query.state.data.liveCommit &&
+      project && Date.now() - new Date(project.createdAt).getTime() < 120_000
+        ? 5_000
+        : false,
   });
   const [branch, setBranch] = useState(current);
   useEffect(() => setBranch(current), [current]);
@@ -303,7 +309,16 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                   {t("Up to date — the newest commit is live.")}
                 </span>
               ) : neverLive ? (
-                <span className="text-muted-foreground">{t("Not live yet — deploy each app from its setup checklist first.")}</span>
+                <span className="text-muted-foreground">
+                  {/* the code is on the server already (pulled once on create); only the deploy is left */}
+                  {pulled && (
+                    <span className="mb-0.5 flex items-center gap-1.5 text-success">
+                      <GitCommit className="h-3.5 w-3.5 shrink-0" />
+                      {t("Code pulled — {sha} is on the server.", { sha: pulled.slice(0, 7) })}
+                    </span>
+                  )}
+                  {t("Not live yet — deploy each app from its setup checklist first.")}
+                </span>
               ) : needsDeploy ? (
                 <span className="flex items-center gap-1.5 text-warning">
                   <GitCommit className="h-3.5 w-3.5 shrink-0" />

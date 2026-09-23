@@ -66,7 +66,7 @@ export default function Projects() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const superAdmin = isSuperAdmin();
-  const query = useTableQuery(100);
+  const query = useTableQuery(100, { sort: "createdAt", order: "desc" });
   const syncApps = useSyncServerApps();
   const [serverFilter, setServerFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);

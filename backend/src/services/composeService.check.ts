@@ -12,6 +12,7 @@ import {
   projectName,
   quoteEnv,
   readPsStatus,
+  servicesOf,
   DEFAULT_COMPOSE_FILE,
   DEFAULT_ENV_FILE,
   OVERRIDE_FILE,
@@ -113,5 +114,22 @@ assert.strictEqual(readPsStatus('[{"State":"exited"}]'), 'STOPPED');
 assert.strictEqual(readPsStatus('[]'), 'STOPPED');
 assert.strictEqual(readPsStatus(''), 'STOPPED');
 assert.strictEqual(readPsStatus('not json'), 'STOPPED');
+
+// the preview: build or image, published and bare ports, depends_on by name
+assert.deepStrictEqual(
+  servicesOf({
+    services: {
+      ckan: { build: { context: '.' }, ports: [{ target: 5000, published: '5000' }], depends_on: { db: {}, redis: {} } },
+      redis: { image: 'redis:6.0.14' },
+      solr: { image: 'x', build: { context: '.' }, ports: [{ target: 8983 }] },
+    },
+  }),
+  [
+    { name: 'ckan', image: null, build: true, ports: ['5000:5000'], dependsOn: ['db', 'redis'] },
+    { name: 'redis', image: 'redis:6.0.14', build: false, ports: [], dependsOn: [] },
+    { name: 'solr', image: null, build: true, ports: ['8983'], dependsOn: [] },
+  ],
+);
+assert.deepStrictEqual(servicesOf(null), []);
 
 console.log('composeService: ok');

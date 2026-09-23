@@ -277,6 +277,27 @@ export async function execInService(
   return run(application, ['exec', '-T', target, ...argv], { timeout: 30 * 60_000, ...(onOutput ? { onOutput } : {}) });
 }
 
+export type StackService = { name: string; image: string | null; build: boolean; ports: string[]; dependsOn: string[] };
+
+/** The stack's services as `compose config` reads its files — the app's own, without the platform's override. Pure. */
+export function servicesOf(config: any): StackService[] {
+  return Object.entries<any>(config?.services ?? {}).map(([name, spec]) => ({
+    name,
+    image: spec?.build ? null : spec?.image ?? null,
+    build: !!spec?.build,
+    ports: (Array.isArray(spec?.ports) ? spec.ports : [])
+      .filter((p: any) => p?.target)
+      .map((p: any) => (p.published ? `${p.published}:${p.target}` : String(p.target))),
+    dependsOn: Object.keys(spec?.depends_on ?? {}),
+  }));
+}
+
+/** What the stack would run, before anything runs: from the live release, else the pulled checkout. */
+export async function previewStack(application: AppWithOrg): Promise<StackService[]> {
+  const { stdout } = await run(application, ['config', '--format', 'json'], { withoutOverride: true, timeout: 2 * 60_000 });
+  return servicesOf(JSON.parse(stdout));
+}
+
 /**
  * Whether every service that is meant to stay up is up. UNKNOWN, never STOPPED,
  * when the node cannot be reached: a status written from a dropped connection

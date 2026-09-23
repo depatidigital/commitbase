@@ -69,6 +69,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
+import { ComposePreview } from "@/components/ComposePreview";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { DeployProgress } from "@/components/DeployProgress";
@@ -547,7 +548,34 @@ export function AppWorkspace({
         </Field>
       )}
       {/* a bucket-served site has no directory on a node; a static site served from disk (imported) does */}
-      {(!isStatic || (!application.staticBucket && application.rootPath)) && (
+      {/* the panel's own app: where it is in the repository — each release is a checkout of it */}
+      {!application.runtime && application.repository && (
+        <Field label={t("Folder in the repository")}>
+          <span className="break-all font-mono text-xs">{application.rootDirectory || t("(repository root)")}</span>
+        </Field>
+      )}
+      {/* a stack: which files compose reads, all in that folder, and what Caddy proxies to */}
+      {application.type === "COMPOSE" && (
+        <>
+          <Field label={t("Compose files")}>
+            <span className="break-all font-mono text-xs">{(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}</span>
+          </Field>
+          <Field label={t("Env files")}>
+            <span className="break-all font-mono text-xs">{(application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"]).join(", ")}</span>
+          </Field>
+          <Field label={t("Service")}>
+            {application.composeService ? (
+              <span className="font-mono text-xs">
+                {application.composeService}:{application.composePort ?? "—"}
+              </span>
+            ) : (
+              <span className="text-xs text-warning">{t("Not set — pick the service and port Caddy sends traffic to")}</span>
+            )}
+          </Field>
+        </>
+      )}
+      {/* a folder on the node: an imported app's (a panel app's is its repository folder, above) */}
+      {(!isStatic || (!application.staticBucket && application.rootPath)) && (application.runtime || application.rootPath) && (
         <Field label={t("Directory")}>
           <span className="break-all font-mono text-xs">{application.rootPath || t("Not detected")}</span>
           {folder.data?.exists === false && (
@@ -1761,6 +1789,12 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
               </p>
             </div>
           </div>
+
+          <ComposePreview
+            applicationId={application.id}
+            selected={formData.composeService}
+            onPick={(service, port) => setFormData((prev) => ({ ...prev, composeService: service, composePort: port || prev.composePort }))}
+          />
         </>
       )}
 

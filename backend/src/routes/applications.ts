@@ -34,7 +34,7 @@ import * as compose from '../services/composeService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
 import { ensureOrgOnNode, queueOrgNode } from '../services/orgProvisionService';
-import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, listRemoteBranches, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
+import { detectAppsFromRepo, detectFromFiles, detectFromRepo,detectProject, listRemoteBranches, parseEnvFile, parseLsRemote, presenceOnly, DETECT_FILES, DetectInput } from '../lib/projectDetect';
 import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
@@ -326,7 +326,14 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
   try {
     const application = await prisma.application.findFirst({
       where: { id: req.params.id as string, ...(await appScope(req)) },
-      select: { id: true, rootDirectory: true, packageManager: true, source: { select: { repository: true, branch: true, gitAccountId: true } } },
+      select: {
+        id: true,
+        type: true,
+        composeEnvFiles: true,
+        rootDirectory: true,
+        packageManager: true,
+        source: { select: { repository: true, branch: true, gitAccountId: true } },
+      },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
 
@@ -343,6 +350,25 @@ router.get('/:id/detect', authenticateToken, async (req: AuthenticatedRequest, r
           const sources = afs.sourcesDir;
           return detectProject(inRootDirectory(sources, application.rootDirectory), afs.readText, undefined, sources, application.packageManager);
         })();
+
+    // A stack's env files are its configuration, not a leaked secret file: the
+    // deploy keeps what they ship and overrides the keys set here. Their keys
+    // and defaults are offered like an .env.example's — read from the checkout
+    // pulled on the node (the clone above never downloads a .env).
+    if (application.type === 'COMPOSE' && !detected.env.example) {
+      const names = compose.composeEnvFilesOf(application);
+      const afs = await sourceFsFor(application.id).catch(() => null);
+      const dir = afs && inRootDirectory(afs.sourcesDir, application.rootDirectory);
+      const vars = new Map<string, string>();
+      for (const name of names) {
+        const text = dir ? await afs.readText(path.posix.join(dir, name)).catch(() => '') : '';
+        // the later file wins, as in the stack
+        for (const [key, value] of parseEnvFile(text)) vars.set(key, value);
+      }
+      if (vars.size) {
+        detected.env.example = { file: names.join(', '), vars: [...vars].map(([key, value]) => ({ key, value })) };
+      }
+    }
 
     return res.json({ success: true, data: detected } as ApiResponse);
   } catch (error: any) {
@@ -1840,6 +1866,31 @@ router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest,
   } catch (error: any) {
     console.error('Error cleaning up app:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not clean up' } as ApiResponse);
+  }
+});
+
+/**
+ * The services a compose stack defines, read on its node by `compose config`
+ * from the code there (the live release, or the checkout pulled at create) —
+ * so the service and port Caddy proxies to are picked from a list, not guessed.
+ */
+router.get('/:id/compose/services', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await appScope(req)) },
+      include: { organization: { select: { slug: true } } },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    if (!compose.needsCompose(application.type)) {
+      return res.status(400).json({ success: false, error: 'This is not a compose app' } as ApiResponse);
+    }
+    return res.json({ success: true, data: await compose.previewStack(application) } as ApiResponse);
+  } catch (error: any) {
+    // compose's own complaint (a missing file, bad YAML) is the useful part
+    return res.status(502).json({
+      success: false,
+      error: String(error?.stderr || error?.message || error).trim().slice(0, 500),
+    } as ApiResponse);
   }
 });
 

@@ -311,7 +311,16 @@ OTHER_HTTP=""
 for other in nginx apache2 httpd lighttpd haproxy traefik; do
   systemctl is-active --quiet "$other" 2>/dev/null && OTHER_HTTP="${OTHER_HTTP:+$OTHER_HTTP, }$other"
 done
-http_port_taken() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ':(80|443)$'; }
+# Caddy's own listeners do not count: a re-run on a working node would read its
+# own caddy-api as "another server" and switch it off.
+http_port_taken() { ss -ltnpH 2>/dev/null | awk '$4 ~ /:(80|443)$/' | grep -vq '"caddy"'; }
+
+# caddy.service is never used here: stopped, and masked so a package upgrade
+# cannot enable it again and have it fight caddy-api for :80 and the admin port.
+retire_caddy() {
+  systemctl disable --now caddy >/dev/null 2>&1 || true
+  systemctl mask caddy >/dev/null 2>&1 || true
+}
 
 # Setup never resets a running app: whatever Caddy is serving keeps serving.
 #
@@ -328,7 +337,7 @@ if [ -n "$OTHER_HTTP" ] || http_port_taken; then
   # parallel — Caddy could win :80 and nginx would be the one that fails to
   # start. That break would arrive weeks later, at a reboot nobody connected to
   # this. Disabled now, it cannot happen.
-  systemctl disable --now caddy >/dev/null 2>&1 || true
+  retire_caddy
   systemctl disable --now caddy-api >/dev/null 2>&1 || true
   note "WARNING: ${OTHER_HTTP:-something else} is serving on :80/:443 - Caddy is installed but stopped and disabled, and nothing of that server's configuration was changed."
   note "This node is set up in every other way. Routing and TLS for new apps stay off until Caddy can have those ports."
@@ -343,10 +352,12 @@ elif systemctl is-active --quiet caddy-api; then
   # caddy-api is already the one serving. A caddy.service beside it has no
   # sites of its own (checked above) and only shares the admin port with it.
   if systemctl is-active --quiet caddy || systemctl is-enabled --quiet caddy 2>/dev/null; then
-    systemctl disable --now caddy >/dev/null 2>&1 || true
     note "stopped the duplicate caddy.service - caddy-api.service keeps serving"
   fi
-  note "caddy-api.service running"
+  retire_caddy
+  # running is not enough: a disabled unit is gone after the next reboot
+  systemctl enable caddy-api >/dev/null 2>&1 || true
+  note "caddy-api.service running and enabled"
 elif systemctl is-active --quiet caddy; then
   # caddy.service serving routes pushed through the API (how nodes were set up
   # before): hand its live config to caddy-api, which keeps it across restarts.
@@ -357,6 +368,8 @@ elif systemctl is-active --quiet caddy; then
   for i in $(seq 1 20); do admin_up && break; sleep 0.5; done
   if admin_up && { [ ! -s "$LIVE" ] || [ "$(cat "$LIVE")" = "null" ] ||
        curl -fsS -m 15 -X POST -H 'Content-Type: application/json' --data-binary @"$LIVE" "$ADMIN/load" >/dev/null; }; then
+    # masked only once caddy-api has the config — the rollback below needs caddy.service
+    retire_caddy
     note "moved the running config from caddy.service to caddy-api.service"
   else
     # put things back the way they were rather than leave sites down
@@ -369,6 +382,7 @@ elif systemctl is-active --quiet caddy; then
   fi
   rm -f "$LIVE"
 else
+  retire_caddy
   systemctl enable --now caddy-api >/dev/null 2>&1 || die "could not start caddy-api.service"
   note "caddy-api.service running - routes arrive through the admin API and persist in Caddy's autosave"
 fi

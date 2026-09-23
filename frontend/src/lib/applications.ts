@@ -373,6 +373,15 @@ export const getAppDetection = async (id: string): Promise<DetectedProject> => {
   throw new Error(response.error || t("Could not inspect the project"));
 };
 
+export type StackService = { name: string; image: string | null; build: boolean; ports: string[]; dependsOn: string[] };
+
+/** A compose app's services, as `compose config` reads its saved files on the node. */
+export const getStackServices = async (id: string): Promise<StackService[]> => {
+  const response = await apiRequest<StackService[]>(`/applications/${id}/compose/services`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Could not read the compose files"));
+};
+
 /** Files the backend reads to recognise a project. Must match DETECT_FILES there. */
 export const DETECT_FILES = [
   '.env.example', '.env.sample', '.env.template', '.env.production', '.env', '.env.local',
