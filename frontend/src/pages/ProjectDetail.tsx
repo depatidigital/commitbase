@@ -4,7 +4,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Server, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Pencil, Play, Rocket, Plus, RefreshCw, Route, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
@@ -47,6 +47,7 @@ import { formatBytes } from "@/lib/utils";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
+import { APP_NAME } from "@/lib/branding";
 import { buildProject, deployProject, getProject } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
@@ -103,6 +104,8 @@ export default function ProjectDetail() {
       if (!next.delete(appId)) next.add(appId);
       return next;
     });
+  // where it runs, its folder, its ids: out of the way, a click from the header
+  const [showDetails, setShowDetails] = useState(false);
   // where the opened app's actions render: its header's right side
   const [panelSlot, setPanelSlot] = useState<HTMLDivElement | null>(null);
   // a panel-managed project deploys as one, from its source panel
@@ -218,18 +221,8 @@ export default function ProjectDetail() {
             <span>{appView.name}</span>
           </span>
         ) : (
-        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-          <span className="flex min-w-0 items-center gap-1.5">{origin}</span>
-          {project.organization && <Badge variant="outline">{project.organization.name}</Badge>}
-          {project.server &&
-            (superAdmin ? (
-              <Link to={`/servers/${project.server.id}`} className="text-xs hover:underline">
-                {project.server.name}
-              </Link>
-            ) : (
-              <span className="text-xs">{project.server.name}</span>
-            ))}
-        </span>
+        // what it is built from; where it runs is in the advanced details (ⓘ)
+        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">{origin}</span>
         )
       }
       actions={
@@ -237,13 +230,20 @@ export default function ProjectDetail() {
         // The project: how it stands and building it all are in its status card, deleting it in its Settings tab
         appView ? (
           <div ref={setPanelSlot} className="flex flex-wrap items-center gap-2" />
-        ) : !imported && (
-          <Button variant="outline" asChild>
-            <Link to={`/apps/${project.id}/services/new`}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t("Add service")}
-            </Link>
-          </Button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            {!imported && (
+              <Button variant="outline" asChild>
+                <Link to={`/apps/${project.id}/services/new`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t("Add service")}
+                </Link>
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={() => setShowDetails(true)} aria-label={t("Advanced details")} title={t("Advanced details")}>
+              <Info className="h-4 w-4" />
+            </Button>
+          </div>
         )
       }
     >
@@ -478,38 +478,52 @@ export default function ProjectDetail() {
             deploying={project.status === "DEPLOYING"}
           />
         )}
-        <div className="rounded-lg border border-border/60 bg-card px-4 py-2">
-          {!project.repository && (
+      </aside>
+      )}
+      </div>
+
+      <Dialog open={showDetails} onOpenChange={setShowDetails}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("Advanced details")}</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm">
             <Field label={t("Source")}>
-              <span className="inline-flex items-center gap-1.5">{origin}</span>
+              <span className="inline-flex min-w-0 items-center gap-1.5">{origin}</span>
             </Field>
-          )}
-          <Field label={t("Server")}>
-            {project.server ? (
-              <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-                <Server className="h-4 w-4 text-muted-foreground" />
-                {superAdmin ? (
-                  <Link to={`/servers/${project.server.id}`} className="hover:text-primary">
+            {project.repository && (
+              <Field label={t("Repository")}>
+                <span className="break-all font-mono text-xs">{project.repository}</span>
+              </Field>
+            )}
+            <Field label={t("Built by")}>{imported ? t("Its server (imported)") : APP_NAME}</Field>
+            <Field label={t("Workspace")}>{project.organization?.name ?? t("Unassigned")}</Field>
+            <Field label={t("Server")}>
+              {project.server ? (
+                superAdmin ? (
+                  <Link to={`/servers/${project.server.id}`} className="hover:text-primary hover:underline">
                     {project.server.name}
                   </Link>
                 ) : (
                   project.server.name
-                )}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </Field>
-          {/* imported: the checkout on its server — where a pull, a branch switch and a build run */}
-          {project.path && (
-            <Field label={t("Checkout")}>
-              <span className="break-all font-mono text-xs">{project.path}</span>
+                )
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </Field>
-          )}
-        </div>
-      </aside>
-      )}
-      </div>
+            {/* imported: the checkout on its server — where a pull, a branch switch and a build run */}
+            {project.path && (
+              <Field label={t("Checkout")}>
+                <span className="break-all font-mono text-xs">{project.path}</span>
+              </Field>
+            )}
+            <Field label={t("Created")}>{new Date(project.createdAt).toLocaleString(locale)}</Field>
+            <Field label="ID">
+              <span className="break-all font-mono text-xs">{project.id}</span>
+            </Field>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={confirmBuild}

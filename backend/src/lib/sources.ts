@@ -155,11 +155,11 @@ export function withSourceFields<T extends WithSource>(app: T) {
 export const isBranchName = (name: string) =>
   /^[A-Za-z0-9._/-]+$/.test(name) && !name.startsWith('-') && !name.includes('..') && !name.endsWith('/') && !name.endsWith('.lock');
 
-/** The list's status chips: what needs a look, what runs, what is off. */
+/** Where a source stands in its list: needs a look, runs, or is off. */
 export type SourceBucket = 'problem' | 'running' | 'stopped';
 
 /**
- * Which chip a source counts under, from its rollup status (rollupStatus), its
+ * Where a source stands, from its rollup status (rollupStatus), its
  * last deploy and how many of its apps the uptime checks call down. Pure.
  * A stopped app is stopped on purpose, so PARTIAL runs; a failed last deploy
  * stays a problem until one succeeds.

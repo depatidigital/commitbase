@@ -21,7 +21,7 @@ import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
 import { isPublicHost, repoName, restartApplication } from "@/lib/applications";
 import { getServers } from "@/lib/servers";
-import { assignProjects, deployProject, getProjects, projectPath, type Project, type ProjectBucket } from "@/lib/projects";
+import { assignProjects, deployProject, getProjects, projectPath, type Project } from "@/lib/projects";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
@@ -35,48 +35,43 @@ const ago = (value: string) => {
   return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
-const CHIPS: Array<{ key: "all" | ProjectBucket; label: string }> = [
-  { key: "all", label: t("All") },
-  { key: "problem", label: t("Need attention") },
-  { key: "running", label: t("Running") },
-  { key: "stopped", label: t("Stopped") },
-];
 
-/** One word for the row, the reason when it needs a look. */
-function StatusBadge({ project }: { project: Project }) {
+/**
+ * Beside the name, and only when something is off — health as such is the
+ * dashboard's: in flight, or the reason it needs a look.
+ */
+function ProblemBadge({ project }: { project: Project }) {
   if (project.status === "DEPLOYING")
     return (
-      <Badge variant="outline" className="gap-1 border-warning/50 text-warning">
+      <Badge variant="outline" className="shrink-0 gap-1 border-warning/50 px-1.5 py-0 text-[11px] text-warning">
         <Loader2 className="h-3 w-3 animate-spin" />
         {t("Deploying")}
       </Badge>
     );
-  if (project.bucket === "problem") {
-    const text =
-      project.down ? (project.down > 1 ? t("{count} down", { count: project.down }) : t("Down"))
-      : project.lastDeployment?.status === "FAILED" ? t("Deploy failed")
-      : t("Error");
-    return <Badge variant="destructive">{text}</Badge>;
-  }
-  if (project.bucket === "stopped")
-    return <Badge variant="secondary">{project.status === "DISABLED" ? t("Disabled") : t("Stopped")}</Badge>;
-  return <Badge variant="outline" className="border-success/50 text-success">{t("Running")}</Badge>;
+  if (project.bucket !== "problem") return null;
+  const text =
+    project.down ? (project.down > 1 ? t("{count} down", { count: project.down }) : t("Down"))
+    : project.lastDeployment?.status === "FAILED" ? t("Deploy failed")
+    : t("Error");
+  return (
+    <Badge variant="destructive" className="shrink-0 px-1.5 py-0 text-[11px]">
+      {text}
+    </Badge>
+  );
 }
 
 /**
  * The apps ("Aplikasi"; API: sources), one row each: what it is, where it
- * answers, whether it is fine, what changed last. Everything else is on its
- * page. Newest first; the status chips gather the ones that need a look.
+ * answers, what changed last — to find one and act on it. Newest first. Whether
+ * everything is up is the dashboard's question; a row only flags trouble.
  */
 export default function Projects() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const superAdmin = isSuperAdmin();
-  // newest first; the "Perlu perhatian" chip is where problems are gathered
   const query = useTableQuery(25, { sort: "createdAt", order: "desc" });
   const syncApps = useSyncServerApps();
-  const [status, setStatus] = useState<"all" | ProjectBucket>("all");
   const [serverFilter, setServerFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
@@ -88,8 +83,8 @@ export default function Projects() {
   const [restartTarget, setRestartTarget] = useState<Project | null>(null);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["projects", query.params, serverFilter, status],
-    queryFn: () => getProjects({ ...query.params, serverId: serverFilter, ...(status !== "all" && { status }) }),
+    queryKey: ["projects", query.params, serverFilter],
+    queryFn: () => getProjects({ ...query.params, serverId: serverFilter }),
     // statuses move during deploys and syncs
     refetchInterval: 15_000,
   });
@@ -201,6 +196,7 @@ export default function Projects() {
             <div className="min-w-0">
               <span className="flex min-w-0 items-center gap-1">
                 <span className="truncate font-medium">{project.name}</span>
+                <ProblemBadge project={project} />
                 {/* rename in place: shown on row hover (always on touch), and it must not open the row */}
                 <button
                   type="button"
@@ -244,11 +240,6 @@ export default function Projects() {
           </div>
         );
       },
-    },
-    {
-      header: t("Status"),
-      className: "w-32",
-      cell: (project) => <StatusBadge project={project} />,
     },
     {
       header: t("Created"),
@@ -362,7 +353,6 @@ export default function Projects() {
     },
   ];
 
-  const counts = data?.counts;
   const migrating = deployTarget?.applications.filter((app) => app.preDeployCommand) ?? [];
 
   return (
@@ -394,7 +384,7 @@ export default function Projects() {
         pagination={data?.pagination}
         isLoading={isLoading}
         searchPlaceholder={t("Search app, repository or domain…")}
-        empty={status === "all" ? t("No apps yet — add your first one.") : t("Nothing here.")}
+        empty={t("No apps yet — add your first one.")}
         onRowClick={(project) => navigate(projectPath(project))}
         toolbar={
           superAdmin && selectedIds.length > 0 ? (
@@ -411,28 +401,6 @@ export default function Projects() {
             </div>
           ) : (
             <>
-              {/* the status chips, with how many each holds (for the whole search, not the page) */}
-              <div className="flex flex-wrap gap-1 rounded-md border bg-card p-1">
-                {CHIPS.map((chip) => (
-                  <button
-                    key={chip.key}
-                    type="button"
-                    aria-pressed={status === chip.key}
-                    onClick={() => {
-                      setStatus(chip.key);
-                      query.setPage(1);
-                    }}
-                    className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-sm transition-colors ${
-                      status === chip.key ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {chip.label}
-                    {counts && (
-                      <span className={`text-xs ${chip.key === "problem" && counts.problem > 0 ? "font-semibold text-destructive" : ""}`}>{counts[chip.key]}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
               <OrganizationFilter query={query} unassigned />
               {superAdmin && (
                 <Select

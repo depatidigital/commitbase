@@ -8,7 +8,7 @@ import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
-import { isBranchName, setSourceOrganization, sourceBucket, sourceName, type SourceBucket } from '../lib/sources';
+import { isBranchName, setSourceOrganization, sourceBucket, sourceName } from '../lib/sources';
 import { healthFor, isServing } from '../services/heartbeatService';
 import { launchDeploy } from '../services/deployLaunch';
 import { buildProject, notOwner } from '../services/pm2DeployService';
@@ -172,15 +172,10 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       if (state === 'down' || state === 'pending') downBySource.set(app.sourceId!, (downBySource.get(app.sourceId!) ?? 0) + 1);
     }
 
-    const all = sources.map((source) => {
+    const rows = sources.map((source) => {
       const row = { ...present(source), lastDeployment: lastBySource.get(source.id) ?? null, down: downBySource.get(source.id) ?? 0 };
       return { ...row, bucket: sourceBucket(row.status, row.lastDeployment?.status, row.down) };
     });
-    // the chips' numbers count everything the search found; ?status= then narrows to one chip
-    const counts = { all: all.length, problem: 0, running: 0, stopped: 0 };
-    for (const row of all) counts[row.bucket]++;
-    const bucket = String(req.query.status ?? '') as SourceBucket;
-    const rows = bucket in counts && bucket !== ('all' as string) ? all.filter((row) => row.bucket === bucket) : all;
     const direction = req.query.order === 'desc' ? -1 : 1;
     const SEVERITY: Record<string, number> = { DEPLOYING: 0, ERROR: 1, PARTIAL: 2, STOPPED: 3, RUNNING: 4, EMPTY: 5, DISABLED: 6 };
     const byName = (a: (typeof rows)[number], b: (typeof rows)[number]) => a.name.localeCompare(b.name);
@@ -211,7 +206,6 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       data: {
         data: rows.slice(skip, skip + limit),
         pagination: { page, limit, total: rows.length, totalPages: Math.ceil(rows.length / limit) },
-        counts,
       },
     } as ApiResponse);
   } catch (error) {
