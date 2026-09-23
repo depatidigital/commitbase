@@ -102,10 +102,11 @@ export function RenameProjectDialog({ project, ...controlled }: { project: Pick<
 }
 
 /** A pencil that renames an app — the name only; its folder and process stay as they are. */
-export function RenameAppDialog({ app }: { app: { id: string; name: string } }) {
+export function RenameAppDialog({ app, ...controlled }: { app: { id: string; name: string } } & Controlled) {
   const queryClient = useQueryClient();
   return (
     <RenameDialog
+      {...controlled}
       value={app.name}
       title={t("Rename service")}
       done={t("Service renamed")}

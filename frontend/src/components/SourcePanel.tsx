@@ -83,6 +83,24 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
   const shippable = !!head && (changed || needsPull || needsDeploy);
   // what runs is behind its branch — said by the card's outline too, not only a line of grey text
   const behind = !!live && (needsPull || needsDeploy);
+  // beside the header's button: what is waiting, in a few words (the full line is in the panel)
+  const waiting = changed
+    ? t("Switching to {branch}", { branch })
+    : readOnly
+      ? !!head && !!live && head !== live && t("The server is behind {branch}", { branch: current })
+      : needsPull
+        ? t("New commits on {branch}", { branch })
+        : needsDeploy && t("Pulled, not deployed yet");
+  const headerNote =
+    actionSlot && waiting
+      ? createPortal(
+          <span className="flex items-center gap-1.5 text-xs font-medium text-warning">
+            <GitCommit className="h-3.5 w-3.5 shrink-0" />
+            {waiting}
+          </span>,
+          actionSlot,
+        )
+      : null;
   // Nothing has gone live yet: the first deploy is each app's, from its setup
   // checklist (its host, env and build checked there) — not a project-wide one from here
   const neverLive = !live && !project?.activeRelease;
@@ -160,6 +178,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
 
   return (
     <Card className={`bg-gradient-card ${behind ? "border-warning ring-1 ring-warning/40" : "border-border/50"}`}>
+      {headerNote}
       <CardContent className="space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">{t("Source")}</h3>

@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronRight, FolderOpen, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, FolderOpen, Globe, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ServerEnv } from "@/components/ServerEnv";
 import { AppEnvironment } from "@/components/AppEnvironment";
@@ -34,7 +34,7 @@ import DeploymentHistory, { BuildLogTail, DeployLogDialog, deploymentStatusLabel
 import { DangerZoneCard } from "@/components/DangerZoneCard";
 import { StackExecCard } from "@/components/StackExecCard";
 import { SiteFilesCard } from "@/components/SiteFilesCard";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { AppStorageCard } from "@/components/AppStorageCard";
@@ -43,7 +43,7 @@ import { ProjectMembersCard } from "@/components/ProjectMembersCard";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
-import { AppWorkspace, ApplicationSettingsForm, Field } from "./ApplicationDetail";
+import { ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
 import { type Application, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -250,12 +250,15 @@ export default function ProjectDetail() {
             <p className="py-8 text-center text-muted-foreground">{t("No services")}</p>
           ) : (
             <div className="overflow-hidden rounded-lg border bg-card">
-              <Table>
+              {/* fixed widths: the host gets the room, the short columns only what they need */}
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="text-xs uppercase tracking-wide">{t("Service")}</TableHead>
+                    <TableHead className="w-[20%] text-xs uppercase tracking-wide">{t("Service")}</TableHead>
                     <TableHead className="text-xs uppercase tracking-wide">{t("Host")}</TableHead>
-                    <TableHead className="text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
+                    <TableHead className="w-44 text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
+                    <TableHead className="w-32 text-xs uppercase tracking-wide">{t("Type")}</TableHead>
+                    <TableHead className="w-36 text-xs uppercase tracking-wide">{t("Folder")}</TableHead>
                     <TableHead className="w-32">
                       <span className="sr-only">{t("Actions")}</span>
                     </TableHead>
@@ -721,6 +724,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
   const queryClient = useQueryClient();
   // the menu's dialogs
   const [dialog, setDialog] = useState<"files" | "console" | "delete" | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
   const start = useStartExistingApplication();
   const stop = useStopApplication();
   const restart = useRestartApplication();
@@ -743,7 +747,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
   const bindings = [...app.domains].sort((a, b) => a.host.localeCompare(b.host) || (a.path ?? "").localeCompare(b.path ?? ""));
   return (
     <TableRow className={`group ${app.disabled ? "opacity-50" : ""}`}>
-      <TableCell className="py-3">
+      <TableCell>
         <span className="flex min-w-0 items-center gap-2">
           <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status.tone]}`} title={status.text} />
           <span className="truncate font-medium">{app.name}</span>
@@ -756,22 +760,6 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
               <Loader2 className="h-3 w-3 animate-spin" />
               {t("Deploying")}
             </span>
-          )}
-        </span>
-        <span className="mt-1 flex flex-wrap items-center gap-2">
-          <AppTypeBadge type={app.type} />
-          {/* its folder in the repository (monorepos); none = the root */}
-          {app.rootDirectory && (
-            <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
-              <FolderOpen className="h-3 w-3" />
-              {app.rootDirectory}
-            </span>
-          )}
-          {/* only what is not the panel's own: an imported service's pm2 process or Caddy files */}
-          {app.runtime && (
-            <Badge variant="outline" className="truncate border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning" title={app.rootPath ?? undefined}>
-              {runtime}
-            </Badge>
           )}
         </span>
       </TableCell>
@@ -793,7 +781,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
                   </span>
                 ))}
               </span>
-              <Button variant="ghost" size="icon" className="-my-1 h-6 w-6 shrink-0 text-muted-foreground" title={t("Edit hosts")} aria-label={t("Edit hosts")} disabled={!application} onClick={() => setHostsOpen(true)}>
+              <Button variant="ghost" size="icon" className="-my-1 h-6 w-6 shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100" title={t("Edit hosts")} aria-label={t("Edit hosts")} disabled={!application} onClick={() => setHostsOpen(true)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
             </>
@@ -803,15 +791,31 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
       </TableCell>
       <TableCell className="text-xs">
         {last ? (
-          <span title={new Date(last.createdAt).toLocaleString(locale)}>
+          <span className="whitespace-nowrap" title={new Date(last.createdAt).toLocaleString(locale)}>
             <span className={last.status === "FAILED" ? "text-destructive" : ""}>{deploymentStatusLabel(last.status)}</span>
-            <span className="block text-muted-foreground">
-              {new Date(last.createdAt).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}
-            </span>
+            <span className="text-muted-foreground"> · {timeAgo(last.createdAt)}</span>
           </span>
         ) : (
           <span className="text-muted-foreground">{t("Never deployed")}</span>
         )}
+      </TableCell>
+      {/* what it is, and — only when it is not the panel's own — what serves it on the box (pm2, Caddy's files) */}
+      <TableCell>
+        <span className="flex flex-wrap items-center gap-1.5">
+          <AppTypeBadge type={app.type} />
+          {app.runtime && (
+            <Badge variant="outline" className="border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning" title={app.rootPath ?? undefined}>
+              {runtime}
+            </Badge>
+          )}
+        </span>
+      </TableCell>
+      {/* its folder in the repository (monorepos); none = the root */}
+      <TableCell className="font-mono text-xs text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1" title={app.rootDirectory || undefined}>
+          <FolderOpen className="h-3 w-3 shrink-0" />
+          <span className="truncate">{app.rootDirectory || "/"}</span>
+        </span>
       </TableCell>
       <TableCell>
         <span className="flex items-center justify-end gap-1">
@@ -839,6 +843,15 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                {t("Rename service")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setHostsOpen(true)}>
+                <Globe className="mr-2 h-4 w-4" />
+                {t("Edit hosts")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {/* a site uploaded as files: its files are what there is */}
               {application?.type === "STATIC" && !application.repository && (
                 <DropdownMenuItem onClick={() => setDialog("files")}>
@@ -852,6 +865,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
                   {t("Console")}
                 </DropdownMenuItem>
               )}
+              <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDialog("delete")}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 {t("Delete service")}
@@ -859,6 +873,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
             </DropdownMenuContent>
           </DropdownMenu>
         </span>
+        <RenameAppDialog app={app} open={renameOpen} onOpenChange={setRenameOpen} />
         {application && (
           <Dialog open={!!dialog} onOpenChange={(open) => !open && setDialog(null)}>
             <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
