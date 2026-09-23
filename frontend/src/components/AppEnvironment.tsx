@@ -178,7 +178,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
   // the database variables this app reads; "Connect database" fills them all
   const databaseKeys = rows.map((row) => row.key).filter((key) => DATABASE_KEYS.has(key));
   // where the Connect button goes: DATABASE_URL, else the first of the others (Laravel's DB_HOST)
-  const databaseAnchor = databaseKeys.includes("DATABASE_URL") ? "DATABASE_URL" : databaseKeys[0];
+  const databaseAnchor = databaseKeys.includes("DATABASE_URL") ? "DATABASE_URL" : databaseKeys.find((key) => /HOST$/.test(key)) ?? databaseKeys[0];
 
   const hints = useMemo(() => {
     const from: Record<string, string> = {};
