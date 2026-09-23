@@ -1,26 +1,27 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ExternalLink, GitBranch, MoreVertical, Pencil, HardDrive, Upload, List, Loader2, Plus, RefreshCw, Server as ServerIcon } from "lucide-react";
+import { AlertCircle, ArrowRightLeft, ExternalLink, GitBranch, HardDrive, Layers, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Rocket, RotateCw, Server as ServerIcon, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
+import { MigrationChoices } from "@/components/DeployConfirmDialog";
+import { TYPES } from "@/components/AppTypeBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
-import { isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
-import { appStatus, getApplicationHealth, type Health, type Tone } from "@/lib/health";
+import { isPublicHost, repoName, restartApplication } from "@/lib/applications";
 import { getServers } from "@/lib/servers";
-import { assignProjects, getProjects, projectPath, type Project, type ProjectApp } from "@/lib/projects";
+import { assignProjects, deployProject, getProjects, projectPath, type Project, type ProjectBucket } from "@/lib/projects";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
@@ -34,79 +35,103 @@ export const ago = (value: string) => {
   return t("{n}d ago", { n: Math.floor(seconds / 86400) });
 };
 
-const TONE_DOT: Record<Tone, string> = {
-  up: "bg-success",
-  down: "bg-destructive ring-4 ring-destructive/15",
-  warn: "bg-warning",
-  deploying: "",
-  muted: "bg-muted-foreground/40",
-};
+const CHIPS: Array<{ key: "all" | ProjectBucket; label: string }> = [
+  { key: "all", label: t("All") },
+  { key: "problem", label: t("Need attention") },
+  { key: "running", label: t("Running") },
+  { key: "stopped", label: t("Stopped") },
+];
 
-function Dot({ tone, text }: { tone: Tone; text: string }) {
-  return (
-    <span className="flex items-center justify-center" title={text}>
-      {tone === "deploying" ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" />
-      ) : (
-        <span className={`h-2.5 w-2.5 rounded-full ${TONE_DOT[tone]}`} />
-      )}
-      <span className="sr-only">{text}</span>
-    </span>
-  );
+/** One word for the row, the reason when it needs a look. */
+function StatusBadge({ project }: { project: Project }) {
+  if (project.status === "DEPLOYING")
+    return (
+      <Badge variant="outline" className="gap-1 border-warning/50 text-warning">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        {t("Deploying")}
+      </Badge>
+    );
+  if (project.bucket === "problem") {
+    const text =
+      project.down ? (project.down > 1 ? t("{count} down", { count: project.down }) : t("Down"))
+      : project.lastDeployment?.status === "FAILED" ? t("Deploy failed")
+      : t("Error");
+    return <Badge variant="destructive">{text}</Badge>;
+  }
+  if (project.bucket === "stopped")
+    return <Badge variant="secondary">{project.status === "DISABLED" ? t("Disabled") : t("Stopped")}</Badge>;
+  return <Badge variant="outline" className="border-success/50 text-success">{t("Running")}</Badge>;
 }
 
 /**
- * The app list, one row per project ("Proyek"): a repository checkout or an
- * upload, with the apps ("Aplikasi") served from it listed inside the row,
- * each with its own uptime. The row opens the project — its apps are opened
- * from there; here they are only listed, with a link to the live site.
+ * The apps ("Aplikasi"; API: sources), one row each: what it is, where it
+ * answers, whether it is fine, what changed last. Everything else is on its
+ * page. Newest first; the status chips gather the ones that need a look.
  */
 export default function Projects() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const superAdmin = isSuperAdmin();
-  const query = useTableQuery(100, { sort: "createdAt", order: "desc" });
+  // newest first; the "Perlu perhatian" chip is where problems are gathered
+  const query = useTableQuery(25, { sort: "createdAt", order: "desc" });
   const syncApps = useSyncServerApps();
+  const [status, setStatus] = useState<"all" | ProjectBucket>("all");
   const [serverFilter, setServerFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
-  const [assignTarget, setAssignTarget] = useState<{ id: string; name: string } | null>(null);
-  const [assignOrgId, setAssignOrgId] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState<Project | null>(null);
+  const [moveOrgId, setMoveOrgId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
+  const [deployTarget, setDeployTarget] = useState<Project | null>(null);
+  const [skipMigrations, setSkipMigrations] = useState<Set<string>>(new Set());
+  const [restartTarget, setRestartTarget] = useState<Project | null>(null);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["projects", query.params, serverFilter],
-    queryFn: () => getProjects({ ...query.params, serverId: serverFilter }),
+    queryKey: ["projects", query.params, serverFilter, status],
+    queryFn: () => getProjects({ ...query.params, serverId: serverFilter, ...(status !== "all" && { status }) }),
     // statuses move during deploys and syncs
     refetchInterval: 15_000,
   });
   const projects = data?.data ?? [];
-
-  // one request for the uptime of every app on the page, on the checks' rhythm
-  const appIds = projects.flatMap((project) => project.applications.map((app) => app.id));
-  const { data: healthById = {} } = useQuery({
-    queryKey: ["applications", "health", appIds],
-    queryFn: () => getApplicationHealth(appIds),
-    enabled: appIds.length > 0,
-    refetchInterval: 60_000,
-  });
-  const statusOf = (app: ProjectApp) => appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["projects"] });
 
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superAdmin });
 
   const assign = useMutation({
     mutationFn: ({ ids, organizationId }: { ids: string[]; organizationId: string | null }) => assignProjects(ids, organizationId),
     onSuccess: (count) => {
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      refresh();
       void queryClient.invalidateQueries({ queryKey: ["applications"] });
       setSelectedIds([]);
       setBulkOrgId("");
-      setAssignTarget(null);
+      setMoveTarget(null);
       toast({ title: t("Assigned"), description: t("{count} service(s) updated", { count }) });
     },
     onError: (err: Error) => toast({ title: t("Assign failed"), description: err.message, variant: "destructive" }),
   });
+
+  const deploy = useMutation({
+    mutationFn: ({ id, skip }: { id: string; skip: string[] }) => deployProject(id, skip),
+    onSuccess: () => {
+      refresh();
+      toast({ title: t("Deploying") });
+    },
+    onError: (err: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: err.message }),
+  });
+
+  // every running service of the app, one after the other; stopped ones stay stopped
+  const restart = useMutation({
+    mutationFn: async (project: Project) => {
+      for (const app of restartable(project)) await restartApplication(app.id);
+    },
+    onSuccess: (_, project) => {
+      refresh();
+      toast({ title: t("Restarted"), description: project.name });
+    },
+    onError: (err: Error) => toast({ variant: "destructive", title: t("Failed to restart service"), description: err.message }),
+  });
+  const restartable = (project: Project) => project.applications.filter((app) => !app.disabled && app.status === "RUNNING");
 
   if (error) {
     return (
@@ -122,34 +147,16 @@ export default function Projects() {
   const allSelected = projects.length > 0 && projects.every((project) => selectedIds.includes(project.id));
   const toggleOne = (id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  // One line per binding (host, or host + path) the project answers on, in the
-  // Host column and again, lined up (same height), in the Uptime column.
-  const LINE = "flex h-6 min-w-0 items-center gap-1.5";
-  const hostsOfProject = (project: Project) => {
-    const byBinding = new Map<string, { host: string; path: string; apps: ProjectApp[] }>();
-    for (const app of project.applications)
-      for (const { host, path = "" } of app.domains) {
-        if (!isPublicHost(host)) continue;
-        const key = `${host}${path}`;
-        const entry = byBinding.get(key) ?? { host, path, apps: [] };
-        if (!entry.apps.includes(app)) entry.apps.push(app);
-        byBinding.set(key, entry);
-      }
-    // a host, then its paths
-    return [...byBinding.values()].sort((x, y) => x.host.localeCompare(y.host) || x.path.localeCompare(y.path));
-  };
-  const worstOf = (apps: ProjectApp[]) => apps.map((app) => ({ app, ...statusOf(app) })).sort((x, y) => x.rank - y.rank)[0]!;
+  // the hostnames it answers on, paths left out (those are routing, on its page)
+  const hostsOf = (project: Project) =>
+    [...new Set(project.applications.flatMap((app) => app.domains.filter((d) => !d.path && isPublicHost(d.host)).map((d) => d.host)))].sort();
 
-  // where the code comes from, said under the project's name
   const originOf = (project: Project) =>
     project.repository
-      ? `${repoName(project.repository)} · ${project.branch || "main"}`
+      ? { icon: GitBranch, text: `${repoName(project.repository)} · ${project.branch || "main"}` }
       : project.kind !== "IMPORTED"
-        ? t("Uploaded files")
-        : project.path
-          ? // the folder itself says it better, to whoever may see it
-            superAdmin ? project.path : t("Server folder (not git)")
-          : t("On the server (folder not detected)");
+        ? { icon: Upload, text: t("Uploaded files") }
+        : { icon: HardDrive, text: project.path && superAdmin ? project.path : t("Server folder (not git)") };
 
   const columns: Column<Project>[] = [
     ...(superAdmin
@@ -162,13 +169,11 @@ export default function Projects() {
                 aria-label={t("Select all apps on this page")}
               />
             ),
-            className: "w-10 align-top",
+            className: "w-10",
             cell: (project: Project) => (
-              <Checkbox
-                checked={selectedIds.includes(project.id)}
-                onCheckedChange={() => toggleOne(project.id)}
-                aria-label={t("Select {name}", { name: project.name })}
-              />
+              <div onClick={(e) => e.stopPropagation()}>
+                <Checkbox checked={selectedIds.includes(project.id)} onCheckedChange={() => toggleOne(project.id)} aria-label={t("Select {name}", { name: project.name })} />
+              </div>
             ),
           },
         ]
@@ -176,102 +181,80 @@ export default function Projects() {
     {
       header: t("App"),
       sortKey: "name",
-      className: "w-[24%] align-top",
+      className: "w-[32%]",
       cell: (project) => {
-        const down = hostsOfProject(project).filter(({ apps }) => worstOf(apps).tone === "down").length;
+        // what it is at a glance: one mark per kind of service in it
+        const types = [...new Set(project.applications.map((app) => app.type))];
+        const origin = originOf(project);
         return (
-          <div className="min-w-0">
-            <span className="flex h-6 min-w-0 items-center gap-1.5">
-              <span className="truncate font-medium">{project.name}</span>
-              {/* not git: where it lives says little in a list — a mark, the words on hover */}
-              {!project.repository && (project.kind !== "IMPORTED" || project.path) && (
-                <span className="shrink-0 text-muted-foreground" title={originOf(project)}>
-                  {project.kind === "IMPORTED" ? <HardDrive className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
-                  <span className="sr-only">{originOf(project)}</span>
-                </span>
-              )}
-              {down > 0 && <span className="shrink-0 text-xs font-medium text-destructive">{t("{count} down", { count: down })}</span>}
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex shrink-0 -space-x-1">
+              {types.slice(0, 2).map((type) => {
+                const meta = TYPES[type] ?? { label: type, icon: Layers, className: "text-muted-foreground" };
+                return (
+                  <span key={type} title={meta.label} className="flex h-8 w-8 items-center justify-center rounded-md border bg-card">
+                    <meta.icon className={`h-4 w-4 ${meta.className}`} />
+                  </span>
+                );
+              })}
             </span>
-            {/* the checkout a pull updates, branch and all */}
-            {project.repository && (
-              <span
-                className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground"
-                title={[project.repository, superAdmin && project.path].filter(Boolean).join("\n")}
-              >
-                <GitBranch className="h-3 w-3 shrink-0" />
-                <span className="truncate">{originOf(project)}</span>
+            <div className="min-w-0">
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate font-medium">{project.name}</span>
+                {/* rename in place: shown on row hover (always on touch), and it must not open the row */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenameTarget(project);
+                  }}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-primary focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                  aria-label={t("Rename app")}
+                  title={t("Rename app")}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
               </span>
-            )}
-            {/* the one case worth a line: the panel lost track of its folder */}
-            {project.kind === "IMPORTED" && !project.repository && !project.path && (
-              <span className="flex min-w-0 items-center gap-1 text-xs text-warning" title={originOf(project)}>
-                <HardDrive className="h-3 w-3 shrink-0" />
-                <span className="truncate">{t("folder not detected")}</span>
+              <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground" title={superAdmin ? project.path ?? undefined : undefined}>
+                <origin.icon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{origin.text}</span>
               </span>
-            )}
-            {project.lastDeployment && (
-              <span
-                className={`block truncate text-xs ${project.lastDeployment.status === "FAILED" ? "text-destructive" : "text-muted-foreground"}`}
-                title={`${new Date(project.lastDeployment.createdAt).toLocaleString(locale)}${project.lastDeployment.commitMessage ? ` · ${project.lastDeployment.commitMessage}` : ""}`}
-              >
-                {t("Deployed {ago}", { ago: ago(project.lastDeployment.createdAt) })}
-              </span>
-            )}
-            {/* a monorepo the panel builds: the folders its apps are built from */}
-            {project.kind === "MANAGED" && [...new Set(project.applications.map((app) => app.rootDirectory).filter(Boolean))].map((dir) => (
-              <span key={dir} className="block truncate font-mono text-xs text-muted-foreground">
-                {dir}
-              </span>
-            ))}
+            </div>
           </div>
         );
       },
     },
     {
-      header: t("Host"),
-      className: "w-[36%] align-top",
-      // listed, not links: the row is the project's; only the site opens from here
+      header: t("Domain"),
+      className: "w-[26%]",
       cell: (project) => {
-        const hosts = hostsOfProject(project);
-        if (!hosts.length) return <span className={`${LINE} text-muted-foreground`}>—</span>;
+        const [first, ...rest] = hostsOf(project);
+        if (!first) return <span className="text-muted-foreground">—</span>;
         return (
-          <div className="min-w-0">
-            {hosts.map(({ host, path, apps }) => (
-              <div key={host + path} className={`${LINE} ${apps.every((app) => app.disabled) ? "opacity-50" : ""}`}>
-                <span className="truncate text-sm">
-                  {host}
-                  {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
-                </span>
-                {/* a path (often a wildcard) is no page of its own; the host line links */}
-                {!path && (
-                  <a
-                    href={`https://${host}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 text-muted-foreground hover:text-primary"
-                    aria-label={t("Open {url}", { url: host })}
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-                {/* what serves it on the box, once per distinct runtime */}
-                {superAdmin &&
-                  [...new Map(apps.map((app) => [`${runtimeLabel(app.runtime)}${app.runtime === "PM2" && app.processName ? ` · ${app.processName}` : ""}`, app])).entries()].map(([label, app]) => (
-                    <Badge key={label} variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] font-medium ${app.runtime ? "border-warning/50 text-warning" : ""}`}>
-                      {label}
-                    </Badge>
-                  ))}
-              </div>
-            ))}
+          <div className="flex min-w-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <a href={`https://${first}`} target="_blank" rel="noreferrer" className="truncate hover:text-primary hover:underline">
+              {first}
+            </a>
+            <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+            {rest.length > 0 && (
+              <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
+                +{rest.length}
+              </span>
+            )}
           </div>
         );
       },
+    },
+    {
+      header: t("Status"),
+      className: "w-32",
+      cell: (project) => <StatusBadge project={project} />,
     },
     {
       header: t("Created"),
-      className: "w-24 whitespace-nowrap align-top text-xs text-muted-foreground",
       sortKey: "createdAt",
       sortFirst: "desc",
+      className: "w-28 whitespace-nowrap text-xs text-muted-foreground",
       cell: (project) => (
         <span title={new Date(project.createdAt).toLocaleString(locale)}>
           {new Date(project.createdAt).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}
@@ -279,73 +262,31 @@ export default function Projects() {
       ),
     },
     {
-      // measured after each deploy and a few times a day (cron app-disk)
-      header: t("Size"),
-      className: "w-24 whitespace-nowrap align-top text-right text-xs",
-      sortKey: "disk",
+      header: t("Last deploy"),
+      className: "w-[22%]",
       cell: (project) => {
-        const measured = project.applications.filter((app) => app.diskBytes != null);
-        if (measured.length === 0) return <span className="text-muted-foreground">—</span>;
-        const total = measured.reduce((sum, app) => sum + (app.diskBytes ?? 0), 0);
-        const detail = measured.map((app) => `${app.name}: ${formatBytes(app.diskBytes)}`).join("\n");
+        const last = project.lastDeployment;
+        if (!last) return <span className="text-muted-foreground">—</span>;
+        const failed = last.status === "FAILED";
         return (
-          <span className="text-muted-foreground" title={detail}>
-            {formatBytes(total)}
-          </span>
+          <div className="min-w-0 text-sm" title={new Date(last.createdAt).toLocaleString(locale)}>
+            <span className={`block truncate ${failed ? "text-destructive" : ""}`}>{last.commitMessage || (failed ? t("Deploy failed") : t("Deployed"))}</span>
+            <span className="block text-xs text-muted-foreground">{ago(last.createdAt)}</span>
+          </div>
         );
       },
-    },
-    {
-      header: t("Uptime 24h"),
-      className: "w-36 whitespace-nowrap align-top text-right text-xs",
-      // lined up with the host lines
-      cell: (project) => (
-        <div>
-          {hostsOfProject(project).map(({ host, path, apps }) => {
-            const { app, tone, text } = worstOf(apps);
-            const health = healthById[app.id] as Health | undefined;
-            return (
-              <div key={host + path} className="flex h-6 items-center justify-end gap-1.5">
-                <Dot tone={tone} text={[apps.length > 1 && app.name, text, health?.state !== "up" && health?.lastError].filter(Boolean).join(" · ")} />
-                {health?.uptime24h != null ? (
-                  <span className={tone === "down" ? "font-medium text-destructive" : "text-muted-foreground"}>{health.uptime24h}%</span>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ),
     },
     ...(superAdmin
       ? [
           {
-            // who owns it, and the box it runs on under that
             header: t("Workspace"),
-            className: "w-[13%] align-top",
+            className: "w-[13%]",
             sortKey: "organization",
             cell: (project: Project) => (
               <div className="min-w-0">
-                <button
-                  type="button"
-                  title={t("Change workspace")}
-                  className="max-w-full"
-                  onClick={() => {
-                    setAssignOrgId(project.organization?.id ?? null);
-                    setAssignTarget({ id: project.id, name: project.name });
-                  }}
-                >
-                  {project.organization ? (
-                    <Badge variant="outline" className="max-w-full truncate hover:border-primary">
-                      {project.organization.name}
-                    </Badge>
-                  ) : (
-                    <span className="text-xs text-primary underline-offset-2 hover:underline">{t("Unassigned — assign")}</span>
-                  )}
-                </button>
+                <span className={`block truncate text-sm ${project.organization ? "" : "text-muted-foreground"}`}>{project.organization?.name ?? t("Unassigned")}</span>
                 {project.server && (
-                  <Link to={`/servers/${project.server.id}`} className="block truncate text-xs text-muted-foreground hover:underline">
+                  <Link to={`/servers/${project.server.id}`} onClick={(e) => e.stopPropagation()} className="block truncate text-xs text-muted-foreground hover:underline">
                     {project.server.name}
                   </Link>
                 )}
@@ -355,59 +296,85 @@ export default function Projects() {
         ]
       : []),
     {
-      // an icon's column needs no title
       header: <span className="sr-only">{t("Actions")}</span>,
-      className: "w-10 align-top",
-      // the row opens the project: the menu must not
-      cell: (project) => (
-        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                // desktop: shown on row hover, while focused, or while open
-                className="h-6 w-8 p-0 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
-                aria-label={t("Actions for {name}", { name: project.name })}
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setRenameTarget(project)}>
-                <Pencil className="mr-2 h-4 w-4" />
-                {t("Rename app")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      ),
+      className: "w-10",
+      // the row opens the app: the menu must not
+      cell: (project) => {
+        const site = hostsOf(project)[0];
+        return (
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t("Actions for {name}", { name: project.name })}>
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {site && (
+                  <DropdownMenuItem asChild>
+                    <a href={`https://${site}`} target="_blank" rel="noreferrer">
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      {t("Open site")}
+                    </a>
+                  </DropdownMenuItem>
+                )}
+                {/* the panel builds it: one deploy for every service. An imported one is pulled on its page. */}
+                {project.kind === "MANAGED" && (
+                  <DropdownMenuItem
+                    disabled={project.status === "DEPLOYING"}
+                    onClick={() => {
+                      setSkipMigrations(new Set());
+                      setDeployTarget(project);
+                    }}
+                  >
+                    <Rocket className="mr-2 h-4 w-4" />
+                    {t("Redeploy")}
+                  </DropdownMenuItem>
+                )}
+                {restartable(project).length > 0 && (
+                  <DropdownMenuItem onClick={() => setRestartTarget(project)}>
+                    <RotateCw className="mr-2 h-4 w-4" />
+                    {t("Restart")}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setRenameTarget(project)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  {t("Rename app")}
+                </DropdownMenuItem>
+                {/* ponytail: platform admins only — a deployed app's files and process stay under the old workspace's user until a redeploy */}
+                {superAdmin && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setMoveOrgId(project.organization?.id ?? null);
+                      setMoveTarget(project);
+                    }}
+                  >
+                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                    {t("Move workspace")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
     },
   ];
+
+  const counts = data?.counts;
+  const migrating = deployTarget?.applications.filter((app) => app.preDeployCommand) ?? [];
 
   return (
     <PageLayout
       title={t("Apps")}
-      description={t("Your code and the services served from it.")}
+      description={t("Your websites and apps.")}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          {/* the flat list, one row per hostname, with its uptime checks */}
-          <Button variant="ghost" asChild>
-            <Link to="/services">
-              <List className="mr-2 h-4 w-4" />
-              {t("All services")}
-            </Link>
-          </Button>
           {superAdmin && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                syncApps.mutate(undefined, { onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["projects"] }) })
-              }
-              disabled={syncApps.isPending}
-            >
+            <Button variant="outline" onClick={() => syncApps.mutate(undefined, { onSuccess: refresh })} disabled={syncApps.isPending}>
               {syncApps.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {syncApps.isPending ? t("Syncing…") : t("Sync Services")}
+              {syncApps.isPending ? t("Syncing…") : t("Sync Apps")}
             </Button>
           )}
           <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
@@ -427,22 +394,14 @@ export default function Projects() {
         pagination={data?.pagination}
         isLoading={isLoading}
         searchPlaceholder={t("Search app, repository or domain…")}
-        empty={t("No apps yet — add your first one.")}
+        empty={status === "all" ? t("No apps yet — add your first one.") : t("Nothing here.")}
         onRowClick={(project) => navigate(projectPath(project))}
         toolbar={
           superAdmin && selectedIds.length > 0 ? (
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-sm font-medium">{t("{count} selected", { count: selectedIds.length })}</span>
-              <OrganizationCombobox
-                value={bulkOrgId || null}
-                onChange={(id) => setBulkOrgId(id ?? "")}
-                placeholder={t("Assign to workspace")}
-                className="w-56"
-              />
-              <Button
-                disabled={!bulkOrgId || assign.isPending}
-                onClick={() => assign.mutate({ ids: selectedIds, organizationId: bulkOrgId || null })}
-              >
+              <OrganizationCombobox value={bulkOrgId || null} onChange={(id) => setBulkOrgId(id ?? "")} placeholder={t("Assign to workspace")} className="w-56" />
+              <Button disabled={!bulkOrgId || assign.isPending} onClick={() => assign.mutate({ ids: selectedIds, organizationId: bulkOrgId || null })}>
                 {assign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("Assign")}
               </Button>
@@ -452,6 +411,28 @@ export default function Projects() {
             </div>
           ) : (
             <>
+              {/* the status chips, with how many each holds (for the whole search, not the page) */}
+              <div className="flex flex-wrap gap-1 rounded-md border bg-card p-1">
+                {CHIPS.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    aria-pressed={status === chip.key}
+                    onClick={() => {
+                      setStatus(chip.key);
+                      query.setPage(1);
+                    }}
+                    className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-sm transition-colors ${
+                      status === chip.key ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {chip.label}
+                    {counts && (
+                      <span className={`text-xs ${chip.key === "problem" && counts.problem > 0 ? "font-semibold text-destructive" : ""}`}>{counts[chip.key]}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
               <OrganizationFilter query={query} unassigned />
               {superAdmin && (
                 <Select
@@ -480,24 +461,53 @@ export default function Projects() {
         }
       />
 
-      <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>
+      {/* Redeploy: always asked, with the migrations to run or leave out this once */}
+      <AlertDialog open={!!deployTarget} onOpenChange={(open) => !open && setDeployTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Deploy {name}?", { name: deployTarget?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>{t("The new release builds beside the running one and takes over once it answers.")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {migrating.length > 0 && <MigrationChoices apps={migrating} skip={skipMigrations} onChange={setSkipMigrations} />}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deployTarget && deploy.mutate({ id: deployTarget.id, skip: [...skipMigrations] })}>{t("Deploy")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!restartTarget} onOpenChange={(open) => !open && setRestartTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Restart {name}?", { name: restartTarget?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("Its running services restart one after the other: {services}. The site may not answer for a few seconds.", {
+                services: restartTarget ? restartable(restartTarget).map((app) => app.name).join(", ") : "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => restartTarget && restart.mutate(restartTarget)}>{t("Restart")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={!!moveTarget} onOpenChange={(open) => !open && setMoveTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t("Assign workspace")}</DialogTitle>
+            <DialogTitle>{t("Move workspace")}</DialogTitle>
             <DialogDescription>
-              {t("Choose which workspace owns {name}. Every service of the app goes with it.", { name: assignTarget?.name ?? "" })}
+              {t("Choose which workspace owns {name}. Every service of the app goes with it.", { name: moveTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <OrganizationCombobox value={assignOrgId} onChange={setAssignOrgId} noneLabel={t("Unassigned")} />
+            <OrganizationCombobox value={moveOrgId} onChange={setMoveOrgId} noneLabel={t("Unassigned")} />
             <div className="flex items-center justify-end space-x-3">
-              <Button variant="outline" onClick={() => setAssignTarget(null)}>
+              <Button variant="outline" onClick={() => setMoveTarget(null)}>
                 {t("Cancel")}
               </Button>
-              <Button
-                disabled={assign.isPending}
-                onClick={() => assignTarget && assign.mutate({ ids: [assignTarget.id], organizationId: assignOrgId })}
-              >
+              <Button disabled={assign.isPending} onClick={() => moveTarget && assign.mutate({ ids: [moveTarget.id], organizationId: moveOrgId })}>
                 {assign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("Save")}
               </Button>

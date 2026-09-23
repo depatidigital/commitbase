@@ -39,7 +39,7 @@ import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
 import { readEnv, readEnvFiles, sealEnv, sealEnvFiles } from '../lib/appEnv';
-import { createApplicationWithSource, dropOrphanSources, setSourceOrganization, withSourceFields } from '../lib/sources';
+import { createApplicationWithSource, dropOrphanSources, setSourceOrganization, sourceName, withSourceFields } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
@@ -556,6 +556,49 @@ router.patch('/bulk-assign', authenticateToken, requireRole(['SUPERADMIN']), asy
  * Batched because the list renders one bar per row — a request per row would
  * be 25 round trips for one screen.
  */
+/**
+ * Every hostname in scope (each binding: host + path) with its own uptime —
+ * the monitor page. Before GET /health/:x and /:id, or express reads "hosts" as an id.
+ */
+router.get('/health/hosts', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const apps = await prisma.application.findMany({
+      where: await appScope(req),
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        disabled: true,
+        runtime: true,
+        serve: true,
+        sourceId: true,
+        source: { select: { name: true, repository: true, path: true } },
+        domains: { select: { host: true, path: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
+      },
+    });
+    const rows = apps.flatMap((app) =>
+      app.domains
+        // names that only exist inside the platform have nothing to check
+        .filter((d) => !d.host.endsWith('.local'))
+        .map((d) => ({
+          id: `${d.host}${d.path}`,
+          host: d.host,
+          path: d.path,
+          service: { id: app.id, name: app.name, status: app.status, disabled: app.disabled },
+          app: app.sourceId && app.source ? { id: app.sourceId, name: sourceName(app.source, app.domains[0]?.host) } : null,
+          serving: isServing(app),
+        })),
+    );
+    const health = await healthFor('HOSTNAME', rows.map((row) => row.id));
+    // nothing of its own routed yet: no verdict (see GET /health)
+    const data = rows.map(({ serving, ...row }) => ({ ...row, health: serving ? health[row.id] : { ...health[row.id]!, state: 'unknown', beats: [], uptime24h: null } }));
+    return res.json({ success: true, data } as ApiResponse);
+  } catch (error) {
+    console.error('Error reading hostname health:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 router.get('/health', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const ids = String(req.query.ids ?? '')

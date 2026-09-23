@@ -58,15 +58,21 @@ export interface Project {
   activeRelease?: { id: string; commitSha: string | null; createdAt: string } | null;
   lastDeployment?: { status: string; createdAt: string; commitHash: string | null; commitMessage: string | null } | null;
   createdAt: string;
+  /** list only: services the uptime checks call down, and the status chip it counts under */
+  down?: number;
+  bucket?: ProjectBucket;
 }
+
+export type ProjectBucket = "problem" | "running" | "stopped";
+export type ProjectCounts = Record<"all" | ProjectBucket, number>;
 
 export const getProjects = async (
   params: ListParams & { serverId?: string },
-): Promise<PaginatedResponse<Project>> => {
+): Promise<PaginatedResponse<Project> & { counts?: ProjectCounts }> => {
   const { serverId, ...rest } = params;
   const query = listQuery(rest);
   const extra = serverId ? `${query ? '&' : '?'}serverId=${encodeURIComponent(serverId)}` : '';
-  const response = await apiRequest<PaginatedResponse<Project>>(`/sources${query}${extra}`);
+  const response = await apiRequest<PaginatedResponse<Project> & { counts?: ProjectCounts }>(`/sources${query}${extra}`);
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Could not load the apps'));
 };

@@ -89,7 +89,7 @@ export default {
     "Hanya internal — proxy menghubungi 127.0.0.1:{port} di node",
 
   // apps list
-  "Manage your services and services.": "Kelola layanan dan layanan Anda.",
+  "Every service, one row per hostname.": "Semua layanan, satu baris per hostname.",
   "All types": "Semua tipe",
   "All servers": "Semua server",
   "Sync Services": "Sinkronkan Layanan",

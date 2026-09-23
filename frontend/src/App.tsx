@@ -8,6 +8,7 @@ import { AuthGuard } from "./components/AuthGuard";
 import Application from "./pages/Application";
 import Projects from "./pages/Projects";
 import Dashboard from "./pages/Dashboard";
+import Monitor from "./pages/Monitor";
 import ComingSoon from "./pages/ComingSoon";
 import { Mail } from "lucide-react";
 import ProjectDetail from "./pages/ProjectDetail";
@@ -130,6 +131,7 @@ const App = () => (
             <Route path="apps/:id/services/new" element={<AddProject />} />
             <Route path="services" element={<Application />} />
             <Route path="services/:id" element={<ApplicationDetail />} />
+            <Route path="monitor" element={<Monitor />} />
             {/* the URLs before the rename */}
             <Route path="projects" element={<Moved to={() => "/apps"} />} />
             <Route path="project/:id" element={<Moved to={({ id }) => `/apps/${id}`} />} />

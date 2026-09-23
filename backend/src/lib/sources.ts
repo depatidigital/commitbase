@@ -154,3 +154,18 @@ export function withSourceFields<T extends WithSource>(app: T) {
 /** A branch name git takes as a name, never as an option or a revision expression. Pure. */
 export const isBranchName = (name: string) =>
   /^[A-Za-z0-9._/-]+$/.test(name) && !name.startsWith('-') && !name.includes('..') && !name.endsWith('/') && !name.endsWith('.lock');
+
+/** The list's status chips: what needs a look, what runs, what is off. */
+export type SourceBucket = 'problem' | 'running' | 'stopped';
+
+/**
+ * Which chip a source counts under, from its rollup status (rollupStatus), its
+ * last deploy and how many of its apps the uptime checks call down. Pure.
+ * A stopped app is stopped on purpose, so PARTIAL runs; a failed last deploy
+ * stays a problem until one succeeds.
+ */
+export function sourceBucket(status: string, lastDeployStatus: string | null | undefined, down: number): SourceBucket {
+  if (status === 'ERROR' || down > 0 || lastDeployStatus === 'FAILED') return 'problem';
+  if (status === 'STOPPED' || status === 'DISABLED' || status === 'EMPTY') return 'stopped';
+  return 'running';
+}

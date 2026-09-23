@@ -15,7 +15,8 @@ import { readServe } from './hostRouteService';
  * every node now record what they saw.
  */
 
-export type TargetType = 'APPLICATION' | 'SERVER';
+/** HOSTNAME: one binding of an app (`host` + `path`, the id), each with its own history for the monitor page. */
+export type TargetType = 'APPLICATION' | 'SERVER' | 'HOSTNAME';
 
 /**
  * How long raw beats are kept.
@@ -274,7 +275,11 @@ export async function checkApplicationHostnames(): Promise<string> {
         const startedAt = Date.now();
         // every binding it answers on, each at its own path: one down is the app down, said by name
         const checks = [];
-        for (const d of app.domains) checks.push({ label: `${d.host}${d.path}`, health: await checkAppHostname(d.host, 5000, healthPath(d.path)) });
+        for (const d of app.domains) {
+          const at = Date.now();
+          const health = await checkAppHostname(d.host, 5000, healthPath(d.path));
+          checks.push({ label: `${d.host}${d.path}`, health, ms: Date.now() - at });
+        }
         const ms = Math.round((Date.now() - startedAt) / checks.length);
         const failed = checks.find((check) => !check.health.live);
         const health = failed
@@ -295,11 +300,22 @@ export async function checkApplicationHostnames(): Promise<string> {
           }
           pointing.set(app.id, { at: Date.now(), elsewhere });
         }
-        return { app, health, ms };
+        return { app, health, ms, checks };
       }),
     );
 
-    for (const { app, health, ms } of results) {
+    for (const { app, health, ms, checks } of results) {
+      // and each name on its own, so the monitor can say which one is down
+      for (const check of checks) {
+        beats.push({
+          targetType: 'HOSTNAME',
+          targetId: check.label,
+          ok: check.health.live,
+          responseMs: check.ms,
+          httpStatus: check.health.httpStatus,
+          error: check.health.live ? null : check.health.error,
+        });
+      }
       beats.push({
         targetType: 'APPLICATION',
         targetId: app.id,
@@ -312,6 +328,6 @@ export async function checkApplicationHostnames(): Promise<string> {
   }
 
   await recordBeats(beats);
-  const up = beats.filter((beat) => beat.ok).length;
-  return `${up}/${beats.length} answering`;
+  const perApp = beats.filter((beat) => beat.targetType === 'APPLICATION');
+  return `${perApp.filter((beat) => beat.ok).length}/${perApp.length} answering`;
 }

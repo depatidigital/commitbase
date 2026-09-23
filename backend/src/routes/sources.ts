@@ -8,7 +8,8 @@ import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
-import { isBranchName, setSourceOrganization, sourceName } from '../lib/sources';
+import { isBranchName, setSourceOrganization, sourceBucket, sourceName, type SourceBucket } from '../lib/sources';
+import { healthFor, isServing } from '../services/heartbeatService';
 import { launchDeploy } from '../services/deployLaunch';
 import { buildProject, notOwner } from '../services/pm2DeployService';
 import { DeploymentService } from '../services/deployment';
@@ -156,7 +157,30 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     });
     const lastBySource = new Map(last.map((deployment) => [deployment.sourceId, deployment]));
 
-    const rows = sources.map((source) => ({ ...present(source), lastDeployment: lastBySource.get(source.id) ?? null }));
+    // apps the uptime checks call down (or failing lately) — watched ones only:
+    // switched off, stopped on purpose, or serving nothing yet has no verdict
+    const watched = await prisma.application.findMany({
+      where: { sourceId: { in: sources.map((source) => source.id) }, disabled: false, status: { not: 'STOPPED' } },
+      select: { id: true, sourceId: true, runtime: true, serve: true },
+    });
+    const serving = watched.filter(isServing);
+    // ponytail: ~30 beats per watched app on every list read; a stored state per app if lists reach hundreds of apps
+    const health = await healthFor('APPLICATION', serving.map((app) => app.id));
+    const downBySource = new Map<string, number>();
+    for (const app of serving) {
+      const state = health[app.id]?.state;
+      if (state === 'down' || state === 'pending') downBySource.set(app.sourceId!, (downBySource.get(app.sourceId!) ?? 0) + 1);
+    }
+
+    const all = sources.map((source) => {
+      const row = { ...present(source), lastDeployment: lastBySource.get(source.id) ?? null, down: downBySource.get(source.id) ?? 0 };
+      return { ...row, bucket: sourceBucket(row.status, row.lastDeployment?.status, row.down) };
+    });
+    // the chips' numbers count everything the search found; ?status= then narrows to one chip
+    const counts = { all: all.length, problem: 0, running: 0, stopped: 0 };
+    for (const row of all) counts[row.bucket]++;
+    const bucket = String(req.query.status ?? '') as SourceBucket;
+    const rows = bucket in counts && bucket !== ('all' as string) ? all.filter((row) => row.bucket === bucket) : all;
     const direction = req.query.order === 'desc' ? -1 : 1;
     const SEVERITY: Record<string, number> = { DEPLOYING: 0, ERROR: 1, PARTIAL: 2, STOPPED: 3, RUNNING: 4, EMPTY: 5, DISABLED: 6 };
     const byName = (a: (typeof rows)[number], b: (typeof rows)[number]) => a.name.localeCompare(b.name);
@@ -177,8 +201,8 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           return direction * (bytes(a) - bytes(b)) || byName(a, b);
         }
         default:
-          // what needs attention leads
-          return (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byName(a, b);
+          // what needs attention leads: a problem chip first, then work in flight, broken, stopped
+          return Number(b.bucket === 'problem') - Number(a.bucket === 'problem') || (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byName(a, b);
       }
     });
 
@@ -187,6 +211,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       data: {
         data: rows.slice(skip, skip + limit),
         pagination: { page, limit, total: rows.length, totalPages: Math.ceil(rows.length / limit) },
+        counts,
       },
     } as ApiResponse);
   } catch (error) {

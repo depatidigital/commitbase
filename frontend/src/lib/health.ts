@@ -61,3 +61,20 @@ export const getApplicationHealth = async (
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t("Failed to read health"));
 };
+
+/** One hostname (host + path) of a service, with its own uptime — the monitor page. */
+export interface HostHealth {
+  id: string;
+  host: string;
+  path: string;
+  service: { id: string; name: string; status: string; disabled: boolean };
+  /** the app (API: source) it belongs to */
+  app: { id: string; name: string } | null;
+  health: Health;
+}
+
+export const getHostHealth = async (): Promise<HostHealth[]> => {
+  const response = await apiRequest<HostHealth[]>("/applications/health/hosts");
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t("Failed to read health"));
+};

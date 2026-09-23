@@ -582,7 +582,7 @@ export default function Application() {
     <TooltipProvider>
       <PageLayout
         title={t("Services")}
-        description={t("Manage your services and services.")}
+        description={t("Every service, one row per hostname.")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* back to the list by project, the way here came */}
