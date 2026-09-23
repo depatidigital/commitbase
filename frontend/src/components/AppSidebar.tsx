@@ -1,4 +1,4 @@
-import { Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, FolderGit2, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -43,12 +43,11 @@ export function AppSidebar() {
   // on, then the organization. Settings and logs live elsewhere (the account menu,
   // the project and app pages).
   const groups: Array<{ label?: string; items: Item[] }> = [
-    { items: [{ title: t("Dashboard"), url: "/", icon: LayoutDashboard }] },
-    // what the platform runs for you; new services join Proyek here
+    // an app is the main thing here: straight under the dashboard, no heading of its own
     {
-      label: t("Services"),
       items: [
-        { title: t("Apps"), url: "/projects", icon: FolderGit2 },
+        { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
+        { title: t("Apps"), url: "/projects", icon: AppWindow },
       ],
     },
     {

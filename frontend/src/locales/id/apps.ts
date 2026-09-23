@@ -127,7 +127,6 @@ export default {
   "Stop Service": "Hentikan Layanan",
   "Restart Service": "Mulai Ulang Layanan",
   "Delete Service": "Hapus Layanan",
-  "Delete Service": "Hapus Layanan",
   'Are you sure you want to redeploy and start "{name}"? This will rebuild and run the application.':
     'Apakah Anda yakin ingin deploy ulang dan menjalankan "{name}"? Layanan akan di-build ulang lalu dijalankan.',
   'Are you sure you want to deploy and start "{name}"? This will build and run the application for the first time.':
@@ -527,7 +526,6 @@ export default {
   "From the compose file's environment:": "Dari environment di file compose:",
   "Send the service's hosts to this service, on port {port}": "Trafik host layanan dikirim ke service ini, port {port}",
   "From the saved compose files — save a change to them to see it here.": "Dari file compose yang tersimpan — simpan perubahan dulu agar terlihat di sini. Hanya satu service yang menerima trafik host; sisanya berjalan di dalam stack.",
-  Service: "Service",
   "Not set — pick the service and port Caddy sends traffic to": "Belum diisi — pilih service dan port tujuan trafik dari Caddy",
   "Pull & redeploy": "Pull & deploy ulang",
   "It is {app}'s only host: nobody reaches it until another one is added.":
