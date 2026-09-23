@@ -145,6 +145,17 @@ type RunOpts = {
 };
 
 /** Run one compose command in the stack's directory, as the org's user. */
+/**
+ * cb-compose talks to the org user's own podman socket, which provisioning
+ * starts once. When it is gone since (the user manager restarted, the socket hit
+ * its trigger limit), every compose call fails with "no such file" — so it is
+ * started again first, the way provisioning does it. Fixed text: nothing of the
+ * user's goes into it. execOrg sets XDG_RUNTIME_DIR and the bus for systemctl --user.
+ */
+const ENSURE_SOCKET =
+  'S="/run/user/$(id -u)/podman/podman.sock"; ' +
+  '[ -S "$S" ] || { systemctl --user reset-failed podman.socket podman.service >/dev/null 2>&1; systemctl --user start podman.socket >/dev/null 2>&1; }; ';
+
 async function run(application: AppWithOrg, args: string[], opts: RunOpts = {}): Promise<ExecResult> {
   const slug = slugOf(application);
   const [uid, node, afs] = await Promise.all([uidOf(application), serverForApplication(application.id), appFsFor(application.id)]);
@@ -159,7 +170,7 @@ async function run(application: AppWithOrg, args: string[], opts: RunOpts = {}):
     node,
     slug,
     uid,
-    ['sh', '-c', 'cd -- "$1" || exit 1; shift; exec "$@"', 'sh', cwd, ...composeArgv(projectName(slug, application.id), files, args)],
+    ['sh', '-c', ENSURE_SOCKET + 'cd -- "$1" || exit 1; shift; exec "$@"', 'sh', cwd, ...composeArgv(projectName(slug, application.id), files, args)],
     { timeout: opts.timeout ?? 30 * 60_000, ...(opts.onOutput && { onOutput: opts.onOutput }) },
   );
 }

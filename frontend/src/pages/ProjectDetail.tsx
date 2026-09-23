@@ -45,11 +45,12 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
 import { APP_NAME } from "@/lib/branding";
+import { expectedRows } from "@/lib/env";
 import { timeAgo } from "@/lib/utils";
 import { buildProject, deployProject, getProject, type ProjectApp } from "@/lib/projects";
 
@@ -972,7 +973,7 @@ function ServiceEnvSection({ appId }: { appId: string }) {
         ) : application.runtime ? (
           <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
         ) : (
-          <ServerEnv env={application.envVars ?? {}} note={t("What the service gets at its next deploy.")} />
+          <EnvFilesView application={application} detected={detection.data} />
         )}
       </CardContent>
       <Dialog
@@ -994,6 +995,48 @@ function ServiceEnvSection({ appId }: { appId: string }) {
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+/**
+ * The panel's own service's env, read — per env file (a compose stack can have
+ * several: CKAN's .env and .ckan-env). Until it is first saved, what the edit
+ * form would start from: the repository's own env files and the keys its
+ * .env.example expects, said to be not saved yet.
+ */
+function EnvFilesView({ application, detected }: { application: Application; detected?: DetectedProject | null }) {
+  const unsaved = application.envConfirmed === false;
+  const shipped = Object.fromEntries((detected?.env.files ?? []).map((f) => [f.file, Object.fromEntries(f.vars.map((v) => [v.key, v.value]))]));
+  const configured = application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"];
+  const files = [...new Set([...configured, ...Object.keys(shipped)])];
+  const envOf = (file: string, index: number): Record<string, string> => {
+    const saved = index === 0 ? application.envVars ?? {} : application.extraEnvVars?.[file] ?? {};
+    if (!unsaved) return saved;
+    const expected = index === 0 ? Object.fromEntries(expectedRows(detected).map((row) => [row.key, row.value])) : {};
+    return { ...expected, ...shipped[file], ...saved };
+  };
+  const note = unsaved ? (
+    <span className="text-warning">{t("Not saved yet — what the repository ships and its .env.example expects. Saved with Edit env.")}</span>
+  ) : (
+    t("What the service gets at its next deploy.")
+  );
+  if (files.length === 1) return <ServerEnv env={envOf(files[0]!, 0)} note={note} />;
+  // one tab per env file, as the edit form has them
+  return (
+    <Tabs defaultValue={files[0]} className="space-y-3">
+      <TabsList>
+        {files.map((file) => (
+          <TabsTrigger key={file} value={file} className="font-mono text-xs">
+            {file}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {files.map((file, index) => (
+        <TabsContent key={file} value={file}>
+          <ServerEnv env={envOf(file, index)} note={note} />
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
