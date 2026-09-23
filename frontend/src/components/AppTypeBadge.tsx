@@ -21,6 +21,7 @@ export const TYPES: Record<
   PHP: { label: "PHP", icon: FileCode, className: "text-primary" },
   PYTHON: { label: "Python", icon: Code2, className: "text-warning" },
   STATIC: { label: t("Static"), icon: Globe, className: "text-muted-foreground" },
+  COMPOSE: { label: t("Compose"), icon: Layers, className: "text-accent-foreground" },
 };
 
 export const AppTypeBadge = ({

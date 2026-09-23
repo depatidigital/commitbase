@@ -52,7 +52,7 @@ export interface Application {
   name: string;
   /** its hostnames, all alike — see hostsOf */
   domains: AppDomain[];
-  type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA';
+  type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA' | 'COMPOSE';
   status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'DEPLOYING' | 'BUILDING';
   repository?: string;
   gitAccountId?: string | null;
@@ -65,6 +65,14 @@ export interface Application {
   packageManager?: string | null;
   /** null = the detected install */
   installCommand?: string | null;
+  /** COMPOSE: the compose files, in -f order; empty = ["docker-compose.yml"] */
+  composeFiles?: string[];
+  /** COMPOSE: the env files written on deploy; empty = [".env"] */
+  composeEnvFiles?: string[];
+  /** COMPOSE: the port the serving container listens on */
+  composePort?: number | null;
+  /** COMPOSE: the service that serves traffic, and exec's default */
+  composeService?: string | null;
   buildCommand?: string;
   /** before the build, after install — migrations */
   preDeployCommand?: string | null;
@@ -177,6 +185,12 @@ export interface UpdateApplicationData {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
+  /** COMPOSE: empty list = back to the default file */
+  composeFiles?: string[];
+  composeEnvFiles?: string[];
+  /** null keeps whatever the compose file itself publishes */
+  composePort?: number | null;
+  composeService?: string | null;
 }
 
 // Get all applications
@@ -318,7 +332,7 @@ export const removeAppDomain = async (id: string, host: string, path = ''): Prom
 };
 
 export interface DetectedProject {
-  type: 'NODEJS' | 'STATIC' | 'PHP' | 'PYTHON';
+  type: 'NODEJS' | 'STATIC' | 'PHP' | 'PYTHON' | 'COMPOSE';
   framework: string | null;
   label: string;
   packageManager: string;
@@ -328,6 +342,8 @@ export interface DetectedProject {
   outputDir: string | null;
   port: number | null;
   nodeVersion: string | null;
+  /** COMPOSE: the compose file found, relative to the folder detected in */
+  composeFile?: string | null;
   /** a step before the build — Prisma's migrations — or null */
   preDeployCommand?: string | null;
   /** a step before the build, run by the deploy on its own — Prisma's client generation — or null */

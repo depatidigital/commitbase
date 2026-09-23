@@ -161,6 +161,12 @@ model Server {
   /// the UI without shell access to either machine.
   lastError     String?
 
+  /// Which container runtime setup installs here, and therefore whether COMPOSE
+  /// apps may be placed on this node: "NONE" or "PODMAN". A string, like
+  /// authMethod above, so adding a value later needs no migration. Setup passes
+  /// it to install.sh as WITH_PODMAN; turning it on is a re-run of Set up.
+  containerRuntime String @default("NONE")
+
   /// Node setup queue (serverSetupService): the panel runs install.sh
   /// over SSH. Same states as an organization's provisioning.
   setupState    ProvisionState @default(NONE)
@@ -388,6 +394,20 @@ model Application {
   // proxies to (Cloudflare caches in front of it)
   staticBucket String?
   staticOrigin String?
+
+  // Compose stacks. Paths are relative to rootDirectory, the way every other
+  // build command already is.
+  /// The compose files, in -f order. Several because a stack can ship its cron
+  /// or its overrides in a second file. Empty = ["docker-compose.yml"].
+  composeFiles    String[]
+  /// The env files the stack reads, written from envVars at deploy. Empty =
+  /// [".env"]; CKAN, for one, wants .env and .ckan-env.
+  composeEnvFiles String[]
+  /// The port inside the stack to publish. The host port stays in `port`, from
+  /// the same pool as every other app, and is bound to loopback.
+  composePort     Int?
+  /// The service `exec` runs in when none is named.
+  composeService  String?
 
   // Deployment info
   lastDeployment DateTime?
@@ -822,6 +842,9 @@ enum AppType {
   RUST
   PHP
   JAVA
+  /// A container stack the node brings up with compose. No systemd unit of its
+  /// own: the stack is the process, and Caddy proxies its published port.
+  COMPOSE
 }
 
 enum AppStatus {

@@ -25,7 +25,7 @@ const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH
 export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
 
 export interface DetectedProject {
-  type: 'NODEJS' | 'STATIC' | 'PHP' | 'PYTHON';
+  type: 'NODEJS' | 'STATIC' | 'PHP' | 'PYTHON' | 'COMPOSE';
   framework: string | null; // "nextjs" | "nuxt" | "astro" | "sveltekit" | "remix" | "vite" | "express" | ...
   label: string; // human name for the UI
   packageManager: PackageManager;
@@ -42,6 +42,8 @@ export interface DetectedProject {
   preDeployCommand: string | null;
   /** a step before the build — Prisma's client generation — or null */
   generateCommand: string | null;
+  /** COMPOSE: the compose file found, relative to the folder detected in */
+  composeFile?: string | null;
   /**
    * An app in a monorepo folder whose lockfile is at the repository root (a
    * pnpm/yarn/npm workspace): install there, build in the folder.
@@ -106,6 +108,27 @@ export const DETECT_FILES = [
   'composer.json',
   'index.php',
   'index.html',
+  // Compose stacks. The subdirectory forms are here because a repository whose
+  // whole job is the stack often keeps it in one (CKAN's is in compose/), and
+  // detection reads a fixed list of names rather than walking the tree.
+  'docker-compose.yml',
+  'docker-compose.yaml',
+  'compose.yml',
+  'compose.yaml',
+  'compose/docker-compose.yml',
+  'compose/docker-compose.yaml',
+  'docker/docker-compose.yml',
+] as const;
+
+/** The compose files detection knows, in the order they are looked for. */
+export const COMPOSE_FILES = [
+  'docker-compose.yml',
+  'docker-compose.yaml',
+  'compose.yml',
+  'compose.yaml',
+  'compose/docker-compose.yml',
+  'compose/docker-compose.yaml',
+  'docker/docker-compose.yml',
 ] as const;
 
 export type DetectInput = Partial<Record<(typeof DETECT_FILES)[number], string>>;
@@ -466,6 +489,20 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
   if (PY_MARKERS.some((name) => files[name] !== undefined)) return pythonPreset(files);
 
   if (files['package.json'] === undefined) {
+    // A stack, when the repository is the stack. Checked here and not earlier
+    // on purpose: plenty of Node and PHP apps ship a docker-compose.yml to run
+    // a database while developing, and those are still Node and PHP apps. A
+    // repository with a compose file and no package.json or composer.json is
+    // one whose compose file *is* the deployment. Anything else, the operator
+    // picks COMPOSE by hand.
+    const composeFile = COMPOSE_FILES.find((name) => files[name] !== undefined);
+    if (composeFile) {
+      return {
+        ...base({ type: 'COMPOSE', framework: 'compose', label: 'Compose stack' }),
+        composeFile,
+        installCommand: '',
+      };
+    }
     if (files['index.html'] !== undefined) {
       return base({ type: 'STATIC', framework: 'html', label: 'Static HTML', outputDir: '.' });
     }

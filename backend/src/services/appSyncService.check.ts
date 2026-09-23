@@ -2,7 +2,7 @@
  * Self-check for the inventory's route and listener parsing: npx tsx src/services/appSyncService.check.ts
  */
 import assert from 'assert';
-import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, bindingLabel, identityKeys, folderName, type DiscoveredApp } from './appSyncService';
+import { classifyRoute, routeHosts, routeParts, isNotAnApp, parseListeners, parseDockerPs, pm2OwnerOf, repositoryFromRemote, mergeSameSite, databaseRefs, pm2StartCommand, buildCommandFrom, bindingLabel, identityKeys, folderName, type DiscoveredApp } from './appSyncService';
 
 // an app is named by its folder — the project, not the web root inside it — never by a folder that names nothing
 assert.strictEqual(folderName('/var/www/html/panelweb.empatlawangkab.go.id/public'), 'panelweb.empatlawangkab.go.id');
@@ -277,3 +277,23 @@ assert.deepStrictEqual(databaseRefs({ DB_CONNECTION: 'pgsql', DB_DATABASE: 'blog
 assert.deepStrictEqual(databaseRefs({ APP_KEY: 'base64:x', DATABASE_URL: 'not a url' }), []);
 
 console.log('appSyncService: classifyRoute + parseListeners + parentDomainOf + repositoryFromRemote OK');
+
+// docker ps rows: the published host port is the one nginx proxies to, and the
+// one the panel can tie a site to. Bound to loopback or to every interface.
+const containers = parseDockerPs(
+  [
+    'jdih-app\tjdih:latest\tUp 3 weeks\t127.0.0.1:8082->80/tcp',
+    'ebmd-app\tebmd:latest\tUp 3 weeks\t0.0.0.0:8081->80/tcp, [::]:8081->80/tcp',
+    'worker\tworker:1\tUp 2 days\t',
+  ].join('\n'),
+);
+assert.strictEqual(containers.length, 3);
+assert.deepStrictEqual(containers[0], { name: 'jdih-app', image: 'jdih:latest', status: 'Up 3 weeks', ports: [8082] });
+// the same port on v4 and v6 is one published port, not two
+assert.deepStrictEqual(containers[1]!.ports, [8081]);
+// a container that publishes nothing is still a container
+assert.deepStrictEqual(containers[2]!.ports, []);
+// no docker on the box at all
+assert.deepStrictEqual(parseDockerPs(''), []);
+
+console.log('appSyncService: docker ok');

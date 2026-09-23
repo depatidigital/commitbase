@@ -263,6 +263,7 @@ export function AppWorkspace({
   const logType = application?.type === 'STATIC' ? 'build' : selectedLogType;
   // pm2 apps and the panel's own unit apps (not PHP/static) stream live, only
   // while the Logs tab is open; the rest poll
+  // a compose stack has a process too — the stack itself, whose logs stream
   const hasProcess = application?.runtime === 'PM2' || (!application?.runtime && application?.type !== 'PHP' && application?.type !== 'STATIC');
   const liveLogs = !!application && hasProcess && logType !== 'build';
   const live = useLiveLogs(id!, logType, logLines, liveLogs && activeTab === 'logs');
@@ -1591,7 +1592,18 @@ interface ApplicationSettingsFormProps {
   detected?: DetectedProject | null;
 }
 
+/** "a, b" -> ["a", "b"]; an empty box means the default, not an empty list. */
+const splitList = (value: string): string[] =>
+  value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
 const settingsOf = (application: Application) => ({
+  composeFiles: (application?.composeFiles || []).join(', '),
+  composeEnvFiles: (application?.composeEnvFiles || []).join(', '),
+  composePort: application?.composePort?.toString() || '',
+  composeService: application?.composeService || '',
   packageManager: application?.packageManager || '',
   installCommand: application?.installCommand || '',
   buildCommand: application?.buildCommand || '',
@@ -1608,6 +1620,10 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
   const updateApp = useUpdateApplication();
   const queryClient = useQueryClient();
   const isStatic = application.type === 'STATIC';
+  // A stack is not built or started here: its images are built by compose on
+  // the node, and what it needs instead is which files to read.
+  const isCompose = application.type === 'COMPOSE';
+  const buildable = !isStatic && !isCompose;
 
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData(prev => ({
@@ -1633,6 +1649,12 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         pruneDevDeps: formData.pruneDevDeps,
         startCommand: formData.startCommand || undefined,
         port: formData.port ? parseInt(formData.port) : undefined,
+        ...(isCompose && {
+          composeFiles: splitList(formData.composeFiles),
+          composeEnvFiles: splitList(formData.composeEnvFiles),
+          composePort: formData.composePort ? parseInt(formData.composePort) : null,
+          composeService: formData.composeService || null,
+        }),
       };
 
       await updateApp.mutateAsync({ id: application.id, data: updateData });
@@ -1666,7 +1688,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Package manager — the lockfile's unless chosen; pnpm over npm's lockfile runs pnpm import */}
-      {!isStatic && (
+      {buildable && (
         <div className="space-y-2">
           <label className="text-sm font-medium">{t("Package Manager")}</label>
           <Select value={formData.packageManager || 'auto'} onValueChange={(v) => handleInputChange('packageManager', v === 'auto' ? '' : v)}>
@@ -1684,8 +1706,63 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         </div>
       )}
 
+      {isCompose && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t("Compose files")}</label>
+            <Input
+              value={formData.composeFiles}
+              onChange={(e) => handleInputChange('composeFiles', e.target.value)}
+              placeholder="docker-compose.yml"
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("Separated by commas, in the order compose reads them — a later file overrides an earlier one. Relative to the app's folder. Empty = docker-compose.yml.")}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t("Env files")}</label>
+            <Input
+              value={formData.composeEnvFiles}
+              onChange={(e) => handleInputChange('composeEnvFiles', e.target.value)}
+              placeholder=".env"
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("Where this app's environment variables are written on every deploy. Separated by commas; empty = .env. What the repository ships in them is kept, except for the keys set here.")}
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t("Service")}</label>
+              <Input
+                value={formData.composeService}
+                onChange={(e) => handleInputChange('composeService', e.target.value)}
+                placeholder="web"
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">{t("The service that serves traffic, and the one commands run in by default.")}</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t("Container port")}</label>
+              <Input
+                value={formData.composePort}
+                onChange={(e) => handleInputChange('composePort', e.target.value)}
+                placeholder="5000"
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("The port that service listens on inside the stack. The platform republishes it on loopback and points the domain at it; leave both empty to keep whatever the compose file publishes.")}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Install Command — Node/PHP only; a static upload never installs */}
-      {!isStatic && (
+      {buildable && (
         <div className="space-y-2">
           <label className="text-sm font-medium">
             {t("Install Command")}
@@ -1702,6 +1779,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       )}
 
       {/* Build Command */}
+      {buildable && (
       <div className="space-y-2">
         <label className="text-sm font-medium">
           {t("Build Command")}
@@ -1715,9 +1793,10 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         />
         <p className="text-xs text-muted-foreground">{detectedHint(detected?.buildCommand)}</p>
       </div>
+      )}
 
       {/* Pre-deploy — migrations, before the build and before the release goes live */}
-      {!isStatic && (
+      {buildable && (
         <div className="space-y-2">
           <label className="text-sm font-medium">
             {t("Pre-deploy Command")}
@@ -1736,7 +1815,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       )}
 
       {/* smaller releases: devDependencies go after the build. Skipped by the deploy when the start command runs one (tsx, nodemon) */}
-      {!isStatic && (
+      {buildable && (
         <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
           <Checkbox checked={formData.pruneDevDeps} onCheckedChange={(checked) => handleInputChange('pruneDevDeps', checked === true)} className="mt-0.5" />
           <span>
@@ -1749,7 +1828,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       )}
 
       {/* a static site is served, not started: no start command, no port */}
-      {!isStatic && <>
+      {buildable && <>
       {/* Start Command */}
       <div className="space-y-2">
         <label className="text-sm font-medium">
@@ -1825,7 +1904,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       </div>
 
       {/* Help Section */}
-      {!isStatic && <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+      {buildable && <div className="bg-muted/50 rounded-lg p-4 space-y-3">
         <h4 className="text-sm font-medium">{t("Help & Examples")}</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div>

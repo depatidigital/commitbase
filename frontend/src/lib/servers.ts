@@ -21,6 +21,8 @@ export interface Server {
   hasPassword: boolean;
   publicIp: string;
   tags: string[];
+  /** "NONE" | "PODMAN" — whether compose apps may be placed here. */
+  containerRuntime: ContainerRuntime;
   status: ServerStatus;
   /** Can the panel become root here? A node can be reachable and still not set up. */
   provisioned: boolean;
@@ -41,6 +43,8 @@ export interface ServerDetail extends Server {
   organizations: Array<{ id: string; name: string; slug: string; state: ProvisionState }>;
 }
 
+export type ContainerRuntime = 'NONE' | 'PODMAN';
+
 export type ServerInput = {
   name: string;
   hostname: string;
@@ -52,6 +56,7 @@ export type ServerInput = {
   sshPassword?: string;
   publicIp: string;
   tags: string[];
+  containerRuntime: ContainerRuntime;
 };
 
 const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback: string): T => {
@@ -202,3 +207,45 @@ export const syncServerApps = async (
     await apiRequest(`/servers/${id}/sync-apps`, { method: 'POST' }),
     t('Failed to import sites from this server'),
   );
+
+/** One nginx site on a node, and what migrating it to Caddy would do. */
+export interface NginxSitePlan {
+  site: {
+    hosts: string[];
+    kind: 'proxy' | 'php' | 'static' | 'redirect' | 'unknown';
+    port?: number;
+    root?: string;
+    socket?: string;
+    spa?: boolean;
+    maxBodyBytes?: number;
+    readTimeout?: string;
+    streaming?: boolean;
+    warnings: string[];
+  };
+  serve: Record<string, unknown> | null;
+  /** hostnames whose DNS does not point here — their certificates would fail */
+  danglingHosts: string[];
+  blocked: string | null;
+}
+
+export interface NginxPlan {
+  files: string[];
+  sites: NginxSitePlan[];
+  ready: boolean;
+}
+
+export interface NginxMigration {
+  switched: boolean;
+  verified: string[];
+  failed: string[];
+  rolledBack: boolean;
+  message: string;
+}
+
+/** Read this node's nginx configuration. Changes nothing. */
+export const getNginxPlan = async (id: string): Promise<NginxPlan> =>
+  unwrap(await apiRequest<NginxPlan>(`/servers/${id}/nginx`), t('Could not read the nginx configuration'));
+
+/** Switch this node's sites from nginx to Caddy, rolling back if any host stops answering. */
+export const migrateNginx = async (id: string): Promise<NginxMigration> =>
+  unwrap(await apiRequest<NginxMigration>(`/servers/${id}/nginx/migrate`, { method: 'POST' }), t('Could not migrate this node'));

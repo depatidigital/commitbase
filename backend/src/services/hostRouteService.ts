@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import type { SshTarget } from '../lib/runner';
-import { buildRoute, removeCaddySite, setHostRoute, type Target } from './caddyService';
+import { buildRoute, removeCaddySite, setHostRoute, type ServeTuning, type Target } from './caddyService';
 
 /**
  * One Caddy route per hostname, composed from every app bound to it
@@ -12,9 +12,9 @@ import { buildRoute, removeCaddySite, setHostRoute, type Target } from './caddyS
 
 /** What Caddy sends an app's requests to. */
 export type Serve =
-  | { kind: 'proxy'; port: number }
+  | ({ kind: 'proxy'; port: number } & ServeTuning)
   | { kind: 'files'; root: string; spa?: boolean | undefined }
-  | { kind: 'php'; root: string; socket: string }
+  | ({ kind: 'php'; root: string; socket: string } & ServeTuning)
   | { kind: 'bucket'; origin: string }
   /** nothing deployed yet: the "ready, waiting for its first deploy" page */
   | { kind: 'placeholder' };
@@ -26,12 +26,25 @@ export type Binding = { path: string; stripPrefix: boolean; serve: Serve };
 export function readServe(raw: unknown): Serve | null {
   const s = raw as any;
   if (!s || typeof s !== 'object') return null;
-  if (s.kind === 'proxy' && Number.isInteger(s.port) && s.port > 0 && s.port < 65536) return { kind: 'proxy', port: s.port };
+  if (s.kind === 'proxy' && Number.isInteger(s.port) && s.port > 0 && s.port < 65536) return { kind: 'proxy', port: s.port, ...readTuning(s) };
   if (s.kind === 'files' && typeof s.root === 'string' && s.root.startsWith('/')) return { kind: 'files', root: s.root, spa: s.spa === true };
-  if (s.kind === 'php' && typeof s.root === 'string' && typeof s.socket === 'string') return { kind: 'php', root: s.root, socket: s.socket };
+  if (s.kind === 'php' && typeof s.root === 'string' && typeof s.socket === 'string') return { kind: 'php', root: s.root, socket: s.socket, ...readTuning(s) };
   if (s.kind === 'bucket' && typeof s.origin === 'string' && s.origin) return { kind: 'bucket', origin: s.origin };
   if (s.kind === 'placeholder') return { kind: 'placeholder' };
   return null;
+}
+
+/**
+ * The kept-behaviour fields of a stored serve, checked. Absent everywhere but
+ * on a site adopted from another web server, so anything malformed is simply
+ * dropped rather than refusing the whole serve. Pure.
+ */
+export function readTuning(raw: any): ServeTuning {
+  const out: ServeTuning = {};
+  if (Number.isInteger(raw?.maxBodyBytes) && raw.maxBodyBytes > 0) out.maxBodyBytes = raw.maxBodyBytes;
+  if (typeof raw?.readTimeout === 'string' && /^\d+(ms|s|m|h)?$/.test(raw.readTimeout)) out.readTimeout = raw.readTimeout;
+  if (raw?.streaming === true) out.streaming = true;
+  return out;
 }
 
 /** The literal part of a path pattern — `/api/*` → `/api`, `/ws*` → `/ws`. Pure. */
@@ -50,11 +63,11 @@ export function byPrecedence(a: { path: string }, b: { path: string }): number {
 export function serveHandle(serve: Serve): any[] {
   const target: Target =
     serve.kind === 'proxy'
-      ? { type: 'runtime', upstreamPort: serve.port }
+      ? { type: 'runtime', upstreamPort: serve.port, ...readTuning(serve) }
       : serve.kind === 'files'
         ? { type: 'split', parts: [{ path: null, root: serve.root, spa: serve.spa }] }
         : serve.kind === 'php'
-          ? { type: 'php', root: serve.root, socket: serve.socket }
+          ? { type: 'php', root: serve.root, socket: serve.socket, ...readTuning(serve) }
           : serve.kind === 'bucket'
             ? { type: 'bucket', origin: serve.origin }
             : { type: 'placeholder' };

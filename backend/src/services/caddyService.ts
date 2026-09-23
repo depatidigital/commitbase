@@ -22,7 +22,20 @@ async function caddyRequest(
   path: string,
   body?: any,
 ): Promise<{ status: number; body: string }> {
-  const stream = await forwardTcp(server, CADDY_ADMIN_HOST, CADDY_ADMIN_PORT);
+  // A node whose :80/:443 still belong to another web server is set up with
+  // Caddy installed but stopped (install.sh), so the admin port is simply not
+  // there. Said plainly here, because "connection refused" sends people looking
+  // at the network rather than at the box's own nginx.
+  const stream = await forwardTcp(server, CADDY_ADMIN_HOST, CADDY_ADMIN_PORT).catch((error: any) => {
+    const refused = /ECONNREFUSED|Connection refused|administratively prohibited|open failed/i.test(
+      error?.message || String(error),
+    );
+    throw refused
+      ? new Error(
+          `Caddy is not running on ${server.hostname}. If another web server still has :80/:443 there, sync the node's apps and migrate them to Caddy first.`,
+        )
+      : error;
+  });
   const payload = body === undefined ? null : JSON.stringify(body);
 
   return new Promise((resolve, reject) => {
@@ -67,10 +80,25 @@ async function caddyRequest(
   });
 }
 
+/**
+ * Behaviour an adopted site needs kept, because dropping it changes what the
+ * site does rather than how it is written: an upload limit, a long-running
+ * request, a response streamed rather than buffered. Stored on the serve, so
+ * it survives every later recomposition of the hostname.
+ */
+export type ServeTuning = {
+  /** client_max_body_size, in bytes */
+  maxBodyBytes?: number | undefined;
+  /** proxy_read_timeout, as nginx wrote it (Caddy takes the same "300s") */
+  readTimeout?: string | undefined;
+  /** proxy_buffering off — send each write on as it arrives */
+  streaming?: boolean | undefined;
+};
+
 type RuntimeTarget = {
   type: 'runtime';
   upstreamPort: number;
-};
+} & ServeTuning;
 
 // R2-backed site: Caddy proxies the hostname to the bucket's public host and
 // Cloudflare caches the answers at the edge.
@@ -84,7 +112,7 @@ type PhpTarget = {
   type: 'php';
   root: string;
   socket: string;
-};
+} & ServeTuning;
 
 // Files on this box, served straight from disk — what a file-based site block
 // with `root` + `file_server` did before it was adopted into the API.
@@ -188,7 +216,7 @@ async function writeCaddy(server: SshTarget, method: 'POST' | 'PATCH', path: str
  * server block yet. Not PUT /config/: PUT means "create", and answers 409
  * "key already exists" on any node that has a config.
  */
-const loadCaddyConfig = (server: SshTarget, config: any) => writeCaddy(server, 'POST', '/load', config);
+export const loadCaddyConfig = (server: SshTarget, config: any) => writeCaddy(server, 'POST', '/load', config);
 
 // Route changes are read-modify-write: two at once on one node would each drop
 // the other's route. ponytail: in-process lock — a second backend process or a
@@ -288,10 +316,16 @@ function ensureHttpServer(config: any): any {
 }
 
 // JSON form of the Caddyfile `php_fastcgi` directive plus `file_server`.
+/** `client_max_body_size` as Caddy writes it, or nothing at all. */
+export function bodyLimitHandle(tuning: ServeTuning): any[] {
+  return tuning.maxBodyBytes ? [{ handler: 'request_body', max_size: tuning.maxBodyBytes }] : [];
+}
+
 function buildPhpRoute(hosts: string[], target: PhpTarget): any {
   return {
     match: [{ host: hosts }],
     handle: [
+      ...bodyLimitHandle(target),
       {
         handler: 'subroute',
         routes: [
@@ -368,13 +402,16 @@ export function buildRoute(names: string | string[], target: Target): any {
   };
 
   if (target.type === 'runtime') {
-    route.handle.push({
+    route.handle.push(...bodyLimitHandle(target), {
       handler: 'reverse_proxy',
       upstreams: [
         {
           dial: `localhost:${target.upstreamPort}`,
         },
       ],
+      // an adopted site that waits on a slow upstream, or streams its answer
+      ...(target.readTimeout && { transport: { protocol: 'http', read_timeout: target.readTimeout } }),
+      ...(target.streaming && { flush_interval: -1 }),
     });
   } else if (target.type === 'bucket') {
     // `host` for a bucket of its own, `host/folder` for a site in a shared bucket

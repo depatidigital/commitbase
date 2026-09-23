@@ -687,6 +687,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
   // Started again from its built release: one never deployed is deployed from its page
   const controllable =
     (!application.runtime || application.runtime === "PM2") && !["STATIC", "PHP"].includes(application.type) && (!!application.runtime || hasBeenDeployed(application));
+  // COMPOSE is deliberately not in that exclusion list: start/stop/restart map
+  // to compose up/stop/force-recreate, so a stack is controllable like a unit.
   const running = application.status === "RUNNING";
   const pending = start.isPending || stop.isPending || restart.isPending;
   const env = Object.keys(application.envVars ?? {});
@@ -833,6 +835,14 @@ function AppQuickEdit({ appId }: { appId: string }) {
           {!uploadedSite && (
             <>
               {/* what it is built and run with: its own commands, else detection's defaults */}
+              {application.type === "COMPOSE" ? (
+                // A stack is not built or started by a command of its own: the
+                // compose files are what it runs, so name those instead.
+                <MiniLine label={t("Compose files")}>
+                  {(application.composeFiles?.length ? application.composeFiles : ["docker-compose.yml"]).join(", ")}
+                </MiniLine>
+              ) : (
+                <>
               <MiniLine label={t("Build Command")}>{application.buildCommand || detection.data?.buildCommand || "—"}</MiniLine>
               {application.type !== "STATIC" && (
                 <MiniLine label={t("Start Command")}>
@@ -840,6 +850,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
                     ? `pm2 restart ${application.processName}`
                     : application.startCommand || detection.data?.startCommand || "—"}
                 </MiniLine>
+              )}
+                </>
               )}
             </>
           )}

@@ -78,6 +78,7 @@ const BLANK: ServerInput = {
   sshPassword: "",
   publicIp: "",
   tags: [],
+  containerRuntime: "NONE",
 };
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
@@ -164,6 +165,7 @@ export default function Servers() {
       sshPassword: "",
       publicIp: server.publicIp,
       tags: server.tags ?? [],
+      containerRuntime: server.containerRuntime ?? "NONE",
     });
     setOpen(true);
   };
@@ -507,6 +509,27 @@ export default function Servers() {
               </div>
 
               <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="srv-runtime">{t("Container runtime")}</Label>
+                <Select
+                  value={form.containerRuntime}
+                  onValueChange={(value) =>
+                    setForm({ ...form, containerRuntime: value as ServerInput["containerRuntime"] })
+                  }
+                >
+                  <SelectTrigger id="srv-runtime">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">{t("None")}</SelectItem>
+                    <SelectItem value="PODMAN">{t("Podman (rootless)")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t("Needed for compose apps, and only for those. Installed by Set up, so run it again after changing this. Podman needs Ubuntu 24.04 or newer.")}
+                </p>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="srv-tags">{t("Tags")}</Label>
                 <Input
                   id="srv-tags"
@@ -624,7 +647,7 @@ export default function Servers() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Set up {name}?", { name: confirmSetup?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Runs install.sh as root on this box over SSH: system packages, Node, Caddy, PHP-FPM with Composer, and the larika user. The panel key is authorized when there is one. Takes a few minutes. Safe to re-run.")}
+              {t("Runs install.sh as root on this box over SSH: system packages, Node, Caddy, PHP-FPM with Composer, the larika user, and rootless Podman when this node's container runtime is set to it. The panel key is authorized when there is one. Takes a few minutes. Safe to re-run.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

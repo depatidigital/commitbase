@@ -32,6 +32,7 @@ import {
   Check,
   ChevronsUpDown,
   FolderGit2,
+  Layers,
 } from "lucide-react";
 import {
   Command,
@@ -422,6 +423,12 @@ export default function AddProject() {
       label: "Python",
       description: t("Python app run as a service, in a virtualenv of its own."),
       icon: Code2,
+    },
+    {
+      value: "COMPOSE",
+      label: t("Compose stack"),
+      description: t("Containers the server brings up from the repository's compose file."),
+      icon: Layers,
     },
   ];
 

@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLayout } from "@/components/PageLayout";
 import { ServerStorage } from "@/components/ServerStorage";
 import { ProvisionBadge } from "@/components/ProvisionBadge";
+import { NginxMigrateCard } from "@/components/NginxMigrateCard";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 import {
@@ -204,6 +205,7 @@ const ServerDetail = () => {
           <TabsTrigger value="sites">{t("Caddy sites")}</TabsTrigger>
           <TabsTrigger value="apps">{t("Applications")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
+          <TabsTrigger value="nginx">{t("nginx")}</TabsTrigger>
           <TabsTrigger value="snapshots">{t("Snapshots")}</TabsTrigger>
           <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>
         </TabsList>
@@ -348,6 +350,10 @@ const ServerDetail = () => {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="nginx">
+          <NginxMigrateCard serverId={id!} />
         </TabsContent>
 
         <TabsContent value="apps">

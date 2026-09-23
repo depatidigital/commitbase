@@ -9,6 +9,7 @@ import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { serverForApplication } from '../lib/servers';
 import { followPm2Logs } from '../services/appSyncService';
 import * as systemd from '../services/systemdService';
+import * as compose from '../services/composeService';
 import { logsDirFor } from '../lib/appPaths';
 import type { SshTarget } from '../lib/runner';
 
@@ -181,6 +182,14 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
       const processName = application.processName;
       server = pm2Server;
       follow = (send, signal) => followPm2Logs(pm2Server, processName, type, lines, send, signal);
+    } else if (!application.runtime && compose.needsCompose(application.type)) {
+      // The stack's own logs, not log files: containers write to the engine.
+      const withOrg = await prisma.application.findUniqueOrThrow({
+        where: { id: application.id },
+        include: { organization: { select: { slug: true } } },
+      });
+      server = await serverForApplication(application.id);
+      follow = (send, signal) => compose.followLogs(withOrg, lines, send, signal);
     } else if (!application.runtime && systemd.needsUnit(application.type)) {
       const afs = await appFsFor(application.id);
       const node = afs.node;

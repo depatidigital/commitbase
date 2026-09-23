@@ -15,7 +15,38 @@ export const PANEL_HOST = (process.env.PANEL_HOST || process.env.FRONTEND_HOST |
 
 export const APPS_ROOT_DIR = process.env.APPS_ROOT_DIR || '/var/www/html';
 
-export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
+export type Runtime = 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | 'DOCKER';
+
+/** One container on the node, from `docker ps`. Discovery only — nothing here starts or stops one. */
+export type DockerContainer = { name: string; image: string; status: string; ports: number[] };
+
+/**
+ * The containers running on the node, with the host ports they publish.
+ * Empty when there is no docker on the box, which is the usual case.
+ */
+export async function listDockerContainers(node: SshTarget): Promise<DockerContainer[]> {
+  const { stdout } = await exec(node, ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'], {
+    timeout: 20_000,
+  }).catch(() => ({ stdout: '' }) as any);
+  return parseDockerPs(String(stdout));
+}
+
+/**
+ * `docker ps` rows → containers and the host ports they publish. A published
+ * port reads as `0.0.0.0:8082->80/tcp` or `127.0.0.1:8082->80/tcp`; the host
+ * port is the one nginx proxies to, so that is the one kept.
+ */
+export function parseDockerPs(stdout: string): DockerContainer[] {
+  const out: DockerContainer[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [name, image, status, ports] = line.split('\t');
+    if (!name) continue;
+    const published = [...String(ports ?? '').matchAll(/(?:^|,\s*)(?:[\d.:\[\]]*:)?(\d+)->/g)].map((m) => Number(m[1]));
+    out.push({ name, image: image ?? '', status: status ?? '', ports: [...new Set(published)].filter((p) => p > 0) });
+  }
+  return out;
+}
 
 export type DiscoveredApp = {
   name: string;

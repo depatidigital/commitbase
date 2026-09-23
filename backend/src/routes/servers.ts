@@ -15,6 +15,7 @@ import { getCaddyConfig, allRoutesOf } from '../services/caddyService';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 import { appsOnServer } from '../lib/servers';
 import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
+import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
 import { DeploymentService } from '../services/deployment';
 
 const router: Router = Router();
@@ -57,6 +58,9 @@ const ServerSchema = z.object({
   sshKeyPath: z.string().min(1).optional(),
   sshPassword: z.string().min(1).max(512).optional(),
   publicIp: z.string().min(1).max(255),
+  // What setup installs for containers here, and so where COMPOSE apps may go.
+  // Changing it takes effect on the next Set up run, not on save.
+  containerRuntime: z.enum(['NONE', 'PODMAN']).default('NONE'),
   caddyApiUrl: z.string().max(255).default(''),
   // free-form labels, normalised so "Production" and "production " are one tag
   tags: z
@@ -265,6 +269,18 @@ router.put(
       const credError = credentialError(data, current);
       if (credError) return res.status(400).json({ success: false, error: credError } as ApiResponse);
 
+      // Taking the runtime away from a node whose stacks depend on it would
+      // leave those apps deployable-but-unstartable, with nothing saying why.
+      if (data.containerRuntime === 'NONE') {
+        const stacks = await prisma.application.count({ where: { serverId: req.params.id as string, type: 'COMPOSE' } });
+        if (stacks > 0) {
+          return res.status(409).json({
+            success: false,
+            error: `This node runs ${stacks} compose app${stacks === 1 ? '' : 's'} — move or delete them before removing its container runtime.`,
+          } as ApiResponse);
+        }
+      }
+
       // Drop the keys the caller omitted: under exactOptionalPropertyTypes an
       // explicit `undefined` is not the same as "leave this column alone".
       const patch = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
@@ -342,6 +358,65 @@ router.get('/:id/caddy/routes', authenticateToken, requireRole(['SUPERADMIN']), 
  * panel can manage it. Additive and re-runnable — an existing row is refreshed,
  * never replaced, and nothing is deleted when a route disappears.
  */
+/**
+ * What migrating this node's nginx sites to Caddy would do. Read-only and
+ * repeatable — it parses the configuration and resolves each hostname, and
+ * changes nothing at all.
+ */
+router.get('/:id/nginx', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    const plan = await planMigration(server);
+    return res.json({ success: true, data: plan } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error reading nginx config:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not read this node' } as ApiResponse);
+  }
+});
+
+/**
+ * Switch this node's sites from nginx to Caddy. Stops nginx, loads the whole
+ * plan into Caddy at once and checks every hostname answers; any that does not
+ * starts nginx again. nginx's own configuration is never edited or removed.
+ */
+router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+
+    // Planned again here rather than trusting what the browser was shown: the
+    // configuration may have changed since, and this one takes the box down.
+    const plan = await planMigration(server);
+    if (!plan.ready) {
+      return res.status(409).json({
+        success: false,
+        error: 'Some sites cannot be migrated — review them first.',
+        data: plan,
+      } as ApiResponse);
+    }
+
+    const result = await migrateToCaddy(server, plan);
+    await prisma.log.create({
+      data: {
+        level: result.switched ? 'INFO' : 'WARN',
+        message: `nginx → Caddy on ${server.name}: ${result.message}`,
+        userId: req.user!.userId,
+      },
+    });
+    // a rollback is a real answer, not a server fault: the box is still serving
+    return res.status(result.switched ? 200 : 409).json({
+      success: result.switched,
+      data: result,
+      ...(result.switched ? { message: result.message } : { error: result.message }),
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error migrating nginx to Caddy:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not migrate this node' } as ApiResponse);
+  }
+});
+
 router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });

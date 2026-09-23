@@ -26,6 +26,10 @@
 #   NODE_MAJOR      24
 #   WITH_PHP        1   PHP-FPM + composer for PHP tenants; WITH_PHP=0 skips them
 #   WITH_NVM=1      also install system-wide nvm in /opt/nvm (per-app Node versions)
+#   WITH_PODMAN=1   rootless Podman for COMPOSE tenants. Each org's stacks run as
+#                   its own cb-<slug>, like every other runtime here. Needs
+#                   podman 4.x, so Ubuntu 24.04 or newer - 22.04 ships 3.4, whose
+#                   compose support is not good enough to build on.
 #   SERVER_IP       public IP, only printed in the summary; auto-detected when unset
 #
 # Not done here, on purpose: disk quotas (needs a reboot on a live box — see
@@ -34,9 +38,12 @@
 set -euo pipefail
 
 PANEL_SSH_PUBKEY="${PANEL_SSH_PUBKEY:-}"
+# Set when another web server holds :80/:443 and Caddy was left stopped.
+CADDY_HELD_BACK=0
 NODE_MAJOR="${NODE_MAJOR:-24}"
 WITH_PHP="${WITH_PHP:-1}"
 WITH_NVM="${WITH_NVM:-0}"
+WITH_PODMAN="${WITH_PODMAN:-0}"
 SERVER_IP="${SERVER_IP:-}"
 
 # Group that owns tenant homes; the SSH user and Caddy are in it.
@@ -104,6 +111,39 @@ if [ "$WITH_PHP" = "1" ]; then
   note "PHP-FPM + composer"
   apt-get install -y -qq php-fpm php-cli php-mysql php-pgsql php-xml php-mbstring php-curl php-zip composer >/dev/null
   note "php $(php -r 'echo PHP_VERSION;'), $(composer --version 2>/dev/null | head -1)"
+fi
+
+# Rootless Podman for COMPOSE tenants. Rootless, not a root daemon, because an
+# org's stack has to run as its own cb-<slug> like everything else on this box -
+# a shared root daemon would be the one runtime that crosses tenant boundaries.
+# uidmap gives newuidmap/newgidmap (the user namespace), slirp4netns the
+# rootless network, fuse-overlayfs the layer store.
+if [ "$WITH_PODMAN" = "1" ]; then
+  note "rootless Podman"
+  apt-get install -y -qq podman uidmap slirp4netns fuse-overlayfs docker-compose-v2 >/dev/null
+
+  # 3.4 (Ubuntu 22.04) accepts these commands and then fails in ways that read
+  # as application bugs in a deploy log. Refuse it here instead.
+  PODMAN_MAJOR="$(podman --version | sed -n 's/^podman version \([0-9]*\).*/\1/p')"
+  [ -n "$PODMAN_MAJOR" ] && [ "$PODMAN_MAJOR" -ge 4 ] \
+    || die "podman $(podman --version 2>/dev/null || echo 'not installed') is too old - Larika needs 4.x, so Ubuntu 24.04 or newer"
+
+  # Compose v2 talking to the calling user's own rootless Podman socket. The
+  # backend always runs `cb-compose`, so the plugin's path is resolved once here
+  # rather than guessed on every call. Written by install.sh.
+  COMPOSE_BIN="$(command -v docker-compose || true)"
+  [ -n "$COMPOSE_BIN" ] || COMPOSE_BIN=/usr/libexec/docker/cli-plugins/docker-compose
+  [ -x "$COMPOSE_BIN" ] || die "docker-compose-v2 installed but no compose binary found at $COMPOSE_BIN"
+  cat > /usr/local/bin/cb-compose <<EOF
+#!/bin/sh
+# Written by install.sh. Compose v2 against the calling user's rootless Podman.
+exec env DOCKER_HOST="unix:///run/user/\$(id -u)/podman/podman.sock" $COMPOSE_BIN "\$@"
+EOF
+  chmod 0755 /usr/local/bin/cb-compose
+
+  # Rootless containers need their user's namespace ranges; cb-provision-org
+  # assigns each org a range derived from its UID.
+  note "podman $(podman --version | awk '{print $3}'), compose $("$COMPOSE_BIN" version --short 2>/dev/null || echo '?')"
 fi
 
 # ------------------------------------------------------------ 2. build user
@@ -228,6 +268,17 @@ caddyfile_serves_sites() {
 ADMIN=http://127.0.0.1:2019
 admin_up() { curl -fsS -m 3 "$ADMIN/config/" >/dev/null 2>&1; }
 
+# Another web server already on :80/:443 — a box that served sites before it
+# became a node. Caddy with an empty config binds nothing, so starting it here
+# would look fine and then fail on the first route the panel pushes, which is a
+# much worse place to find out. Named services first, then any listener, since
+# a published container port belongs to no service at all.
+OTHER_HTTP=""
+for other in nginx apache2 httpd lighttpd haproxy traefik; do
+  systemctl is-active --quiet "$other" 2>/dev/null && OTHER_HTTP="${OTHER_HTTP:+$OTHER_HTTP, }$other"
+done
+http_port_taken() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ':(80|443)$'; }
+
 # Setup never resets a running app: whatever Caddy is serving keeps serving.
 if systemctl is-active --quiet caddy && caddyfile_serves_sites; then
   # Sites served from a Caddyfile (the panel's own box, or a hand-built one).
@@ -263,6 +314,14 @@ elif systemctl is-active --quiet caddy; then
     die "could not move the Caddy config to caddy-api.service - caddy.service restored with its routes"
   fi
   rm -f "$LIVE"
+elif [ -n "$OTHER_HTTP" ] || http_port_taken; then
+  # Left alone on purpose. Nothing here stops or reconfigures the other server,
+  # and none of its configuration is touched: taking a live box's sites down is
+  # a decision with a person behind it, not a side effect of running setup.
+  note "WARNING: ${OTHER_HTTP:-something else} is serving on :80/:443 - caddy-api.service NOT started, and nothing of its configuration was changed."
+  note "This node is set up in every other way. Routing and TLS for new apps stay off until Caddy can have those ports."
+  note "In the panel: sync this node's apps, then use Migrate to Caddy, which previews every site before it switches."
+  CADDY_HELD_BACK=1
 else
   systemctl enable --now caddy-api >/dev/null 2>&1 || die "could not start caddy-api.service"
   note "caddy-api.service running - routes arrive through the admin API and persist in Caddy's autosave"
@@ -287,7 +346,15 @@ say "Verify"
 sudo -u "$SSH_USER" sudo -n true \
   || die "$SSH_USER has no passwordless root - check /etc/sudoers.d/larika"
 note "$SSH_USER has passwordless root for the runner scripts"
-systemctl is-active --quiet caddy-api || systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
+if [ "$CADDY_HELD_BACK" = "1" ]; then
+  note "caddy is installed but not started - ${OTHER_HTTP:-another server} still owns :80/:443"
+else
+  systemctl is-active --quiet caddy-api || systemctl is-active --quiet caddy || note "WARNING: caddy is not running"
+fi
+if [ "$WITH_PODMAN" = "1" ]; then
+  command -v cb-compose >/dev/null && note "cb-compose is on PATH for COMPOSE tenants" \
+    || note "WARNING: cb-compose is missing - COMPOSE apps will not deploy here"
+fi
 
 say "Done"
 # Run by the panel's Set up: the server is registered already, and the

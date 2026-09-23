@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import * as systemd from './systemdService';
+import * as compose from './composeService';
 
 /**
  * Reconciles the stored application status with what systemd reports, so an
@@ -22,7 +23,11 @@ export async function checkAllApplications(): Promise<void> {
 
   for (const application of applications) {
     try {
-      const status = await systemd.getStatus(application);
+      // A stack answers for itself; systemd.getStatus says RUNNING for
+      // everything without a unit, which for a compose app is a lie.
+      const status = compose.needsCompose(application.type)
+        ? await compose.getStatus(application)
+        : await systemd.getStatus(application);
       // unreachable node: keep what we had rather than guess
       if (status !== 'UNKNOWN' && status !== application.status) {
         await prisma.application.update({

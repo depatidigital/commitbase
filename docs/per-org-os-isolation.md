@@ -4,7 +4,10 @@ Every organization gets its own Linux user, home directory, disk quota, cgroup
 slice and PHP-FPM pool. One tenant's processes cannot read another tenant's
 files, and one tenant cannot eat the whole VPS.
 
-Docker is not used at all — apps run as systemd units.
+Apps run as systemd units. There is no Docker daemon: a node that hosts
+compose apps runs **rootless Podman**, so an organization's containers belong
+to that organization's own user like everything else it owns. A root daemon
+would be the one thing on the box crossing the boundary below.
 
 ## Organizations span nodes
 
@@ -38,7 +41,13 @@ such presence is one `org_nodes` row with its own provisioning state and log.
 /etc/systemd/system/cb-<slug>.slice                  CPU + memory ceiling
 /etc/systemd/system/cb-<slug>-<applicationId>.service
 /etc/php/<ver>/fpm/pool.d/cb-<slug>.conf             open_basedir + disable_functions
+/home/cb-<slug>/.local/share/containers              rootless Podman's image + volume store
+/etc/subuid, /etc/subgid                             the org's user-namespace range
 ```
+
+The container store is the org user's own and is never chowned by
+re-provisioning — it is hardlinked and owned across a user namespace, so
+touching it corrupts it (the same reason `node_modules` is left alone).
 
 The home is owned by the tenant user with the backend's group, mode 2770. That
 is the boundary: `other` has no bits, so tenant B cannot even traverse into
@@ -144,6 +153,12 @@ Set per install in the backend env, applied per organization:
 The slice is org-wide, not per app: all of one tenant's apps share the ceiling,
 so a tenant cannot buy more CPU by splitting one app into five.
 
+**Known gap — compose apps escape these two.** A rootless container runs under
+the user's own `user-<uid>.slice`, not under `cb-<slug>.slice`, so `CPUQuota`
+and `MemoryMax` above do not apply to it. Disk does still count: the image and
+volume store lives in the org's home, so it is inside the quota. Capping a
+stack means limits in the compose file itself until this is wired up.
+
 ### Different limits per organization
 
 Every limit is per OS user / per slice, so each org can have its own. What
@@ -240,7 +255,8 @@ users and slices are inert once nothing references them; remove one with
    restarted. The deploy waits for an HTTP answer on `127.0.0.1:$PORT`.
 5. No answer within `APP_HEALTH_TIMEOUT_MS` → `current` goes back to the
    previous release, it is restarted, and the deployment is marked FAILED.
-6. The last 3 releases are kept; "start release" on `/applications/:id`
+6. The last `KEEP_RELEASES` releases are kept (default 2: the live one and one
+   to roll back to); "start release" on `/applications/:id`
    switches `current` to any of them.
 
 Node version: if the app has `.nvmrc`, `.node-version` or `engines.node` with

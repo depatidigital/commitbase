@@ -22,7 +22,9 @@ as root. By hand, on the node:
 sudo PANEL_SSH_PUBKEY="$(cat id_ed25519.pub)" ./install.sh   # the panel's /opt/larika/.ssh/id_ed25519.pub
 ```
 
-Knobs, all optional: `WITH_PHP=0` (skip PHP-FPM + Composer, installed by default), `WITH_NVM=1` (per-app Node
+Knobs, all optional: `WITH_PHP=0` (skip PHP-FPM + Composer, installed by default), `WITH_PODMAN=1`
+(rootless Podman for compose apps; needs Ubuntu 24.04+, and the panel passes it
+for a node whose container runtime is set to Podman), `WITH_NVM=1` (per-app Node
 versions), `NODE_MAJOR=24`, `ACME_EMAIL`, `SSH_USER`, `SERVER_IP`. Idempotent;
 a re-run that finds the Caddyfile already correct does not reload Caddy, so
 live tenant routes are not dropped.
@@ -735,6 +737,62 @@ are independent of the backend process.
 | Laravel shows *No application encryption key* | Only if `APP_KEY` was deleted from the app env — it is generated on the first deploy. Redeploy |
 | PHP tenant hits *open_basedir restriction* | Expected — that is the isolation boundary. Widen the pool's `open_basedir` only with a reason |
 | Everyone logged out after a deploy | `JWT_SECRET` changed, or the env file is not being read |
+
+---
+
+## Adding a box that already serves sites
+
+A VM already running nginx (or Apache) with live sites on it can be added as a
+node. Setup will not touch the other server or its configuration:
+
+- It notices anything holding :80/:443 and **leaves Caddy installed but
+  stopped**, saying so in the setup output. Everything else — the SSH user,
+  sudoers, packages, the build user — is set up normally.
+- Nothing of the other server's configuration is read, moved or removed.
+- Until Caddy has those ports, the panel cannot route or issue certificates on
+  that node. Pushing a route fails with a message that says exactly this rather
+  than a connection error.
+
+The order to follow is: add and set up the node, sync its apps so the panel
+knows what is already there, then migrate those sites to Caddy — which previews
+every one before switching — and only then point new apps at it.
+
+Do not simply `systemctl stop nginx` to free the ports: the sites it serves
+have no Caddy routes yet, so they would go down and stay down.
+
+### The nginx tab
+
+A node page has an **nginx** tab once it is registered. It reads
+`/etc/nginx/sites-enabled` and `/etc/nginx/conf.d`, and shows what each site
+would become in Caddy: what it serves, the behaviour being carried over
+(upload limits, read timeouts, unbuffered responses), and anything it could not
+account for. Reading changes nothing and can be repeated.
+
+**Migrate to Caddy** is refused while any site is unmigratable — one the panel
+cannot serve would simply go dark after the switch. When it runs, it stops
+nginx, starts Caddy with every site loaded in one request, and asks each
+hostname for its home page through the node's own loopback. If any does not
+answer, nginx is started again and nothing has changed. nginx's configuration
+is never edited or removed, so the way back is always:
+
+```bash
+systemctl disable --now caddy-api
+systemctl enable  --now nginx
+```
+
+Two things to expect afterwards:
+
+- **A few seconds of downtime** during the switch, plus a short wait while
+  Caddy gets its own certificates. It does not reuse certbot's.
+- **Certbot renewals will start failing**, because its `--nginx` hook has no
+  nginx to reload and :80 now belongs to Caddy. Once the migration has held,
+  disable the renewal timer (`systemctl disable --now certbot.timer`). Caddy
+  renews on its own.
+
+A hostname in a `server_name` whose DNS does not point at this node is
+flagged before the switch. nginx never minded, because certbot was told which
+names to ask for; Caddy asks for every name on the route, and one that does not
+resolve here fails its challenge repeatedly.
 
 ---
 

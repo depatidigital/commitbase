@@ -95,13 +95,62 @@ fi
 mkdir -p "$HOME_DIR/apps"
 # node_modules stays the build user's (see cb-app-unit hand_to_tenant): pnpm
 # hardlinks it from its store, so chowning it hands the store's inodes to the
-# tenant and every later install fails with ERR_PNPM_CMD_SHIM_CHMOD
-find "$HOME_DIR" -name node_modules -prune -o \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
+# tenant and every later install fails with ERR_PNPM_CMD_SHIM_CHMOD.
+# .local/share/containers is left alone for the same shape of reason: it is
+# podman's layer store, hardlinked and deliberately owned across a user
+# namespace, and chowning it corrupts it.
+find "$HOME_DIR" \( -name node_modules -o -path "$HOME_DIR/.local/share/containers" \) -prune -o \( ! -user "$OS_USER" -o ! -group "$CB_GROUP" \) -exec chown -h "$OS_USER:$CB_GROUP" {} +
 # setgid so anything the org user writes stays group-readable by the backend
 chmod 2770 "$HOME_DIR" "$HOME_DIR/apps"
 
 # Long-running user units need lingering, and PHP-FPM/systemd need the home.
+# Also what starts this user's systemd manager and creates /run/user/<uid>,
+# which rootless podman needs, so the podman block below checks it took.
 loginctl enable-linger "$OS_USER" >/dev/null 2>&1 || true
+
+# --- 1b. rootless containers ------------------------------------------------
+# Only on a node set up with WITH_PODMAN. An org's stacks run as its own user,
+# in a user namespace, which needs a subordinate UID/GID range. The range is
+# derived from the org's UID rather than allocated: same range on every node,
+# for the same reason the UID is the same on every node. A range that is
+# already someone else's is refused, never shared — as with the UID above.
+if command -v podman >/dev/null 2>&1; then
+  if [ -z "$ORG_UID" ] || [ "$ORG_UID" -lt 200000 ]; then
+    # Orgs from before the panel assigned UIDs: useradd picked the number, so
+    # there is nothing stable to derive from. Said, not fatal — everything but
+    # compose apps works fine for them.
+    echo "warning: $OS_USER has no panel-assigned UID, so no subuid range — compose apps will not run for this org" >&2
+  else
+    SUB_START=$(( 2000000 + (ORG_UID - 200000) * 65536 ))
+    SUB_COUNT=65536
+    for MAP in /etc/subuid /etc/subgid; do
+      [ -f "$MAP" ] || : > "$MAP"
+      MINE="$(grep -c "^$OS_USER:" "$MAP" || true)"
+      if [ "$MINE" -gt 0 ]; then
+        grep -q "^$OS_USER:$SUB_START:$SUB_COUNT\$" "$MAP" \
+          || echo "warning: $MAP already maps $OS_USER to a different range — left as it is" >&2
+        continue
+      fi
+      OTHER="$(awk -F: -v s="$SUB_START" '$2 == s { print $1 }' "$MAP" | head -1)"
+      [ -z "$OTHER" ] || { echo "cb-provision-org: $MAP already gives range $SUB_START to '$OTHER'" >&2; exit 5; }
+      printf '%s:%s:%s\n' "$OS_USER" "$SUB_START" "$SUB_COUNT" >> "$MAP"
+    done
+    echo "subuid/subgid: $OS_USER $SUB_START+$SUB_COUNT"
+
+    # The compose CLI talks to this user's own podman socket (see cb-compose,
+    # written by install.sh). Enabling it here also proves the user manager is
+    # up, which is the part lingering is responsible for.
+    RUN_DIR="/run/user/$(id -u "$OS_USER")"
+    if [ -d "$RUN_DIR" ]; then
+      runuser -u "$OS_USER" -- env "XDG_RUNTIME_DIR=$RUN_DIR" "DBUS_SESSION_BUS_ADDRESS=unix:path=$RUN_DIR/bus" \
+        systemctl --user enable --now podman.socket >/dev/null 2>&1 \
+        && echo "podman socket enabled for $OS_USER" \
+        || echo "warning: could not enable podman.socket for $OS_USER — compose apps will not start" >&2
+    else
+      echo "warning: $RUN_DIR does not exist — lingering did not take, so rootless podman cannot run" >&2
+    fi
+  fi
+fi
 
 # --- 2. Disk quota ----------------------------------------------------------
 # Best effort. Needs quotas enabled on the filesystem holding $HOME_ROOT

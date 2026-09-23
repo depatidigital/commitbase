@@ -19,6 +19,7 @@ export const AppType = {
   RUST: 'RUST',
   PHP: 'PHP',
   JAVA: 'JAVA',
+  COMPOSE: 'COMPOSE',
 } as const;
 
 export type AppType = typeof AppType[keyof typeof AppType];
@@ -101,11 +102,31 @@ const rootDirectorySchema = z
     return cleaned === null || ROOT_DIRECTORY_RE.test(cleaned);
   }, 'Root directory is a folder in the repository, like apps/web');
 
+/**
+ * A file inside the app's tree — a compose file or an env file. It ends up in a
+ * path join and in an argv, so it stays relative and may not climb out with
+ * `..`. Dotfiles are allowed on purpose: `.env` and `.ckan-env` are two of these.
+ */
+const COMPOSE_PATH_RE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w.-]+)*$/;
+const composePathList = (what: string) =>
+  z
+    .array(z.string().trim().min(1).max(255).regex(COMPOSE_PATH_RE, `${what} is a file in the repository, like docker-compose.yml`))
+    .max(10)
+    .optional();
+
+/** The four columns only a COMPOSE app reads. Shared by create and update. */
+const composeFields = {
+  composeFiles: composePathList('A compose file'),
+  composeEnvFiles: composePathList('An env file'),
+  composePort: z.coerce.number().int().min(1).max(65535).nullable().optional(),
+  composeService: z.string().trim().min(1).max(63).regex(/^[A-Za-z0-9._-]+$/, 'invalid service name').nullable().optional(),
+};
+
 export const CreateApplicationSchema = z.object({
   name: z.string().min(1, 'Application name is required'),
   // its first host — optional: an app is created first, its hosts added (and it deployed) later
   domain: z.string().optional(),
-  type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA']),
+  type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA', 'COMPOSE']),
   repository: z.string().optional(),
   // Which connected GitHub/GitLab account clones a private repository
   gitAccountId: z.string().optional(),
@@ -127,11 +148,12 @@ export const CreateApplicationSchema = z.object({
   sourceId: z.string().min(1).optional(),
   // a new project's own name, when its first app is named apart from it (a monorepo's drafts)
   projectName: z.string().optional(),
+  ...composeFields,
 });
 
 export const UpdateApplicationSchema = z.object({
   name: z.string().min(1, 'Application name is required').optional(),
-  type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA']).optional(),
+  type: z.enum(['NODEJS', 'STATIC', 'PYTHON', 'GO', 'RUST', 'PHP', 'JAVA', 'COMPOSE']).optional(),
   repository: z.string().optional(),
   gitAccountId: z.string().nullable().optional(),
   branch: z.string().optional(),
@@ -143,6 +165,7 @@ export const UpdateApplicationSchema = z.object({
   startCommand: z.string().optional(),
   envVars: z.record(z.string()).optional(),
   dnsConsent: z.boolean().optional(),
+  ...composeFields,
 });
 
 // Database schemas
@@ -216,7 +239,7 @@ export interface Application {
   name: string;
   /** its hostnames, all alike */
   domains: Array<{ host: string; domainId: string | null }>;
-  type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA';
+  type: 'NODEJS' | 'STATIC' | 'PYTHON' | 'GO' | 'RUST' | 'PHP' | 'JAVA' | 'COMPOSE';
   status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'DEPLOYING' | 'BUILDING';
   port?: number;
   memory?: string;

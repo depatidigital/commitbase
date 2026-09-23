@@ -34,9 +34,16 @@ const DEFAULT_START_COMMANDS: Record<string, string> = {
   JAVA: 'java -jar app.jar',
 };
 
-/** STATIC and PHP are served by Caddy / PHP-FPM, not by a unit of their own. */
+/**
+ * STATIC and PHP are served by Caddy / PHP-FPM, not by a unit of their own, and
+ * a COMPOSE app's stack is its own process manager (composeService).
+ *
+ * Careful with the two things this does *not* mean for COMPOSE: it still needs
+ * a port from the pool, and it still has to be started — see the callers in
+ * deployment.ts, which ask for a compose stack explicitly.
+ */
 export function needsUnit(type: string): boolean {
-  return type !== 'STATIC' && type !== 'PHP';
+  return type !== 'STATIC' && type !== 'PHP' && type !== 'COMPOSE';
 }
 
 export function defaultPort(type: string): number {

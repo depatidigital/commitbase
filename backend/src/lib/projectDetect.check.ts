@@ -299,3 +299,25 @@ assert.ok(presenceOnly('app.py'));
 assert.deepStrictEqual(appFoldersOf(['requirements.txt', 'web/package.json'], () => ({ scripts: { build: 'vite build' } })), ['', 'web']);
 
 console.log('projectDetect: python ok');
+
+// a repository whose compose file is the deployment: no package.json, no
+// composer.json — nothing else to build it as. CKAN keeps its in compose/.
+const stack = detectFromFiles({ 'compose/docker-compose.yml': 'services:\n  ckan:\n    build: .\n' });
+assert.strictEqual(stack.type, 'COMPOSE');
+assert.strictEqual(stack.composeFile, 'compose/docker-compose.yml');
+assert.strictEqual(stack.buildCommand, null);
+
+// a Node app that ships a compose file to run Postgres while developing is
+// still a Node app — the compose file is not what gets deployed
+const nodeWithCompose = detectFromFiles({
+  'docker-compose.yml': 'services:\n  db:\n    image: postgres\n',
+  'package.json': JSON.stringify({ dependencies: { next: '14' }, scripts: { build: 'next build' } }),
+});
+assert.strictEqual(nodeWithCompose.type, 'NODEJS');
+assert.strictEqual(nodeWithCompose.framework, 'nextjs');
+
+// the same for PHP: composer.json decides, and the operator picks COMPOSE by hand
+const phpWithCompose = detectFromFiles({ 'docker-compose.yml': 'services: {}\n', 'composer.json': '{}' });
+assert.strictEqual(phpWithCompose.type, 'PHP');
+
+console.log('projectDetect: compose ok');

@@ -75,6 +75,8 @@ export async function runServerSetup(serverId: string): Promise<void> {
         `SERVER_IP=${server.publicIp}`,
         `PANEL_LOGIN_USER=${server.sshUser}`,
         'FROM_PANEL=1',
+        // Turning Podman on for a node is a re-run of Set up; install.sh is idempotent.
+        ...(server.containerRuntime === 'PODMAN' ? ['WITH_PODMAN=1'] : []),
         ...(email ? [`ACME_EMAIL=${email}`] : []),
       ];
 

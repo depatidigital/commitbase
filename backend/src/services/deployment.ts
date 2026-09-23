@@ -19,6 +19,7 @@ import { gitAuthFor } from '../lib/gitCredentials';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
+import * as compose from './composeService';
 import * as http from 'http';
 import { cleanupAppReleases } from './appDiskService';
 import { buildKeyOf, groupBuildKey } from '../lib/buildKey';
@@ -547,7 +548,8 @@ export class DeploymentService {
     const named = (app: Application) => (group.length > 1 ? `${app.name}${app.rootDirectory ? ` (${app.rootDirectory})` : ''}: ` : '');
 
     try {
-      for (const app of group) if (systemd.needsUnit(app.type)) await this.allocatePort(app, afs);
+      // A compose stack needs a port too: it publishes on one, Caddy proxies to it.
+      for (const app of group) if (systemd.needsUnit(app.type) || compose.needsCompose(app.type)) await this.allocatePort(app, afs);
       await this.removeOrphanReleases(afs, first.id);
 
       // appended: the deploy emptied build.log when it began — one log for the whole deploy
@@ -573,6 +575,20 @@ export class DeploymentService {
         const envVars = envs.get(app.id) ?? {};
         const workDir = inRootDirectory(releaseDir, app.rootDirectory);
         if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${app.rootDirectory} in the repository (${app.name})`);
+
+        // A compose stack is not built here: `compose up --build` builds the
+        // images on the node, at start. All the release needs is the files the
+        // stack reads — written now so the tree is complete before it goes live.
+        if (compose.needsCompose(app.type)) {
+          await compose.writeComposeEnv(app, afs, workDir);
+          const missing = await Promise.all(
+            compose.composeFilesOf(app).map(async (file) => ((await afs.exists(join(workDir, file))) ? null : file)),
+          );
+          const gone = missing.filter((file): file is string => file !== null);
+          if (gone.length > 0) throw new Error(`${app.name}: no ${gone.join(', ')} in ${app.rootDirectory || 'the repository root'}`);
+          await log(`${named(app)}Compose stack: ${compose.composeFilesOf(app).join(', ')}`);
+          continue;
+        }
 
         const detected = await detectProject(workDir, afs.readText, undefined, releaseDir, app.packageManager);
         // a workspace installs at the root; composer.lock is always the folder's own
@@ -938,6 +954,29 @@ export class DeploymentService {
       await afs.mkdir(logsDirFor(afs.appDir));
       await deployLog(`[${new Date().toISOString()}] DEPLOYMENT STARTED`);
 
+      if (compose.needsCompose(application.type)) {
+        // The env files and the port override belong to the tree being started,
+        // so they are written here rather than only at build: this is also the
+        // path a rollback and a plain restart take.
+        const workDir = await compose.stackDirOf(application, afs);
+        await compose.writeComposeEnv(application, afs, workDir);
+        if (!application.composeService || !application.composePort) {
+          await deployLog('No service and container port set, so the stack keeps the ports its own compose file publishes.');
+        }
+        await deployLog(`Bringing the stack up: ${compose.composeFilesOf(application).join(', ')} in ${workDir}`);
+        const up = await compose.startApplication(application, { onOutput: (text) => void deployLog(text.trimEnd()) });
+        if (up && application.port) {
+          await deployLog(`Waiting for the stack to answer on 127.0.0.1:${application.port}`);
+        }
+        const healthy = up && application.port ? await this.waitForHealthy(afs, application.port) : up;
+        if (up && !healthy) {
+          await deployLog(`Nothing answered on port ${application.port} within ${HEALTH_TIMEOUT_MS / 1000}s. Check that the service publishes ${application.composePort}.`);
+        }
+        if (!up) await deployLog('The stack did not come up.');
+        await deployLog(`[${new Date().toISOString()}] DEPLOYMENT ${healthy ? 'COMPLETED' : 'FAILED'}`);
+        return healthy;
+      }
+
       let started = await systemd.startApplication(application);
 
       if (systemd.needsUnit(application.type)) {
@@ -994,7 +1033,9 @@ export class DeploymentService {
       await this.activateRelease(afs, release.path);
     }
 
-    // PHP serves straight from `current`: the switch above is all it needs
+    // PHP serves straight from `current`: the switch above is all it needs.
+    // A stack does not notice `current` moving, so it is brought up again.
+    if (compose.needsCompose(application.type)) return this.startApplication(application.id);
     return systemd.needsUnit(application.type) ? this.startApplication(application.id) : true;
   }
 
@@ -1007,7 +1048,8 @@ export class DeploymentService {
     try {
       const application = await this.appWithOrg(applicationId);
       if (!application) return false;
-      await systemd.stopApplication(application);
+      if (compose.needsCompose(application.type)) await compose.stopApplication(application);
+      else await systemd.stopApplication(application);
       return true;
     } catch (error) {
       console.error('Failed to stop application:', error);
@@ -1019,7 +1061,8 @@ export class DeploymentService {
     try {
       const application = await this.appWithOrg(applicationId);
       if (!application) return false;
-      await systemd.restartApplication(application);
+      if (compose.needsCompose(application.type)) await compose.restartApplication(application);
+      else await systemd.restartApplication(application);
       return true;
     } catch (error) {
       console.error('Failed to restart application:', error);
@@ -1549,8 +1592,11 @@ export class DeploymentService {
         await this.activateRelease(afs, previousRelease);
         rolledBack = true;
         for (const app of group) {
-          // PHP serves straight from `current`: switching it back is the rollback
-          if (systemd.needsUnit(app.type)) rolledBack = (await this.startApplication(app.id).catch(() => false)) && rolledBack;
+          // PHP serves straight from `current`: switching it back is the rollback.
+          // A stack has to be brought up again against the tree that came back.
+          if (systemd.needsUnit(app.type) || compose.needsCompose(app.type)) {
+            rolledBack = (await this.startApplication(app.id).catch(() => false)) && rolledBack;
+          }
         }
         // a reused tree is a kept release — never this deploy's to delete
         if (!reused) await afs.rm(buildResult.releaseDir!, { recursive: true, force: true }).catch(() => {});
@@ -1694,7 +1740,7 @@ export class DeploymentService {
     try {
       const application = await this.appWithOrg(applicationId);
       if (!application) return 'ERROR';
-      return systemd.getStatus(application);
+      return compose.needsCompose(application.type) ? compose.getStatus(application) : systemd.getStatus(application);
     } catch (error) {
       return 'ERROR';
     }

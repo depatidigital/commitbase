@@ -118,6 +118,32 @@ export function execRoot(server: SshTarget, argv: string[], opts: ExecOptions = 
   return exec(server, ['sudo', '-n', ...argv], opts);
 }
 
+/** Must match the org slug rule in runner/cb-provision-org.sh. */
+const ORG_SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
+
+/**
+ * Run argv as one organization's own Linux user — the third access path, beside
+ * the SSH user (appFs.run) and root (execRoot). Rootless podman is what needs
+ * it: a tenant's containers belong to the tenant, like its systemd units do.
+ *
+ * Via root, because the SSH user may not become another user by itself, and
+ * with `runuser` rather than `su` because cb-<slug> has no login shell. The two
+ * environment variables are how a user session is found: without them podman
+ * has no runtime directory and `systemctl --user` has nothing to talk to. They
+ * exist because cb-provision-org enables lingering for the user.
+ */
+export function execOrg(server: SshTarget, slug: string, uid: number, argv: string[], opts: ExecOptions = {}): Promise<ExecResult> {
+  if (!ORG_SLUG.test(slug)) throw new Error(`Refusing to run as an invalid organization slug: '${slug}'`);
+  if (!Number.isInteger(uid) || uid < 1) throw new Error(`Refusing to run as organization uid '${uid}'`);
+  if (argv.length === 0) throw new Error('execOrg needs a command to run');
+  const runDir = `/run/user/${uid}`;
+  return execRoot(
+    server,
+    ['runuser', '-u', `cb-${slug}`, '--', 'env', `XDG_RUNTIME_DIR=${runDir}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=${runDir}/bus`, ...argv],
+    opts,
+  );
+}
+
 // One live connection per server, reused across execs. A deploy fires many
 // commands back to back and an SSH handshake per command would dominate.
 const pool = new Map<string, Promise<Client>>();

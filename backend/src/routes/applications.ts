@@ -30,6 +30,7 @@ import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, hea
 import { serverForApplication } from '../lib/servers';
 import { forgetPointing, healthFor, isServing } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
+import * as compose from '../services/composeService';
 import { appFsFor, sourceFsFor } from '../lib/appFs';
 import { cleanRootDirectory, inRootDirectory, ROOT_DIRECTORY_RE } from '../lib/appPaths';
 import { queueOrgNode } from '../services/orgProvisionService';
@@ -657,6 +658,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, startCommand, port, envVars, gitAccountId } = req.body;
+    const { composeFiles, composeEnvFiles, composePort, composeService } = req.body;
     const domain = normalizeHost(req.body.domain);
     const rootDirectory = cleanRootDirectory(req.body.rootDirectory);
 
@@ -751,6 +753,15 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
     if (!node) {
       return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
     }
+    // Said here rather than at the first deploy: "pick another node" is a
+    // different answer from a red build log three screens later.
+    if (type === 'COMPOSE' && node.containerRuntime === 'NONE') {
+      return res.status(400).json({
+        success: false,
+        error: `${node.name} has no container runtime — pick a node that runs one, or turn it on for this node and run Set up again.`,
+      } as ApiResponse);
+    }
+
     const taken = domain && parentDomain ? await sharedHostTaken(parentDomain, domain, node) : null;
     if (taken) {
       return res.status(409).json({ success: false, error: taken } as ApiResponse);
@@ -769,6 +780,10 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       startCommand,
       port,
       ...(envVars && { envVars: sealEnv(envVars) }),
+      ...(composeFiles !== undefined && { composeFiles }),
+      ...(composeEnvFiles !== undefined && { composeEnvFiles }),
+      ...(composePort !== undefined && { composePort }),
+      ...(composeService !== undefined && { composeService }),
       userId: req.user!.userId,
       organizationId,
       serverId,
@@ -1097,6 +1112,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     // hostnames are not edited here: POST/DELETE /:id/domains
     const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, pruneDevDeps, startCommand, port, envVars, gitAccountId, rootDirectory, packageManager } =
       req.body || {};
+    const { composeFiles, composeEnvFiles, composePort, composeService } = req.body || {};
     if (packageManager !== undefined && packageManager !== null && packageManager !== '' && !['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
       return res.status(400).json({ success: false, error: 'packageManager must be npm, pnpm, yarn or bun' });
     }
@@ -1156,6 +1172,12 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         startCommand,
         port,
         ...(envVars !== undefined && { envVars: sealEnv(envVars) }),
+        // '' / null on either of the last two: no port is republished and no
+        // default service for exec — the stack keeps what its own files say.
+        ...(composeFiles !== undefined && { composeFiles }),
+        ...(composeEnvFiles !== undefined && { composeEnvFiles }),
+        ...(composePort !== undefined && { composePort: composePort || null }),
+        ...(composeService !== undefined && { composeService: composeService || null }),
       },
     });
 
@@ -1525,6 +1547,13 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
 
     // Tear down what the deploy created: the unit, the site config, the files.
     if (!application.runtime) {
+      if (compose.needsCompose(application.type)) {
+        // Volumes are a compose app's database, and an app is deleted far more
+        // often than its data is meant to be — so they go only when asked.
+        await compose.removeApplication(application, { volumes: req.body?.removeVolumes === true }).catch((error) => {
+          console.error(`Failed to take down the stack for ${application.name}:`, error);
+        });
+      }
       await systemd.removeApplication(application).catch((error) => {
         console.error(`Failed to remove unit for ${application.name}:`, error);
       });
@@ -1778,6 +1807,68 @@ router.post('/:id/cleanup', authenticateToken, async (req: AuthenticatedRequest,
   } catch (error: any) {
     console.error('Error cleaning up app:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not clean up' } as ApiResponse);
+  }
+});
+
+/**
+ * Run one command inside a service of a compose stack — `ckan user add`, a
+ * migration, a seed. These apps are administered through their own CLI, and
+ * without this the panel knows about them without being able to work on them.
+ *
+ * Deliberately narrow: a fixed `compose exec <service> <argv>`, argv as a list
+ * so it reaches a real exec rather than a shell, no TTY, no session, and no
+ * other podman subcommand. Org admins and above, and every call is logged.
+ */
+router.post('/:id/exec', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await appScope(req)) },
+      include: { organization: { select: { slug: true } } },
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    if (!compose.needsCompose(application.type)) {
+      return res.status(400).json({ success: false, error: 'This is not a compose app' } as ApiResponse);
+    }
+    if (!application.organizationId || !(await canManageOrg(req, application.organizationId))) {
+      return res.status(403).json({ success: false, error: 'Only an organization admin can run commands in a stack' } as ApiResponse);
+    }
+
+    const argv = Array.isArray(req.body?.argv) ? req.body.argv.map(String) : null;
+    if (!argv || argv.length === 0) {
+      return res.status(400).json({ success: false, error: 'argv is the command to run, as a list of strings' } as ApiResponse);
+    }
+    if (argv.some((arg: string) => arg.includes('\0'))) {
+      return res.status(400).json({ success: false, error: 'argv may not contain NUL bytes' } as ApiResponse);
+    }
+    const service = typeof req.body?.service === 'string' && req.body.service ? req.body.service : null;
+    if (service && !/^[A-Za-z0-9._-]{1,63}$/.test(service)) {
+      return res.status(400).json({ success: false, error: 'invalid service name' } as ApiResponse);
+    }
+
+    await prisma.log.create({
+      data: {
+        level: 'INFO',
+        // the command, not its output: output can carry whatever the stack prints
+        message: `exec in ${application.name}${service ? ` (${service})` : ''}: ${argv.join(' ')}`,
+        userId: req.user!.userId,
+        applicationId: application.id,
+      },
+    });
+
+    const result = await compose.execInService(application, service, argv);
+    return res.json({ success: true, data: { stdout: result.stdout, stderr: result.stderr } } as ApiResponse);
+  } catch (error: any) {
+    // a non-zero exit is the command's answer, not a server fault
+    const code = typeof error?.code === 'number' ? error.code : null;
+    if (code !== null) {
+      return res.status(422).json({
+        success: false,
+        error: `Exited ${code}`,
+        data: { stdout: error?.stdout ?? '', stderr: error?.stderr ?? '', code },
+      } as ApiResponse);
+    }
+    console.error('Error running a command in a stack:', error?.message);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not run the command' } as ApiResponse);
   }
 });
 
