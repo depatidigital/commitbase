@@ -271,7 +271,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             value={`{${row.key}}`}
             readOnly
             tabIndex={-1}
-            title={t("Set by Larika when the app starts.")}
+            title={t("Set by Larika when the service starts.")}
           />
         ) : shown && (multiline || (!secret && !oneLine(row))) ? (
           // grows with what is in it (field-sizing), a line at first — a masked secret stays an input
@@ -358,7 +358,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             )}
             {platform && (
               <span className="text-muted-foreground">
-                {platform === "ignored" ? t("Set by Larika when the app starts.") : t("Larika already sets this to production; this value replaces it.")}
+                {platform === "ignored" ? t("Set by Larika when the service starts.") : t("Larika already sets this to production; this value replaces it.")}
               </span>
             )}
             {generatable && (

@@ -25,7 +25,7 @@ const STEP_LABEL: Record<TeardownStepId, () => string> = {
   process: () => t("Stop and remove the process"),
   route: () => t("Remove the Caddy route"),
   dns: () => t("Remove the DNS record"),
-  files: () => t("Delete the app folder"),
+  files: () => t("Delete the service folder"),
 };
 
 /**
@@ -78,18 +78,18 @@ export function DangerZoneCard({ application }: { application: Application }) {
       </CardHeader>
       <CardContent className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 text-sm">
-          <p className="font-medium">{t("Delete this app")}</p>
+          <p className="font-medium">{t("Delete this service")}</p>
           <p className="text-muted-foreground">
             {imported
               ? t("Removes it from the panel and from the server. If anything cannot be removed, nothing is deleted.")
-              : t("{domain} stops being served and the app is removed from the panel. This cannot be undone.", {
+              : t("{domain} stops being served and the service is removed from the panel. This cannot be undone.", {
                   domain: hostList(application),
                 })}
           </p>
         </div>
         <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setOpen(true)}>
           <Trash2 className="mr-2 h-4 w-4" />
-          {t("Delete app…")}
+          {t("Delete service…")}
         </Button>
       </CardContent>
 
@@ -99,7 +99,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
             <DialogTitle>{t("Delete {name}?", { name: application.name })}</DialogTitle>
             <DialogDescription>
               {imported
-                ? t("Set up by hand on {runtime}. All of this is removed from the server — if any of it cannot be, the app is not deleted.", {
+                ? t("Set up by hand on {runtime}. All of this is removed from the server — if any of it cannot be, the service is not deleted.", {
                     runtime: runtimeLabel(application.runtime),
                   })
                 : t("Its route, DNS record, files and deployment history go with it. There is no undo.")}
@@ -149,7 +149,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
                 )}
                 {superAdmin && plan.data?.some((step) => step.blocked) && (
                   <p className="text-xs text-destructive">
-                    {t("Sort out what is marked above first — until then the app cannot be deleted.")}
+                    {t("Sort out what is marked above first — until then the service cannot be deleted.")}
                   </p>
                 )}
               </div>
@@ -158,7 +158,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
               <p className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 text-sm">
                 <DatabaseIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 <span>
-                  {t("Kept: {names}. The data stays on its server — connect it to another app or delete it from Databases.", {
+                  {t("Kept: {names}. The data stays on its server — connect it to another service or delete it from Databases.", {
                     names: databases.map((db) => db.dbName ?? db.name).join(", "),
                   })}
                 </span>

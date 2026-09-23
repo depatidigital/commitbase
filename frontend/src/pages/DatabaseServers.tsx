@@ -478,7 +478,7 @@ export default function DatabaseServers() {
               </p>
 
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="dbs-apphost">{t("Host apps connect to")}</Label>
+                <Label htmlFor="dbs-apphost">{t("Host services connect to")}</Label>
                 <Input
                   id="dbs-apphost"
                   placeholder={form.mode === "TUNNEL" ? "10.0.0.5" : "db.example.com"}
@@ -486,7 +486,7 @@ export default function DatabaseServers() {
                   onChange={(e) => setForm({ ...form, appHost: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t("For apps on other nodes — a private IP they can reach. Apps on the same node connect over loopback on their own; left at loopback, other nodes get the node's public IP.")}
+                  {t("For services on other nodes — a private IP they can reach. Services on the same node connect over loopback on their own; left at loopback, other nodes get the node's public IP.")}
                 </p>
               </div>
 

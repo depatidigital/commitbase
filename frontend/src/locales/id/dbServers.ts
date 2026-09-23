@@ -47,9 +47,9 @@ export default {
     "Beri CREATEROLE dan CREATEDB — bukan superuser. Dienkripsi sebelum disimpan dan tidak pernah dikembalikan oleh API.",
   "Give it CREATE USER, CREATE and DROP on *.* WITH GRANT OPTION — not root. Encrypted before it is stored and never returned by the API.":
     "Beri CREATE USER, CREATE dan DROP pada *.* WITH GRANT OPTION — bukan root. Dienkripsi sebelum disimpan dan tidak pernah dikembalikan oleh API.",
-  "Host apps connect to": "Host yang dihubungi aplikasi",
-  "For apps on other nodes — a private IP they can reach. Apps on the same node connect over loopback on their own; left at loopback, other nodes get the node's public IP.":
-    "Untuk aplikasi di node lain — IP privat yang bisa mereka jangkau. Aplikasi di node yang sama otomatis lewat loopback; bila dibiarkan loopback, node lain memakai IP publik node ini.",
+  "Host services connect to": "Host yang dihubungi layanan",
+  "For services on other nodes — a private IP they can reach. Services on the same node connect over loopback on their own; left at loopback, other nodes get the node's public IP.":
+    "Untuk layanan di node lain — IP privat yang bisa mereka jangkau. Layanan di node yang sama otomatis lewat loopback; bila dibiarkan loopback, node lain memakai IP publik node ini.",
   "CA certificate (optional)": "Sertifikat CA (opsional)",
   "PEM. Leave empty to verify against the system's trusted roots.":
     "PEM. Kosongkan untuk memverifikasi dengan root tepercaya sistem.",
@@ -68,7 +68,7 @@ export default {
   Synced: "Tersinkron",
   Saved: "Tersimpan",
   "Tunnel via {node}": "Tunnel melalui {node}",
-  "Apps connect to {host}": "Aplikasi terhubung ke {host}",
+  "Services connect to {host}": "Layanan terhubung ke {host}",
   "Last checked {date}": "Terakhir dicek {date}",
   "Failed to fetch the inventory": "Gagal memuat inventaris",
   Database: "Database",

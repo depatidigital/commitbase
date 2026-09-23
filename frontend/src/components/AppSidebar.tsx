@@ -48,7 +48,7 @@ export function AppSidebar() {
     {
       label: t("Services"),
       items: [
-        { title: t("Projects"), url: "/projects", icon: FolderGit2 },
+        { title: t("Apps"), url: "/projects", icon: FolderGit2 },
       ],
     },
     {

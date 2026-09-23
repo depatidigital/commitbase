@@ -89,9 +89,9 @@ export function RenameProjectDialog({ project, ...controlled }: { project: Pick<
     <RenameDialog
       {...controlled}
       value={project.customName ?? project.name}
-      title={t("Rename project")}
+      title={t("Rename app")}
       description={t("Leave it empty to name it after its folder or repository again.")}
-      done={t("Project renamed")}
+      done={t("App renamed")}
       rename={async (name) => {
         await updateProject(project.id, { name });
         void queryClient.invalidateQueries({ queryKey: ["project", project.id] });
@@ -107,8 +107,8 @@ export function RenameAppDialog({ app }: { app: { id: string; name: string } }) 
   return (
     <RenameDialog
       value={app.name}
-      title={t("Rename app")}
-      done={t("App renamed")}
+      title={t("Rename service")}
+      done={t("Service renamed")}
       rename={async (name) => {
         if (!name) throw new Error(t("A name is needed"));
         await updateApplication(app.id, { name });

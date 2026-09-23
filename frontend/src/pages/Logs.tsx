@@ -145,8 +145,8 @@ export default function Logs() {
   return (
     <PageLayout
       icon={Terminal}
-      title={t("App Logs")}
-      description={t("Monitor and debug your applications")}
+      title={t("Service Logs")}
+      description={t("Monitor and debug your services")}
       actions={
         <>
           <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
@@ -176,7 +176,7 @@ export default function Logs() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="log-app">{t("App")}</Label>
+              <Label htmlFor="log-app">{t("Service")}</Label>
               <Select value={selectedApp} onValueChange={setSelectedApp}>
                 <SelectTrigger id="log-app">
                   <SelectValue />
@@ -184,7 +184,7 @@ export default function Logs() {
                 <SelectContent>
                   {apps.map((app) => (
                     <SelectItem key={app} value={app}>
-                      {app === ALL ? t("All Apps") : app}
+                      {app === ALL ? t("All Services") : app}
                     </SelectItem>
                   ))}
                 </SelectContent>

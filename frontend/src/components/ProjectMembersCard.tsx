@@ -76,7 +76,7 @@ export function ProjectMembersCard({ projectId }: { projectId: string }) {
       </CardHeader>
       <CardContent>
         <p className="mb-2 text-sm text-muted-foreground">
-          {t("Owners and admins of the workspace always see this project. Other members only see it once added here.")}
+          {t("Owners and admins of the workspace always see this app. Other members only see it once added here.")}
         </p>
         <ul className="divide-y">
           {fixed}
@@ -90,8 +90,8 @@ export function ProjectMembersCard({ projectId }: { projectId: string }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("Project members")}</DialogTitle>
-            <DialogDescription>{t("Members added here can see, deploy and configure every app of this project.")}</DialogDescription>
+            <DialogTitle>{t("App members")}</DialogTitle>
+            <DialogDescription>{t("Members added here can see, deploy and configure every service of this app.")}</DialogDescription>
           </DialogHeader>
           <form
             className="flex gap-2"

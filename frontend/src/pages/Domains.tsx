@@ -867,7 +867,7 @@ export default function Domains() {
                       {admin && domainDetail.cfZoneId && (
                         <div className="flex items-center justify-between gap-2 text-sm">
                           <span className="text-muted-foreground">
-                            {t("Apps subdomain")}
+                            {t("Services subdomain")}
                           </span>
                           {wildcardRecord ? (
                             <Badge variant="secondary">*.{domainDetail.name}</Badge>
@@ -878,7 +878,7 @@ export default function Domains() {
                               className="h-7"
                               disabled={setupWildcard.isPending}
                               onClick={() => setupWildcard.mutate(domainDetail.id)}
-                              title={t("Points *.domain at the platform, so apps deployed under it need no record of their own")}
+                              title={t("Points *.domain at the platform, so services deployed under it need no record of their own")}
                             >
                               {t("Point all subdomains here")}
                             </Button>
@@ -1554,7 +1554,7 @@ export default function Domains() {
                             />
                             <p className="text-xs text-muted-foreground">
                               {t(
-                                "Only this workspace's members can create applications on it.",
+                                "Only this workspace's members can create services on it.",
                               )}
                             </p>
                           </div>
@@ -1934,7 +1934,7 @@ export default function Domains() {
                 <DialogTitle>{t("Assign workspace")}</DialogTitle>
                 <DialogDescription>
                   {t(
-                    "Choose which workspace owns {name}. Only its members can create applications on the domain.",
+                    "Choose which workspace owns {name}. Only its members can create services on the domain.",
                     { name: assignTarget.name },
                   )}
                 </DialogDescription>

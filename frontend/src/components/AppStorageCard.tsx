@@ -138,7 +138,7 @@ export function AppStorageCard({ appId, deploying }: { appId: string; deploying:
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Clean up this app's storage?")}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Clean up this service's storage?")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("Releases marked Not used are deleted. The live release and the ones kept for rollback stay.")}
             </AlertDialogDescription>

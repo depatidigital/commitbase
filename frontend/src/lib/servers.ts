@@ -162,7 +162,7 @@ export interface ServerApp {
 }
 
 export const getServerApps = async (id: string): Promise<ServerApp[]> =>
-  unwrap(await apiRequest<ServerApp[]>(`/servers/${id}/apps`), t('Failed to fetch applications'));
+  unwrap(await apiRequest<ServerApp[]>(`/servers/${id}/apps`), t('Failed to fetch services'));
 
 export interface CaddySnapshotMeta {
   id: string;

@@ -45,7 +45,7 @@ export default {
   Checkout: "Checkout",
   "show less": "sembunyikan",
   "Build & restart": "Build & mulai ulang",
-  "Install and build in its project folder on the server — the files it serves.": "Install dan build di folder proyeknya di server — file yang dilayaninya.",
+  "Install and build in its app folder on the server — the files it serves.": "Install dan build di folder proyeknya di server — file yang dilayaninya.",
   "Install, build and pm2 restart {name} in its folder on the server.": "Install, build, lalu pm2 restart {name} di foldernya di server.",
   "Build and restart {name} on the server?": "Build dan mulai ulang {name} di server?",
   "Runs the install and the build in {dir}, then pm2 restart {name}. It builds in the folder that is serving: the site may show errors until the restart. If a step fails, the ones after it do not run.":
@@ -61,7 +61,7 @@ export default {
     "Dibaca dari .env di server{dir} saat sinkronisasi terakhir. Ubah di server, lalu sinkronkan lagi.",
   "Show values": "Tampilkan nilai",
   "Hide values": "Sembunyikan nilai",
-  "No .env found in the app's folder.": "Tidak ada .env di folder aplikasi.",
+  "No .env found in the service's folder.": "Tidak ada .env di folder layanan.",
   "{count} database(s) attached from their .env.": "{count} database ditautkan dari .env aplikasinya.",
   "I understand the site runs the code of {branch} as soon as it is switched.":
     "Saya mengerti situs langsung menjalankan kode dari {branch} begitu branch diganti.",
@@ -77,7 +77,7 @@ export default {
   Disable: "Nonaktifkan",
   Enable: "Aktifkan",
   Enabled: "Aktif kembali",
-  "Could not update the app": "Gagal memperbarui aplikasi",
+  "Could not update the service": "Gagal memperbarui layanan",
   "Not monitored — switched off in the panel. Nothing on the server changed.":
     "Tidak dipantau — dinonaktifkan di panel. Tidak ada yang berubah di server.",
   "Changing DNS…": "Mengubah DNS…",
@@ -89,17 +89,17 @@ export default {
     "Hanya internal — proxy menghubungi 127.0.0.1:{port} di node",
 
   // apps list
-  "Manage your applications and services.": "Kelola aplikasi dan layanan Anda.",
+  "Manage your services and services.": "Kelola layanan dan layanan Anda.",
   "All types": "Semua tipe",
   "All servers": "Semua server",
-  "Sync Apps": "Sinkronkan Aplikasi",
+  "Sync Services": "Sinkronkan Layanan",
   "Search name or domain…": "Cari nama atau domain…",
-  "No applications yet — deploy your first one.": "Belum ada aplikasi — deploy aplikasi pertama Anda.",
-  "Error Loading Apps": "Gagal Memuat Aplikasi",
-  "Failed to load applications. Please try again.": "Gagal memuat aplikasi. Silakan coba lagi.",
-  "Select all applications on this page": "Pilih semua aplikasi di halaman ini",
+  "No services yet — deploy your first one.": "Belum ada layanan — deploy layanan pertama Anda.",
+  "Error Loading Services": "Gagal Memuat Layanan",
+  "Failed to load services. Please try again.": "Gagal memuat layanan. Silakan coba lagi.",
+  "Select all services on this page": "Pilih semua layanan di halaman ini",
   "Open {url}": "Buka {url}",
-  Application: "Aplikasi",
+  Service: "Layanan",
   Health: "Kesehatan",
   Uptime: "Uptime",
   "Last deploy": "Deploy terakhir",
@@ -114,48 +114,48 @@ export default {
   "Deploy and start": "Deploy dan jalankan",
   Assigned: "Ditetapkan",
   "Assign failed": "Gagal menetapkan",
-  "{count} application(s) updated": "{count} aplikasi diperbarui",
+  "{count} service(s) updated": "{count} layanan diperbarui",
   "Choose which workspace owns {name}. Its members get to see and manage it.":
     "Pilih workspace pemilik {name}. Anggotanya dapat melihat dan mengelolanya.",
 
   // start/stop/restart/delete confirmation
-  "Redeploy & Start App": "Deploy Ulang & Jalankan Aplikasi",
-  "Deploy & Start App": "Deploy & Jalankan Aplikasi",
+  "Redeploy & Start Service": "Deploy Ulang & Jalankan Layanan",
+  "Deploy & Start Service": "Deploy & Jalankan Layanan",
   "Redeploy & Start": "Deploy Ulang & Jalankan",
   "Deploy & Start": "Deploy & Jalankan",
-  "Start App": "Jalankan Aplikasi",
-  "Stop App": "Hentikan Aplikasi",
-  "Restart App": "Mulai Ulang Aplikasi",
-  "Delete App": "Hapus Aplikasi",
-  "Delete Application": "Hapus Aplikasi",
+  "Start Service": "Jalankan Layanan",
+  "Stop Service": "Hentikan Layanan",
+  "Restart Service": "Mulai Ulang Layanan",
+  "Delete Service": "Hapus Layanan",
+  "Delete Service": "Hapus Layanan",
   'Are you sure you want to redeploy and start "{name}"? This will rebuild and run the application.':
-    'Apakah Anda yakin ingin deploy ulang dan menjalankan "{name}"? Aplikasi akan di-build ulang lalu dijalankan.',
+    'Apakah Anda yakin ingin deploy ulang dan menjalankan "{name}"? Layanan akan di-build ulang lalu dijalankan.',
   'Are you sure you want to deploy and start "{name}"? This will build and run the application for the first time.':
-    'Apakah Anda yakin ingin deploy dan menjalankan "{name}"? Aplikasi akan di-build dan dijalankan untuk pertama kalinya.',
+    'Apakah Anda yakin ingin deploy dan menjalankan "{name}"? Layanan akan di-build dan dijalankan untuk pertama kalinya.',
   'Are you sure you want to start "{name}"? This will start the existing built application without rebuilding.':
     'Apakah Anda yakin ingin menjalankan "{name}"? Hasil build yang ada akan dijalankan tanpa build ulang.',
   'Are you sure you want to stop "{name}"? This will shut down the running application.':
-    'Apakah Anda yakin ingin menghentikan "{name}"? Aplikasi yang sedang berjalan akan dimatikan.',
+    'Apakah Anda yakin ingin menghentikan "{name}"? Layanan yang sedang berjalan akan dimatikan.',
   'Are you sure you want to restart "{name}"? This will stop and then start the application.':
-    'Apakah Anda yakin ingin memulai ulang "{name}"? Aplikasi akan dihentikan lalu dijalankan kembali.',
+    'Apakah Anda yakin ingin memulai ulang "{name}"? Layanan akan dihentikan lalu dijalankan kembali.',
   'Are you sure you want to delete "{name}"? This action cannot be undone and will permanently remove the application and all its data.':
-    'Apakah Anda yakin ingin menghapus "{name}"? Tindakan ini tidak dapat dibatalkan dan akan menghapus aplikasi beserta seluruh datanya secara permanen.',
+    'Apakah Anda yakin ingin menghapus "{name}"? Tindakan ini tidak dapat dibatalkan dan akan menghapus layanan beserta seluruh datanya secara permanen.',
 
   // app detail
-  "App Not Found": "Aplikasi Tidak Ditemukan",
-  "The application you're looking for doesn't exist.": "Aplikasi yang Anda cari tidak ada.",
-  "App Details & Management": "Detail & Pengelolaan Aplikasi",
-  "Stop the running application": "Hentikan aplikasi yang sedang berjalan",
+  "Service Not Found": "Layanan Tidak Ditemukan",
+  "The service you're looking for doesn't exist.": "Layanan yang Anda cari tidak ada.",
+  "Service Details & Management": "Detail & Pengelolaan Layanan",
+  "Stop the running service": "Hentikan layanan yang sedang berjalan",
   "Build the latest code and switch over once it answers. The current release keeps serving meanwhile.":
-    "Build kode terbaru dan beralih setelah aplikasi merespons. Rilis saat ini tetap melayani selama proses berlangsung.",
-  "Start the existing built application": "Jalankan hasil build yang ada",
-  "Rebuild and start the application": "Build ulang dan jalankan aplikasi",
-  "Deploy and start the application for the first time": "Deploy dan jalankan aplikasi untuk pertama kalinya",
-  "Restart the application": "Mulai ulang aplikasi",
-  "App is running and accessible": "Aplikasi berjalan dan dapat diakses",
-  "App is stopped and not accessible": "Aplikasi berhenti dan tidak dapat diakses",
-  "App encountered an error": "Aplikasi mengalami error",
-  "App is being deployed": "Aplikasi sedang di-deploy",
+    "Build kode terbaru dan beralih setelah layanan merespons. Rilis saat ini tetap melayani selama proses berlangsung.",
+  "Start the existing built service": "Jalankan hasil build yang ada",
+  "Rebuild and start the service": "Build ulang dan jalankan layanan",
+  "Deploy and start the service for the first time": "Deploy dan jalankan layanan untuk pertama kalinya",
+  "Restart the service": "Mulai ulang layanan",
+  "Service is running and accessible": "Layanan berjalan dan dapat diakses",
+  "Service is stopped and not accessible": "Layanan berhenti dan tidak dapat diakses",
+  "Service encountered an error": "Layanan mengalami error",
+  "Service is being deployed": "Layanan sedang di-deploy",
   Deployments: "Deployment",
   "Deployment Mode": "Mode Deployment",
   "Runtime Container": "Container Runtime",
@@ -168,8 +168,8 @@ export default {
   Hosting: "Hosting",
   "No files uploaded yet": "Belum ada file yang diunggah",
   "Internal port": "Port internal",
-  "Bound to loopback on the node. Not reachable from outside; the proxy is what serves this app publicly.":
-    "Terikat ke loopback di node. Tidak dapat dijangkau dari luar; proxy yang melayani aplikasi ini secara publik.",
+  "Bound to loopback on the node. Not reachable from outside; the proxy is what serves this service publicly.":
+    "Terikat ke loopback di node. Tidak dapat dijangkau dari luar; proxy yang melayani layanan ini secara publik.",
   "Memory Usage": "Penggunaan Memori",
   "CPU Usage": "Penggunaan CPU",
   "Not available": "Tidak tersedia",
@@ -212,8 +212,8 @@ export default {
     "Unggah hasil build situs — folder berisi index.html (biasanya dist/, build/, atau out/).",
   "It goes live at {domain} as soon as the upload finishes.":
     "Langsung tayang di {domain} begitu unggahan selesai.",
-  "This looks like the project's source (package.json, src/), not its build output. Build it first and upload the output folder.":
-    "Ini sepertinya source proyek (package.json, src/), bukan hasil build. Build dulu, lalu unggah folder hasilnya.",
+  "This looks like the app's source (package.json, src/), not its build output. Build it first and upload the output folder.":
+    "Ini sepertinya source aplikasi (package.json, src/), bukan hasil build. Build dulu, lalu unggah folder hasilnya.",
   "There is no index.html at the top level — visitors opening the site get a 404.":
     "Tidak ada index.html di tingkat teratas — pengunjung situs akan mendapat 404.",
   "Upload only {dir}/": "Unggah {dir}/ saja",
@@ -231,14 +231,14 @@ export default {
   Public: "Publik",
   "What visitors get": "Yang didapat pengunjung",
   Internal: "Internal",
-  "What it runs on — only your team sees this": "Tempat aplikasi berjalan — hanya tim Anda yang melihat",
+  "What it runs on — only your team sees this": "Tempat layanan berjalan — hanya tim Anda yang melihat",
   "Uploaded files": "File unggahan",
   "{count} deployments": "{count} deployment",
   "Danger zone": "Zona berbahaya",
-  "Delete this app": "Hapus aplikasi ini",
-  "{domain} stops being served and the app is removed from the panel. This cannot be undone.":
-    "{domain} berhenti disajikan dan aplikasi dihapus dari panel. Tidak bisa dibatalkan.",
-  "Delete app…": "Hapus aplikasi…",
+  "Delete this service": "Hapus layanan ini",
+  "{domain} stops being served and the service is removed from the panel. This cannot be undone.":
+    "{domain} berhenti disajikan dan layanan dihapus dari panel. Tidak bisa dibatalkan.",
+  "Delete service…": "Hapus layanan…",
   "Delete {name}?": "Hapus {name}?",
   "Its route, DNS record, files and deployment history go with it. There is no undo.":
     "Route, record DNS, file, dan riwayat deployment-nya ikut terhapus. Tidak ada cara membatalkan.",
@@ -246,32 +246,32 @@ export default {
   "I understand the site goes offline and this cannot be undone.":
     "Saya paham situs akan offline dan ini tidak bisa dibatalkan.",
   "Delete permanently": "Hapus permanen",
-  "Kept: {names}. The data stays on its server — connect it to another app or delete it from Databases.":
-    "Tetap disimpan: {names}. Datanya tetap di servernya — hubungkan ke aplikasi lain atau hapus dari Database.",
+  "Kept: {names}. The data stays on its server — connect it to another service or delete it from Databases.":
+    "Tetap disimpan: {names}. Datanya tetap di servernya — hubungkan ke layanan lain atau hapus dari Database.",
   // hostname picker, the app's Domains tab, shared platform domains
   "Pick a name under {domain}": "Pilih nama di bawah {domain}",
   "One name only — no dots": "Satu nama saja — tanpa titik",
   free: "gratis",
-  "A free address — add your own domain any time from the app's Domains tab.":
-    "Alamat gratis — tambahkan domain sendiri kapan saja dari tab Domain aplikasi.",
-  "Whose app is it?": "Aplikasi milik workspace mana?",
-  "There is no domain to put an app under yet. An administrator can share a platform domain (every workspace gets free addresses under it) or assign one to your workspace.":
-    "Belum ada domain untuk aplikasi. Administrator bisa membagikan domain platform (setiap workspace mendapat alamat gratis di bawahnya) atau menetapkan domain ke workspace Anda.",
-  "Where visitors reach this app": "Tempat pengunjung mengakses aplikasi ini",
-  "An imported app keeps its hostname.": "Aplikasi impor tetap memakai hostname-nya.",  "Change address": "Ganti alamat",
+  "A free address — add your own domain any time from the service's Domains tab.":
+    "Alamat gratis — tambahkan domain sendiri kapan saja dari tab Domain layanan.",
+  "Whose service is it?": "Layanan milik workspace mana?",
+  "There is no domain to put a service under yet. An administrator can share a platform domain (every workspace gets free addresses under it) or assign one to your workspace.":
+    "Belum ada domain untuk layanan. Administrator bisa membagikan domain platform (setiap workspace mendapat alamat gratis di bawahnya) atau menetapkan domain ke workspace Anda.",
+  "Where visitors reach this service": "Tempat pengunjung mengakses layanan ini",
+  "An imported service keeps its hostname.": "Layanan impor tetap memakai hostname-nya.",  "Change address": "Ganti alamat",
   "Buy a domain": "Beli domain",
-  "Move app": "Pindahkan aplikasi",
+  "Move service": "Pindahkan layanan",
   "Moved to {host}": "Dipindahkan ke {host}",
-  "The old address no longer serves this app.": "Alamat lama tidak lagi menyajikan aplikasi ini.",
-  "Could not move the app": "Tidak bisa memindahkan aplikasi",
+  "The old address no longer serves this service.": "Alamat lama tidak lagi menyajikan layanan ini.",
+  "Could not move the service": "Tidak bisa memindahkan layanan",
   "Move to {host}?": "Pindahkan ke {host}?",
-  "{old} stops serving this app once {host} does. Links and bookmarks to the old address break.":
-    "{old} berhenti menyajikan aplikasi ini begitu {host} aktif. Tautan dan bookmark ke alamat lama akan rusak.",
+  "{old} stops serving this service once {host} does. Links and bookmarks to the old address break.":
+    "{old} berhenti menyajikan layanan ini begitu {host} aktif. Tautan dan bookmark ke alamat lama akan rusak.",
   "{keys} still hold the old address — update them in Environment and redeploy.":
     "{keys} masih berisi alamat lama — perbarui di Environment lalu deploy ulang.",
   "Shared platform domain": "Domain platform bersama",
-  "Every workspace can put apps under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing apps where they are.":
-    "Setiap workspace bisa menaruh aplikasi di bawah {name} (shop.{name}) tanpa domain sendiri. Root dan nama yang sudah ada tetap milik Anda. Mematikannya tidak memindahkan aplikasi yang sudah ada.",
+  "Every workspace can put services under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing services where they are.":
+    "Setiap workspace bisa menaruh layanan di bawah {name} (shop.{name}) tanpa domain sendiri. Root dan nama yang sudah ada tetap milik Anda. Mematikannya tidak memindahkan layanan yang sudah ada.",
   "Could not update the domain": "Tidak bisa memperbarui domain",
   "Domain expired": "Domain kedaluwarsa",
   "Domain expires today": "Domain habis hari ini",
@@ -282,23 +282,23 @@ export default {
   "Could not check the hostname": "Tidak bisa memeriksa hostname",
   "Checking {host}…": "Memeriksa {host}…",
   "{host} is already used by": "{host} sudah dipakai oleh",
-  "{host} is already used by another app.": "{host} sudah dipakai aplikasi lain.",
+  "{host} is already used by another service.": "{host} sudah dipakai layanan lain.",
   "Pick another name.": "Pilih nama lain.",
-  "{host} already points to {target} ({type}) — likely a live site somewhere else. Its DNS record is left alone, so this app is not reachable there until someone repoints it on purpose.":
-    "{host} sudah mengarah ke {target} ({type}) — kemungkinan situs aktif di tempat lain. Record DNS-nya tidak diubah, jadi aplikasi ini belum bisa diakses di sana sampai seseorang sengaja mengarahkannya.",
+  "{host} already points to {target} ({type}) — likely a live site somewhere else. Its DNS record is left alone, so this service is not reachable there until someone repoints it on purpose.":
+    "{host} sudah mengarah ke {target} ({type}) — kemungkinan situs aktif di tempat lain. Record DNS-nya tidak diubah, jadi layanan ini belum bisa diakses di sana sampai seseorang sengaja mengarahkannya.",
   "This is the root domain — usually the main website. Add a subdomain unless you mean it.":
     "Ini domain utama (root) — biasanya situs utama. Tambahkan subdomain kecuali memang disengaja.",
-  "Point {host} at this app?": "Arahkan {host} ke aplikasi ini?",
+  "Point {host} at this service?": "Arahkan {host} ke layanan ini?",
   "Its DNS record is set to this platform's server. Whatever it points at now stops receiving visitors.":
     "Record DNS-nya diarahkan ke server platform ini. Apa pun yang dituju sekarang tidak lagi menerima pengunjung.",
   "It now points to {target} ({type}). If a site runs there, it goes offline for this hostname.":
     "Saat ini mengarah ke {target} ({type}). Jika ada situs di sana, situs itu akan offline untuk hostname ini.",
   "Overwrite and point here": "Timpa dan arahkan ke sini",
   "this platform's server": "server platform ini",
-  "The DNS of {domain} is not run here, so it cannot be changed automatically. Once the app exists, add this record where the domain's DNS is managed:":
-    "DNS {domain} tidak dikelola di sini, jadi tidak bisa diubah otomatis. Setelah aplikasi dibuat, tambahkan record ini di tempat DNS domain dikelola:",
-  "{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this app.":
-    "{domain} masih memakai DNS registrar (RDASH), belum Cloudflare. Owner atau admin workspace perlu memindahkannya ke Cloudflare agar {host} bisa mengakses aplikasi ini.",
+  "The DNS of {domain} is not run here, so it cannot be changed automatically. Once the service exists, add this record where the domain's DNS is managed:":
+    "DNS {domain} tidak dikelola di sini, jadi tidak bisa diubah otomatis. Setelah layanan dibuat, tambahkan record ini di tempat DNS domain dikelola:",
+  "{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this service.":
+    "{domain} masih memakai DNS registrar (RDASH), belum Cloudflare. Owner atau admin workspace perlu memindahkannya ke Cloudflare agar {host} bisa mengakses layanan ini.",
   "DNS: {host} {target} is added automatically.": "DNS: {host} {target} ditambahkan otomatis.",
   "DNS for {host} will be changed automatically:": "DNS untuk {host} akan diubah otomatis:",
   "{domain} moves to Cloudflare: its current DNS records are copied, then the nameservers at RDASH are switched to Cloudflare. That can take a few hours to spread.":
@@ -318,20 +318,20 @@ export default {
   "Enter a subdomain": "Isi subdomain",
   "Remove subdomain": "Hapus subdomain",
   "Remove path": "Hapus path",
-  "Move it to this app — {app} stops answering on it.": "Pindahkan ke aplikasi ini — {app} tidak lagi melayaninya.",
+  "Move it to this service — {app} stops answering on it.": "Pindahkan ke layanan ini — {app} tidak lagi melayaninya.",
   "Root domain": "Domain utama",
   "Goes live at {url}": "Akan live di {url}",
-  "Created now; fill the rest on its page, then deploy.": "Dibuat sekarang; lengkapi sisanya di halaman aplikasi, lalu deploy.",
+  "Created now; fill the rest on its page, then deploy.": "Dibuat sekarang; lengkapi sisanya di halaman layanan, lalu deploy.",
   "({count})": "({count})",
   Advanced: "Lanjutan",
-  "Want every new app to get a free address? Share a platform domain:":
+  "Want every new service to get a free address? Share a platform domain:":
     "Ingin setiap app baru dapat alamat gratis? Bagikan domain platform:",
   "Domains → Settings → Shared platform domain": "Domain → Settings → Domain platform bersama",
-  "Fixed once the app exists. Build and start commands can be changed on the app's Settings tab.":
-    "Tidak bisa diubah setelah app dibuat. Perintah build dan start bisa diubah di tab Settings aplikasi.",
+  "Fixed once the service exists. Build and start commands can be changed on the service's Settings tab.":
+    "Tidak bisa diubah setelah app dibuat. Perintah build dan start bisa diubah di tab Settings layanan.",
   Change: "Ubah",
-  "Your label for the app, taken from its source. It stays when the domain changes.":
-    "Label aplikasi Anda, diambil dari sumbernya. Tetap sama walau domain berubah.",
+  "Your label for the service, taken from its source. It stays when the domain changes.":
+    "Label layanan Anda, diambil dari sumbernya. Tetap sama walau domain berubah.",
   "Redeploy Site": "Deploy Ulang Situs",
   'Build "{name}" from {branch} and publish the result to the site.':
     'Build "{name}" dari {branch} lalu terbitkan hasilnya ke situs.',
@@ -340,7 +340,7 @@ export default {
   "The site now serves the new files.": "Situs sekarang menyajikan file baru.",
   "Rebuilding from the new files…": "Membangun ulang dari file baru…",
   "The new files replace what the site serves.": "File baru menggantikan isi situs saat ini.",
-  "The app is rebuilt from the new files.": "Aplikasi dibangun ulang dari file baru.",
+  "The service is rebuilt from the new files.": "Layanan dibangun ulang dari file baru.",
   "The uploaded files are published to the site.": "File yang diunggah dipublikasikan ke situs.",
   "Replace the whole site": "Ganti seluruh isi situs",
   "Files on the site that are not in this upload are deleted.":
@@ -367,8 +367,8 @@ export default {
   Serving: "Aktif",
   "Roll back to this": "Kembalikan ke sini",
   "Roll back to this release?": "Kembalikan ke release ini?",
-  "The app stops briefly and restarts on the selected build. Nothing is rebuilt.":
-    "Aplikasi berhenti sebentar lalu jalan lagi dengan build yang dipilih. Tidak ada build ulang.",
+  "The service stops briefly and restarts on the selected build. Nothing is rebuilt.":
+    "Layanan berhenti sebentar lalu jalan lagi dengan build yang dipilih. Tidak ada build ulang.",
   "Roll back": "Kembalikan",
   "Before releases": "Sebelum release",
   "The site switches to these files right away. Nothing is uploaded or rebuilt, and you can switch back at any time.":
@@ -389,19 +389,19 @@ export default {
   "No logs available for {type}": "Tidak ada log untuk {type}",
 
   // settings tab
-  "App Settings": "Pengaturan Aplikasi",
-  "Command to build your application (e.g., yarn build, npm run build)":
-    "Perintah untuk build aplikasi Anda (mis. yarn build, npm run build)",
-  "Command to start your application (e.g., yarn start, npm start, node app.js)":
-    "Perintah untuk menjalankan aplikasi Anda (mis. yarn start, npm start, node app.js)",
-  "Port number for your application (1-65535)": "Nomor port aplikasi Anda (1-65535)",
+  "Service Settings": "Pengaturan Layanan",
+  "Command to build your service (e.g., yarn build, npm run build)":
+    "Perintah untuk build layanan Anda (mis. yarn build, npm run build)",
+  "Command to start your service (e.g., yarn start, npm start, node service.js)":
+    "Perintah untuk menjalankan layanan Anda (mis. yarn start, npm start, node app.js)",
+  "Port number for your service (1-65535)": "Nomor port layanan Anda (1-65535)",
   "Unsaved changes": "Perubahan belum disimpan",
   "Save Changes": "Simpan Perubahan",
   "Help & Examples": "Bantuan & Contoh",
   "Build: {command}": "Build: {command}",
   "Start: {command}": "Start: {command}",
-  "App settings updated successfully": "Pengaturan aplikasi berhasil diperbarui",
-  "Failed to update application settings": "Gagal memperbarui pengaturan aplikasi",
+  "Service settings updated successfully": "Pengaturan layanan berhasil diperbarui",
+  "Failed to update service settings": "Gagal memperbarui pengaturan layanan",
 
   // deployment history
   "Deployment History": "Riwayat Deployment",
@@ -412,18 +412,18 @@ export default {
   "Created:": "Dibuat:",
   "In progress...": "Sedang berlangsung...",
   "No deployments yet": "Belum ada deployment",
-  "Deploy your application to see deployment history": "Deploy aplikasi Anda untuk melihat riwayat deployment",
+  "Deploy your service to see deployment history": "Deploy layanan Anda untuk melihat riwayat deployment",
 
   // toasts from the app/deployment hooks
-  "App created successfully": "Aplikasi berhasil dibuat",
-  "App updated successfully": "Aplikasi berhasil diperbarui",
-  "App deleted successfully": "Aplikasi berhasil dihapus",
-  "App is starting...": "Aplikasi sedang dijalankan...",
-  "App is stopping...": "Aplikasi sedang dihentikan...",
-  "App is restarting...": "Aplikasi sedang dimulai ulang...",
+  "Service created successfully": "Layanan berhasil dibuat",
+  "Service updated successfully": "Layanan berhasil diperbarui",
+  "Service deleted successfully": "Layanan berhasil dihapus",
+  "Service is starting...": "Layanan sedang dijalankan...",
+  "Service is stopping...": "Layanan sedang dihentikan...",
+  "Service is restarting...": "Layanan sedang dimulai ulang...",
   "DNS updated": "DNS diperbarui",
   "DNS not set up": "DNS belum diatur",
-  "Server apps synced": "Aplikasi server tersinkron",
+  "Server services synced": "Layanan server tersinkron",
   "{discovered} found — {created} imported, {updated} updated.":
     "{discovered} ditemukan — {created} diimpor, {updated} diperbarui.",
   "Deployment created successfully": "Deployment berhasil dibuat",
@@ -431,20 +431,20 @@ export default {
   "Deployment deleted successfully": "Deployment berhasil dihapus",
 
   // API fallback errors
-  "Failed to fetch application": "Gagal mengambil aplikasi",
-  "Failed to create application": "Gagal membuat aplikasi",
+  "Failed to fetch service": "Gagal mengambil layanan",
+  "Failed to create service": "Gagal membuat layanan",
   "Failed to check the hostname": "Gagal memeriksa hostname",
   "Failed to set up DNS": "Gagal mengatur DNS",
-  "Could not inspect the project": "Tidak dapat memeriksa proyek",
+  "Could not inspect the app": "Tidak dapat memeriksa aplikasi",
   "Failed to upload source files": "Gagal mengunggah file sumber",
-  "Failed to update application": "Gagal memperbarui aplikasi",
-  "Failed to delete application": "Gagal menghapus aplikasi",
-  "Failed to start existing application": "Gagal menjalankan aplikasi yang ada",
-  "Failed to start application": "Gagal menjalankan aplikasi",
-  "Failed to stop application": "Gagal menghentikan aplikasi",
-  "Failed to restart application": "Gagal memulai ulang aplikasi",
-  "Failed to sync server apps": "Gagal menyinkronkan aplikasi server",
-  "Failed to assign applications": "Gagal menetapkan aplikasi",
+  "Failed to update service": "Gagal memperbarui layanan",
+  "Failed to delete service": "Gagal menghapus layanan",
+  "Failed to start existing service": "Gagal menjalankan layanan yang ada",
+  "Failed to start service": "Gagal menjalankan layanan",
+  "Failed to stop service": "Gagal menghentikan layanan",
+  "Failed to restart service": "Gagal memulai ulang layanan",
+  "Failed to sync server services": "Gagal menyinkronkan layanan server",
+  "Failed to assign services": "Gagal menetapkan layanan",
   "Failed to read health": "Gagal membaca status kesehatan",
   "Failed to fetch deployment history": "Gagal mengambil riwayat deployment",
   "Failed to fetch deployment": "Gagal mengambil deployment",
@@ -461,8 +461,8 @@ export default {
   "{count} still empty: {keys}": "{count} masih kosong: {keys}",
   "Fill in the empty variables to deploy.": "Isi variabel yang kosong untuk bisa deploy.",
   "{count} to check: {keys}": "{count} perlu dicek: {keys}",
-  "The start script pins port {port}; the app must listen on $PORT. Remove -p, or set a start command.":
-    "Script start mengunci port {port}; aplikasi harus mendengarkan $PORT. Hapus -p, atau atur perintah start.",
+  "The start script pins port {port}; the service must listen on $PORT. Remove -p, or set a start command.":
+    "Script start mengunci port {port}; layanan harus mendengarkan $PORT. Hapus -p, atau atur perintah start.",
   "The start script runs next start without -H 127.0.0.1, so it also listens on the node's public address.":
     "Script start menjalankan next start tanpa -H 127.0.0.1, jadi juga terbuka di alamat publik node.",
   Generate: "Buat otomatis",
@@ -499,11 +499,11 @@ export default {
   Custom: "Kustom",
   "Pick a database…": "Pilih database…",
   "Custom URL": "URL kustom",
-  "Not live yet — deploy each app from its setup checklist first.": "Belum live — deploy tiap aplikasi dari checklist-nya dulu.",
+  "Not live yet — deploy each service from its setup checklist first.": "Belum live — deploy tiap layanan dari checklist-nya dulu.",
   "Code pulled — {sha} is on the server.": "Kode sudah ditarik — {sha} ada di server.",
   "Env files": "File env",
-  "Written into {file} on every deploy — also what the build and the app get. The rest of the file stays as the repository ships it.":
-    "Ditulis ke {file} tiap deploy — juga yang diterima build dan aplikasi. Isi lain file itu tetap seperti di repositori.",
+  "Written into {file} on every deploy — also what the build and the service get. The rest of the file stays as the repository ships it.":
+    "Ditulis ke {file} tiap deploy — juga yang diterima build dan layanan. Isi lain file itu tetap seperti di repositori.",
   "Written into {file} on every deploy. The rest of the file stays as the repository ships it.":
     "Ditulis ke {file} tiap deploy. Isi lain file itu tetap seperti di repositori.",
   "{count} more in {file} from the repository — kept as they are": "{count} lainnya di {file} dari repositori — dipakai apa adanya",
@@ -520,30 +520,30 @@ export default {
   Stack: "Stack",
   "{service} (in the stack)": "{service} (di stack)",
   "Use {service}": "Pakai {service}",
-  "The app reaches it by its service name inside the stack. Its host and port go in the form; the password stays — the container is created with it.":
-    "Aplikasi menjangkaunya lewat nama service di dalam stack. Host dan port-nya masuk ke form; password tetap — container dibuat dengan password itu.",
+  "The service reaches it by its service name inside the stack. Its host and port go in the form; the password stays — the container is created with it.":
+    "Layanan menjangkaunya lewat nama service di dalam stack. Host dan port-nya masuk ke form; password tetap — container dibuat dengan password itu.",
   "Env ({count})": "Env ({count})",
   "From {files}, then the compose file's environment:": "Dari {files}, lalu environment di file compose:",
   "From the compose file's environment:": "Dari environment di file compose:",
-  "Send the app's hosts to this service, on port {port}": "Trafik host aplikasi dikirim ke service ini, port {port}",
+  "Send the service's hosts to this service, on port {port}": "Trafik host layanan dikirim ke service ini, port {port}",
   "From the saved compose files — save a change to them to see it here.": "Dari file compose yang tersimpan — simpan perubahan dulu agar terlihat di sini. Hanya satu service yang menerima trafik host; sisanya berjalan di dalam stack.",
   Service: "Service",
   "Not set — pick the service and port Caddy sends traffic to": "Belum diisi — pilih service dan port tujuan trafik dari Caddy",
   "Pull & redeploy": "Pull & deploy ulang",
   "It is {app}'s only host: nobody reaches it until another one is added.":
-    "Ini satu-satunya host {app}: aplikasi tidak bisa diakses sampai host lain ditambahkan.",
+    "Ini satu-satunya host {app}: layanan tidak bisa diakses sampai host lain ditambahkan.",
   "Connection URL": "URL koneksi",
   "Use this URL": "Pakai URL ini",
   "A postgresql:// or mysql:// URL.": "Isi URL postgresql:// atau mysql://.",
-  "Tried from the app's server. It goes in the form — saved with the rest of the environment.":
-    "Diuji dari server aplikasi. Masuk ke form — tersimpan bersama environment lainnya.",
-  "Set by Larika when the app starts.": "Diisi oleh Larika saat aplikasi berjalan.",
+  "Tried from the service's server. It goes in the form — saved with the rest of the environment.":
+    "Diuji dari server layanan. Masuk ke form — tersimpan bersama environment lainnya.",
+  "Set by Larika when the service starts.": "Diisi oleh Larika saat layanan berjalan.",
   "Saved empty — on purpose": "Disimpan kosong — disengaja",
   "None yet — add one; the env's addresses are these.": "Belum ada — tambahkan dulu; alamat di env mengikuti host ini.",
   "Add a host to deploy.": "Tambahkan host dulu untuk deploy.",
   "Save with these left as they are?": "Simpan dengan kondisi ini?",
-  "The app may not work on the server with them. You can fix them later — they stay flagged on its checklist.":
-    "Aplikasi mungkin tidak jalan di server dengan nilai ini. Bisa diperbaiki nanti — tetap ditandai di checklist-nya.",
+  "The service may not work on the server with them. You can fix them later — they stay flagged on its checklist.":
+    "Layanan mungkin tidak jalan di server dengan nilai ini. Bisa diperbaiki nanti — tetap ditandai di checklist-nya.",
   "Fix them first": "Perbaiki dulu",
   "Save anyway": "Tetap simpan",
   "Not confirmed yet — check it, then save.": "Belum dikonfirmasi — cek, lalu simpan.",
@@ -561,13 +561,13 @@ export default {
   "Overwrite {count}": "Timpa {count}",
   "Add new only": "Tambah yang baru saja",
   "No KEY=value lines found.": "Tidak ada baris KEY=value.",
-  "The code expects this name": "Nama ini dipakai oleh kode aplikasi",
+  "The code expects this name": "Nama ini dipakai oleh kode layanan",
   "Local address, won't work on the server. Use Connect database.": "Alamat lokal, tidak jalan di server. Pakai Hubungkan database.",
   "Local address, won't work on the server.": "Alamat lokal, tidak jalan di server.",
-  "The code expects this variable": "Variabel ini dibutuhkan kode aplikasi",
+  "The code expects this variable": "Variabel ini dibutuhkan kode layanan",
   "Its URL is saved as {key}.": "URL-nya disimpan sebagai {key}.",
   "from {file}": "dari {file}",
-  "the app uses a SQL database": "aplikasi memakai database SQL",
+  "the service uses a SQL database": "layanan memakai database SQL",
   "Environment saved": "Environment tersimpan",
   "Redeploy to apply it — build-time variables such as NEXT_PUBLIC_* are baked in.":
     "Deploy ulang agar berlaku — variabel saat build seperti NEXT_PUBLIC_* ikut tertanam di hasil build.",
@@ -580,12 +580,12 @@ export default {
   "Connect database": "Hubungkan database",
   "Save environment": "Simpan environment",
   "Database connected": "Database terhubung",
-  "{key} is set in the app's environment.": "{key} sudah diatur di environment aplikasi.",
+  "{key} is set in the service's environment.": "{key} sudah diatur di environment layanan.",
   "Could not connect the database": "Gagal menghubungkan database",
   "Failed to connect the database": "Gagal menghubungkan database",
   "Connect a database": "Hubungkan database",
-  "Its connection URL is written to the app's environment. The password never leaves the server.":
-    "URL koneksinya ditulis ke environment aplikasi. Kata sandinya tidak pernah keluar dari server.",
+  "Its connection URL is written to the service's environment. The password never leaves the server.":
+    "URL koneksinya ditulis ke environment layanan. Kata sandinya tidak pernah keluar dari server.",
   "Create new": "Buat baru",
   "Use existing": "Pakai yang ada",
   "Lowercase letters, digits and underscores.": "Huruf kecil, angka, dan garis bawah.",
@@ -595,7 +595,7 @@ export default {
   "Create & connect": "Buat & hubungkan",
   "Connect to {name}": "Hubungkan ke {name}",
   "Search databases…": "Cari database…",
-  "used by {apps} (this project)": "dipakai {apps} (proyek ini)",
+  "used by {apps} (this app)": "dipakai {apps} (aplikasi ini)",
   "What will be written": "Yang akan ditulis",
   "Connects as {login}.": "Tersambung sebagai {login}.",
   "Could not test the connection": "Koneksi tidak bisa dites",
@@ -609,16 +609,16 @@ export default {
   "Pre-deploy command set": "Perintah pre-deploy disimpan",
   "The repo uses Prisma — run its migrations before the release goes live:": "Repo memakai Prisma — jalankan migrasinya sebelum release tayang:",
   "Deploying…": "Sedang deploy…",
-  "Rename app": "Ganti nama aplikasi",
-  "App renamed": "Nama aplikasi diganti",
+  "Rename service": "Ganti nama layanan",
+  "Service renamed": "Nama layanan diganti",
   "Could not rename": "Gagal mengganti nama",
   "A name is needed": "Nama harus diisi",
   "Waiting for its turn — the log appears once the build starts.": "Menunggu giliran — log muncul begitu build dimulai.",
   "Deploy in progress — follow the build log": "Deploy sedang berjalan — ikuti log build-nya",
-  "Testing DATABASE_URL from the app's server…": "Menguji DATABASE_URL dari server aplikasi…",
+  "Testing DATABASE_URL from the service's server…": "Menguji DATABASE_URL dari server layanan…",
   "DATABASE_URL does not connect: {reason}": "DATABASE_URL tidak bisa tersambung: {reason}",
-  "DATABASE_URL connects from the app's server.": "DATABASE_URL tersambung dari server aplikasi.",
-  "The app will not reach its database with this DATABASE_URL.": "Aplikasi tidak akan bisa menjangkau database-nya dengan DATABASE_URL ini.",
+  "DATABASE_URL connects from the service's server.": "DATABASE_URL tersambung dari server layanan.",
+  "The service will not reach its database with this DATABASE_URL.": "Layanan tidak akan bisa menjangkau database-nya dengan DATABASE_URL ini.",
   "Database server": "Server database",
   "Database name": "Nama database",
   "Choose a server": "Pilih server",
@@ -628,8 +628,8 @@ export default {
   "New login": "Login baru",
   "Existing login": "Login yang ada",
   "Login name": "Nama login",
-  "A login of its own for this app, with access to this database only.":
-    "Login khusus untuk aplikasi ini, hanya punya akses ke database ini.",
+  "A login of its own for this service, with access to this database only.":
+    "Login khusus untuk layanan ini, hanya punya akses ke database ini.",
   "The workspace has no logins on this server yet — make a new one.":
     "Workspace belum punya login di server ini — buat yang baru.",
   "Choose a login": "Pilih login",
@@ -651,8 +651,8 @@ export default {
     "typescript, prisma CLI, @types dan sejenisnya dibuang dari release setelah build — sering separuh node_modules. Tetap dipertahankan kalau perintah start memakainya (tsx, ts-node, nodemon). Build berikutnya install ulang, bukan memakai node_modules yang sudah dipangkas.",
   "Empty uses the detected one: {command}": "Kosong = memakai hasil deteksi: {command}",
   "Empty uses the detected one.": "Kosong = memakai hasil deteksi.",
-  "Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.":
-    "Dijalankan sebelum build dengan environment aplikasi, agar build bisa memakai tabelnya. Jika gagal, rilis lama tetap melayani — pakai untuk migrasi database.",
+  "Runs before the build with the service's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.":
+    "Dijalankan sebelum build dengan environment layanan, agar build bisa memakai tabelnya. Jika gagal, rilis lama tetap melayani — pakai untuk migrasi database.",
   "Going live": "Menuju live",
   "Cancel deploy": "Batalkan deploy",
   "More actions": "Aksi lainnya",
@@ -715,8 +715,8 @@ export default {
   "Emptied after a snapshot, migrations from nothing. When nothing in it is worth keeping.": "Dikosongkan setelah snapshot, migrasi dari nol. Kalau tidak ada isinya yang perlu disimpan.",
   "Mark it as applied and deploy": "Tandai sudah terpasang lalu deploy",
   "Mark {name} as applied?": "Tandai {name} sudah terpasang?",
-  "Its SQL is not run — it is recorded as done and the later migrations go on. Only right when the database already has everything this migration would create, such as after the migrations were squashed. On an incomplete database the app fails later on a missing table.":
-    "SQL-nya tidak dijalankan — hanya dicatat selesai, lalu migrasi berikutnya lanjut. Tepat hanya kalau database sudah punya semua yang dibuat migrasi ini, misalnya setelah riwayat migrasi di-squash. Pada database yang tidak lengkap, aplikasi nanti gagal karena tabel hilang.",
+  "Its SQL is not run — it is recorded as done and the later migrations go on. Only right when the database already has everything this migration would create, such as after the migrations were squashed. On an incomplete database the service fails later on a missing table.":
+    "SQL-nya tidak dijalankan — hanya dicatat selesai, lalu migrasi berikutnya lanjut. Tepat hanya kalau database sudah punya semua yang dibuat migrasi ini, misalnya setelah riwayat migrasi di-squash. Pada database yang tidak lengkap, layanan nanti gagal karena tabel hilang.",
   "Mark as applied and deploy": "Tandai terpasang lalu deploy",
   "Empty every database of {name}?": "Kosongkan semua database {name}?",
   "Every table and row is dropped, then the deploy runs the migrations from nothing. A snapshot is taken first and can be restored from the deployment history.":
@@ -746,12 +746,12 @@ export default {
   "The last deploy failed": "Deploy terakhir gagal",
   Runtime: "Runtime",
   "Build Settings": "Pengaturan Build",
-  "Set up by hand on {runtime}. All of this is removed from the server — if any of it cannot be, the app is not deleted.":
-    "Dipasang manual di {runtime}. Semua ini dihapus dari server — jika ada yang tidak bisa dihapus, aplikasi tidak dihapus.",
+  "Set up by hand on {runtime}. All of this is removed from the server — if any of it cannot be, the service is not deleted.":
+    "Dipasang manual di {runtime}. Semua ini dihapus dari server — jika ada yang tidak bisa dihapus, layanan tidak dihapus.",
   "Removed from the server": "Dihapus dari server",
   "Only a superadmin can remove things from the server.": "Hanya superadmin yang dapat menghapus sesuatu dari server.",
-  "Sort out what is marked above first — until then the app cannot be deleted.":
-    "Selesaikan yang ditandai di atas dulu — sampai itu, aplikasi tidak bisa dihapus.",
+  "Sort out what is marked above first — until then the service cannot be deleted.":
+    "Selesaikan yang ditandai di atas dulu — sampai itu, layanan tidak bisa dihapus.",
   "Removes it from the panel and from the server. If anything cannot be removed, nothing is deleted.":
     "Menghapusnya dari panel dan dari server. Jika ada yang tidak bisa dihapus, tidak ada yang dihapus.",
   "Nothing listens on port {port} any more": "Tidak ada lagi yang mendengarkan di port {port}",
@@ -761,7 +761,7 @@ export default {
   "Active, not connected": "Aktif, tidak terhubung",
   "reachable elsewhere": "dijangkau di server lain",
   "How to fix": "Cara memperbaiki",
-  "Port {port} is not listening yet — the site answers here once the app runs.":
+  "Port {port} is not listening yet — the site answers here once the service runs.":
     "Port {port} belum aktif — situs akan merespons di sini setelah aplikasinya berjalan.",
   "Replaces the Cloudflare record with {ip}.": "Record Cloudflare diganti menjadi {ip}.",
   "Set this record at your DNS provider (DNS only).": "Pasang record ini di pengelola DNS Anda (DNS only).",
@@ -788,20 +788,20 @@ export default {
   "Stop and remove the process": "Hentikan dan hapus proses",
   "Remove the Caddy route": "Hapus route Caddy",
   "Remove the DNS record": "Hapus record DNS",
-  "Delete the app folder": "Hapus folder aplikasi",
+  "Delete the service folder": "Hapus folder layanan",
   // teardown step details and reasons — sent by the API as English keys
   "Whatever listens on port {port}": "Apa pun yang mendengarkan di port {port}",
   "Caddy route for {domain}": "Route Caddy untuk {domain}",
   "DNS record {domain} → this server (Cloudflare, only if it points here)":
     "Record DNS {domain} → server ini (Cloudflare, hanya jika mengarah ke sini)",
-  "The app folder": "Folder aplikasi",
-  "Not linked to a server — sync the apps again first": "Belum terhubung ke server — sinkronkan aplikasi dulu",
+  "The service folder": "Folder layanan",
+  "Not linked to a server — sync the services again first": "Belum terhubung ke server — sinkronkan layanan dulu",
   "This is the panel itself": "Ini adalah panel itu sendiri",
-  "No folder was detected for this app": "Folder aplikasi ini tidak terdeteksi",
+  "No folder was detected for this service": "Folder layanan ini tidak terdeteksi",
   "{dir} is not a plain absolute path": "{dir} bukan path absolut yang wajar",
   "{dir} is a system or home folder": "{dir} adalah folder sistem atau home",
-  "{dir} belongs to another app": "{dir} milik aplikasi lain",
-  "{dir} belongs to another app — kept": "{dir} milik aplikasi lain — tidak dihapus",
+  "{dir} belongs to another service": "{dir} milik layanan lain",
+  "{dir} belongs to another service — kept": "{dir} milik layanan lain — tidak dihapus",
   "pm2 process {name} also runs {domain} — kept": "Proses pm2 {name} juga menjalankan {domain} — tidak dihapus",
   "{dir} is a hidden folder": "{dir} adalah folder tersembunyi",
   "{dir} is managed by the panel": "{dir} dikelola oleh panel",
@@ -818,9 +818,9 @@ export default {
   "Could not remove the route": "Gagal menghapus rute",
   "Could not change the route": "Gagal mengubah rute",
   "A path is like /api/* — or leave it empty for the whole host": "Path seperti /api/* — atau kosongkan untuk seluruh host",
-  "An app needs at least one host — add another first": "Aplikasi perlu minimal satu host — tambahkan host lain dulu",
+  "A service needs at least one host — add another first": "Layanan perlu minimal satu host — tambahkan host lain dulu",
   "{host} stops going to {app}. When nothing else answers on the host, its DNS record pointing here is removed too. Links and bookmarks to it break.":
-    "{host} berhenti diteruskan ke {app}. Jika tidak ada aplikasi lain di host itu, record DNS-nya yang mengarah ke sini ikut dihapus. Tautan dan bookmark ke sana tidak berfungsi lagi.",
+    "{host} berhenti diteruskan ke {app}. Jika tidak ada layanan lain di host itu, record DNS-nya yang mengarah ke sini ikut dihapus. Tautan dan bookmark ke sana tidak berfungsi lagi.",
   Host: "Host",
   "Other hosts": "Host lain",
   "Add a domain": "Tambah domain",
@@ -828,29 +828,29 @@ export default {
   "path (optional), e.g. /api/*": "path (opsional), mis. /api/*",
   "A path is like /api/* — or leave it empty for the whole name": "Path seperti /api/* — atau kosongkan untuk seluruh domain",
   "strip prefix": "buang prefix",
-  "Build all apps": "Build semua aplikasi",
-  "Build every app of {name}?": "Build semua aplikasi {name}?",
-  "Redeploy every app of {name}?": "Deploy ulang semua aplikasi {name}?",
-  "Each app is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.":
-    "Setiap aplikasi di-install dan di-build di foldernya di server, satu per satu: file situs dulu, lalu proses yang di-restart pm2. Build dilakukan di folder yang sedang melayani, jadi situs bisa error selama proses ini.",
+  "Build all services": "Build semua layanan",
+  "Build every service of {name}?": "Build semua layanan {name}?",
+  "Redeploy every service of {name}?": "Deploy ulang semua layanan {name}?",
+  "Each service is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.":
+    "Setiap layanan di-install dan di-build di foldernya di server, satu per satu: file situs dulu, lalu proses yang di-restart pm2. Build dilakukan di folder yang sedang melayani, jadi situs bisa error selama proses ini.",
   "I understand the sites may err until every build is done.": "Saya mengerti situs bisa error sampai semua build selesai.",
-  "Building {count} apps": "Build {count} aplikasi berjalan",
+  "Building {count} services": "Build {count} layanan berjalan",
   "everything else": "selain itu",
-  "The app gets the path without this prefix: /api/users arrives as /users.": "Aplikasi menerima path tanpa prefix ini: /api/users sampai sebagai /users.",
+  "The service gets the path without this prefix: /api/users arrives as /users.": "Layanan menerima path tanpa prefix ini: /api/users sampai sebagai /users.",
   "Could not change the binding": "Gagal mengubah binding",
   "{host} added": "{host} ditambahkan",
-  "It serves this app, like its other names.": "Domain ini melayani aplikasi ini, sama seperti domain lainnya.",
+  "It serves this service, like its other names.": "Domain ini melayani layanan ini, sama seperti domain lainnya.",
   "Could not add the domain": "Gagal menambahkan domain",
   "{host} removed": "{host} dihapus",
-  "It no longer serves this app.": "Domain ini tidak lagi melayani aplikasi ini.",
+  "It no longer serves this service.": "Domain ini tidak lagi melayani layanan ini.",
   "Could not remove the domain": "Gagal menghapus domain",
-  "An app needs at least one hostname — add another first": "Aplikasi perlu minimal satu domain — tambahkan domain lain dulu",
+  "A service needs at least one hostname — add another first": "Layanan perlu minimal satu domain — tambahkan domain lain dulu",
   "Remove {host}": "Hapus {host}",
   "Remove {host}?": "Hapus {host}?",
   "Other domains": "Domain lain",
   "all reachable": "semua dapat dijangkau",
-  "{host} stops serving this app, and its DNS record pointing here is removed. Links and bookmarks to it break.":
-    "{host} berhenti melayani aplikasi ini, dan record DNS-nya yang mengarah ke sini dihapus. Tautan dan bookmark ke domain itu tidak berfungsi lagi.",
+  "{host} stops serving this service, and its DNS record pointing here is removed. Links and bookmarks to it break.":
+    "{host} berhenti melayani layanan ini, dan record DNS-nya yang mengarah ke sini dihapus. Tautan dan bookmark ke domain itu tidak berfungsi lagi.",
   "{keys} still hold this address — update them in Environment and redeploy.":
     "{keys} masih berisi alamat ini — ubah di Environment lalu deploy ulang.",
 } satisfies Record<string, string>;

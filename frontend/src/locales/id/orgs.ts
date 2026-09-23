@@ -56,13 +56,13 @@ export default {
 
   // Workspace detail / Team
   "Workspace not found.": "Workspace tidak ditemukan.",
-  "{members} members · {domains} domains · {apps} apps":
-    "{members} anggota · {domains} domain · {apps} aplikasi",
+  "{members} members · {domains} domains · {apps} services":
+    "{members} anggota · {domains} domain · {apps} layanan",
   "Placed on {server}": "Ditempatkan di {server}",
   "Server placement": "Penempatan server",
   "Choose a server…": "Pilih server…",
-  "Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files.":
-    "Penempatan tidak dapat diubah setelah ditetapkan: pengguna OS, direktori home, dan aplikasi tenant ini berada di node tersebut. Memindahkan datanya tidak akan memindahkan berkasnya.",
+  "Placement is fixed once set: this tenant's OS user, home and services live on that node. Moving the row would not move the files.":
+    "Penempatan tidak dapat diubah setelah ditetapkan: pengguna OS, direktori home, dan layanan tenant ini berada di node tersebut. Memindahkan datanya tidak akan memindahkan berkasnya.",
   "Provisioning and deploys refuse to run until this workspace is placed on a node.":
     "Provisioning dan deploy tidak dapat dijalankan sebelum workspace ini ditempatkan di sebuah node.",
   "Invite to {name}": "Undang ke {name}",
@@ -90,14 +90,14 @@ export default {
   "Search invites…": "Cari undangan…",
   "No invites.": "Tidak ada undangan.",
   "Remove this member?": "Keluarkan anggota ini?",
-  "{member} will lose access to {name}, including its domains and applications. They can be added back later.":
+  "{member} will lose access to {name}, including its domains and services. They can be added back later.":
     "{member} akan kehilangan akses ke {name}, termasuk domain dan aplikasinya. Anggota ini dapat ditambahkan kembali nanti.",
-  "{member} will lose access to {name}, including its domains and applications. They can be invited back later.":
+  "{member} will lose access to {name}, including its domains and services. They can be invited back later.":
     "{member} akan kehilangan akses ke {name}, termasuk domain dan aplikasinya. Anggota ini dapat diundang kembali nanti.",
   "Remove member": "Keluarkan anggota",
   "You are not a member of any workspace yet.": "Anda belum menjadi anggota workspace mana pun.",
-  "People who can manage this workspace's domains and applications.":
-    "Orang-orang yang dapat mengelola domain dan aplikasi workspace ini.",
+  "People who can manage this workspace's domains and services.":
+    "Orang-orang yang dapat mengelola domain dan layanan workspace ini.",
 
   // Users
   "Client accounts on the platform and their workspace memberships.":
@@ -124,11 +124,11 @@ export default {
   "Search domain…": "Cari domain…",
   "No domains yet.": "Belum ada domain.",
   "Domain ownership updated": "Kepemilikan domain diperbarui",
-  "Its applications moved with it.": "Aplikasinya ikut dipindahkan.",
+  "Its services moved with it.": "Aplikasinya ikut dipindahkan.",
   "Move this domain to another workspace?": "Pindahkan domain ini ke workspace lain?",
-  "{domain} and its {count} application will move to {organization}.":
+  "{domain} and its {count} service will move to {organization}.":
     "{domain} beserta {count} aplikasinya akan dipindahkan ke {organization}.",
-  "{domain} and its {count} applications will move to {organization}.":
+  "{domain} and its {count} services will move to {organization}.":
     "{domain} beserta {count} aplikasinya akan dipindahkan ke {organization}.",
   "The previous workspace loses access immediately.":
     "Workspace sebelumnya langsung kehilangan akses.",
@@ -150,8 +150,8 @@ export default {
   "Provision this workspace?": "Provisi workspace ini?",
   "Creates the OS user {user}, its home, disk quota, cgroup slice and PHP-FPM pool.":
     "Membuat pengguna OS {user} beserta direktori home, kuota disk, cgroup slice, dan pool PHP-FPM-nya.",
-  "Re-running also repairs file ownership and re-applies the resource limits — it does not restart running applications.":
-    "Menjalankan ulang juga memperbaiki kepemilikan berkas dan menerapkan ulang batas sumber daya — aplikasi yang sedang berjalan tidak dimulai ulang.",
+  "Re-running also repairs file ownership and re-applies the resource limits — it does not restart running services.":
+    "Menjalankan ulang juga memperbaiki kepemilikan berkas dan menerapkan ulang batas sumber daya — layanan yang sedang berjalan tidak dimulai ulang.",
   "Nothing provisioned yet.": "Belum ada yang diprovisi.",
   When: "Waktu",
   Message: "Pesan",
@@ -189,14 +189,14 @@ export default {
   "On no server yet": "Belum ada di server mana pun",
   "Default server": "Server default",
   "Provisioned on": "Terprovisi di",
-  "New apps of this workspace have to pick a server.": "Aplikasi baru workspace ini harus memilih server.",
+  "New services of this workspace have to pick a server.": "Layanan baru workspace ini harus memilih server.",
   "Default server: {server}": "Server default: {server}",
-  "New apps run on the default server unless another is picked. The workspace is provisioned only on the servers its apps use — its OS user has the same UID on each.":
-    "Aplikasi baru berjalan di server default kecuali dipilih server lain. Workspace hanya diprovisi di server yang dipakai aplikasinya — pengguna OS-nya memiliki UID yang sama di setiap server.",
+  "New services run on the default server unless another is picked. The workspace is provisioned only on the servers its services use — its OS user has the same UID on each.":
+    "Layanan baru berjalan di server default kecuali dipilih server lain. Workspace hanya diprovisi di server yang dipakai aplikasinya — pengguna OS-nya memiliki UID yang sama di setiap server.",
   "Runs on every server it is on: {servers}.": "Berjalan di setiap server tempat workspace ini berada: {servers}.",
   "Runs on its default server, {server}.": "Berjalan di server default-nya, {server}.",
   "Workspace's default server": "Server default workspace",
-  "Fixed once the app exists.": "Tidak bisa diubah setelah aplikasi dibuat.",
-  "No workspace is provisioned here yet. A workspace is provisioned on a server when its first app is placed on it.":
-    "Belum ada workspace yang diprovisi di sini. Workspace diprovisi di sebuah server saat aplikasi pertamanya ditempatkan di server itu.",
+  "Fixed once the service exists.": "Tidak bisa diubah setelah layanan dibuat.",
+  "No workspace is provisioned here yet. A workspace is provisioned on a server when its first service is placed on it.":
+    "Belum ada workspace yang diprovisi di sini. Workspace diprovisi di sebuah server saat layanan pertamanya ditempatkan di server itu.",
 } satisfies Record<string, string>;

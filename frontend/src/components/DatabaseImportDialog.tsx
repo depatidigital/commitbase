@@ -121,7 +121,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
     [t("Database"), dbName],
     [t("Engine"), ENGINE_LABEL[engine] ?? engine],
     [t("Workspace"), database?.organization?.name],
-    [t("App"), database?.application?.name],
+    [t("Service"), database?.application?.name],
   ];
 
   return (
@@ -183,7 +183,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
             {/* Next.js & co. bake pages at build time: they keep showing the data from then */}
             {current.status === "DONE" && (
               <p className="text-xs text-muted-foreground">
-                {t("Pages the app built before the restore can still show the old data — redeploy the app to rebuild them.")}
+                {t("Pages the service built before the restore can still show the old data — redeploy the service to rebuild them.")}
               </p>
             )}
           </div>

@@ -129,7 +129,7 @@ export default function ProjectDetail() {
     );
   }
   if (error || !project) {
-    return <p className="p-6 text-destructive">{(error as Error | null)?.message ?? t("Project not found")}</p>;
+    return <p className="p-6 text-destructive">{(error as Error | null)?.message ?? t("App not found")}</p>;
   }
 
   const apps = project.applications;
@@ -180,14 +180,14 @@ export default function ProjectDetail() {
         toast({
           variant: "destructive",
           title: t("Stopped at {app}", { app: app.name }),
-          description: `${(err as Error).message} — ${t("the apps before it are deleted, the rest are kept.")}`,
+          description: `${(err as Error).message} — ${t("the services before it are deleted, the rest are kept.")}`,
         });
         return;
       }
     }
     void queryClient.invalidateQueries({ queryKey: ["projects"] });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
-    toast({ title: t("Project deleted"), description: t("{count} apps deleted", { count: apps.length }) });
+    toast({ title: t("App deleted"), description: t("{count} services deleted", { count: apps.length }) });
     navigate("/projects");
   };
 
@@ -240,7 +240,7 @@ export default function ProjectDetail() {
           <Button variant="outline" asChild>
             <Link to={`/project/${project.id}/add-app`}>
               <Plus className="mr-2 h-4 w-4" />
-              {t("Add app")}
+              {t("Add service")}
             </Link>
           </Button>
         )
@@ -257,7 +257,7 @@ export default function ProjectDetail() {
       ) : (
       <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
-          <TabsTrigger value="apps">{t("Apps")}</TabsTrigger>
+          <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
@@ -267,7 +267,7 @@ export default function ProjectDetail() {
         {/* its apps and their routes — an app has many (host, host/path), a route belongs to one app.
             A card opens that app a level deeper */}
         <TabsContent value="apps">
-          {apps.length === 0 && <p className="py-8 text-center text-muted-foreground">{t("No apps")}</p>}
+          {apps.length === 0 && <p className="py-8 text-center text-muted-foreground">{t("No services")}</p>}
           <ul className="space-y-2">
             {apps.map((app) => {
               // what serves it on the box — its pm2 process, Caddy's files or proxy — as the projects list says it
@@ -387,9 +387,9 @@ export default function ProjectDetail() {
               </CardHeader>
               <CardContent className="flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0 text-sm">
-                  <p className="font-medium">{t("Delete this project")}</p>
+                  <p className="font-medium">{t("Delete this app")}</p>
                   <p className="text-muted-foreground">
-                    {t("Every app of it is deleted too ({count}): {apps}.", { count: apps.length, apps: apps.map((app) => app.name).join(", ") })}{" "}
+                    {t("Every service of it is deleted too ({count}): {apps}.", { count: apps.length, apps: apps.map((app) => app.name).join(", ") })}{" "}
                     {imported
                       ? t("They were set up on the server: their process, Caddy route, DNS record and folder are removed from it too.")
                       : t("This cannot be undone.")}
@@ -398,7 +398,7 @@ export default function ProjectDetail() {
                     <p className="mt-1 text-xs text-muted-foreground">{t("Only a superadmin can remove things from the server.")}</p>
                   )}
                   {!imported && !project.canManage && (
-                    <p className="mt-1 text-xs text-muted-foreground">{t("Only the creator of the project and the admins of its workspace can delete it.")}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{t("Only the creator of the app and the admins of its workspace can delete it.")}</p>
                   )}
                 </div>
                 <Button
@@ -411,7 +411,7 @@ export default function ProjectDetail() {
                   }}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  {t("Delete project")}
+                  {t("Delete app")}
                 </Button>
               </CardContent>
             </Card>
@@ -519,9 +519,9 @@ export default function ProjectDetail() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Redeploy every app of {name}?", { name: project.name })}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Redeploy every service of {name}?", { name: project.name })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Each app is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.")}
+              {t("Each service is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <label className="flex items-start gap-2 text-sm">
@@ -537,7 +537,7 @@ export default function ProjectDetail() {
                 setBuilding(true);
                 try {
                   const built = await buildProject(project.id, consent);
-                  toast({ title: t("Building {count} apps", { count: built.length }), description: built.join(", ") });
+                  toast({ title: t("Building {count} services", { count: built.length }), description: built.join(", ") });
                   setConfirmBuild(false);
                   void queryClient.invalidateQueries({ queryKey: ["project", id] });
                   void queryClient.invalidateQueries({ queryKey: ["application"] });
@@ -561,7 +561,7 @@ export default function ProjectDetail() {
             <AlertDialogTitle>{t("Delete {name}?", { name: project.name })}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
-                <p>{t("Every app of this project is deleted, one after the other:")}</p>
+                <p>{t("Every service of this app is deleted, one after the other:")}</p>
                 <ul className="list-disc pl-5 text-xs">
                   {apps.map((app) => (
                     <li key={app.id}>
@@ -575,7 +575,7 @@ export default function ProjectDetail() {
                     {t("They were set up on the server: their process, Caddy route, DNS record and folder are removed from it too.")}
                   </p>
                 )}
-                <p>{t("Type the project's name to confirm.")}</p>
+                <p>{t("Type the app's name to confirm.")}</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -595,7 +595,7 @@ export default function ProjectDetail() {
                   {t("Deleting {app}…", { app: deleting })}
                 </>
               ) : (
-                t("Delete project")
+                t("Delete app")
               )}
             </Button>
           </AlertDialogFooter>
@@ -968,7 +968,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
       <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Stop App")}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Stop Service")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: application.name })}
             </AlertDialogDescription>
@@ -982,7 +982,7 @@ function AppQuickEdit({ appId }: { appId: string }) {
                 setConfirmStop(false);
               }}
             >
-              {t("Stop App")}
+              {t("Stop Service")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

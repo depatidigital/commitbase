@@ -235,7 +235,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
         if (created.accountId) connectAs = { accountId: created.accountId };
       }
       const { keys } = await attachDatabase(databaseId, application.id, envKey, alsoKeys, connectAs);
-      toast({ title: t("Database connected"), description: t("{key} is set in the app's environment.", { key: keys.join(", ") }) });
+      toast({ title: t("Database connected"), description: t("{key} is set in the service's environment.", { key: keys.join(", ") }) });
       onConnected(keys);
       onOpenChange(false);
     } catch (error) {
@@ -258,7 +258,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
             {t("Connect a database")}
           </DialogTitle>
           <DialogDescription>
-            {t("Its connection URL is written to the app's environment. The password never leaves the server.")}
+            {t("Its connection URL is written to the service's environment. The password never leaves the server.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -310,7 +310,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                 ))}
               </ul>
               <p className="text-xs text-muted-foreground">
-                {t("The app reaches it by its service name inside the stack. Its host and port go in the form; the password stays — the container is created with it.")}
+                {t("The service reaches it by its service name inside the stack. Its host and port go in the form; the password stays — the container is created with it.")}
               </p>
             </div>
           ) : source === "custom" ? (
@@ -354,7 +354,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                 )}
                 {customUrl.trim() && !customEngine && <span className="text-destructive">{t("A postgresql:// or mysql:// URL.")}</span>}
               </div>
-              <p className="text-xs text-muted-foreground">{t("Tried from the app's server. It goes in the form — saved with the rest of the environment.")}</p>
+              <p className="text-xs text-muted-foreground">{t("Tried from the service's server. It goes in the form — saved with the rest of the environment.")}</p>
             </div>
           ) : (
           <>
@@ -446,7 +446,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {db.type === "POSTGRESQL" ? "PostgreSQL" : "MySQL"}
                           {siblings.length > 0
-                            ? ` · ${t("used by {apps} (this project)", { apps: siblings.map((app) => app.name).join(", ") })}`
+                            ? ` · ${t("used by {apps} (this app)", { apps: siblings.map((app) => app.name).join(", ") })}`
                             : db.application && db.application.id !== application.id
                               ? ` · ${t("used by {app}", { app: db.application.name })}`
                               : ""}

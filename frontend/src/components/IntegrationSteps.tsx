@@ -99,7 +99,7 @@ export const GOOGLE_GUIDE: StepGroup[] = [
   {
     steps: [
       <>
-        {t('Open')} <Code>console.cloud.google.com</Code> {t('and create or pick a project.')}
+        {t('Open')} <Code>console.cloud.google.com</Code> {t('and create or pick an app.')}
       </>,
       <>
         {t('In')} <Code>APIs & Services → Library</Code> {t('enable')} <Code>Site Verification API</Code>{' '}
@@ -107,7 +107,7 @@ export const GOOGLE_GUIDE: StepGroup[] = [
       </>,
       <>
         {t('Open')} <Code>IAM & Admin → Service Accounts → Create service account</Code>.{' '}
-        {t('It needs no project roles.')}
+        {t('It needs no app roles.')}
       </>,
       <>
         {t('Open the service account, then')} <Code>Keys → Add key → Create new key → JSON</Code>.{' '}
@@ -129,7 +129,7 @@ export const GIT_GUIDE: StepGroup[] = [
         {t('For a workspace, use the same menu under the workspace settings.')}
       </>,
       t("Homepage URL: this panel's address. Authorization callback URL: the GitHub callback URL shown below, exactly."),
-      t('Register the app, then Generate a new client secret.'),
+      t('Register the service, then Generate a new client secret.'),
       t('Click Edit on GitHub below, paste the Client ID and the client secret, and save.'),
     ],
   },
@@ -138,21 +138,21 @@ export const GIT_GUIDE: StepGroup[] = [
     steps: [
       <>
         {t('On GitLab open')} <Code>Edit profile → Applications → Add new application</Code>.{' '}
-        {t('On a self-hosted GitLab an admin can use Admin area → Applications for an instance-wide app.')}
+        {t('On a self-hosted GitLab an admin can use Admin area → Services for an instance-wide service.')}
       </>,
       <>
         {t('Redirect URI: the GitLab callback URL shown below, exactly. Keep Confidential checked. Scopes:')}{' '}
         <Code>read_api</Code>, <Code>read_repository</Code>.
       </>,
-      t('Save the application and copy the Application ID and the Secret.'),
+      t('Save the service and copy the Service ID and the Secret.'),
       <>
-        {t('Click Edit on GitLab below: Application ID goes in Client ID, Secret in Client secret. For a self-hosted GitLab also set OAuth URL to')}{' '}
+        {t('Click Edit on GitLab below: Service ID goes in Client ID, Secret in Client secret. For a self-hosted GitLab also set OAuth URL to')}{' '}
         <Code>https://git.example.com/oauth</Code> {t('and API URL to')} <Code>https://git.example.com/api/v4</Code>.
       </>,
       t('Save.'),
     ],
   },
   {
-    steps: [t('Users can now connect their GitHub and GitLab accounts from Add app and pick repositories from them.')],
+    steps: [t('Users can now connect their GitHub and GitLab accounts from Add service and pick repositories from them.')],
   },
 ];

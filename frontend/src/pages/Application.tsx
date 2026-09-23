@@ -185,7 +185,7 @@ export default function Application() {
       setSelectedIds([]);
       setBulkOrgId("");
       setAssignTarget(null);
-      toast({ title: t("Assigned"), description: t("{count} application(s) updated", { count }) });
+      toast({ title: t("Assigned"), description: t("{count} service(s) updated", { count }) });
     },
     onError: (error: Error) =>
       toast({ title: t("Assign failed"), description: error.message, variant: "destructive" }),
@@ -199,7 +199,7 @@ export default function Application() {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       toast({ title: disabled ? t("Disabled") : t("Enabled") });
     },
-    onError: (error: Error) => toast({ title: t("Could not update the app"), description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: t("Could not update the service"), description: error.message, variant: "destructive" }),
   });
 
   const allSelected =
@@ -247,9 +247,9 @@ export default function Application() {
     switch (type) {
       case "stop":
         return {
-          title: t("Stop App"),
+          title: t("Stop Service"),
           description: t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: appName }),
-          actionText: t("Stop App"),
+          actionText: t("Stop Service"),
           variant: "destructive" as const,
         };
     }
@@ -261,10 +261,10 @@ export default function Application() {
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">
-            {t("Error Loading Apps")}
+            {t("Error Loading Services")}
           </h3>
           <p className="text-muted-foreground">
-            {t("Failed to load applications. Please try again.")}
+            {t("Failed to load services. Please try again.")}
           </p>
         </div>
       </div>
@@ -290,7 +290,7 @@ export default function Application() {
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={toggleAll}
-                aria-label={t("Select all applications on this page")}
+                aria-label={t("Select all services on this page")}
               />
             ),
             className: "w-10",
@@ -333,7 +333,7 @@ export default function Application() {
       },
     },
     {
-      header: t("Application"),
+      header: t("Service"),
       // no width: the name takes whatever the other columns leave
       sortKey: "name",
       // name and hostname are the same string for every imported site, so they
@@ -581,15 +581,15 @@ export default function Application() {
   return (
     <TooltipProvider>
       <PageLayout
-        title={t("Apps")}
-        description={t("Manage your applications and services.")}
+        title={t("Services")}
+        description={t("Manage your services and services.")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* back to the list by project, the way here came */}
             <Button variant="ghost" asChild>
               <Link to="/projects">
                 <ServerIcon className="mr-2 h-4 w-4" />
-                {t("By project")}
+                {t("By app")}
               </Link>
             </Button>
             {superAdmin && (
@@ -603,13 +603,13 @@ export default function Application() {
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}
-                {syncApps.isPending ? t("Syncing…") : t("Sync Apps")}
+                {syncApps.isPending ? t("Syncing…") : t("Sync Services")}
               </Button>
             )}
             <Link to="/add-project">
             <Button className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
               <Plus className="mr-2 h-4 w-4" />
-              {t("Add App")}
+              {t("Add Service")}
               </Button>
             </Link>
           </div>
@@ -623,7 +623,7 @@ export default function Application() {
           pagination={applicationsData?.pagination}
           isLoading={isLoading}
           searchPlaceholder={t("Search name or domain…")}
-          empty={t("No applications yet — deploy your first one.")}
+          empty={t("No services yet — deploy your first one.")}
           onRowClick={(app) => navigate(`/application/${app.id}`)}
           toolbar={
             // the imported-sites workflow: fifty unassigned rows, one owner —

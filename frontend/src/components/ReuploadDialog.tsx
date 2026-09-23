@@ -134,7 +134,7 @@ export function ReuploadDialog({
           <DialogDescription>
             {isStatic
               ? t("Upload the site's build output — the folder with index.html (usually dist/, build/ or out/).")
-              : t("The app is rebuilt from the new files.")}
+              : t("The service is rebuilt from the new files.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -146,7 +146,7 @@ export function ReuploadDialog({
             <div className="space-y-2">
               <p>
                 {check.looksLikeSource
-                  ? t("This looks like the project's source (package.json, src/), not its build output. Build it first and upload the output folder.")
+                  ? t("This looks like the app's source (package.json, src/), not its build output. Build it first and upload the output folder.")
                   : t("There is no index.html at the top level — visitors opening the site get a 404.")}
               </p>
               {check.buildDir && (

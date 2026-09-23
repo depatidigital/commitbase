@@ -7,9 +7,9 @@ export default {
   "Deployment did not start": "Deployment tidak dimulai",
   "Static site": "Situs statis",
   "HTML, CSS and JS files served from object storage.": "File HTML, CSS, dan JS yang disajikan dari object storage.",
-  "PHP application served by the platform runtime.": "Aplikasi PHP yang dijalankan oleh runtime platform.",
-  "Node app built and run as a service on the server.": "Aplikasi Node yang di-build dan dijalankan sebagai layanan di server.",
-  "App type": "Tipe aplikasi",
+  "PHP service served by the platform runtime.": "Layanan PHP yang dijalankan oleh runtime platform.",
+  "Node service built and run as a service on the server.": "Layanan Node yang di-build dan dijalankan sebagai layanan di server.",
+  "Service type": "Tipe layanan",
   Source: "Sumber",
   Configure: "Konfigurasi",
   "GitHub OAuth is not configured. A superadmin can set it up under Integrations → GitHub & GitLab.":
@@ -25,8 +25,8 @@ export default {
   "Error Loading Domains": "Gagal Memuat Domain",
   "Failed to load domains. Please try again.": "Gagal memuat domain. Silakan coba lagi.",
   "No Active Domains": "Tidak Ada Domain Aktif",
-  "You need to have at least one active domain to deploy applications. Please add a domain first.":
-    "Anda memerlukan setidaknya satu domain aktif untuk men-deploy aplikasi. Silakan tambahkan domain terlebih dahulu.",
+  "You need to have at least one active domain to deploy services. Please add a domain first.":
+    "Anda memerlukan setidaknya satu domain aktif untuk men-deploy layanan. Silakan tambahkan domain terlebih dahulu.",
   "Manage Domains": "Kelola Domain",
   "Point at the code, then name it — the type is detected.":
     "Tentukan sumber kode, lalu beri nama — tipenya terdeteksi otomatis.",
@@ -72,58 +72,58 @@ export default {
     "Repositori ini privat atau tidak ada. Hubungkan {provider} agar bisa dibaca dan di-deploy.",
   "None of your connected {provider} accounts can read this repository. Connect an account that has access, or check the URL.":
     "Tidak ada akun {provider} Anda yang bisa membaca repositori ini. Hubungkan akun yang punya akses, atau periksa URL-nya.",
-  "App Name": "Nama Aplikasi",
+  "Service Name": "Nama Layanan",
   "Domain Configuration": "Konfigurasi Domain",
   "Select a domain": "Pilih domain",
   "Full domain:": "Domain lengkap:",
   "No domains found.": "Domain tidak ditemukan.",
   Unused: "Belum dipakai",
-  "{count} app": "{count} aplikasi",
-  "{count} apps": "{count} aplikasi",
+  "{count} service": "{count} layanan",
+  "{count} services": "{count} layanan",
   "Filled from the domain": "Terisi dari domain",
   "Follows the domain — change it for a friendlier label.":
     "Mengikuti domain — ubah jika ingin label yang lebih mudah dibaca.",
   "Leave the subdomain empty to use the root domain.":
     "Kosongkan subdomain untuk memakai domain utama (root).",
-  "Inspecting the project…": "Memeriksa proyek…",
+  "Inspecting the app…": "Memeriksa aplikasi…",
   "{error} — fill the build settings by hand.": "{error} — isi pengaturan build secara manual.",
   "Detected: {label}": "Terdeteksi: {label}",
   "Install:": "Instal:",
   "Build:": "Build:",
   "Start:": "Start:",
-  "App type and commands were filled from this. Change them if the guess is wrong.":
-    "Tipe aplikasi dan perintah diisi berdasarkan hasil ini. Ubah jika tebakannya salah.",
-  "Could not tell what this project is — pick its type.":
-    "Jenis proyek ini tidak terdeteksi — pilih tipenya.",
+  "Service type and commands were filled from this. Change them if the guess is wrong.":
+    "Tipe layanan dan perintah diisi berdasarkan hasil ini. Ubah jika tebakannya salah.",
+  "Could not tell what this app is — pick its type.":
+    "Jenis aplikasi ini tidak terdeteksi — pilih tipenya.",
   "Build & Runtime Configuration": "Konfigurasi Build & Runtime",
-  "(assigned automatically — set only if the app ignores $PORT)":
-    "(ditetapkan otomatis — isi hanya jika aplikasi mengabaikan $PORT)",
+  "(assigned automatically — set only if the service ignores $PORT)":
+    "(ditetapkan otomatis — isi hanya jika layanan mengabaikan $PORT)",
   auto: "otomatis",
   "One variable per line in KEY=value format": "Satu variabel per baris dengan format KEY=value",
   Back: "Kembali",
   Continue: "Lanjutkan",
-  "Create App": "Buat Aplikasi",
+  "Create Service": "Buat Layanan",
   "Creating…": "Membuat…",
   "Uploading…": "Mengunggah…",
   "Deploying...": "Sedang deploy...",
-  "Deploy App": "Deploy Aplikasi",
+  "Deploy Service": "Deploy Layanan",
 
   // launch progress
   "Setting up {domain}": "Menyiapkan {domain}",
-  "Application created": "Aplikasi dibuat",
+  "Service created": "Layanan dibuat",
   "Hostname pointed at the platform": "Hostname diarahkan ke platform",
   "Repoint it here": "Arahkan ulang ke sini",
   "Source files": "File sumber",
   "Build and deploy": "Build dan deploy",
-  "The deployment failed — open the app to read its build log":
-    "Deployment gagal — buka aplikasi untuk membaca log build-nya",
+  "The deployment failed — open the service to read its build log":
+    "Deployment gagal — buka layanan untuk membaca log build-nya",
   "Building on the server": "Build sedang berjalan di server",
   "Live over HTTPS": "Aktif melalui HTTPS",
   "Answering with HTTP {status}": "Merespons dengan HTTP {status}",
   "Waiting for DNS to propagate and the certificate to be issued":
     "Menunggu propagasi DNS dan penerbitan sertifikat",
   "Back to dashboard": "Kembali ke dasbor",
-  "Open app": "Buka aplikasi",
+  "Open service": "Buka layanan",
   "Visit site": "Kunjungi situs",
 
   // git fallbacks (lib/git.ts)

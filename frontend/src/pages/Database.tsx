@@ -247,7 +247,7 @@ export default function Database() {
         ]
       : []),
     {
-      header: t("App"),
+      header: t("Service"),
       className: "w-[16%]",
       cell: (db) =>
         db.application ? (
@@ -347,7 +347,7 @@ export default function Database() {
     <PageLayout
       icon={DatabaseIcon}
       title={t("Databases")}
-      description={t("Databases provisioned for your applications.")}
+      description={t("Databases provisioned for your services.")}
       actions={
         <Button onClick={() => setCreating(true)}>
           <Plus className="mr-2 h-4 w-4" /> {t("Create database")}
@@ -361,7 +361,7 @@ export default function Database() {
         query={query}
         pagination={data?.pagination}
         isLoading={isFetching}
-        searchPlaceholder={t("Search name or application…")}
+        searchPlaceholder={t("Search name or service…")}
         toolbar={<OrganizationFilter query={query} />}
         empty={t("No databases yet.")}
       />

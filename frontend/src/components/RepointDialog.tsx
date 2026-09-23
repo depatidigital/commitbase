@@ -42,7 +42,7 @@ export function RepointDialog({
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("Point {host} at this app?", { host })}</AlertDialogTitle>
+          <AlertDialogTitle>{t("Point {host} at this service?", { host })}</AlertDialogTitle>
           <AlertDialogDescription>
             {t("Its DNS record is set to this platform's server. Whatever it points at now stops receiving visitors.")}
           </AlertDialogDescription>

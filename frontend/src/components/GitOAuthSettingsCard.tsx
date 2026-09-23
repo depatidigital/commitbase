@@ -64,7 +64,7 @@ export function GitOAuthSettingsCard() {
   return (
     <Card className="bg-gradient-card border-border/50">
       <CardHeader>
-        <CardTitle>{t('Git OAuth apps')}</CardTitle>
+        <CardTitle>{t('Git OAuth services')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         {isLoading || !status ? (
@@ -108,7 +108,7 @@ export function GitOAuthSettingsCard() {
           <DialogHeader>
             <DialogTitle>{form && `${NAMES[form.provider]} OAuth`}</DialogTitle>
             <DialogDescription>
-              {t('Register an OAuth app with the callback URL below. The secret is stored encrypted. Leave the client ID blank to turn it off.')}
+              {t('Register an OAuth service with the callback URL below. The secret is stored encrypted. Leave the client ID blank to turn it off.')}
             </DialogDescription>
           </DialogHeader>
           {form && status && (

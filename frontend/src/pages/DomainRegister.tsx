@@ -346,7 +346,7 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
               onChange={(id) => setOrganizationId(id ?? "")}
             />
             <p className="text-xs text-muted-foreground">
-              {t("Only this workspace's members can create applications on it.")}
+              {t("Only this workspace's members can create services on it.")}
             </p>
           </div>
 

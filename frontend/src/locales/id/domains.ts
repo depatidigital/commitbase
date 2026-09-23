@@ -9,8 +9,8 @@ export default {
   "Connect a domain you already own. To buy a new one, use Register domain.":
     "Hubungkan domain yang sudah Anda miliki. Untuk membeli domain baru, gunakan Daftarkan domain.",
   "Register domain": "Daftarkan domain",
-  "Only this workspace's members can create applications on it.":
-    "Hanya anggota workspace ini yang dapat membuat aplikasi di domain ini.",
+  "Only this workspace's members can create services on it.":
+    "Hanya anggota workspace ini yang dapat membuat layanan di domain ini.",
   "Choose the owning workspace to continue.": "Pilih workspace pemilik untuk melanjutkan.",
   "Domain name": "Nama domain",
   "Save domain": "Simpan domain",
@@ -87,9 +87,9 @@ export default {
   Registration: "Pendaftaran",
   "Edit the destination": "Ubah tujuan",
   "Not set": "Belum diatur",
-  "Apps subdomain": "Subdomain aplikasi",
-  "Points *.domain at the platform, so apps deployed under it need no record of their own":
-    "Mengarahkan *.domain ke platform, sehingga aplikasi yang di-deploy di bawahnya tidak memerlukan record sendiri",
+  "Services subdomain": "Subdomain layanan",
+  "Points *.domain at the platform, so services deployed under it need no record of their own":
+    "Mengarahkan *.domain ke platform, sehingga layanan yang di-deploy di bawahnya tidak memerlukan record sendiri",
   "Point all subdomains here": "Arahkan semua subdomain ke sini",
   "Move to Cloudflare": "Pindahkan ke Cloudflare",
   "Not on Cloudflare": "Tidak di Cloudflare",
@@ -156,8 +156,8 @@ export default {
     "Zona Cloudflare tetap ada — arahkan ulang nameserver di registrar Anda sebelum menghapusnya.",
   "Working…": "Memproses…",
   Detach: "Lepaskan",
-  "Choose which workspace owns {name}. Only its members can create applications on the domain.":
-    "Pilih workspace pemilik {name}. Hanya anggotanya yang dapat membuat aplikasi di domain ini.",
+  "Choose which workspace owns {name}. Only its members can create services on the domain.":
+    "Pilih workspace pemilik {name}. Hanya anggotanya yang dapat membuat layanan di domain ini.",
 
   // register page
   "Price unavailable": "Harga belum tersedia",
@@ -308,7 +308,7 @@ export default {
   "Saved, but Google refused the key": "Tersimpan, tetapi Google menolak kunci ini",
   "Search Console settings saved": "Pengaturan Search Console tersimpan",
   "Failed to save Search Console settings": "Gagal menyimpan pengaturan Search Console",
-  "A Google Cloud service account key (JSON) from a project with the Site Verification API and the Google Search Console API enabled. The key is stored encrypted.":
+  "A Google Cloud service account key (JSON) from an app with the Site Verification API and the Google Search Console API enabled. The key is stored encrypted.":
     "Kunci service account Google Cloud (JSON) dari project yang mengaktifkan Site Verification API dan Google Search Console API. Kunci disimpan terenkripsi.",
   "Google accounts given owner access to every domain added, so it shows in their Search Console.":
     "Akun Google yang diberi akses pemilik untuk setiap domain yang ditambahkan, agar muncul di Search Console mereka.",

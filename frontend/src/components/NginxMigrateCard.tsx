@@ -31,7 +31,7 @@ const becomes = (plan: NginxSitePlan): string => {
 const kept = (plan: NginxSitePlan): string[] => {
   const out: string[] = [];
   if (plan.site.maxBodyBytes) out.push(t("uploads up to {mb} MB", { mb: String(Math.round(plan.site.maxBodyBytes / 1024 / 1024)) }));
-  if (plan.site.readTimeout) out.push(t("waits {timeout} for the app", { timeout: plan.site.readTimeout }));
+  if (plan.site.readTimeout) out.push(t("waits {timeout} for the service", { timeout: plan.site.readTimeout }));
   if (plan.site.streaming) out.push(t("streams the response"));
   if (plan.site.deny?.length) out.push(t("{n} denied path(s) stay 403", { n: String(plan.site.deny.length) }));
   return out;

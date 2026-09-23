@@ -121,7 +121,7 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Mark {name} as applied?", { name: failedMigration })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Its SQL is not run — it is recorded as done and the later migrations go on. Only right when the database already has everything this migration would create, such as after the migrations were squashed. On an incomplete database the app fails later on a missing table.")}
+              {t("Its SQL is not run — it is recorded as done and the later migrations go on. Only right when the database already has everything this migration would create, such as after the migrations were squashed. On an incomplete database the service fails later on a missing table.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -261,7 +261,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           ) : !detecting && !env.missing.length && dbCheck === "pending" ? (
             <span className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground">
               <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-              {t("Testing DATABASE_URL from the app's server…")}
+              {t("Testing DATABASE_URL from the service's server…")}
             </span>
           ) : /* filled but likely wrong on the server: said here too, by count and name */
           !detecting && !env.missing.length && env.warnings.length > 0 ? (
@@ -381,7 +381,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             {dbCheck === "pending" ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                {t("Testing DATABASE_URL from the app's server…")}
+                {t("Testing DATABASE_URL from the service's server…")}
               </p>
             ) : dbFailed ? (
               <p className="flex items-start gap-1 text-xs text-destructive">
@@ -391,7 +391,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
                 </span>
               </p>
             ) : dbCheck ? (
-              <p className="text-xs text-green-600 dark:text-green-400">{t("DATABASE_URL connects from the app's server.")}</p>
+              <p className="text-xs text-green-600 dark:text-green-400">{t("DATABASE_URL connects from the service's server.")}</p>
             ) : null}
           </Step>
 
@@ -439,7 +439,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
               <p key={warning.code} className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                 {warning.code === "start-fixed-port"
-                  ? t("The start script pins port {port}; the app must listen on $PORT. Remove -p, or set a start command.", { port: warning.port })
+                  ? t("The start script pins port {port}; the service must listen on $PORT. Remove -p, or set a start command.", { port: warning.port })
                   : t("The start script runs next start without -H 127.0.0.1, so it also listens on the node's public address.")}
               </p>
             ))}
@@ -464,7 +464,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             </span>
           ) : dbFailed ? (
             // said, not blocking: the database may come up by the time the app starts
-            <span className="text-xs text-destructive">{t("The app will not reach its database with this DATABASE_URL.")}</span>
+            <span className="text-xs text-destructive">{t("The service will not reach its database with this DATABASE_URL.")}</span>
           ) : null}
           <Button
             type="button"

@@ -19,7 +19,7 @@ export default {
     "File yang dipakai bersama antar-release (node_modules selama lockfile tidak berubah) dihitung sekali, di release yang aktif.",
   "{size} can be freed now.": "{size} bisa dibebaskan sekarang.",
   "Nothing unused right now.": "Tidak ada yang bisa dibersihkan saat ini.",
-  "Clean up this app's storage?": "Bersihkan penyimpanan aplikasi ini?",
+  "Clean up this service's storage?": "Bersihkan penyimpanan layanan ini?",
   "Releases marked Not used are deleted. The live release and the ones kept for rollback stay.":
     "Release bertanda Tidak dipakai dihapus. Release aktif dan cadangan rollback tetap disimpan.",
   "Also delete the build cache": "Hapus juga cache build",
@@ -30,25 +30,25 @@ export default {
   "{used} of {size} used": "{used} dari {size} terpakai",
   "{free} free": "{free} tersisa",
   "The node did not report its disk.": "Node tidak melaporkan disknya.",
-  "No panel apps keep files on this node.": "Tidak ada aplikasi panel yang menyimpan file di node ini.",
+  "No panel services keep files on this node.": "Tidak ada layanan panel yang menyimpan file di node ini.",
   "{size} unused": "{size} tidak dipakai",
   "cache {size}": "cache {size}",
-  "Clean up every app on this node?": "Bersihkan semua aplikasi di node ini?",
-  "Unused releases are deleted on each app. Live releases and the ones kept for rollback stay; apps that are deploying are skipped.":
-    "Release yang tidak dipakai dihapus di setiap aplikasi. Release aktif dan cadangan rollback tetap disimpan; aplikasi yang sedang deploy dilewati.",
+  "Clean up every service on this node?": "Bersihkan semua layanan di node ini?",
+  "Unused releases are deleted on each service. Live releases and the ones kept for rollback stay; services that are deploying are skipped.":
+    "Release yang tidak dipakai dihapus di setiap layanan. Release aktif dan cadangan rollback tetap disimpan; layanan yang sedang deploy dilewati.",
   "Also delete the build caches": "Hapus juga cache build",
-  "Each app's next build is slower while it rebuilds its cache.": "Build berikutnya tiap aplikasi lebih lambat karena cache dibangun ulang.",
-  "Clean up all apps": "Bersihkan semua aplikasi",
+  "Each service's next build is slower while it rebuilds its cache.": "Build berikutnya tiap layanan lebih lambat karena cache dibangun ulang.",
+  "Clean up all services": "Bersihkan semua layanan",
   "Node leftovers": "Sisa di node",
-  "Outside the apps: logs, caches, containers and images of deleted apps. Nothing running is touched.":
-    "Di luar aplikasi: log, cache, container dan image aplikasi yang sudah dihapus. Yang sedang berjalan tidak disentuh.",
+  "Outside the services: logs, caches, containers and images of deleted services. Nothing running is touched.":
+    "Di luar layanan: log, cache, container dan image layanan yang sudah dihapus. Yang sedang berjalan tidak disentuh.",
   "Podman leftovers": "Sisa Podman",
-  "Per workspace. Running and stopped apps keep theirs; the next deploy pulls what it needs again.":
-    "Per workspace. Aplikasi yang berjalan maupun berhenti tetap menyimpan miliknya; deploy berikutnya mengunduh ulang yang dibutuhkan.",
-  "Data of deleted apps": "Data aplikasi yang sudah dihapus",
-  "Their databases and uploads, gone for good. Kept when the app was deleted.":
+  "Per workspace. Running and stopped services keep theirs; the next deploy pulls what it needs again.":
+    "Per workspace. Layanan yang berjalan maupun berhenti tetap menyimpan miliknya; deploy berikutnya mengunduh ulang yang dibutuhkan.",
+  "Data of deleted services": "Data layanan yang sudah dihapus",
+  "Their databases and uploads, gone for good. Kept when the service was deleted.":
     "Database dan file upload-nya, hilang permanen. Disimpan saat aplikasinya dihapus.",
-  "The data of deleted apps cannot be brought back.": "Data aplikasi yang sudah dihapus tidak bisa dikembalikan.",
+  "The data of deleted services cannot be brought back.": "Data layanan yang sudah dihapus tidak bisa dikembalikan.",
   "Clean up selected": "Bersihkan yang dipilih",
   "Clean up the selected items?": "Bersihkan item yang dipilih?",
   "Up to {size} will be freed.": "Hingga {size} akan dibebaskan.",

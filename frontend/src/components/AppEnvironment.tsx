@@ -243,7 +243,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
     const from: Record<string, string> = {};
     const file = detected?.env.example?.file;
     for (const { key } of detected?.env.example?.vars ?? []) from[key] = t("from {file}", { file: file ?? "" });
-    if (detected?.env.needsDatabase && !from.DATABASE_URL) from.DATABASE_URL = t("the app uses a SQL database");
+    if (detected?.env.needsDatabase && !from.DATABASE_URL) from.DATABASE_URL = t("the service uses a SQL database");
     for (const key of databaseKeys) if (key !== databaseAnchor) from[key] = t("filled by Connect database");
     // an expected key that was saved empty — on purpose, it was asked
     for (const key of required) if (emptyOnPurpose(key)) from[key] = t("Saved empty — on purpose");
@@ -333,7 +333,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
       {!application.staticBucket && (
         <p className="shrink-0 text-xs text-muted-foreground">
           {activeFile === firstFile && files.length > 1
-            ? t("Written into {file} on every deploy — also what the build and the app get. The rest of the file stays as the repository ships it.", { file: activeFile })
+            ? t("Written into {file} on every deploy — also what the build and the service get. The rest of the file stays as the repository ships it.", { file: activeFile })
             : t("Written into {file} on every deploy. The rest of the file stays as the repository ships it.", { file: activeFile })}
         </p>
       )}
@@ -481,7 +481,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
                     {t("{count} to check: {keys}", { count: warnings.length, keys: warnings.join(", ") })}
                   </p>
                 )}
-                <p>{t("The app may not work on the server with them. You can fix them later — they stay flagged on its checklist.")}</p>
+                <p>{t("The service may not work on the server with them. You can fix them later — they stay flagged on its checklist.")}</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

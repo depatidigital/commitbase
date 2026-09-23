@@ -468,11 +468,11 @@ export function AppWorkspace({
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">{t("App Not Found")}</h3>
-          <p className="text-muted-foreground mb-4">{t("The application you're looking for doesn't exist.")}</p>
+          <h3 className="text-lg font-semibold mb-2">{t("Service Not Found")}</h3>
+          <p className="text-muted-foreground mb-4">{t("The service you're looking for doesn't exist.")}</p>
           <Button onClick={() => navigate('/')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            {t("Back to Apps")}
+            {t("Back to Services")}
           </Button>
         </div>
       </div>
@@ -764,7 +764,7 @@ export function AppWorkspace({
                 )}
               </div>
               <p className="text-muted-foreground">
-                {t("App Details & Management")}
+                {t("Service Details & Management")}
               </p>
             </div>
           </div>
@@ -930,7 +930,7 @@ export function AppWorkspace({
                         <span className="block text-xs text-muted-foreground">
                           {application.runtime === "PM2"
                             ? t("Install, build and pm2 restart {name} in its folder on the server.", { name: application.processName ?? "" })
-                            : t("Install and build in its project folder on the server — the files it serves.")}
+                            : t("Install and build in its app folder on the server — the files it serves.")}
                         </span>
                       </span>
                     </DropdownMenuItem>
@@ -1371,7 +1371,7 @@ export function AppWorkspace({
                     <ServerEnv env={application.envVars ?? {}} dir={application.rootPath} />
                   ) : stacked ? (
                     <>
-                      <ServerEnv env={application.envVars ?? {}} note={t("What the app gets at its next deploy.")} />
+                      <ServerEnv env={application.envVars ?? {}} note={t("What the service gets at its next deploy.")} />
                       {/* the form stays mounted while closed: its unsaved edits, the checklist and deploy's save-first live on */}
                       <KeptModal open={envOpen} onClose={() => setEnvOpen(false)} title={t("Env")}>
                         <AppEnvironment application={application} detected={detection.data} onStatus={setEnvStatus} saveRef={envSave} connectDbRef={connectDb} />
@@ -1405,7 +1405,7 @@ export function AppWorkspace({
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Terminal className="h-5 w-5 text-primary" />
-                  <span>{t("App Logs")}</span>
+                  <span>{t("Service Logs")}</span>
                   {liveLogs && !live.error && (
                     <Badge variant="outline" className="gap-1.5">
                       <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
@@ -1581,7 +1581,7 @@ export function AppWorkspace({
         <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t("Stop App")}</AlertDialogTitle>
+              <AlertDialogTitle>{t("Stop Service")}</AlertDialogTitle>
               <AlertDialogDescription>
                 {t("Are you sure you want to stop \"{name}\"? This will shut down the running application.", { name: application.name })}
               </AlertDialogDescription>
@@ -1592,7 +1592,7 @@ export function AppWorkspace({
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 onClick={() => stopApp.mutate(application.id)}
               >
-                {t("Stop App")}
+                {t("Stop Service")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -1756,7 +1756,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       
       toast({
         title: t('Success'),
-        description: t('App settings updated successfully'),
+        description: t('Service settings updated successfully'),
       });
       
       // Refetch application data
@@ -1765,7 +1765,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
     } catch (error) {
       toast({
         title: t('Error'),
-        description: t('Failed to update application settings'),
+        description: t('Failed to update service settings'),
         variant: 'destructive',
       });
     } finally {
@@ -1813,7 +1813,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
           className="font-mono"
         />
         <p className="text-xs text-muted-foreground">
-          {t("Where this app's environment variables are written on every deploy. Separated by commas; empty = .env. What the repository ships in them is kept, except for the keys set here.")}
+          {t("Where this service's environment variables are written on every deploy. Separated by commas; empty = .env. What the repository ships in them is kept, except for the keys set here.")}
         </p>
       </div>
 
@@ -1828,7 +1828,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
               className="font-mono"
             />
             <p className="text-xs text-muted-foreground">
-              {t("Separated by commas, in the order compose reads them — a later file overrides an earlier one. Relative to the app's folder. Empty = docker-compose.yml.")}
+              {t("Separated by commas, in the order compose reads them — a later file overrides an earlier one. Relative to the service's folder. Empty = docker-compose.yml.")}
             </p>
           </div>
 
@@ -1913,7 +1913,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             className="font-mono"
           />
           <p className="text-xs text-muted-foreground">
-            {t("Runs before the build with the app's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.")}
+            {t("Runs before the build with the service's environment, so the build can use the tables. If it fails, the old release keeps serving — use it for database migrations.")}
           </p>
         </div>
       )}
@@ -1963,7 +1963,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
           max="65535"
         />
         <p className="text-xs text-muted-foreground">
-          {t("Port number for your application (1-65535)")}
+          {t("Port number for your service (1-65535)")}
         </p>
       </div>
       </>}

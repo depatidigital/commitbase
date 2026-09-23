@@ -143,7 +143,7 @@ export default function Settings() {
 
         {allAccounts.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {t("No Git accounts connected yet. Connect from the Add App page when selecting a repository.")}
+            {t("No Git accounts connected yet. Connect from the Add Service page when selecting a repository.")}
           </p>
         ) : (
           <div className="space-y-3">
@@ -234,7 +234,7 @@ export default function Settings() {
                   {(() => {
                     // {username} is left in by t() so it can be set in mono
                     const [before, after] = t(
-                      "Are you sure you want to disconnect your {provider} account {username}? You can reconnect later from the Add App page, but existing deployments will keep using their configured repositories.",
+                      "Are you sure you want to disconnect your {provider} account {username}? You can reconnect later from the Add Service page, but existing deployments will keep using their configured repositories.",
                       { provider: accountPendingDelete.providerLabel },
                     ).split("{username}");
                     return (

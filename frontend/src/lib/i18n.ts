@@ -1,7 +1,7 @@
 /**
  * Two languages, Indonesian by default.
  *
- * The English text is the key: `t("Sync Apps")`. English needs no dictionary;
+ * The English text is the key: `t("Sync Services")`. English needs no dictionary;
  * Indonesian is looked up in src/locales/id/*.ts, one file per area so pages
  * can be translated independently. A string with no entry falls back to the
  * English, so a missed one shows up untranslated rather than broken.

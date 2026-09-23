@@ -104,7 +104,7 @@ export default function Organizations() {
       className: "w-36",
       cell: (o) =>
         !o.defaultServer ? (
-          <span className="text-xs text-muted-foreground" title={t("New apps of this workspace have to pick a server.")}>
+          <span className="text-xs text-muted-foreground" title={t("New services of this workspace have to pick a server.")}>
             —
           </span>
         ) : superadmin ? (
@@ -137,7 +137,7 @@ export default function Organizations() {
     },
     { header: t("Members"), className: "w-24", cell: (o) => o._count.members },
     { header: t("Domains"), className: "w-24", cell: (o) => o._count.domains },
-    { header: t("Apps"), className: "w-20", cell: (o) => o._count.applications },
+    { header: t("Services"), className: "w-20", cell: (o) => o._count.applications },
     {
       header: "",
       className: "w-32 text-right",

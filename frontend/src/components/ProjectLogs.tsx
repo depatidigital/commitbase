@@ -52,7 +52,7 @@ export function ProjectLogs({ projectId, apps }: { projectId: string; apps: Arra
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>{t("All apps")}</SelectItem>
+              <SelectItem value={ALL}>{t("All services")}</SelectItem>
               {apps.map((a) => (
                 <SelectItem key={a.id} value={a.id}>
                   {a.name}

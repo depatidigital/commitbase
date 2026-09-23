@@ -85,7 +85,7 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">{t("Node leftovers")}</p>
-          <p className="text-xs text-muted-foreground">{t("Outside the apps: logs, caches, containers and images of deleted apps. Nothing running is touched.")}</p>
+          <p className="text-xs text-muted-foreground">{t("Outside the services: logs, caches, containers and images of deleted services. Nothing running is touched.")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} aria-label={t("Refresh")}>
@@ -136,7 +136,7 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           {picked.has("podmanVolumes") && (
-            <p className="text-sm font-medium text-destructive">{t("The data of deleted apps cannot be brought back.")}</p>
+            <p className="text-sm font-medium text-destructive">{t("The data of deleted services cannot be brought back.")}</p>
           )}
           <p className="text-sm">{t("Up to {size} will be freed.", { size: bytes(selected) })}</p>
           <AlertDialogFooter>

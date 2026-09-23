@@ -18,7 +18,7 @@ export function DnsChangeNotice({ host, domain, inspection }: { host: string; do
   if (inspection.dns === "external") {
     return (
       <Notice tone="info">
-        {t("The DNS of {domain} is not run here, so it cannot be changed automatically. Once the app exists, add this record where the domain's DNS is managed:", { domain })}
+        {t("The DNS of {domain} is not run here, so it cannot be changed automatically. Once the service exists, add this record where the domain's DNS is managed:", { domain })}
         <code className="mt-1 block text-xs">{host} {target}</code>
       </Notice>
     );
@@ -27,7 +27,7 @@ export function DnsChangeNotice({ host, domain, inspection }: { host: string; do
   if (inspection.dns === "registrar" && !inspection.canMove) {
     return (
       <Notice tone="warn">
-        {t("{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this app.", { domain, host })}
+        {t("{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this service.", { domain, host })}
       </Notice>
     );
   }

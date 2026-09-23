@@ -81,7 +81,7 @@ export default function Dashboard() {
         <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
           <Link to="/add-project">
             <Plus className="mr-2 h-4 w-4" />
-            {t("Add project")}
+            {t("Add app")}
           </Link>
         </Button>
       }
@@ -93,8 +93,8 @@ export default function Dashboard() {
       ) : (
         <>
           <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
-            <Stat label={t("Projects")} value={projectsPage?.pagination.total ?? 0} icon={Boxes} />
-            <Stat label={t("Apps online")} value={`${online}/${apps.length}`} icon={Server} />
+            <Stat label={t("Apps")} value={projectsPage?.pagination.total ?? 0} icon={Boxes} />
+            <Stat label={t("Services online")} value={`${online}/${apps.length}`} icon={Server} />
             <Stat label={t("Need attention")} value={attention.length} icon={AlertTriangle} tone={attention.length ? "text-destructive" : ""} />
             <Stat label={t("Domains to renew")} value={renewals.length} icon={Globe} tone={renewals.length ? "text-warning" : ""} />
             {superAdmin && <Stat label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
@@ -112,7 +112,7 @@ export default function Dashboard() {
                 {attention.length === 0 ? (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <CheckCircle2 className="h-4 w-4 text-success" />
-                    {t("All apps are fine.")}
+                    {t("All services are fine.")}
                   </p>
                 ) : (
                   <ul className="divide-y">
@@ -203,7 +203,7 @@ export default function Dashboard() {
           <div>
             <Button variant="ghost" asChild>
               <Link to="/projects">
-                {t("All projects")}
+                {t("All apps")}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>

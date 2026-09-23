@@ -221,8 +221,8 @@ export function HostnamePicker({
                             {apps === 0
                               ? t("Unused")
                               : apps === 1
-                                ? t("{count} app", { count: apps })
-                                : t("{count} apps", { count: apps })}
+                                ? t("{count} service", { count: apps })
+                                : t("{count} services", { count: apps })}
                           </span>
                         )}
                       </CommandItem>
@@ -246,7 +246,7 @@ export function HostnamePicker({
       </>)}
       {picked?.shared && host && (
         <p className="text-xs text-muted-foreground">
-          {t("A free address — add your own domain any time from the app's Domains tab.")}
+          {t("A free address — add your own domain any time from the service's Domains tab.")}
         </p>
       )}
 
@@ -269,7 +269,7 @@ export function HostnamePicker({
             <Link to={`/application/${current.usedBy.id}`} className="font-medium underline">
               {current.usedBy.name}
             </Link>
-            . {t("Move it to this app — {app} stops answering on it.", { app: current.usedBy.name ?? "" })}
+            . {t("Move it to this service — {app} stops answering on it.", { app: current.usedBy.name ?? "" })}
           </span>
         </label>
       )}
@@ -286,7 +286,7 @@ export function HostnamePicker({
                 .
               </>
             ) : (
-              t("{host} is already used by another app.", { host: route })
+              t("{host} is already used by another service.", { host: route })
             )}{" "}
             {t("Pick another name.")}
           </span>

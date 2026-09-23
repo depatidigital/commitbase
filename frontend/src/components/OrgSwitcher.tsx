@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
-import { createOrganization, getOrganizations } from "@/lib/organizations";
+import { createOrganization, getOrganizations, type Organization } from "@/lib/organizations";
 import { getActiveOrg, setActiveOrg } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
@@ -25,11 +25,13 @@ import { t } from "@/lib/i18n";
  * request (lib/api), and the API narrows its lists to it — so pages need no
  * organization column or filter of their own.
  */
+const MINE = ["organizations", "mine"];
+
 export function OrgSwitcher() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { data: organizations = [] } = useQuery({ queryKey: ["organizations", "mine"], queryFn: getOrganizations });
+  const { data: organizations = [] } = useQuery({ queryKey: MINE, queryFn: getOrganizations });
   // state, not a storage read per render: writing localStorage re-renders nothing, so the name stayed stale
   const [active, setActive] = useState(getActiveOrg);
   const current = organizations.find((org) => org.id === active) ?? organizations[0];
@@ -42,6 +44,8 @@ export function OrgSwitcher() {
     onSuccess: (workspace) => {
       setCreating(false);
       setName("");
+      // in the list before the switch, or the "settle on one" effect would switch straight back
+      queryClient.setQueryData<Organization[]>(MINE, (old = []) => [...old, workspace]);
       pick(workspace.id);
       toast({ title: t("Workspace created"), description: workspace.name });
     },
@@ -53,7 +57,8 @@ export function OrgSwitcher() {
     setActive(id);
     // a detail page may belong to the org just left: back to the dashboard; a list stays and reloads
     if (pathname.split("/").filter(Boolean).length > 1) navigate("/");
-    void queryClient.resetQueries();
+    // everything reloads for the new workspace, except the list of workspaces itself
+    void queryClient.resetQueries({ predicate: (q) => q.queryKey.join() !== MINE.join() });
   };
 
   // nothing stored (first visit) or an org left since: settle on one, so the lists match the switch
@@ -103,7 +108,7 @@ export function OrgSwitcher() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>{t("New workspace")}</DialogTitle>
-              <DialogDescription>{t("One per client or business: its own projects, domains, databases and team.")}</DialogDescription>
+              <DialogDescription>{t("One per client or business: its own apps, domains, databases and team.")}</DialogDescription>
             </DialogHeader>
             <form
               onSubmit={(e) => {

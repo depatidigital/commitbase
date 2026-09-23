@@ -208,7 +208,7 @@ export const getApplications = async (params: ListParams): Promise<PaginatedResp
     return response.data;
   }
   
-  throw new Error(response.error || t("Failed to fetch applications"));
+  throw new Error(response.error || t("Failed to fetch services"));
 };
 
 // Get single application
@@ -219,7 +219,7 @@ export const getApplication = async (id: string): Promise<Application> => {
     return response.data;
   }
   
-  throw new Error(response.error || t("Failed to fetch application"));
+  throw new Error(response.error || t("Failed to fetch service"));
 };
 
 // Create new application
@@ -235,7 +235,7 @@ export const createApplication = async (
     return response.data;
   }
   
-  throw new Error(response.error || t("Failed to create application"));
+  throw new Error(response.error || t("Failed to create service"));
 };
 
 /** Live reachability of an app's hostname — DNS, certificate, HTTP answer. */
@@ -376,7 +376,7 @@ export interface DetectedProject {
 export const getAppDetection = async (id: string): Promise<DetectedProject> => {
   const response = await apiRequest<DetectedProject>(`/applications/${id}/detect`);
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || t("Could not inspect the project"));
+  throw new Error(response.error || t("Could not inspect the app"));
 };
 
 export type StackService = {
@@ -424,7 +424,7 @@ export const detectProject = async (
     body: JSON.stringify(input),
   });
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || t("Could not inspect the project"));
+  throw new Error(response.error || t("Could not inspect the app"));
 };
 
 /** An app in a repository (monorepos): its folder ('' = the root) and what it is. */
@@ -441,7 +441,7 @@ export const detectApps = async (input: {
     body: JSON.stringify(input),
   });
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || t("Could not inspect the project"));
+  throw new Error(response.error || t("Could not inspect the app"));
 };
 
 export type Release = {
@@ -665,7 +665,7 @@ export const updateApplication = async (id: string, data: UpdateApplicationData)
     return response.data;
   }
   
-  throw new Error(response.error || t("Failed to update application"));
+  throw new Error(response.error || t("Failed to update service"));
 };
 
 /** What a hostname is today, before an app takes it (GET /applications/hostname-check). */
@@ -715,7 +715,7 @@ export const deleteApplication = async (id: string, opts: { removeVolumes?: bool
   });
 
   if (!response.success) {
-    throw new Error(response.error || t("Failed to delete application"));
+    throw new Error(response.error || t("Failed to delete service"));
   }
 };
 
@@ -743,7 +743,7 @@ export const startExistingApplication = async (id: string): Promise<Application 
     return response.data || true;
   }
   
-  throw new Error(response.error || t("Failed to start existing application"));
+  throw new Error(response.error || t("Failed to start existing service"));
 };
 
 // Start application (with redeploy)
@@ -781,7 +781,7 @@ export const startApplication = async (id: string, options: StartOptions = {}): 
     return response.data || true;
   }
   
-  throw new Error(response.error || t("Failed to start application"));
+  throw new Error(response.error || t("Failed to start service"));
 };
 
 export type ReleaseState = 'live' | 'rollback' | 'unused';
@@ -829,7 +829,7 @@ export const stopApplication = async (id: string): Promise<Application | boolean
     return response.data || true;
   }
   
-  throw new Error(response.error || t("Failed to stop application"));
+  throw new Error(response.error || t("Failed to stop service"));
 };
 
 // Restart application
@@ -842,7 +842,7 @@ export const restartApplication = async (id: string): Promise<Application | bool
     return response.data || true;
   }
   
-  throw new Error(response.error || t("Failed to restart application"));
+  throw new Error(response.error || t("Failed to restart service"));
 };
 
 // Check if application has been deployed before
@@ -883,7 +883,7 @@ export const syncServerApps = async (): Promise<AppSyncResult> => {
     return response.data;
   }
 
-  throw new Error(response.error || t("Failed to sync server apps"));
+  throw new Error(response.error || t("Failed to sync server services"));
 };
 
 /** Give many applications an owner at once — the imported-sites workflow. */
@@ -902,5 +902,5 @@ export const bulkAssignApplications = async (
   });
 
   if (response.success && response.data) return response.data.count;
-  throw new Error(response.error || t("Failed to assign applications"));
+  throw new Error(response.error || t("Failed to assign services"));
 };

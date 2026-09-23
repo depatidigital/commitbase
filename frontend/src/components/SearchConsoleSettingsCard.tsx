@@ -82,7 +82,7 @@ export function SearchConsoleSettingsCard() {
           <DialogHeader>
             <DialogTitle>Google Search Console</DialogTitle>
             <DialogDescription>
-              {t('A Google Cloud service account key (JSON) from a project with the Site Verification API and the Google Search Console API enabled. The key is stored encrypted.')}
+              {t('A Google Cloud service account key (JSON) from an app with the Site Verification API and the Google Search Console API enabled. The key is stored encrypted.')}
             </DialogDescription>
           </DialogHeader>
           {form && (

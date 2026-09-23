@@ -93,13 +93,13 @@ export function ServerStorage({ serverId }: { serverId: string }) {
                 </Button>
                 <Button variant="outline" size="sm" disabled={cleanup.isPending || data.apps.length === 0} onClick={() => setConfirming(true)}>
                   {cleanup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                  {t("Clean up all apps")}
+                  {t("Clean up all services")}
                 </Button>
               </div>
             </div>
 
             {data.apps.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("No panel apps keep files on this node.")}</p>
+              <p className="text-sm text-muted-foreground">{t("No panel services keep files on this node.")}</p>
             ) : (
               <div className="divide-y rounded-md border text-sm">
                 {data.apps.map((app) => (
@@ -128,16 +128,16 @@ export function ServerStorage({ serverId }: { serverId: string }) {
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Clean up every app on this node?")}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Clean up every service on this node?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Unused releases are deleted on each app. Live releases and the ones kept for rollback stay; apps that are deploying are skipped.")}
+              {t("Unused releases are deleted on each service. Live releases and the ones kept for rollback stay; services that are deploying are skipped.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <label className="flex items-start gap-2 text-sm">
             <Checkbox checked={withCache} onCheckedChange={(checked) => setWithCache(checked === true)} className="mt-0.5" />
             <span>
               <span className="font-medium">{t("Also delete the build caches")}</span>
-              <span className="block text-xs text-muted-foreground">{t("Each app's next build is slower while it rebuilds its cache.")}</span>
+              <span className="block text-xs text-muted-foreground">{t("Each service's next build is slower while it rebuilds its cache.")}</span>
             </span>
           </label>
           <p className="text-sm">{t("About {size} will be freed.", { size: bytes(reclaimable) })}</p>

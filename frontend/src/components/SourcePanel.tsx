@@ -117,7 +117,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
     },
     onSuccess: ({ output, built, buildError }) => {
       toast({ title: t("Pulled on the server"), description: output.split("\n").slice(-3).join(" · ") });
-      if (built) toast({ title: t("Building {count} apps", { count: built.length }), description: built.join(", ") });
+      if (built) toast({ title: t("Building {count} services", { count: built.length }), description: built.join(", ") });
       if (buildError) toast({ variant: "destructive", title: t("Could not start the build"), description: buildError });
       void queryClient.invalidateQueries({ queryKey: ["application"] });
       // the server's HEAD moved, and the pull is in the history now
@@ -232,7 +232,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                     })}
                     {apps.length > 1 && (
                       <span className="mt-2 block">
-                        {t("It changes all {count} apps of this project: {apps}.", {
+                        {t("It changes all {count} services of this app: {apps}.", {
                           count: apps.length,
                           apps: apps.flatMap((app) => app.domains.map((d) => d.host)).join(", "),
                         })}
@@ -317,7 +317,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                       {t("Code pulled — {sha} is on the server.", { sha: pulled.slice(0, 7) })}
                     </span>
                   )}
-                  {t("Not live yet — deploy each app from its setup checklist first.")}
+                  {t("Not live yet — deploy each service from its setup checklist first.")}
                 </span>
               ) : needsDeploy ? (
                 <span className="flex items-center gap-1.5 text-warning">
@@ -379,7 +379,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
             <AlertDialogHeader>
               <AlertDialogTitle>{t("Get the newest code from {branch}?", { branch: current })}</AlertDialogTitle>
               <AlertDialogDescription>
-                {t("The server takes the newest commits of {branch}, for every app of this project.", { branch: current })}
+                {t("The server takes the newest commits of {branch}, for every service of this app.", { branch: current })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             {/* two plain choices, one button: what happens to the running sites is said on each */}
@@ -388,7 +388,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying }: Source
                 { value: false, title: t("Pull only"), detail: t("Only the code is updated. The sites keep running what was built before, until they are redeployed.") },
                 // mid-deploy the code can still be pulled; a second deploy waits for the first
                 ...((!readOnly && !deploying) || project?.canSwitchBranch
-                  ? [{ value: true, title: t("Pull and redeploy"), detail: t("Then every app is installed, built and restarted. The sites may show errors until that is done.") }]
+                  ? [{ value: true, title: t("Pull and redeploy"), detail: t("Then every service is installed, built and restarted. The sites may show errors until that is done.") }]
                   : []),
               ].map((option) => (
                 <button

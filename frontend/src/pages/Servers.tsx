@@ -498,7 +498,7 @@ export default function Servers() {
                   onChange={(e) => setForm({ ...form, publicIp: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t("Becomes the Cloudflare A record target for apps on this node.")}
+                  {t("Becomes the Cloudflare A record target for services on this node.")}
                 </p>
               </div>
               <div className="space-y-2">
@@ -595,7 +595,7 @@ export default function Servers() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {t("Needed for compose apps, and only for those. Installed by Set up, so run it again after changing this. Podman needs Ubuntu 24.04 or newer.")}
+                  {t("Needed for compose services, and only for those. Installed by Set up, so run it again after changing this. Podman needs Ubuntu 24.04 or newer.")}
                 </p>
               </div>
               <div className="space-y-2">
@@ -652,7 +652,7 @@ export default function Servers() {
                 <SelectItem value="caddy">Caddy</SelectItem>
                 <SelectItem value="ssh">SSH</SelectItem>
                 <SelectItem value="php">PHP-FPM</SelectItem>
-                <SelectItem value="apps">{t("App units")}</SelectItem>
+                <SelectItem value="apps">{t("Service units")}</SelectItem>
               </SelectContent>
             </Select>
             <Button

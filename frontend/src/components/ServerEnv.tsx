@@ -40,7 +40,7 @@ export function ServerEnv({ env, dir, note }: { env: Record<string, string>; dir
         </div>
       )}
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{note ? t("No environment variables configured") : t("No .env found in the app's folder.")}</p>
+        <p className="text-sm text-muted-foreground">{note ? t("No environment variables configured") : t("No .env found in the service's folder.")}</p>
       ) : matching.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("No variable matches “{query}”.", { query: query.trim() })}</p>
       ) : (

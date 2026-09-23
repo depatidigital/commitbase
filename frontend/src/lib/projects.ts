@@ -68,7 +68,7 @@ export const getProjects = async (
   const extra = serverId ? `${query ? '&' : '?'}serverId=${encodeURIComponent(serverId)}` : '';
   const response = await apiRequest<PaginatedResponse<Project>>(`/sources${query}${extra}`);
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || t('Could not load the projects'));
+  throw new Error(response.error || t('Could not load the apps'));
 };
 
 export interface ProjectUser {
@@ -106,7 +106,7 @@ export const removeProjectMember = async (id: string, userId: string): Promise<v
 export const getProject = async (id: string): Promise<Project> => {
   const response = await apiRequest<Project>(`/sources/${id}`);
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || t('Could not load the project'));
+  throw new Error(response.error || t('Could not load the app'));
 };
 
 export const updateProject = async (
@@ -115,7 +115,7 @@ export const updateProject = async (
 ): Promise<Project> => {
   const response = await apiRequest<Project>(`/sources/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   if (response.success && response.data) return response.data;
-  throw new Error(response.error || t('Could not update the project'));
+  throw new Error(response.error || t('Could not update the app'));
 };
 
 /** Branches, their newest commits, and what is live. */
@@ -165,7 +165,7 @@ export const assignProjects = async (ids: string[], organizationId: string | nul
     body: JSON.stringify({ ids, organizationId, sources: true }),
   });
   if (response.success && response.data) return response.data.count;
-  throw new Error(response.error || t('Failed to assign applications'));
+  throw new Error(response.error || t('Failed to assign services'));
 };
 
 export const PROJECT_STATUS: Record<ProjectStatus, { dot: string; text: string }> = {
@@ -175,7 +175,7 @@ export const PROJECT_STATUS: Record<ProjectStatus, { dot: string; text: string }
   ERROR: { dot: "bg-destructive ring-4 ring-destructive/15", text: t("Needs attention") },
   DEPLOYING: { dot: "", text: t("Deploying") },
   DISABLED: { dot: "bg-muted-foreground/20", text: t("Disabled") },
-  EMPTY: { dot: "bg-muted-foreground/20", text: t("No apps") },
+  EMPTY: { dot: "bg-muted-foreground/20", text: t("No services") },
 };
 
 /**

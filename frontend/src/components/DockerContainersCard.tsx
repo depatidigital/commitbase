@@ -30,7 +30,7 @@ export function DockerContainersCard({ serverId }: { serverId: string }) {
       toast({
         title: result.created ? t("Imported {name}", { name: `${name}:${port}` }) : t("Linked {name}", { name: `${name}:${port}` }),
         description: result.skippedHosts.length
-          ? t("Kept with their current app: {hosts}", { hosts: result.skippedHosts.join(", ") })
+          ? t("Kept with their current service: {hosts}", { hosts: result.skippedHosts.join(", ") })
           : undefined,
       });
     },
@@ -66,7 +66,7 @@ export function DockerContainersCard({ serverId }: { serverId: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          {t("Importing records the container's port as an app, with the hostnames already sent to it. The container keeps running under docker, untouched.")}
+          {t("Importing records the container's port as a service, with the hostnames already sent to it. The container keeps running under docker, untouched.")}
         </p>
         <Button variant="outline" size="sm" onClick={() => containers.refetch()} disabled={containers.isFetching}>
           <RefreshCw className={`mr-2 h-4 w-4 ${containers.isFetching ? "animate-spin" : ""}`} />

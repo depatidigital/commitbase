@@ -336,7 +336,7 @@ export default function OrganizationDetail() {
     <PageLayout
       backTo="/organizations"
       title={org.name}
-      description={`${org.slug} · ${t("{members} members · {domains} domains · {apps} apps", {
+      description={`${org.slug} · ${t("{members} members · {domains} domains · {apps} services", {
         members: org._count.members,
         domains: org._count.domains,
         apps: org._count.applications,
@@ -378,7 +378,7 @@ export default function OrganizationDetail() {
             <OrgNodeBadges nodes={org.nodes} onOpen={(node) => setLogNodeId(node.id)} />
           </div>
           <p className="text-xs text-muted-foreground">
-            {t("New apps run on the default server unless another is picked. The workspace is provisioned only on the servers its apps use — its OS user has the same UID on each.")}
+            {t("New services run on the default server unless another is picked. The workspace is provisioned only on the servers its services use — its OS user has the same UID on each.")}
           </p>
         </CardContent>
       </Card>
@@ -558,7 +558,7 @@ export default function OrganizationDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Remove this member?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("{member} will lose access to {name}, including its domains and applications. They can be added back later.", {
+              {t("{member} will lose access to {name}, including its domains and services. They can be added back later.", {
                 member: pendingRemove?.label ?? "",
                 name: org.name,
               })}

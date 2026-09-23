@@ -225,7 +225,7 @@ export function RestoreDialog({ appId, isStatic, release, onClose }: { appId: st
           <AlertDialogDescription>
             {isStatic
               ? t("The site switches to these files right away. Nothing is uploaded or rebuilt, and you can switch back at any time.")
-              : t("The app stops briefly and restarts on the selected build. Nothing is rebuilt.")}
+              : t("The service stops briefly and restarts on the selected build. Nothing is rebuilt.")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

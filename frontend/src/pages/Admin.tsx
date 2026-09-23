@@ -116,7 +116,7 @@ export default function Admin() {
       setPendingAssign(null);
       toast({
         title: t("Domain ownership updated"),
-        description: t("Its applications moved with it."),
+        description: t("Its services moved with it."),
       });
     },
     onError: (error: Error) => {
@@ -147,7 +147,7 @@ export default function Admin() {
       className: "w-[40%]",
       cell: (d) => <span className="block truncate font-medium">{d.name}</span>,
     },
-    { header: t("Apps"), className: "w-20", cell: (d) => d._count.appDomains },
+    { header: t("Services"), className: "w-20", cell: (d) => d._count.appDomains },
     {
       header: t("Owning workspace"),
       className: "w-[40%]",
@@ -215,7 +215,7 @@ export default function Admin() {
       cell: (o) => <OrgNodeBadges nodes={o.nodes} onOpen={(node) => setLogFor({ orgId: o.id, nodeId: node.id })} />,
     },
     {
-      header: t("Apps"),
+      header: t("Services"),
       className: "w-20",
       cell: (o) => o._count.applications,
     },
@@ -362,12 +362,12 @@ export default function Admin() {
               {pendingAssign && (
                 <>
                   {pendingAssign.appCount === 1
-                    ? t("{domain} and its {count} application will move to {organization}.", {
+                    ? t("{domain} and its {count} service will move to {organization}.", {
                         domain: pendingAssign.domainName,
                         count: pendingAssign.appCount,
                         organization: pendingAssign.organizationName,
                       })
-                    : t("{domain} and its {count} applications will move to {organization}.", {
+                    : t("{domain} and its {count} services will move to {organization}.", {
                         domain: pendingAssign.domainName,
                         count: pendingAssign.appCount,
                         organization: pendingAssign.organizationName,
@@ -416,7 +416,7 @@ export default function Admin() {
                         servers: pendingProvision.nodes.map((n) => n.server.name).join(", "),
                       })
                     : t("Runs on its default server, {server}.", { server: pendingProvision.defaultServer?.name ?? "—" })}{" "}
-                  {t("Re-running also repairs file ownership and re-applies the resource limits — it does not restart running applications.")}
+                  {t("Re-running also repairs file ownership and re-applies the resource limits — it does not restart running services.")}
                 </>
               )}
             </AlertDialogDescription>

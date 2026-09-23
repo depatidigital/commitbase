@@ -91,7 +91,7 @@ export function ComposePreview({
                         variant="link"
                         size="sm"
                         className="h-auto p-0 text-xs"
-                        title={t("Send the app's hosts to this service, on port {port}", { port })}
+                        title={t("Send the service's hosts to this service, on port {port}", { port })}
                         onClick={() => onPick(service.name, port)}
                       >
                         {t("Point the host here")}

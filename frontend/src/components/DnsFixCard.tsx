@@ -65,7 +65,7 @@ export function DnsFixCard({ host, pointing, dnsManaged, portDead, port, canMana
         {/* a heads-up, not a gate: the operator may be moving it here right now */}
         {portDead && (
           <p className="text-xs text-warning">
-            {t("Port {port} is not listening yet — the site answers here once the app runs.", { port: port ?? "—" })}
+            {t("Port {port} is not listening yet — the site answers here once the service runs.", { port: port ?? "—" })}
           </p>
         )}
       </CardContent>

@@ -232,7 +232,7 @@ const App = () => (
               path="integrations/git"
               element={
                 <SuperAdminRoute>
-                  <IntegrationCardPage title="GitHub & GitLab" description={t("The OAuth apps users connect their GitHub and GitLab accounts through.")} guide={GIT_GUIDE}>
+                  <IntegrationCardPage title="GitHub & GitLab" description={t("The OAuth services users connect their GitHub and GitLab accounts through.")} guide={GIT_GUIDE}>
                     <GitOAuthSettingsCard />
                   </IntegrationCardPage>
                 </SuperAdminRoute>

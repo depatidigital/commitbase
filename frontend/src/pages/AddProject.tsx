@@ -445,19 +445,19 @@ export default function AddProject() {
     {
       value: "PHP",
       label: "PHP",
-      description: t("PHP application served by the platform runtime."),
+      description: t("PHP service served by the platform runtime."),
       icon: FileCode,
     },
     {
       value: "NODEJS",
       label: "Node.js",
-      description: t("Node app built and run as a service on the server."),
+      description: t("Node service built and run as a service on the server."),
       icon: Server,
     },
     {
       value: "PYTHON",
       label: "Python",
-      description: t("Python app run as a service, in a virtualenv of its own."),
+      description: t("Python service run as a service, in a virtualenv of its own."),
       icon: Code2,
     },
     {
@@ -535,10 +535,10 @@ export default function AddProject() {
     <PageLayout
       backTo={projectId ? `/project/${projectId}` : "/projects"}
       // without ?project=, this makes a project: its source, and its first app
-      title={joining ? t("Add an app to {name}", { name: joining.name }) : t("Add project")}
+      title={joining ? t("Add a service to {name}", { name: joining.name }) : t("Add app")}
       description={
         projectId
-          ? t("It is built from the project's repository with its other apps, and deployed with them.")
+          ? t("It is built from the app's repository with its other services, and deployed with them.")
           : t("Point at the code — the type is detected. Its hosts and env are added once it exists, then it is deployed.")
       }
     >
@@ -549,14 +549,14 @@ export default function AddProject() {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <FolderGit2 className="h-5 w-5 text-primary" />
-                <span>{joining?.name ?? t("Project")}</span>
+                <span>{joining?.name ?? t("App")}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {joiningError ? (
                 <p className="text-sm text-destructive">{(joiningError as Error).message}</p>
               ) : joining && !joining.repository ? (
-                <p className="text-sm text-destructive">{t("Only a project from a git repository can have several apps.")}</p>
+                <p className="text-sm text-destructive">{t("Only an app from a git repository can have several services.")}</p>
               ) : (
                 <p className="font-mono text-xs text-muted-foreground">
                   {joining?.repository} · {joining?.branch || "main"}
@@ -571,7 +571,7 @@ export default function AddProject() {
                   onChange={(e) => setRootDirectory(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t("Where this app's code is, e.g. apps/api. Empty = the repository root.")}
+                  {t("Where this service's code is, e.g. services/api. Empty = the repository root.")}
                 </p>
               </div>
             </CardContent>
@@ -587,7 +587,7 @@ export default function AddProject() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="name">
-                      {t("Project name")} <span className="text-red-500">*</span>
+                      {t("App name")} <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       id="name"
@@ -609,7 +609,7 @@ export default function AddProject() {
                       <OrganizationCombobox
                         value={organizationId || null}
                         onChange={(id) => setOrganizationId(id ?? "")}
-                        placeholder={t("Whose app is it?")}
+                        placeholder={t("Whose service is it?")}
                       />
                     </div>
                   )}
@@ -863,7 +863,7 @@ export default function AddProject() {
                     {/* a monorepo: the first app is one folder of it — unless its apps were found, below */}
                     {remoteBranches.length > 0 && !multi && (
                       <div className="space-y-1.5">
-                        <Label htmlFor="rootDirectory" title={t("Only for a monorepo: the folder this app is in, e.g. apps/web. More apps from the same repository are added on the project.")}>
+                        <Label htmlFor="rootDirectory" title={t("Only for a monorepo: the folder this service is in, e.g. services/web. More services from the same repository are added on the app.")}>
                           {t("Folder in the repository")}
                         </Label>
                         {/* always a pick: the chosen folder stays an option while the list (re)loads */}
@@ -898,9 +898,9 @@ export default function AddProject() {
         {multi && stepComplete(1) && (
           <Card className="bg-gradient-card border-border/50 shadow-elegant">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t("Apps detected")}</CardTitle>
+              <CardTitle className="text-base">{t("Services detected")}</CardTitle>
               <p className="text-xs text-muted-foreground">
-                {t("The ticked ones are created with the project. Each gets its hosts and env on its own page.")}
+                {t("The ticked ones are created with the app. Each gets its hosts and env on its own page.")}
               </p>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -917,7 +917,7 @@ export default function AddProject() {
                       value={draft.name}
                       onChange={(e) => updateDraft(index, { name: e.target.value })}
                       disabled={!draft.checked}
-                      aria-label={t("App Name")}
+                      aria-label={t("Service Name")}
                       className="h-8 w-40"
                     />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
@@ -946,7 +946,7 @@ export default function AddProject() {
                 <>
                 <div className="space-y-2">
                   <Label htmlFor="name">
-                    {t("App Name")} <span className="text-red-500">*</span>
+                    {t("Service Name")} <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="name"
@@ -960,8 +960,8 @@ export default function AddProject() {
                   />
                   <p className="text-xs text-muted-foreground">
                     {projectId
-                      ? t("Your label for the app, taken from its source. It stays when its hosts change.")
-                      : t("Taken from its source — its first app starts with the same name. Both can be renamed later.")}
+                      ? t("Your label for the service, taken from its source. It stays when its hosts change.")
+                      : t("Taken from its source — its first service starts with the same name. Both can be renamed later.")}
                   </p>
                 </div>
 
@@ -974,7 +974,7 @@ export default function AddProject() {
                     <OrganizationCombobox
                       value={organizationId || null}
                       onChange={(id) => setOrganizationId(id ?? "")}
-                      placeholder={t("Whose app is it?")}
+                      placeholder={t("Whose service is it?")}
                     />
                   </div>
                 )}
@@ -986,12 +986,12 @@ export default function AddProject() {
                   {/* what detection found sits on the heading line */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Label>
-                      {t("App type")} <span className="text-red-500">*</span>
+                      {t("Service type")} <span className="text-red-500">*</span>
                     </Label>
                     {detecting ? (
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
-                        {t("Inspecting the project…")}
+                        {t("Inspecting the app…")}
                       </span>
                     ) : detectError ? (
                       <span className="flex items-center gap-1.5 text-xs text-destructive">
@@ -1056,7 +1056,7 @@ export default function AddProject() {
                   )}
                   {!formData.type && !detecting ? (
                     <p className="text-xs text-destructive">
-                      {t("Could not tell what this project is — pick its type.")}
+                      {t("Could not tell what this app is — pick its type.")}
                     </p>
                   ) : detected && formData.type !== "COMPOSE" ? (
                     <p className="text-xs text-muted-foreground">
@@ -1101,8 +1101,8 @@ export default function AddProject() {
                       )}
                       <p className="text-xs text-muted-foreground">
                         {detected?.composeFiles && detected.composeFiles.length > 1
-                          ? t("{n} compose files in this folder. Service, port and env files are set on the app's page.", { n: String(detected.composeFiles.length) })
-                          : t("In the folder above; several, comma separated, override in order. Service, port and env files are set on the app's page.")}
+                          ? t("{n} compose files in this folder. Service, port and env files are set on the service's page.", { n: String(detected.composeFiles.length) })
+                          : t("In the folder above; several, comma separated, override in order. Service, port and env files are set on the service's page.")}
                       </p>
                     </div>
                   )}
@@ -1129,7 +1129,7 @@ export default function AddProject() {
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">
-                        {t("Fixed once the app exists. Build and start commands can be changed on the app's Settings tab.")}
+                        {t("Fixed once the service exists. Build and start commands can be changed on the service's Settings tab.")}
                       </p>
                     </div>
                   </details>
@@ -1148,7 +1148,7 @@ export default function AddProject() {
             <div className="flex flex-wrap items-center justify-end gap-3">
             {/* what the click will do, next to the click */}
             {detecting ? (
-              <span className="text-right text-xs text-muted-foreground">{t("Inspecting the project…")}</span>
+              <span className="text-right text-xs text-muted-foreground">{t("Inspecting the app…")}</span>
             ) : (
               stepComplete(1) && stepComplete(2) && !createApp.isPending && !busy && (
                 <span className="text-right text-xs text-muted-foreground">
@@ -1169,7 +1169,7 @@ export default function AddProject() {
               ) : (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  {projectId ? t("Create app") : t("Create project")}
+                  {projectId ? t("Create service") : t("Create app")}
                 </>
               )}
             </Button>

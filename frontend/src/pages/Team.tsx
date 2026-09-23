@@ -291,7 +291,7 @@ export default function Team() {
     <PageLayout
       icon={Users}
       title={t("Team")}
-      description={t("People who can manage this workspace's domains and applications.")}
+      description={t("People who can manage this workspace's domains and services.")}
       actions={
         <Select value={orgId} onValueChange={setOrgId}>
           <SelectTrigger className="w-64">
@@ -406,7 +406,7 @@ export default function Team() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Remove this member?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("{member} will lose access to {name}, including its domains and applications. They can be invited back later.", {
+              {t("{member} will lose access to {name}, including its domains and services. They can be invited back later.", {
                 member: pendingRemove?.label ?? "",
                 name: org?.name ?? t("this workspace"),
               })}

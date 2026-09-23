@@ -99,7 +99,7 @@ export const useCreateApplication = () => {
     onSuccess: (data) => {
       toast({
         title: t('Success'),
-        description: t('App created successfully'),
+        description: t('Service created successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
     },
@@ -161,7 +161,7 @@ export const useUpdateApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
-        description: t('App updated successfully'),
+        description: t('Service updated successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables.id] });
@@ -185,7 +185,7 @@ export const useDeleteApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
-        description: t('App deleted successfully'),
+        description: t('Service deleted successfully'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.removeQueries({ queryKey: ['application', variables] });
@@ -209,7 +209,7 @@ export const useStartExistingApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
-        description: t('App is starting...'),
+        description: t('Service is starting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -236,7 +236,7 @@ export const useStartApplication = () => {
       const id = typeof input === 'string' ? input : input.id;
       toast({
         title: t('Success'),
-        description: t('App is starting...'),
+        description: t('Service is starting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', id] });
@@ -262,7 +262,7 @@ export const useStopApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
-        description: t('App is stopping...'),
+        description: t('Service is stopping...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -286,7 +286,7 @@ export const useRestartApplication = () => {
     onSuccess: (data, variables) => {
       toast({
         title: t('Success'),
-        description: t('App is restarting...'),
+        description: t('Service is restarting...'),
       });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', variables] });
@@ -311,7 +311,7 @@ export const useSyncServerApps = () => {
     mutationFn: syncServerApps,
     onSuccess: (result) => {
       toast({
-        title: t('Server apps synced'),
+        title: t('Server services synced'),
         description:
           t('{discovered} found — {created} imported, {updated} updated.', {
             discovered: result.discovered,

@@ -20,7 +20,7 @@ const NotFound = () => {
           {t("It may have moved, or you may not have access to it.")}
         </p>
         <Button asChild>
-          <Link to="/">{t("Back to applications")}</Link>
+          <Link to="/">{t("Back to services")}</Link>
         </Button>
       </div>
     </div>

@@ -310,7 +310,7 @@ export function RoutingCard({
                 </a>
                 {/* a path whose prefix is dropped says so */}
                 {route.path && route.stripPrefix && (
-                  <Badge variant="outline" className="font-mono text-[10px]" title={t("The app gets the path without this prefix: /api/users arrives as /users.")}>
+                  <Badge variant="outline" className="font-mono text-[10px]" title={t("The service gets the path without this prefix: /api/users arrives as /users.")}>
                     {route.path} → /
                   </Badge>
                 )}

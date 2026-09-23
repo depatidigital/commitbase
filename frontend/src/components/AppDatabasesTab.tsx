@@ -73,7 +73,7 @@ export function AppDatabasesTab({
             {t("Database")}
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            {projectId ? t("What the apps of this project store their data in") : t("What this app stores its data in")}
+            {projectId ? t("What the services of this app store their data in") : t("What this service stores its data in")}
           </p>
         </div>
         {!!sorted.length && onConnect && (
@@ -90,10 +90,10 @@ export function AppDatabasesTab({
         ) : !sorted.length ? (
           <div className="rounded-md border border-dashed p-6 text-center">
             {projectId ? (
-              <p className="text-sm text-muted-foreground">{t("No app of this project uses a database yet — connect one from an app's Environment tab.")}</p>
+              <p className="text-sm text-muted-foreground">{t("No service of this app uses a database yet — connect one from a service's Environment tab.")}</p>
             ) : (
               <>
-                <p className="mb-3 text-sm text-muted-foreground">{t("No database connected to this app yet.")}</p>
+                <p className="mb-3 text-sm text-muted-foreground">{t("No database connected to this service yet.")}</p>
                 {onConnect && (
                   <Button variant="outline" onClick={onConnect}>
                     {t("Connect a database")}
@@ -116,7 +116,7 @@ export function AppDatabasesTab({
                         {ENGINE_LABEL[db.type] ?? db.type}
                       </Badge>
                       {db.inUse && (
-                        <Badge variant="outline" className="text-xs" title={t("Named in this app's environment variables")}>
+                        <Badge variant="outline" className="text-xs" title={t("Named in this service's environment variables")}>
                           {t("in use")}
                         </Badge>
                       )}
@@ -126,7 +126,7 @@ export function AppDatabasesTab({
                       <p className="text-xs text-muted-foreground">
                         {db.usedBy.length
                           ? t("Used by {apps}", { apps: db.usedBy.map((app) => app.name).join(", ") })
-                          : t("No app's environment names it")}
+                          : t("No service's environment names it")}
                       </p>
                     )}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">

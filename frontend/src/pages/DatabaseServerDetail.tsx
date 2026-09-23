@@ -148,7 +148,7 @@ export default function DatabaseServerDetail() {
       ),
     },
     {
-      header: t("App"),
+      header: t("Service"),
       className: "w-32",
       cell: (row) =>
         row.application ? (
@@ -234,7 +234,7 @@ export default function DatabaseServerDetail() {
                 : t("Direct · TLS {mode}", { mode: server.tlsMode.toLowerCase() })}
             </span>
             <span className="text-muted-foreground">
-              {t("Apps connect to {host}", { host: `${server.appHost}:${server.port}` })}
+              {t("Services connect to {host}", { host: `${server.appHost}:${server.port}` })}
             </span>
             {server.lastSeenAt && (
               <span className="text-muted-foreground">

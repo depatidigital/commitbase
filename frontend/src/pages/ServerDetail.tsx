@@ -66,7 +66,7 @@ const LOG_SOURCES: Array<{ value: LogSource; label: string }> = [
   { value: "errors", label: t("Errors (all units)") },
   { value: "system", label: t("System") },
   { value: "caddy", label: "Caddy" },
-  { value: "apps", label: t("Applications") },
+  { value: "apps", label: t("Services") },
   { value: "php", label: "PHP-FPM" },
   { value: "ssh", label: "SSH" },
 ];
@@ -217,7 +217,7 @@ const ServerDetail = () => {
         <TabsList>
           <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
           <TabsTrigger value="sites">{t("Caddy sites")}</TabsTrigger>
-          <TabsTrigger value="apps">{t("Applications")}</TabsTrigger>
+          <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="nginx">{t("nginx")}</TabsTrigger>
           <TabsTrigger value="docker">Docker</TabsTrigger>
@@ -286,7 +286,7 @@ const ServerDetail = () => {
                   ))
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {t("No workspace is provisioned here yet. A workspace is provisioned on a server when its first app is placed on it.")}
+                    {t("No workspace is provisioned here yet. A workspace is provisioned on a server when its first service is placed on it.")}
                   </p>
                 )}
               </CardContent>
@@ -298,7 +298,7 @@ const ServerDetail = () => {
         <TabsContent value="sites" className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              {t("Read live from this node's Caddy. Importing turns each site into an application row — additive, and nothing is removed when a route disappears.")}
+              {t("Read live from this node's Caddy. Importing turns each site into a service row — additive, and nothing is removed when a route disappears.")}
             </p>
             <Button
               variant="outline"
@@ -311,7 +311,7 @@ const ServerDetail = () => {
               ) : (
                 <Download className="mr-2 h-4 w-4" />
               )}
-              {t("Import as applications")}
+              {t("Import as services")}
             </Button>
           </div>
 
@@ -419,7 +419,7 @@ const ServerDetail = () => {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {t("No applications on this node yet.")}
+                  {t("No services on this node yet.")}
                 </p>
               )}
             </CardContent>

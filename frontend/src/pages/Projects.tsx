@@ -103,7 +103,7 @@ export default function Projects() {
       setSelectedIds([]);
       setBulkOrgId("");
       setAssignTarget(null);
-      toast({ title: t("Assigned"), description: t("{count} application(s) updated", { count }) });
+      toast({ title: t("Assigned"), description: t("{count} service(s) updated", { count }) });
     },
     onError: (err: Error) => toast({ title: t("Assign failed"), description: err.message, variant: "destructive" }),
   });
@@ -159,7 +159,7 @@ export default function Projects() {
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={() => setSelectedIds(allSelected ? [] : projects.map((project) => project.id))}
-                aria-label={t("Select all projects on this page")}
+                aria-label={t("Select all apps on this page")}
               />
             ),
             className: "w-10 align-top",
@@ -174,7 +174,7 @@ export default function Projects() {
         ]
       : []),
     {
-      header: t("Project"),
+      header: t("App"),
       sortKey: "name",
       className: "w-[24%] align-top",
       cell: (project) => {
@@ -376,7 +376,7 @@ export default function Projects() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => setRenameTarget(project)}>
                 <Pencil className="mr-2 h-4 w-4" />
-                {t("Rename project")}
+                {t("Rename app")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -387,15 +387,15 @@ export default function Projects() {
 
   return (
     <PageLayout
-      title={t("Projects")}
-      description={t("Your code and the apps served from it.")}
+      title={t("Apps")}
+      description={t("Your code and the services served from it.")}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           {/* the flat list, one row per hostname, with its uptime checks */}
           <Button variant="ghost" asChild>
             <Link to="/applications">
               <List className="mr-2 h-4 w-4" />
-              {t("All apps")}
+              {t("All services")}
             </Link>
           </Button>
           {superAdmin && (
@@ -407,13 +407,13 @@ export default function Projects() {
               disabled={syncApps.isPending}
             >
               {syncApps.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {syncApps.isPending ? t("Syncing…") : t("Sync Apps")}
+              {syncApps.isPending ? t("Syncing…") : t("Sync Services")}
             </Button>
           )}
           <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
             <Link to="/add-project">
               <Plus className="mr-2 h-4 w-4" />
-              {t("Add project")}
+              {t("Add app")}
             </Link>
           </Button>
         </div>
@@ -426,8 +426,8 @@ export default function Projects() {
         query={query}
         pagination={data?.pagination}
         isLoading={isLoading}
-        searchPlaceholder={t("Search project, repository or domain…")}
-        empty={t("No projects yet — add your first one.")}
+        searchPlaceholder={t("Search app, repository or domain…")}
+        empty={t("No apps yet — add your first one.")}
         onRowClick={(project) => navigate(projectPath(project))}
         toolbar={
           superAdmin && selectedIds.length > 0 ? (
@@ -485,7 +485,7 @@ export default function Projects() {
           <DialogHeader>
             <DialogTitle>{t("Assign workspace")}</DialogTitle>
             <DialogDescription>
-              {t("Choose which workspace owns {name}. Every app of the project goes with it.", { name: assignTarget?.name ?? "" })}
+              {t("Choose which workspace owns {name}. Every service of the app goes with it.", { name: assignTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

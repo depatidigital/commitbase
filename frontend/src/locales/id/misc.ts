@@ -3,7 +3,7 @@
 export default {
   // shared
   "Try again": "Coba lagi",
-  App: "Aplikasi",
+  Service: "Layanan",
   Version: "Versi",
   Created: "Dibuat",
   "Request failed": "Permintaan gagal",
@@ -22,22 +22,22 @@ export default {
   "Configure alerts and monitoring": "Atur peringatan dan pemantauan",
   "Git Integrations": "Integrasi Git",
   "Manage connected GitHub and GitLab accounts.": "Kelola akun GitHub dan GitLab yang terhubung.",
-  "No Git accounts connected yet. Connect from the Add App page when selecting a repository.":
-    "Belum ada akun Git yang terhubung. Hubungkan dari halaman Tambah Aplikasi saat memilih repositori.",
+  "No Git accounts connected yet. Connect from the Add Service page when selecting a repository.":
+    "Belum ada akun Git yang terhubung. Hubungkan dari halaman Tambah Layanan saat memilih repositori.",
   "Display name": "Nama tampilan",
   "Disconnect account": "Putuskan akun",
   "Disconnect Git account": "Putuskan akun Git",
-  "Are you sure you want to disconnect your {provider} account {username}? You can reconnect later from the Add App page, but existing deployments will keep using their configured repositories.":
-    "Apakah Anda yakin ingin memutuskan akun {provider} {username}? Anda dapat menghubungkannya kembali nanti dari halaman Tambah Aplikasi, tetapi deployment yang ada akan tetap memakai repositori yang sudah dikonfigurasi.",
+  "Are you sure you want to disconnect your {provider} account {username}? You can reconnect later from the Add Service page, but existing deployments will keep using their configured repositories.":
+    "Apakah Anda yakin ingin memutuskan akun {provider} {username}? Anda dapat menghubungkannya kembali nanti dari halaman Tambah Layanan, tetapi deployment yang ada akan tetap memakai repositori yang sudah dikonfigurasi.",
   "Disconnecting...": "Memutuskan...",
   Disconnect: "Putuskan",
 
   // Logs
   "Error Loading Logs": "Gagal Memuat Log",
-  "Monitor and debug your applications": "Pantau dan debug aplikasi Anda",
+  "Monitor and debug your services": "Pantau dan debug layanan Anda",
   "Export CSV": "Ekspor CSV",
   Filters: "Filter",
-  "All Apps": "Semua Aplikasi",
+  "All Services": "Semua Layanan",
   "All Levels": "Semua Level",
   "Search messages...": "Cari pesan...",
   "Last {count}": "{count} terakhir",
@@ -84,23 +84,23 @@ export default {
     "Dihapus dan dibuat ulang sebelum pemulihan, login tetap. Dump lengkap (pg_dump --clean) gagal di atas data yang ada kalau tidak.",
   "Uploading… {percent}%": "Mengunggah… {percent}%",
   "Restore another file": "Pulihkan berkas lain",
-  "Pages the app built before the restore can still show the old data — redeploy the app to rebuild them.":
-    "Halaman yang dibangun aplikasi sebelum pemulihan bisa masih menampilkan data lama — deploy ulang aplikasi untuk membangunnya kembali.",
+  "Pages the service built before the restore can still show the old data — redeploy the service to rebuild them.":
+    "Halaman yang dibangun layanan sebelum pemulihan bisa masih menampilkan data lama — deploy ulang layanan untuk membangunnya kembali.",
   Restore: "Pulihkan",
-  "No database connected to this app yet.": "Belum ada database yang terhubung ke aplikasi ini.",
+  "No database connected to this service yet.": "Belum ada database yang terhubung ke layanan ini.",
   "Connect a database": "Hubungkan database",
   "Use a custom URL": "Pakai URL sendiri",
   "Download backup": "Unduh backup",
   "Backup failed": "Backup gagal",
   "A backup downloaded here, a .sql file, or a PostgreSQL backup (e.g. from DBeaver).":
     "Backup yang diunduh dari sini, berkas .sql, atau backup PostgreSQL (mis. dari DBeaver).",
-  "What this app stores its data in": "Tempat aplikasi ini menyimpan datanya",
-  "What the apps of this project store their data in": "Tempat aplikasi-aplikasi proyek ini menyimpan datanya",
-  "No app of this project uses a database yet — connect one from an app's Environment tab.":
-    "Belum ada aplikasi di proyek ini yang memakai database — hubungkan dari tab Environment aplikasi.",
+  "What this service stores its data in": "Tempat layanan ini menyimpan datanya",
+  "What the services of this app store their data in": "Tempat layanan-layanan aplikasi ini menyimpan datanya",
+  "No service of this app uses a database yet — connect one from a service's Environment tab.":
+    "Belum ada layanan di aplikasi ini yang memakai database — hubungkan dari tab Environment layanan.",
   "Used by {apps}": "Dipakai oleh {apps}",
-  "No app's environment names it": "Tidak disebut di environment aplikasi mana pun",
-  "Named in this app's environment variables": "Disebut di variabel lingkungan aplikasi ini",
+  "No service's environment names it": "Tidak disebut di environment layanan mana pun",
+  "Named in this service's environment variables": "Disebut di variabel lingkungan layanan ini",
   "in use": "dipakai",
   "Could not reach the database": "Tidak bisa menjangkau database",
   "Failed to load imports": "Gagal memuat riwayat pemulihan",
@@ -108,9 +108,9 @@ export default {
   "The file is too large": "Berkas terlalu besar",
   Creating: "Sedang dibuat",
   "Error loading databases": "Gagal memuat database",
-  "Databases provisioned for your applications.": "Database yang disediakan untuk aplikasi Anda.",
-  "Search name or application…": "Cari nama atau aplikasi…",
-  "Databases are created from an application's detail page.": "Database dibuat dari halaman detail aplikasi.",
+  "Databases provisioned for your services.": "Database yang disediakan untuk layanan Anda.",
+  "Search name or service…": "Cari nama atau layanan…",
+  "Databases are created from a service's detail page.": "Database dibuat dari halaman detail layanan.",
   "Database created successfully": "Database berhasil dibuat",
   "Database updated successfully": "Database berhasil diperbarui",
   "Database deleted successfully": "Database berhasil dihapus",
@@ -172,11 +172,11 @@ export default {
   "No page at {path}": "Tidak ada halaman di {path}",
   "It may have moved, or you may not have access to it.":
     "Halaman mungkin telah dipindahkan, atau Anda tidak memiliki akses ke halaman tersebut.",
-  "Back to applications": "Kembali ke aplikasi",
+  "Back to services": "Kembali ke layanan",
   // Git OAuth apps (superadmin)
-  "Git OAuth apps": "Aplikasi OAuth Git",
-  "The OAuth apps users connect their GitHub and GitLab accounts through.":
-    "Aplikasi OAuth yang dipakai pengguna untuk menghubungkan akun GitHub dan GitLab.",
+  "Git OAuth services": "Layanan OAuth Git",
+  "The OAuth services users connect their GitHub and GitLab accounts through.":
+    "Layanan OAuth yang dipakai pengguna untuk menghubungkan akun GitHub dan GitLab.",
   "The service account that verifies domains and adds them to Search Console.":
     "Service account yang memverifikasi domain dan menambahkannya ke Search Console.",
   "Git OAuth settings saved": "Pengaturan OAuth Git disimpan",
@@ -186,8 +186,8 @@ export default {
   "OAuth URL": "URL OAuth",
   "API URL": "URL API",
   "Callback URL": "URL callback",
-  "Register an OAuth app with the callback URL below. The secret is stored encrypted. Leave the client ID blank to turn it off.":
-    "Daftarkan aplikasi OAuth dengan URL callback di bawah. Secret disimpan terenkripsi. Kosongkan client ID untuk menonaktifkannya.",
+  "Register an OAuth service with the callback URL below. The secret is stored encrypted. Leave the client ID blank to turn it off.":
+    "Daftarkan layanan OAuth dengan URL callback di bawah. Secret disimpan terenkripsi. Kosongkan client ID untuk menonaktifkannya.",
   "Change both for a self-hosted GitLab.": "Ubah keduanya untuk GitLab self-hosted.",
   // Integration setup guides (components/IntegrationSteps.tsx)
   "How to set this up": "Cara mengaturnya",
@@ -215,11 +215,11 @@ export default {
   "Click Edit in Cloudflare R2 storage below and fill them in. Public URL is the custom domain connected to the bucket; Root folder is the prefix every site is uploaded under.":
     "Klik Ubah pada penyimpanan Cloudflare R2 di bawah dan isi semuanya. Public URL adalah domain kustom yang terhubung ke bucket; Folder root adalah prefix tempat setiap situs diunggah.",
   "Save. The settings are checked against the bucket right away.": "Simpan. Pengaturan langsung diuji ke bucket.",
-  "and create or pick a project.": "lalu buat atau pilih sebuah project.",
+  "and create or pick an app.": "lalu buat atau pilih sebuah project.",
   "In": "Di",
   "enable": "aktifkan",
   "and": "dan",
-  "It needs no project roles.": "Tidak perlu role project apa pun.",
+  "It needs no app roles.": "Tidak perlu role project apa pun.",
   "Open the service account, then": "Buka service account tersebut, lalu",
   "A key file downloads.": "File key akan terunduh.",
   "Click Edit below and paste the whole contents of the key file.": "Klik Ubah di bawah dan tempel seluruh isi file key.",
@@ -230,19 +230,19 @@ export default {
   "For a workspace, use the same menu under the workspace settings.": "Untuk workspace, gunakan menu yang sama di pengaturan workspace.",
   "Homepage URL: this panel's address. Authorization callback URL: the GitHub callback URL shown below, exactly.":
     "Homepage URL: alamat panel ini. Authorization callback URL: URL callback GitHub yang tertera di bawah, persis sama.",
-  "Register the app, then Generate a new client secret.": "Daftarkan aplikasi, lalu klik Generate a new client secret.",
+  "Register the service, then Generate a new client secret.": "Daftarkan layanan, lalu klik Generate a new client secret.",
   "Click Edit on GitHub below, paste the Client ID and the client secret, and save.":
     "Klik Ubah pada GitHub di bawah, tempel Client ID dan client secret, lalu simpan.",
   "On GitLab open": "Di GitLab buka",
-  "On a self-hosted GitLab an admin can use Admin area → Applications for an instance-wide app.":
-    "Di GitLab self-hosted, admin dapat memakai Admin area → Applications untuk aplikasi seluruh instance.",
+  "On a self-hosted GitLab an admin can use Admin area → Services for an instance-wide service.":
+    "Di GitLab self-hosted, admin dapat memakai Admin area → Applications untuk layanan seluruh instance.",
   "Redirect URI: the GitLab callback URL shown below, exactly. Keep Confidential checked. Scopes:":
     "Redirect URI: URL callback GitLab yang tertera di bawah, persis sama. Biarkan Confidential tercentang. Scopes:",
-  "Save the application and copy the Application ID and the Secret.": "Simpan aplikasi lalu salin Application ID dan Secret.",
-  "Click Edit on GitLab below: Application ID goes in Client ID, Secret in Client secret. For a self-hosted GitLab also set OAuth URL to":
+  "Save the service and copy the Service ID and the Secret.": "Simpan layanan lalu salin Application ID dan Secret.",
+  "Click Edit on GitLab below: Service ID goes in Client ID, Secret in Client secret. For a self-hosted GitLab also set OAuth URL to":
     "Klik Ubah pada GitLab di bawah: Application ID ke Client ID, Secret ke Client secret. Untuk GitLab self-hosted, isi juga URL OAuth dengan",
   "and API URL to": "dan URL API dengan",
   "Save.": "Simpan.",
-  "Users can now connect their GitHub and GitLab accounts from Add app and pick repositories from them.":
-    "Pengguna kini dapat menghubungkan akun GitHub dan GitLab dari Tambah aplikasi dan memilih repositori darinya.",
+  "Users can now connect their GitHub and GitLab accounts from Add service and pick repositories from them.":
+    "Pengguna kini dapat menghubungkan akun GitHub dan GitLab dari Tambah layanan dan memilih repositori darinya.",
 } satisfies Record<string, string>;
