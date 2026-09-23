@@ -324,7 +324,7 @@ router.get('/:id/caddy/routes', authenticateToken, requireRole(['SUPERADMIN']), 
 
     const config = await getCaddyConfig(server);
     if (config === null) {
-      return res.status(502).json({ success: false, error: 'Caddy on this node did not answer' } as ApiResponse);
+      return res.status(502).json({ success: false, error: 'Caddy is not running on this node yet. If nginx still serves its sites, migrate them in the nginx tab first — they appear here after.' } as ApiResponse);
     }
 
     // whatever server block the node keeps its sites in, not just ours

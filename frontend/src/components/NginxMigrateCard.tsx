@@ -212,7 +212,7 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
               ))}
               {!!site.proxiedHosts?.length && (
                 <p className="pl-6 text-xs text-muted-foreground">
-                  {t("behind Cloudflare, origin not visible to the panel (a failure there only warns):")} {site.proxiedHosts.join(", ")}
+                  {t("behind Cloudflare, origin not visible to the panel:")} {site.proxiedHosts.join(", ")}
                 </p>
               )}
               {site.danglingHosts.length > 0 && (
@@ -231,7 +231,7 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
             <AlertDialogTitle>{t("Switch this node to Caddy?")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t(
-                "nginx is stopped, Caddy starts with every site above loaded at once, and each hostname is checked. If any does not answer, nginx is started again and nothing has changed. Its configuration files are never edited or removed, so the way back is always `systemctl enable --now nginx`. Certificates are not copied from nginx: Caddy gets its own, so expect up to two minutes where HTTPS is not reachable. Each hostname must then answer over HTTPS with a valid certificate, and no worse than it did under nginx, or the switch is undone.",
+                "nginx is stopped, Caddy starts with every site above loaded at once, and each hostname is checked. If any does not answer, nginx is started again and nothing has changed. Its configuration files are never edited or removed, so the way back is always `systemctl enable --now nginx`. Certificates are not copied from nginx: Caddy gets its own, so expect up to two minutes where HTTPS is not reachable. The switch is undone only if Caddy does not install it — not running, or a hostname missing from its config. HTTPS and certificate problems are reported afterwards, not rolled back.",
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -262,8 +262,8 @@ export function NginxMigrateCard({ serverId }: { serverId: string }) {
                             {dangling
                               ? t("not checked — DNS points elsewhere")
                               : proxied
-                                ? t("warning only — behind Cloudflare, origin not visible to the panel")
-                                : t("HTTPS + certificate")}
+                                ? t("HTTPS reported — behind Cloudflare, origin not visible to the panel")
+                                : t("HTTPS reported")}
                           </td>
                         </tr>
                       );

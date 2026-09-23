@@ -1,7 +1,7 @@
 import * as dns from 'dns/promises';
 import { exec, execRoot, type SshTarget } from '../lib/runner';
 import { sitesOf, type NginxSite } from '../lib/nginxConfig';
-import { buildRoute, getCaddyConfig, loadCaddyConfig, type Target } from './caddyService';
+import { allRoutesOf, buildRoute, getCaddyConfig, loadCaddyConfig, type Target } from './caddyService';
 import { findCloudflareZone, listCloudflareDnsRecords } from './cloudflareService';
 import type { Serve } from './hostRouteService';
 
@@ -31,8 +31,7 @@ export type SitePlan = {
   danglingHosts: string[];
   /**
    * hostnames behind Cloudflare's proxy whose origin could not be read (a zone
-   * in another account): checked after the switch, but a failure there only
-   * warns — it may well not be this node's traffic at all
+   * in another account) — it may well not be this node's traffic at all
    */
   proxiedHosts?: string[];
   /** why it cannot be migrated, when it cannot */
@@ -267,9 +266,9 @@ export type MigrationResult = {
   switched: boolean;
   /** hosts that answered after the switch */
   verified: string[];
-  /** why hosts did not, which is what triggers the rollback */
+  /** why Caddy did not install the switch, which is what triggers the rollback */
   failed: string[];
-  /** proxied hosts whose origin is not known to be here that did not pass: said, never rolled back for */
+  /** hosts Caddy serves that did not pass the HTTPS check: said, never rolled back for */
   warnings?: string[];
   /** hosts not checked: their DNS points elsewhere, or nginx was not serving them either */
   unchecked: string[];
@@ -327,33 +326,43 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
     };
   }
 
-  const deadline = Date.now() + VERIFY_DEADLINE_MS;
-  const outcomes = await Promise.all(checked.map(async (host) => [host, await verifyHost(node, host, before.get(host)!, deadline)] as const));
-  const verified = outcomes.filter(([, why]) => !why).map(([host]) => host);
-  // Rolled back only for a host whose visitors are known to arrive here. A
-  // proxied one with an origin nobody could read may be another server's: its
-  // certificate cannot be issued here, and failing the switch for it would undo
-  // sites that work, to protect traffic that never came.
-  const unknownOrigin = new Set(plan.sites.flatMap((site) => site.proxiedHosts ?? []));
-  const failed = outcomes.flatMap(([host, why]) => (why && !unknownOrigin.has(host) ? [why] : []));
-  const warnings = outcomes.flatMap(([host, why]) => (why && unknownOrigin.has(host) ? [why] : []));
+  // Rolled back only when Caddy did not install the switch: it is not running,
+  // a planned hostname is missing from its live config, or it does not answer
+  // for one on :80. That is the part the switch itself can get wrong.
+  const live = await getCaddyConfig(node).catch(() => null);
+  const liveHosts = new Set(allRoutesOf(live).flatMap((route: any) => (Array.isArray(route?.match) ? route.match : []).flatMap((m: any) => m?.host ?? [])));
+  const missing = hosts.filter((host) => !liveHosts.has(host));
+  const silent = live && missing.length === 0 ? (await Promise.all(hosts.map(async (host) => ((await localCode(node, host, { http: true })) ? null : host)))).filter((host): host is string => !!host) : [];
+  const failed = [
+    ...(live ? [] : ['Caddy is not running after the switch']),
+    ...missing.map((host) => `${host}: not in Caddy's live config`),
+    ...silent.map((host) => `${host}: Caddy does not answer for it on :80`),
+  ];
 
   if (failed.length > 0) {
     await systemctl(node, 'disable', '--now', 'caddy-api').catch(() => {});
     await systemctl(node, 'start', 'nginx').catch(() => {});
     return {
       switched: false,
-      verified,
+      verified: [],
       failed,
       unchecked,
       rolledBack: true,
-      message: `${failed.length} of ${checked.length} hostnames were not served properly by Caddy (${failed.join('; ')}) — nginx has been started again and is serving as before.`,
+      message: `Caddy did not install the switch correctly (${failed.join('; ')}) — nginx has been started again and is serving as before.`,
     };
   }
 
   // Only now is nginx kept from coming back on its own at the next reboot. Its
   // files stay where they are, so `systemctl enable --now nginx` is the way back.
   await systemctl(node, 'disable', 'nginx').catch(() => {});
+
+  // How each site now answers over HTTPS is reported, never rolled back for: a
+  // certificate still being issued (or one ACME cannot get through Cloudflare)
+  // is something to fix on the name, not a reason to take every site back.
+  const deadline = Date.now() + VERIFY_DEADLINE_MS;
+  const outcomes = await Promise.all(checked.map(async (host) => [host, await verifyHost(node, host, before.get(host)!, deadline)] as const));
+  const verified = outcomes.filter(([, why]) => !why).map(([host]) => host);
+  const warnings = outcomes.flatMap(([, why]) => (why ? [why] : []));
 
   return {
     switched: true,
@@ -363,8 +372,9 @@ export async function migrateToCaddy(node: SshTarget & { publicIp: string }, pla
     warnings,
     rolledBack: false,
     message:
-      `${verified.length} hostname${verified.length === 1 ? '' : 's'} now served by Caddy over HTTPS. nginx is stopped and disabled; its configuration is untouched.` +
-      (unchecked.length ? ` Not checked (DNS elsewhere, or not served before): ${unchecked.join(', ')}.` : '') +
-      (warnings.length ? ` Behind Cloudflare with an origin the panel cannot see, and not served here yet: ${warnings.join('; ')} — fine if they point to another server.` : ''),
+      `Caddy serves all ${hosts.length} hostnames; nginx is stopped and disabled, its configuration untouched. ` +
+      `${verified.length} answer over HTTPS with a valid certificate.` +
+      (warnings.length ? ` Needs attention: ${warnings.join('; ')}.` : '') +
+      (unchecked.length ? ` Not checked over HTTPS (DNS elsewhere, or not served before): ${unchecked.join(', ')}.` : ''),
   };
 }
