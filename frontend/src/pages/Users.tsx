@@ -52,7 +52,7 @@ export default function Users() {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       toast({
         title: t("User created"),
-        description: t("Invite them to an organization from the Team page."),
+        description: t("Invite them to a workspace from the Team page."),
       });
     },
     onError,
@@ -91,7 +91,7 @@ export default function Users() {
       ),
     },
     {
-      header: t("Organizations"),
+      header: t("Workspaces"),
       className: "space-x-1",
       cell: (u) =>
         u.memberships.length === 0 ? (
@@ -126,7 +126,7 @@ export default function Users() {
     <PageLayout
       icon={UsersIcon}
       title={t("Users")}
-      description={t("Client accounts on the platform and their organization memberships.")}
+      description={t("Client accounts on the platform and their workspace memberships.")}
       actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

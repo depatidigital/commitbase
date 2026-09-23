@@ -68,7 +68,7 @@ export default function Organizations() {
       queryClient.invalidateQueries({ queryKey: ["organizations"] });
       setOpen(false);
       toast({
-        title: t("Organization created"),
+        title: t("Workspace created"),
         description: created
           ? created.emailed
             ? t("Invite emailed to {email}.", { email: created.email })
@@ -104,7 +104,7 @@ export default function Organizations() {
       className: "w-36",
       cell: (o) =>
         !o.defaultServer ? (
-          <span className="text-xs text-muted-foreground" title={t("New apps of this organization have to pick a server.")}>
+          <span className="text-xs text-muted-foreground" title={t("New apps of this workspace have to pick a server.")}>
             —
           </span>
         ) : superadmin ? (
@@ -154,7 +154,7 @@ export default function Organizations() {
   return (
     <PageLayout
       icon={Building2}
-      title={t("Organizations")}
+      title={t("Workspaces")}
       description={t("Client tenants. Domain ownership lives on the Administration page.")}
       actions={
         <Dialog
@@ -163,7 +163,7 @@ export default function Organizations() {
         >
           <DialogTrigger asChild>
             <Button>
-              <Plus className="mr-2 h-4 w-4" /> {t("New organization")}
+              <Plus className="mr-2 h-4 w-4" /> {t("New workspace")}
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -174,7 +174,7 @@ export default function Organizations() {
               }}
             >
               <DialogHeader>
-                <DialogTitle>{t("New organization")}</DialogTitle>
+                <DialogTitle>{t("New workspace")}</DialogTitle>
                 <DialogDescription>
                   {t("Creates a client tenant. Assign domains to it from the Administration page.")}
                 </DialogDescription>
@@ -200,7 +200,7 @@ export default function Organizations() {
                     onChange={(e) => setAdminEmail(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    {t("Joins as ADMIN if the account exists, otherwise gets an invite emailed to them. You can also invite members later from the organization page.")}
+                    {t("Joins as ADMIN if the account exists, otherwise gets an invite emailed to them. You can also invite members later from the workspace page.")}
                   </p>
                 </div>
 
@@ -229,7 +229,7 @@ export default function Organizations() {
         pagination={data?.pagination}
         isLoading={isFetching}
         searchPlaceholder={t("Search name or slug…")}
-        empty={t("No organizations yet.")}
+        empty={t("No workspaces yet.")}
       />
 
       <OrgNodeLogDialog orgName={logOrg?.name ?? ""} node={logNode} onClose={() => setLogFor(null)} />

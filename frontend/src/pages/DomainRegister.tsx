@@ -340,13 +340,13 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
 
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
           <div className="space-y-2 rounded-md border border-border/60 p-4">
-            <Label className="text-sm">{t("Owning organization")}</Label>
+            <Label className="text-sm">{t("Owning workspace")}</Label>
             <OrganizationCombobox
               value={organizationId || null}
               onChange={(id) => setOrganizationId(id ?? "")}
             />
             <p className="text-xs text-muted-foreground">
-              {t("Only this organization's members can create applications on it.")}
+              {t("Only this workspace's members can create applications on it.")}
             </p>
           </div>
 
@@ -476,7 +476,7 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
 
             {selected && !organizationId && (
               <p className="text-xs text-muted-foreground">
-                {t("Choose an owning organization first.")}
+                {t("Choose an owning workspace first.")}
               </p>
             )}
           </div>

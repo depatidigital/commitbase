@@ -433,7 +433,7 @@ export default function Servers() {
     <PageLayout
       icon={HardDrive}
       title={t("Servers")}
-      description={t("Provisioning nodes. Organizations are placed on a node from their organization page.")}
+      description={t("Provisioning nodes. Workspaces are placed on a node from their workspace page.")}
       actions={
         <Button onClick={openNew}>
           <Plus className="mr-2 h-4 w-4" /> {t("Register server")}
@@ -718,7 +718,7 @@ export default function Servers() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Delete {name}?", { name: confirmDelete?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Only removes the node from the panel — nothing on the box is touched. A node with organizations placed on it cannot be deleted.")}
+              {t("Only removes the node from the panel — nothing on the box is touched. A node with workspaces placed on it cannot be deleted.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

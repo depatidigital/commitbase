@@ -337,7 +337,7 @@ export default function Domains() {
     ...(admin
       ? [
           {
-            header: t("Organization"),
+            header: t("Workspace"),
             className: "w-[24%]",
             cell: (domain: Domain) =>
               domain.organization ? (
@@ -418,7 +418,7 @@ export default function Domains() {
                 }}
               >
                 <Building2 className="mr-2 h-4 w-4" />
-                {t("Assign organization")}
+                {t("Assign workspace")}
               </DropdownMenuItem>
             )}
             {admin && needsRenewal(domain) && (
@@ -1546,7 +1546,7 @@ export default function Domains() {
                         <form onSubmit={handleAddDomain} className="space-y-6">
                           <div className="space-y-2">
                             <Label className="text-sm">
-                              {t("Owning organization")}
+                              {t("Owning workspace")}
                             </Label>
                             <OrganizationCombobox
                               value={newDomainOrgId || null}
@@ -1554,14 +1554,14 @@ export default function Domains() {
                             />
                             <p className="text-xs text-muted-foreground">
                               {t(
-                                "Only this organization's members can create applications on it.",
+                                "Only this workspace's members can create applications on it.",
                               )}
                             </p>
                           </div>
                           {!newDomainOrgId ? (
                             <>
                               <p className="rounded-md border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
-                                {t("Choose the owning organization to continue.")}
+                                {t("Choose the owning workspace to continue.")}
                               </p>
                               <div className="flex items-center justify-end pt-2">
                                 <Button
@@ -1630,7 +1630,7 @@ export default function Domains() {
                   <OrganizationCombobox
                     value={bulkOrgId || null}
                     onChange={(id) => setBulkOrgId(id ?? "")}
-                    placeholder={t("Assign to organization")}
+                    placeholder={t("Assign to workspace")}
                     className="w-64"
                   />
                   <Button
@@ -1672,7 +1672,7 @@ export default function Domains() {
                 empty={
                   admin
                     ? t("No domains yet — add your first custom domain.")
-                    : t("No domains are assigned to your organization yet. Ask an administrator to assign one.")
+                    : t("No domains are assigned to your workspace yet. Ask an administrator to assign one.")
                 }
               />
             </PageLayout>
@@ -1931,10 +1931,10 @@ export default function Domains() {
           >
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>{t("Assign organization")}</DialogTitle>
+                <DialogTitle>{t("Assign workspace")}</DialogTitle>
                 <DialogDescription>
                   {t(
-                    "Choose which organization owns {name}. Only its members can create applications on the domain.",
+                    "Choose which workspace owns {name}. Only its members can create applications on the domain.",
                     { name: assignTarget.name },
                   )}
                 </DialogDescription>

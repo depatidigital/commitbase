@@ -120,7 +120,7 @@ export function DatabaseImportDialog({ database, onClose }: { database: ImportTa
   const targetRows: Array<[string, string | null | undefined]> = [
     [t("Database"), dbName],
     [t("Engine"), ENGINE_LABEL[engine] ?? engine],
-    [t("Organization"), database?.organization?.name],
+    [t("Workspace"), database?.organization?.name],
     [t("App"), database?.application?.name],
   ];
 

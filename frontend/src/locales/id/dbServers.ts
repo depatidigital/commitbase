@@ -1,8 +1,8 @@
-// Database servers page and database placement on organizations.
+// Database servers page and database placement on workspaces.
 export default {
   "Database Servers": "Server Database",
-  "PostgreSQL and MySQL servers tenant databases are created on. Organizations are placed on one per engine from their organization page.":
-    "Server PostgreSQL dan MySQL tempat database tenant dibuat. Organisasi ditempatkan di salah satunya per engine dari halaman organisasinya.",
+  "PostgreSQL and MySQL servers tenant databases are created on. Workspaces are placed on one per engine from their workspace page.":
+    "Server PostgreSQL dan MySQL tempat database tenant dibuat. Workspace ditempatkan di salah satunya per engine dari halaman workspacenya.",
   "Add database server": "Tambah server database",
   "Search name or host…": "Cari nama atau host…",
   "No database servers yet.": "Belum ada server database.",
@@ -22,8 +22,8 @@ export default {
   "Database server removed": "Server database dihapus",
   "Remove {name}?": "Hapus {name}?",
   Remove: "Hapus",
-  "This only removes it from the panel — nothing on the server is touched. It is refused while organizations or databases still use it.":
-    "Ini hanya menghapusnya dari panel — tidak ada yang diubah di server. Ditolak selama masih dipakai organisasi atau database.",
+  "This only removes it from the panel — nothing on the server is touched. It is refused while workspaces or databases still use it.":
+    "Ini hanya menghapusnya dari panel — tidak ada yang diubah di server. Ditolak selama masih dipakai workspace atau database.",
 
   // form
   "The engine runs on one of our nodes and listens only on its loopback or private address. The control plane reaches it through that node's SSH connection — no database port is public.":
@@ -60,7 +60,7 @@ export default {
   "Failed to register the database server": "Gagal mendaftarkan server database",
   "Failed to update the database server": "Gagal memperbarui server database",
   "Failed to remove the database server": "Gagal menghapus server database",
-  "Failed to place the organization": "Gagal menempatkan organisasi",
+  "Failed to place the workspace": "Gagal menempatkan workspace",
 
   // server detail: inventory
   "Databases and logins": "Database dan login",
@@ -92,13 +92,13 @@ export default {
   // databases page: create, credentials, delete
   "Create database": "Buat database",
   "No databases yet.": "Belum ada database.",
-  "Created on the organization's database server and owned by its own login there — nobody else can connect to it.":
-    "Dibuat di server database organisasi dan dimiliki login organisasi itu sendiri — tidak ada pihak lain yang bisa terhubung.",
+  "Created on the workspace's database server and owned by its own login there — nobody else can connect to it.":
+    "Dibuat di server database workspace dan dimiliki login workspace itu sendiri — tidak ada pihak lain yang bisa terhubung.",
   "Lowercase letters, digits and underscores, starting with a letter.":
     "Huruf kecil, angka, dan garis bawah, diawali huruf.",
   "Created on the server as {name}": "Dibuat di server sebagai {name}",
-  "The organization's name is added in front, so tenants never collide.":
-    "Nama organisasi ditambahkan di depan, jadi antar-tenant tidak pernah bentrok.",
+  "The workspace's name is added in front, so tenants never collide.":
+    "Nama workspace ditambahkan di depan, jadi antar-tenant tidak pernah bentrok.",
   "Database {name} created": "Database {name} dibuat",
   "Database is ready": "Database siap",
   "Database deleted": "Database dihapus",
@@ -121,10 +121,10 @@ export default {
     "Database beserta seluruh datanya dihapus di server. Tindakan ini tidak dapat dibatalkan.",
   "Type {name} to confirm": "Ketik {name} untuk mengonfirmasi",
 
-  // organization placement
+  // workspace placement
   "Database placement": "Penempatan database",
   "Database placement saved": "Penempatan database disimpan",
   "Add a {engine} server": "Tambah server {engine}",
-  "Databases of that engine are created on this server, owned by the organization's own login there. Moving is refused while the organization has databases on its current server.":
-    "Database untuk engine tersebut dibuat di server ini, dimiliki oleh login organisasi sendiri di sana. Pemindahan ditolak selama organisasi masih punya database di server saat ini.",
+  "Databases of that engine are created on this server, owned by the workspace's own login there. Moving is refused while the workspace has databases on its current server.":
+    "Database untuk engine tersebut dibuat di server ini, dimiliki oleh login workspace sendiri di sana. Pemindahan ditolak selama workspace masih punya database di server saat ini.",
 } satisfies Record<string, string>;

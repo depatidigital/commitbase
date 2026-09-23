@@ -9,7 +9,7 @@ import Application from "./pages/Application";
 import Projects from "./pages/Projects";
 import Dashboard from "./pages/Dashboard";
 import ComingSoon from "./pages/ComingSoon";
-import { Mail, MessageCircle, ReceiptText } from "lucide-react";
+import { Mail } from "lucide-react";
 import ProjectDetail from "./pages/ProjectDetail";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import AddProject from "./pages/AddProject";
@@ -117,9 +117,7 @@ const App = () => (
             {/* the dashboard; the projects and the flat list of every hostname one click away */}
             <Route index element={<Dashboard />} />
             <Route path="projects" element={<Projects />} />
-            {/* services on the menu, built next */}
-            <Route path="whatsapp" element={<ComingSoon icon={MessageCircle} title="WhatsApp" description={t("Connect a number and send messages from your apps.")} />} />
-            <Route path="invoices" element={<ComingSoon icon={ReceiptText} title={t("Invoices")} description={t("Automatic invoices, with WhatsApp reminders before they are due.")} />} />
+            {/* on the menu, built next */}
             <Route path="email" element={<ComingSoon icon={Mail} title="Email" description={t("Email addresses on your own domain.")} />} />
             <Route path="applications" element={<Application />} />
             <Route path="project/:id" element={<ProjectDetail />} />

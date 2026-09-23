@@ -15,7 +15,7 @@ export function OrganizationFilter({ query, unassigned }: { query: TableQuery; u
     <OrganizationCombobox
       value={query.organizationId || null}
       onChange={(id) => query.setOrganizationId(id ?? "")}
-      noneLabel={t("All organizations")}
+      noneLabel={t("All workspaces")}
       extraOptions={unassigned ? [{ value: "unassigned", label: t("Unassigned") }] : []}
       className="w-52"
     />

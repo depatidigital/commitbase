@@ -604,7 +604,7 @@ export default function AddProject() {
                   {needsOrg && (
                     <div className="space-y-1.5">
                       <Label>
-                        {t("Organization")} <span className="text-red-500">*</span>
+                        {t("Workspace")} <span className="text-red-500">*</span>
                       </Label>
                       <OrganizationCombobox
                         value={organizationId || null}
@@ -969,7 +969,7 @@ export default function AddProject() {
                 {needsOrg && (
                   <div className="space-y-2">
                     <Label>
-                      {t("Organization")} <span className="text-red-500">*</span>
+                      {t("Workspace")} <span className="text-red-500">*</span>
                     </Label>
                     <OrganizationCombobox
                       value={organizationId || null}
@@ -1120,7 +1120,7 @@ export default function AddProject() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__default">{t("Organization's default server")}</SelectItem>
+                          <SelectItem value="__default">{t("Workspace's default server")}</SelectItem>
                           {servers.map((s) => (
                             <SelectItem key={s.id} value={s.id}>
                               {s.name} ({s.status})

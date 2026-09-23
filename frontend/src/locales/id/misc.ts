@@ -129,8 +129,8 @@ export default {
   "Enter your email": "Masukkan email Anda",
   "Enter your password": "Masukkan kata sandi Anda",
   "Signing in...": "Sedang masuk...",
-  "Accounts are created by an administrator or through an organization invite link.":
-    "Akun dibuat oleh administrator atau melalui tautan undangan organisasi.",
+  "Accounts are created by an administrator or through a workspace invite link.":
+    "Akun dibuat oleh administrator atau melalui tautan undangan workspace.",
   "Validating user session...": "Memvalidasi sesi pengguna...",
   "Login successful": "Berhasil masuk",
   "Registration successful": "Pendaftaran berhasil",
@@ -154,7 +154,7 @@ export default {
   // Accept invite
   Welcome: "Selamat datang",
   "You have joined {organization}.": "Anda telah bergabung dengan {organization}.",
-  "You have joined the organization.": "Anda telah bergabung dengan organisasi.",
+  "You have joined the workspace.": "Anda telah bergabung dengan workspace.",
   "This invite link is missing its token. Ask for a new invite.":
     "Tautan undangan ini tidak memiliki token. Mintalah undangan baru.",
   "This invite is invalid, already used, or expired.": "Undangan ini tidak valid, sudah digunakan, atau kedaluwarsa.",
@@ -165,7 +165,7 @@ export default {
   "Choose a password": "Buat kata sandi",
   "You already have a {app} account with this email — accepting adds you to {organization}. Your password stays the same.":
     "Anda sudah memiliki akun {app} dengan email ini — menerima undangan akan menambahkan Anda ke {organization}. Kata sandi Anda tetap sama.",
-  "Join organization": "Bergabung dengan organisasi",
+  "Join workspace": "Bergabung dengan workspace",
   "This invite expires {date}.": "Undangan ini kedaluwarsa pada {date}.",
 
   // 404
@@ -227,7 +227,7 @@ export default {
     "Di Pemilik bawaan, isi akun Google (dipisah koma) yang harus melihat setiap domain yang ditambahkan di Search Console mereka.",
   "Save. The key is checked against Google right away.": "Simpan. Key langsung diuji ke Google.",
   "On GitHub open": "Di GitHub buka",
-  "For an organization, use the same menu under the organization settings.": "Untuk organisasi, gunakan menu yang sama di pengaturan organisasi.",
+  "For a workspace, use the same menu under the workspace settings.": "Untuk workspace, gunakan menu yang sama di pengaturan workspace.",
   "Homepage URL: this panel's address. Authorization callback URL: the GitHub callback URL shown below, exactly.":
     "Homepage URL: alamat panel ini. Authorization callback URL: URL callback GitHub yang tertera di bawah, persis sama.",
   "Register the app, then Generate a new client secret.": "Daftarkan aplikasi, lalu klik Generate a new client secret.",

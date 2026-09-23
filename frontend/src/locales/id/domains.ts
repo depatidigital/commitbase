@@ -9,9 +9,9 @@ export default {
   "Connect a domain you already own. To buy a new one, use Register domain.":
     "Hubungkan domain yang sudah Anda miliki. Untuk membeli domain baru, gunakan Daftarkan domain.",
   "Register domain": "Daftarkan domain",
-  "Only this organization's members can create applications on it.":
-    "Hanya anggota organisasi ini yang dapat membuat aplikasi di domain ini.",
-  "Choose the owning organization to continue.": "Pilih organisasi pemilik untuk melanjutkan.",
+  "Only this workspace's members can create applications on it.":
+    "Hanya anggota workspace ini yang dapat membuat aplikasi di domain ini.",
+  "Choose the owning workspace to continue.": "Pilih workspace pemilik untuk melanjutkan.",
   "Domain name": "Nama domain",
   "Save domain": "Simpan domain",
   All: "Semua",
@@ -21,8 +21,8 @@ export default {
   "Expiring in {days} days": "Kedaluwarsa dalam {days} hari",
   "Search domains…": "Cari domain…",
   "No domains yet — add your first custom domain.": "Belum ada domain — tambahkan domain kustom pertama Anda.",
-  "No domains are assigned to your organization yet. Ask an administrator to assign one.":
-    "Belum ada domain yang ditetapkan ke organisasi Anda. Minta administrator untuk menetapkannya.",
+  "No domains are assigned to your workspace yet. Ask an administrator to assign one.":
+    "Belum ada domain yang ditetapkan ke workspace Anda. Minta administrator untuk menetapkannya.",
   "Error Loading Domain": "Gagal Memuat Domain",
   "Failed to load domain. Please try again.": "Gagal memuat domain. Silakan coba lagi.",
   "Back to domains": "Kembali ke domain",
@@ -156,8 +156,8 @@ export default {
     "Zona Cloudflare tetap ada — arahkan ulang nameserver di registrar Anda sebelum menghapusnya.",
   "Working…": "Memproses…",
   Detach: "Lepaskan",
-  "Choose which organization owns {name}. Only its members can create applications on the domain.":
-    "Pilih organisasi pemilik {name}. Hanya anggotanya yang dapat membuat aplikasi di domain ini.",
+  "Choose which workspace owns {name}. Only its members can create applications on the domain.":
+    "Pilih workspace pemilik {name}. Hanya anggotanya yang dapat membuat aplikasi di domain ini.",
 
   // register page
   "Price unavailable": "Harga belum tersedia",
@@ -205,7 +205,7 @@ export default {
     "Pendaftaran domain tidak dapat dikembalikan dananya atau dibatalkan.",
   "It renews at {price} per year.": "Perpanjangannya {price} per tahun.",
   "Yes, register and pay": "Ya, daftarkan dan bayar",
-  "Choose an owning organization first.": "Pilih organisasi pemilik terlebih dahulu.",
+  "Choose an owning workspace first.": "Pilih workspace pemilik terlebih dahulu.",
 
   // toasts
   "Domain Created": "Domain Dibuat",

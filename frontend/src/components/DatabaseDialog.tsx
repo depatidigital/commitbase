@@ -387,7 +387,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
                     {servers.data.map((s) => (
                       <SelectItem key={s.id} value={s.id} title={s.version ?? undefined}>
                         {serverLabel(s)}
-                        {s.default && <span className="ml-2 text-xs text-muted-foreground">{t("organization default")}</span>}
+                        {s.default && <span className="ml-2 text-xs text-muted-foreground">{t("workspace default")}</span>}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -416,7 +416,7 @@ export function DatabaseDialog({ open, onOpenChange, application, currentUrl, al
           ) : existing.isLoading ? (
             <p className="text-sm text-muted-foreground">{t("Loading…")}</p>
           ) : choices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("This organization has no databases yet — create a new one.")}</p>
+            <p className="text-sm text-muted-foreground">{t("This workspace has no databases yet — create a new one.")}</p>
           ) : (
             // rows, searched — a dropdown hides which app uses what
             <div className="space-y-2">

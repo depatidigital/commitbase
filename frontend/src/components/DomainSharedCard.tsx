@@ -27,7 +27,7 @@ export function DomainSharedCard({ domain }: { domain: Domain }) {
       <CardContent className="flex items-start justify-between gap-4 pt-0">
         <p className="text-sm text-muted-foreground">
           {t(
-            "Every organization can put apps under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing apps where they are.",
+            "Every workspace can put apps under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing apps where they are.",
             { name: domain.name },
           )}
         </p>

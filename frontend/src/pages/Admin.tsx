@@ -149,7 +149,7 @@ export default function Admin() {
     },
     { header: t("Apps"), className: "w-20", cell: (d) => d._count.appDomains },
     {
-      header: t("Owning organization"),
+      header: t("Owning workspace"),
       className: "w-[40%]",
       cell: (d) => (
         <Select
@@ -162,7 +162,7 @@ export default function Admin() {
               organizationId,
               organizationName:
                 organizations.find((o) => o.id === organizationId)?.name ??
-                t("no organization"),
+                t("no workspace"),
             })
           }
         >
@@ -184,7 +184,7 @@ export default function Admin() {
 
   const orgColumns: Column<AdminOrganization>[] = [
     {
-      header: t("Organization"),
+      header: t("Workspace"),
       className: "w-[26%]",
       cell: (o) => (
         <div className="min-w-0">
@@ -301,12 +301,12 @@ export default function Admin() {
     <PageLayout
       icon={ShieldCheck}
       title={t("Platform administration")}
-      description={t("Domain ownership and per-organization OS isolation.")}
+      description={t("Domain ownership and per-workspace OS isolation.")}
     >
       <Tabs defaultValue="domains" className="space-y-4">
         <TabsList>
           <TabsTrigger value="domains">{t("Domains")}</TabsTrigger>
-          <TabsTrigger value="organizations">{t("Organizations")}</TabsTrigger>
+          <TabsTrigger value="organizations">{t("Workspaces")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Provisioning log")}</TabsTrigger>
         </TabsList>
 
@@ -331,8 +331,8 @@ export default function Admin() {
             query={orgQuery}
             pagination={orgData?.pagination}
             isLoading={orgsFetching}
-            searchPlaceholder={t("Search organization…")}
-            empty={t("No organizations yet.")}
+            searchPlaceholder={t("Search workspace…")}
+            empty={t("No workspaces yet.")}
           />
         </TabsContent>
 
@@ -356,7 +356,7 @@ export default function Admin() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("Move this domain to another organization?")}
+              {t("Move this domain to another workspace?")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingAssign && (
@@ -372,7 +372,7 @@ export default function Admin() {
                         count: pendingAssign.appCount,
                         organization: pendingAssign.organizationName,
                       })}{" "}
-                  {t("The previous organization loses access immediately.")}
+                  {t("The previous workspace loses access immediately.")}
                 </>
               )}
             </AlertDialogDescription>
@@ -403,7 +403,7 @@ export default function Admin() {
             <AlertDialogTitle>
               {pendingProvision?.nodes.length
                 ? t("Re-run provisioning?")
-                : t("Provision this organization?")}
+                : t("Provision this workspace?")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingProvision && (

@@ -14,7 +14,7 @@ export default {
   "{n}s ago": "{n} dtk lalu",
 
   // servers list
-  "Provisioning nodes. Organizations are placed on a node from their organization page.": "Node provisioning. Organisasi ditempatkan pada node melalui halaman organisasinya.",
+  "Provisioning nodes. Workspaces are placed on a node from their workspace page.": "Node provisioning. Workspace ditempatkan pada node melalui halaman workspacenya.",
   "Register server": "Daftarkan server",
   Register: "Daftarkan",
   "Server updated": "Server diperbarui",
@@ -22,7 +22,7 @@ export default {
   "Server deleted": "Server dihapus",
   "Reachability: {status}": "Keterjangkauan: {status}",
   "{name} is {status}": "{name} berstatus {status}",
-  Orgs: "Organisasi",
+  Orgs: "Workspace",
   "Last error": "Error terakhir",
   "not provisioned": "belum diprovisi",
   "Disk {pct}% full": "Disk {pct}% penuh",
@@ -54,7 +54,7 @@ export default {
   "App units": "Unit aplikasi",
   "(no output)": "(tidak ada output)",
   "Delete {name}?": "Hapus {name}?",
-  "Only removes the node from the panel — nothing on the box is touched. A node with organizations placed on it cannot be deleted.": "Hanya menghapus node dari panel — tidak ada yang diubah di server. Node yang masih ditempati organisasi tidak dapat dihapus.",
+  "Only removes the node from the panel — nothing on the box is touched. A node with workspaces placed on it cannot be deleted.": "Hanya menghapus node dari panel — tidak ada yang diubah di server. Node yang masih ditempati workspace tidak dapat dihapus.",
 
   // server detail
   System: "Sistem",
@@ -93,8 +93,8 @@ export default {
   Node: "Node",
   "Last seen": "Terakhir terlihat",
   "Key path": "Path kunci",
-  "Organizations ({count})": "Organisasi ({count})",
-  "Nothing placed here yet. Apps deploy to the node their organization sits on.": "Belum ada yang ditempatkan di sini. Aplikasi di-deploy ke node tempat organisasinya berada.",
+  "Workspaces ({count})": "Workspace ({count})",
+  "Nothing placed here yet. Apps deploy to the node their workspace sits on.": "Belum ada yang ditempatkan di sini. Aplikasi di-deploy ke node tempat workspacenya berada.",
   "Read live from this node's Caddy. Importing turns each site into an application row — additive, and nothing is removed when a route disappears.": "Dibaca langsung dari Caddy node ini. Impor mengubah setiap situs menjadi baris aplikasi — hanya menambah, dan tidak ada yang dihapus saat sebuah rute hilang.",
   "Import as applications": "Impor sebagai aplikasi",
   infrastructure: "infrastruktur",
@@ -115,7 +115,7 @@ export default {
   "Failed to update server": "Gagal memperbarui server",
   "Failed to delete server": "Gagal menghapus server",
   "Failed to reach server": "Gagal menjangkau server",
-  "Failed to place organization": "Gagal menempatkan organisasi",
+  "Failed to place workspace": "Gagal menempatkan workspace",
   "Failed to read Caddy routes": "Gagal membaca rute Caddy",
   "Failed to fetch snapshots": "Gagal memuat snapshot",
   "Snapshot taken": "Snapshot dibuat",

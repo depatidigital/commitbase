@@ -43,8 +43,8 @@ export default {
   "Outside the apps: logs, caches, containers and images of deleted apps. Nothing running is touched.":
     "Di luar aplikasi: log, cache, container dan image aplikasi yang sudah dihapus. Yang sedang berjalan tidak disentuh.",
   "Podman leftovers": "Sisa Podman",
-  "Per organization. Running and stopped apps keep theirs; the next deploy pulls what it needs again.":
-    "Per organisasi. Aplikasi yang berjalan maupun berhenti tetap menyimpan miliknya; deploy berikutnya mengunduh ulang yang dibutuhkan.",
+  "Per workspace. Running and stopped apps keep theirs; the next deploy pulls what it needs again.":
+    "Per workspace. Aplikasi yang berjalan maupun berhenti tetap menyimpan miliknya; deploy berikutnya mengunduh ulang yang dibutuhkan.",
   "Data of deleted apps": "Data aplikasi yang sudah dihapus",
   "Their databases and uploads, gone for good. Kept when the app was deleted.":
     "Database dan file upload-nya, hilang permanen. Disimpan saat aplikasinya dihapus.",

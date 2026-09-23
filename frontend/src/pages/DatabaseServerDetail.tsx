@@ -135,7 +135,7 @@ export default function DatabaseServerDetail() {
       },
     },
     {
-      header: t("Organization"),
+      header: t("Workspace"),
       className: "w-[24%]",
       cell: (row) => (
         <OrganizationCombobox

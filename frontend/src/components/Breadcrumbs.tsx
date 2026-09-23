@@ -13,8 +13,6 @@ import { t } from "@/lib/i18n";
 
 const LABELS: Record<string, string> = {
   projects: t("Projects"),
-  whatsapp: "WhatsApp",
-  invoices: t("Invoices"),
   application: t("Apps"),
   "add-app": t("Add App"),
   "add-project": t("Add project"),
@@ -24,7 +22,7 @@ const LABELS: Record<string, string> = {
   settings: t("Settings"),
   team: t("Team"),
   admin: t("Administration"),
-  organizations: t("Organizations"),
+  organizations: t("Workspaces"),
   users: t("Users"),
   servers: t("Servers"),
   "database-servers": t("Database Servers"),

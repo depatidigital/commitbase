@@ -322,14 +322,14 @@ export default function Projects() {
       ? [
           {
             // who owns it, and the box it runs on under that
-            header: t("Organization"),
+            header: t("Workspace"),
             className: "w-[13%] align-top",
             sortKey: "organization",
             cell: (project: Project) => (
               <div className="min-w-0">
                 <button
                   type="button"
-                  title={t("Change organization")}
+                  title={t("Change workspace")}
                   className="max-w-full"
                   onClick={() => {
                     setAssignOrgId(project.organization?.id ?? null);
@@ -436,7 +436,7 @@ export default function Projects() {
               <OrganizationCombobox
                 value={bulkOrgId || null}
                 onChange={(id) => setBulkOrgId(id ?? "")}
-                placeholder={t("Assign to organization")}
+                placeholder={t("Assign to workspace")}
                 className="w-56"
               />
               <Button
@@ -483,9 +483,9 @@ export default function Projects() {
       <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t("Assign organization")}</DialogTitle>
+            <DialogTitle>{t("Assign workspace")}</DialogTitle>
             <DialogDescription>
-              {t("Choose which organization owns {name}. Every app of the project goes with it.", { name: assignTarget?.name ?? "" })}
+              {t("Choose which workspace owns {name}. Every app of the project goes with it.", { name: assignTarget?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

@@ -1280,7 +1280,7 @@ export function AppWorkspace({
                   ) : (
                     // routes and builds refuse to run without one — say it here
                     <span className="text-destructive">
-                      {t("No server — assign the organization to one before deploying.")}
+                      {t("No server — assign the workspace to one before deploying.")}
                     </span>
                   )}
                 </Field>

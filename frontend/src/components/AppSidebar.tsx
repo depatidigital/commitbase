@@ -1,4 +1,4 @@
-import { Mail, MessageCircle, ReceiptText, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, FolderGit2, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, FolderGit2, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -49,9 +49,6 @@ export function AppSidebar() {
       label: t("Services"),
       items: [
         { title: t("Projects"), url: "/projects", icon: FolderGit2 },
-        { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle },
-        { title: t("Invoices"), url: "/invoices", icon: ReceiptText },
-        { title: "Email", url: "/email", icon: Mail },
       ],
     },
     {
@@ -59,10 +56,11 @@ export function AppSidebar() {
       items: [
         { title: t("Databases"), url: "/database", icon: Database },
         { title: t("Domains"), url: "/domains", icon: Globe },
+        { title: "Email", url: "/email", icon: Mail },
       ],
     },
     {
-      label: t("Organization"),
+      label: t("Workspace"),
       items: [{ title: t("Team"), url: "/team", icon: Users, show: !admin }],
     },
     // ponytail: the admin side as it was, restyled only — to be narrowed to organizations, users and billing
@@ -71,7 +69,7 @@ export function AppSidebar() {
       items: [
         { title: t("Servers"), url: "/servers", icon: HardDrive, show: superadmin },
         { title: t("Database Servers"), url: "/database-servers", icon: DatabaseZap, show: superadmin },
-        { title: t("Organizations"), url: "/organizations", icon: Building2, show: admin },
+        { title: t("Workspaces"), url: "/organizations", icon: Building2, show: admin },
         { title: t("Users"), url: "/users", icon: UserCog, show: admin },
         { title: t("Administration"), url: "/admin", icon: ShieldCheck, show: admin },
       ],

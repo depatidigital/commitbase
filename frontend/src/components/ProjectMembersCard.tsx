@@ -76,7 +76,7 @@ export function ProjectMembersCard({ projectId }: { projectId: string }) {
       </CardHeader>
       <CardContent>
         <p className="mb-2 text-sm text-muted-foreground">
-          {t("Owners and admins of the organization always see this project. Other members only see it once added here.")}
+          {t("Owners and admins of the workspace always see this project. Other members only see it once added here.")}
         </p>
         <ul className="divide-y">
           {fixed}
@@ -102,7 +102,7 @@ export function ProjectMembersCard({ projectId }: { projectId: string }) {
           >
             <Select value={picked} onValueChange={setPicked} disabled={data.candidates.length === 0}>
               <SelectTrigger className="flex-1">
-                <SelectValue placeholder={data.candidates.length ? t("Pick an organization member") : t("Every organization member is already in")} />
+                <SelectValue placeholder={data.candidates.length ? t("Pick a workspace member") : t("Every workspace member is already in")} />
               </SelectTrigger>
               <SelectContent>
                 {data.candidates.map((user) => (

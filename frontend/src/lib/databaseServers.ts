@@ -152,5 +152,5 @@ export const setOrganizationDatabaseServer = async (
       method: 'PUT',
       body: JSON.stringify({ engine, databaseServerId }),
     }),
-    t('Failed to place the organization'),
+    t('Failed to place the workspace'),
   );

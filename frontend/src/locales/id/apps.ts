@@ -104,7 +104,7 @@ export default {
   Uptime: "Uptime",
   "Last deploy": "Deploy terakhir",
   "Deployed {ago}": "Deploy {ago}",
-  "Change organization": "Ubah organisasi",
+  "Change workspace": "Ubah workspace",
   "Unassigned — assign": "Belum ditetapkan — tetapkan",
 
   Start: "Jalankan",
@@ -115,8 +115,8 @@ export default {
   Assigned: "Ditetapkan",
   "Assign failed": "Gagal menetapkan",
   "{count} application(s) updated": "{count} aplikasi diperbarui",
-  "Choose which organization owns {name}. Its members get to see and manage it.":
-    "Pilih organisasi pemilik {name}. Anggotanya dapat melihat dan mengelolanya.",
+  "Choose which workspace owns {name}. Its members get to see and manage it.":
+    "Pilih workspace pemilik {name}. Anggotanya dapat melihat dan mengelolanya.",
 
   // start/stop/restart/delete confirmation
   "Redeploy & Start App": "Deploy Ulang & Jalankan Aplikasi",
@@ -254,9 +254,9 @@ export default {
   free: "gratis",
   "A free address — add your own domain any time from the app's Domains tab.":
     "Alamat gratis — tambahkan domain sendiri kapan saja dari tab Domain aplikasi.",
-  "Whose app is it?": "Aplikasi milik organisasi mana?",
-  "There is no domain to put an app under yet. An administrator can share a platform domain (every organization gets free addresses under it) or assign one to your organization.":
-    "Belum ada domain untuk aplikasi. Administrator bisa membagikan domain platform (setiap organisasi mendapat alamat gratis di bawahnya) atau menetapkan domain ke organisasi Anda.",
+  "Whose app is it?": "Aplikasi milik workspace mana?",
+  "There is no domain to put an app under yet. An administrator can share a platform domain (every workspace gets free addresses under it) or assign one to your workspace.":
+    "Belum ada domain untuk aplikasi. Administrator bisa membagikan domain platform (setiap workspace mendapat alamat gratis di bawahnya) atau menetapkan domain ke workspace Anda.",
   "Where visitors reach this app": "Tempat pengunjung mengakses aplikasi ini",
   "An imported app keeps its hostname.": "Aplikasi impor tetap memakai hostname-nya.",  "Change address": "Ganti alamat",
   "Buy a domain": "Beli domain",
@@ -270,8 +270,8 @@ export default {
   "{keys} still hold the old address — update them in Environment and redeploy.":
     "{keys} masih berisi alamat lama — perbarui di Environment lalu deploy ulang.",
   "Shared platform domain": "Domain platform bersama",
-  "Every organization can put apps under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing apps where they are.":
-    "Setiap organisasi bisa menaruh aplikasi di bawah {name} (shop.{name}) tanpa domain sendiri. Root dan nama yang sudah ada tetap milik Anda. Mematikannya tidak memindahkan aplikasi yang sudah ada.",
+  "Every workspace can put apps under {name} (shop.{name}) without a domain of its own. The root and names that already exist stay yours. Turning it off leaves existing apps where they are.":
+    "Setiap workspace bisa menaruh aplikasi di bawah {name} (shop.{name}) tanpa domain sendiri. Root dan nama yang sudah ada tetap milik Anda. Mematikannya tidak memindahkan aplikasi yang sudah ada.",
   "Could not update the domain": "Tidak bisa memperbarui domain",
   "Domain expired": "Domain kedaluwarsa",
   "Domain expires today": "Domain habis hari ini",
@@ -297,8 +297,8 @@ export default {
   "this platform's server": "server platform ini",
   "The DNS of {domain} is not run here, so it cannot be changed automatically. Once the app exists, add this record where the domain's DNS is managed:":
     "DNS {domain} tidak dikelola di sini, jadi tidak bisa diubah otomatis. Setelah aplikasi dibuat, tambahkan record ini di tempat DNS domain dikelola:",
-  "{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the organization has to move it to Cloudflare before {host} can reach this app.":
-    "{domain} masih memakai DNS registrar (RDASH), belum Cloudflare. Owner atau admin organisasi perlu memindahkannya ke Cloudflare agar {host} bisa mengakses aplikasi ini.",
+  "{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this app.":
+    "{domain} masih memakai DNS registrar (RDASH), belum Cloudflare. Owner atau admin workspace perlu memindahkannya ke Cloudflare agar {host} bisa mengakses aplikasi ini.",
   "DNS: {host} {target} is added automatically.": "DNS: {host} {target} ditambahkan otomatis.",
   "DNS for {host} will be changed automatically:": "DNS untuk {host} akan diubah otomatis:",
   "{domain} moves to Cloudflare: its current DNS records are copied, then the nameservers at RDASH are switched to Cloudflare. That can take a few hours to spread.":
@@ -314,7 +314,7 @@ export default {
   "Free address": "Alamat gratis",
   "{name}.{domain} — ready right away": "{name}.{domain} — langsung siap",
   "My domain": "Domain saya",
-  "A subdomain or the root of a domain your organization owns": "Subdomain atau domain utama milik organisasi Anda",
+  "A subdomain or the root of a domain your workspace owns": "Subdomain atau domain utama milik workspace Anda",
   "Enter a subdomain": "Isi subdomain",
   "Remove subdomain": "Hapus subdomain",
   "Remove path": "Hapus path",
@@ -360,8 +360,8 @@ export default {
     "File langsung berhenti disajikan. Tidak bisa dibatalkan — unggah lagi untuk mengembalikannya.",
   "Could not list the files": "Daftar file tidak bisa dimuat",
   "Could not delete the files": "File tidak bisa dihapus",
-  "No server — assign the organization to one before deploying.":
-    "Belum ada server — tetapkan server untuk organisasinya sebelum deploy.",
+  "No server — assign the workspace to one before deploying.":
+    "Belum ada server — tetapkan server untuk workspacenya sebelum deploy.",
   // releases / rollback
   Releases: "Release",
   Serving: "Aktif",
@@ -589,7 +589,7 @@ export default {
   "Create new": "Buat baru",
   "Use existing": "Pakai yang ada",
   "Lowercase letters, digits and underscores.": "Huruf kecil, angka, dan garis bawah.",
-  "This organization has no databases yet — create a new one.": "Organisasi ini belum punya database — buat yang baru.",
+  "This workspace has no databases yet — create a new one.": "Workspace ini belum punya database — buat yang baru.",
   "Choose a database": "Pilih database",
   "used by {app}": "dipakai {app}",
   "Create & connect": "Buat & hubungkan",
@@ -622,7 +622,7 @@ export default {
   "Database server": "Server database",
   "Database name": "Nama database",
   "Choose a server": "Pilih server",
-  "organization default": "default organisasi",
+  "workspace default": "default workspace",
   "No database server is online — ask a superadmin to add one.":
     "Tidak ada server database yang online — minta superadmin menambahkannya.",
   "New login": "Login baru",
@@ -630,8 +630,8 @@ export default {
   "Login name": "Nama login",
   "A login of its own for this app, with access to this database only.":
     "Login khusus untuk aplikasi ini, hanya punya akses ke database ini.",
-  "The organization has no logins on this server yet — make a new one.":
-    "Organisasi belum punya login di server ini — buat yang baru.",
+  "The workspace has no logins on this server yet — make a new one.":
+    "Workspace belum punya login di server ini — buat yang baru.",
   "Choose a login": "Pilih login",
   "reaches 1 database": "akses 1 database",
   "reaches {count} databases": "akses {count} database",

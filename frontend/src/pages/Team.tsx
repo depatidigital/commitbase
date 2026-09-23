@@ -280,7 +280,7 @@ export default function Team() {
       <div>
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            {t("You are not a member of any organization yet.")}
+            {t("You are not a member of any workspace yet.")}
           </CardContent>
         </Card>
       </div>
@@ -291,11 +291,11 @@ export default function Team() {
     <PageLayout
       icon={Users}
       title={t("Team")}
-      description={t("People who can manage this organization's domains and applications.")}
+      description={t("People who can manage this workspace's domains and applications.")}
       actions={
         <Select value={orgId} onValueChange={setOrgId}>
           <SelectTrigger className="w-64">
-            <SelectValue placeholder={t("Select organization")} />
+            <SelectValue placeholder={t("Select workspace")} />
           </SelectTrigger>
           <SelectContent>
             {organizations.map((o) => (
@@ -408,7 +408,7 @@ export default function Team() {
             <AlertDialogDescription>
               {t("{member} will lose access to {name}, including its domains and applications. They can be invited back later.", {
                 member: pendingRemove?.label ?? "",
-                name: org?.name ?? t("this organization"),
+                name: org?.name ?? t("this workspace"),
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>

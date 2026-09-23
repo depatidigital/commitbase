@@ -43,7 +43,7 @@ export function OrganizationCombobox({
   onChange,
   noneLabel,
   extraOptions = [],
-  placeholder = t("Select an organization"),
+  placeholder = t("Select a workspace"),
   className,
   disabled,
 }: Props) {
@@ -108,7 +108,7 @@ export function OrganizationCombobox({
         {/* server does the filtering, so cmdk must not filter again */}
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder={t("Search organizations…")}
+            placeholder={t("Search workspaces…")}
             value={input}
             onValueChange={setInput}
           />
@@ -119,7 +119,7 @@ export function OrganizationCombobox({
                 {t("Searching…")}
               </div>
             ) : (
-              <CommandEmpty>{t("No organizations found.")}</CommandEmpty>
+              <CommandEmpty>{t("No workspaces found.")}</CommandEmpty>
             )}
             <CommandGroup>
               {noneLabel && (

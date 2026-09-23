@@ -398,7 +398,7 @@ export default function ProjectDetail() {
                     <p className="mt-1 text-xs text-muted-foreground">{t("Only a superadmin can remove things from the server.")}</p>
                   )}
                   {!imported && !project.canManage && (
-                    <p className="mt-1 text-xs text-muted-foreground">{t("Only the creator of the project and the admins of its organization can delete it.")}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{t("Only the creator of the project and the admins of its workspace can delete it.")}</p>
                   )}
                 </div>
                 <Button

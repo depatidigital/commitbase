@@ -66,16 +66,16 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
 };
 
 export const getOrganizations = async (): Promise<Organization[]> =>
-  unwrap(await apiRequest<Organization[]>('/organizations'), t('Failed to fetch organizations'));
+  unwrap(await apiRequest<Organization[]>('/organizations'), t('Failed to fetch workspaces'));
 
 export const getOrganizationsPage = async (params: ListParams): Promise<Paginated<Organization>> =>
   unwrap(
     await apiRequest<Paginated<Organization>>(`/organizations${listQuery(params)}`),
-    t('Failed to fetch organizations')
+    t('Failed to fetch workspaces')
   );
 
 export const getOrganization = async (id: string): Promise<Organization> =>
-  unwrap(await apiRequest<Organization>(`/organizations/${id}`), t('Failed to fetch organization'));
+  unwrap(await apiRequest<Organization>(`/organizations/${id}`), t('Failed to fetch workspace'));
 
 // no account with that email? the backend issues an invite instead of failing
 export type AddMemberResult = Member | { invited: true; invite: CreatedInvite };
@@ -99,7 +99,7 @@ export const addMember = async (
 export const createOrganization = async (data: { name: string; slug?: string }): Promise<Organization> =>
   unwrap(
     await apiRequest<Organization>('/organizations', { method: 'POST', body: JSON.stringify(data) }),
-    t('Failed to create organization')
+    t('Failed to create workspace')
   );
 
 export const getMembers = async (orgId: string): Promise<Member[]> =>

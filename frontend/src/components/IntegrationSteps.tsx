@@ -126,7 +126,7 @@ export const GIT_GUIDE: StepGroup[] = [
     steps: [
       <>
         {t('On GitHub open')} <Code>Settings → Developer settings → OAuth Apps → New OAuth App</Code>.{' '}
-        {t('For an organization, use the same menu under the organization settings.')}
+        {t('For a workspace, use the same menu under the workspace settings.')}
       </>,
       t("Homepage URL: this panel's address. Authorization callback URL: the GitHub callback URL shown below, exactly."),
       t('Register the app, then Generate a new client secret.'),

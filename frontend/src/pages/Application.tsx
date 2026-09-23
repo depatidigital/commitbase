@@ -414,7 +414,7 @@ export default function Application() {
     ...(superAdmin
       ? [
           {
-            header: t("Organization"),
+            header: t("Workspace"),
             className: "w-[16%]",
             sortKey: "organization",
             // its own column only because a superadmin is the one who assigns
@@ -422,7 +422,7 @@ export default function Application() {
             cell: (app: (typeof applications)[number]) => (
               <button
                 type="button"
-                title={t("Change organization")}
+                title={t("Change workspace")}
                 className="max-w-full"
                 onClick={() => {
                   setAssignOrgId(app.organization?.id ?? null);
@@ -636,7 +636,7 @@ export default function Application() {
                 <OrganizationCombobox
                   value={bulkOrgId || null}
                   onChange={(id) => setBulkOrgId(id ?? "")}
-                  placeholder={t("Assign to organization")}
+                  placeholder={t("Assign to workspace")}
                   className="w-56"
                 />
                 <Button
@@ -724,9 +724,9 @@ export default function Application() {
         <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>{t("Assign organization")}</DialogTitle>
+              <DialogTitle>{t("Assign workspace")}</DialogTitle>
               <DialogDescription>
-                {t("Choose which organization owns {name}. Its members get to see and manage it.", { name: assignTarget?.name ?? "" })}
+                {t("Choose which workspace owns {name}. Its members get to see and manage it.", { name: assignTarget?.name ?? "" })}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">

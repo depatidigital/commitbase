@@ -11,7 +11,7 @@ export default {
   "Taken from its source — its first app starts with the same name. Both can be renamed later.":
     "Diambil dari sumbernya — aplikasi pertamanya memakai nama yang sama. Keduanya bisa diganti nanti.",
   "Create app": "Buat aplikasi",
-  Organization: "Organisasi",
+  Workspace: "Workspace",
   "Point at the code — the type is detected. Its hosts and env are added once it exists, then it is deployed.":
     "Pilih kodenya — tipenya terdeteksi otomatis. Host dan env ditambahkan setelah proyek dibuat, lalu di-deploy.",
   "Created now — add its hosts and env on its page, then deploy.": "Dibuat sekarang — tambahkan host dan env di halamannya, lalu deploy.",
@@ -91,8 +91,8 @@ export default {
   "Select all projects on this page": "Pilih semua proyek di halaman ini",
   "Search project, repository or domain…": "Cari proyek, repositori, atau domain…",
   "No projects yet — add your first one.": "Belum ada proyek — tambahkan yang pertama.",
-  "Choose which organization owns {name}. Every app of the project goes with it.":
-    "Pilih organisasi pemilik {name}. Semua aplikasi di proyek ini ikut pindah.",
+  "Choose which workspace owns {name}. Every app of the project goes with it.":
+    "Pilih workspace pemilik {name}. Semua aplikasi di proyek ini ikut pindah.",
   "Deploy all": "Deploy semua",
   "Deployment started": "Deployment dimulai",
   "Every app of the project is built from the same commit.": "Semua aplikasi di proyek dibangun dari commit yang sama.",
@@ -128,10 +128,7 @@ export default {
   // the dashboard
   Dashboard: "Dasbor",
   Services: "Layanan",
-  Invoices: "Tagihan",
   "Coming soon": "Segera hadir",
-  "Connect a number and send messages from your apps.": "Hubungkan nomor dan kirim pesan dari aplikasi Anda.",
-  "Automatic invoices, with WhatsApp reminders before they are due.": "Tagihan otomatis, dengan pengingat WhatsApp sebelum jatuh tempo.",
   "Email addresses on your own domain.": "Alamat email dengan domain Anda sendiri.",
   "What needs a look, at a glance.": "Yang perlu dicek, sekilas.",
   "Apps online": "Aplikasi online",

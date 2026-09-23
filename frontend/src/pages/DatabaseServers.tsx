@@ -319,7 +319,7 @@ export default function DatabaseServers() {
     <PageLayout
       icon={Database}
       title={t("Database Servers")}
-      description={t("PostgreSQL and MySQL servers tenant databases are created on. Organizations are placed on one per engine from their organization page.")}
+      description={t("PostgreSQL and MySQL servers tenant databases are created on. Workspaces are placed on one per engine from their workspace page.")}
       actions={
         <Button onClick={openNew}>
           <Plus className="mr-2 h-4 w-4" /> {t("Add database server")}
@@ -523,7 +523,7 @@ export default function DatabaseServers() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Remove {name}?", { name: confirmDelete?.name ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("This only removes it from the panel — nothing on the server is touched. It is refused while organizations or databases still use it.")}
+              {t("This only removes it from the panel — nothing on the server is touched. It is refused while workspaces or databases still use it.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

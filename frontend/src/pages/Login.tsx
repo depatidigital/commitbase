@@ -138,7 +138,7 @@ const Login = () => {
           </form>
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            {t('Accounts are created by an administrator or through an organization invite link.')}
+            {t('Accounts are created by an administrator or through a workspace invite link.')}
           </p>
         </CardContent>
       </Card>

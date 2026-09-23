@@ -219,7 +219,7 @@ export default function Database() {
     ...(admin
       ? [
           {
-            header: t("Organization"),
+            header: t("Workspace"),
             className: "w-[18%]",
             cell: (db: DatabaseWithApplication) => {
               const organization = db.organization ?? db.application?.organization;
@@ -378,13 +378,13 @@ export default function Database() {
             <DialogHeader>
               <DialogTitle>{t("Create database")}</DialogTitle>
               <DialogDescription>
-                {t("Created on the organization's database server and owned by its own login there — nobody else can connect to it.")}
+                {t("Created on the workspace's database server and owned by its own login there — nobody else can connect to it.")}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>{t("Organization")}</Label>
+                <Label>{t("Workspace")}</Label>
                 <OrganizationCombobox
                   value={form.organizationId ?? null}
                   onChange={(id) => setForm({ ...form, organizationId: id ?? undefined })}
@@ -416,7 +416,7 @@ export default function Database() {
                     ? t("Lowercase letters, digits and underscores, starting with a letter.")
                     : preview
                       ? t("Created on the server as {name}", { name: preview })
-                      : t("The organization's name is added in front, so tenants never collide.")}
+                      : t("The workspace's name is added in front, so tenants never collide.")}
                 </p>
               </div>
             </div>

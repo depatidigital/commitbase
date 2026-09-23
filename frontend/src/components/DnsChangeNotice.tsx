@@ -27,7 +27,7 @@ export function DnsChangeNotice({ host, domain, inspection }: { host: string; do
   if (inspection.dns === "registrar" && !inspection.canMove) {
     return (
       <Notice tone="warn">
-        {t("{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the organization has to move it to Cloudflare before {host} can reach this app.", { domain, host })}
+        {t("{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this app.", { domain, host })}
       </Notice>
     );
   }

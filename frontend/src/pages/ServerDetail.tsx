@@ -271,7 +271,7 @@ const ServerDetail = () => {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  {t("Organizations ({count})", { count: server.organizations?.length ?? 0 })}
+                  {t("Workspaces ({count})", { count: server.organizations?.length ?? 0 })}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -286,7 +286,7 @@ const ServerDetail = () => {
                   ))
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {t("No organization is provisioned here yet. An organization is provisioned on a server when its first app is placed on it.")}
+                    {t("No workspace is provisioned here yet. A workspace is provisioned on a server when its first app is placed on it.")}
                   </p>
                 )}
               </CardContent>

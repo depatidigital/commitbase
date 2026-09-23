@@ -1,4 +1,4 @@
-// Organizations, organization detail, team, users, platform administration.
+// Workspaces, workspace detail, team, users, platform administration.
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   // shared bits (same values as elsewhere, kept here so these pages stand alone)
@@ -14,8 +14,8 @@ export default {
   "Expires {date}": "Kedaluwarsa {date}",
   Disabled: "Nonaktif",
   none: "tidak ada",
-  "no organization": "tanpa organisasi",
-  "this organization": "organisasi ini",
+  "no workspace": "tanpa workspace",
+  "this workspace": "workspace ini",
   "Copied to clipboard": "Tersalin ke papan klip",
 
   // roles
@@ -25,37 +25,37 @@ export default {
   Client: "Klien",
   "Platform role": "Peran platform",
 
-  // organization picker / filter
-  "All organizations": "Semua organisasi",
-  "Select an organization": "Pilih organisasi",
-  "Select organization": "Pilih organisasi",
-  "Search organizations…": "Cari organisasi…",
+  // workspace picker / filter
+  "All workspaces": "Semua workspace",
+  "Select a workspace": "Pilih workspace",
+  "Select workspace": "Pilih workspace",
+  "Search workspaces…": "Cari workspace…",
   "Searching…": "Mencari…",
-  "No organizations found.": "Organisasi tidak ditemukan.",
+  "No workspaces found.": "Workspace tidak ditemukan.",
   "Showing {count} of {total} — keep typing to narrow.":
     "Menampilkan {count} dari {total} — lanjutkan mengetik untuk mempersempit.",
 
-  // Organizations
+  // Workspaces
   "Client tenants. Domain ownership lives on the Administration page.":
     "Tenant klien. Kepemilikan domain diatur di halaman Administrasi.",
-  "New organization": "Organisasi baru",
+  "New workspace": "Workspace baru",
   "Creates a client tenant. Assign domains to it from the Administration page.":
-    "Membuat tenant klien. Tetapkan domain ke organisasi ini dari halaman Administrasi.",
+    "Membuat tenant klien. Tetapkan domain ke workspace ini dari halaman Administrasi.",
   "Client name": "Nama klien",
   "Admin email (optional)": "Email admin (opsional)",
-  "Joins as ADMIN if the account exists, otherwise gets an invite emailed to them. You can also invite members later from the organization page.":
-    "Bergabung sebagai Admin jika akunnya sudah ada; jika belum, undangan dikirim ke email tersebut. Anda juga dapat mengundang anggota nanti dari halaman organisasi.",
-  "Organization created": "Organisasi dibuat",
+  "Joins as ADMIN if the account exists, otherwise gets an invite emailed to them. You can also invite members later from the workspace page.":
+    "Bergabung sebagai Admin jika akunnya sudah ada; jika belum, undangan dikirim ke email tersebut. Anda juga dapat mengundang anggota nanti dari halaman workspace.",
+  "Workspace created": "Workspace dibuat",
   "Invite emailed to {email}.": "Undangan dikirim ke {email}.",
   "Invite created, but the email failed — check the SMTP settings.":
     "Undangan dibuat, tetapi email gagal dikirim — periksa pengaturan SMTP.",
   "Admin added.": "Admin ditambahkan.",
   "Search name or slug…": "Cari nama atau slug…",
-  "No organizations yet.": "Belum ada organisasi.",
+  "No workspaces yet.": "Belum ada workspace.",
   "Not placed": "Belum ditempatkan",
 
-  // Organization detail / Team
-  "Organization not found.": "Organisasi tidak ditemukan.",
+  // Workspace detail / Team
+  "Workspace not found.": "Workspace tidak ditemukan.",
   "{members} members · {domains} domains · {apps} apps":
     "{members} anggota · {domains} domain · {apps} aplikasi",
   "Placed on {server}": "Ditempatkan di {server}",
@@ -63,8 +63,8 @@ export default {
   "Choose a server…": "Pilih server…",
   "Placement is fixed once set: this tenant's OS user, home and apps live on that node. Moving the row would not move the files.":
     "Penempatan tidak dapat diubah setelah ditetapkan: pengguna OS, direktori home, dan aplikasi tenant ini berada di node tersebut. Memindahkan datanya tidak akan memindahkan berkasnya.",
-  "Provisioning and deploys refuse to run until this organization is placed on a node.":
-    "Provisioning dan deploy tidak dapat dijalankan sebelum organisasi ini ditempatkan di sebuah node.",
+  "Provisioning and deploys refuse to run until this workspace is placed on a node.":
+    "Provisioning dan deploy tidak dapat dijalankan sebelum workspace ini ditempatkan di sebuah node.",
   "Invite to {name}": "Undang ke {name}",
   "An existing account joins {name} straight away. Anyone else is emailed an invite link.":
     "Akun yang sudah ada langsung bergabung ke {name}. Selain itu, tautan undangan dikirim lewat email.",
@@ -95,13 +95,13 @@ export default {
   "{member} will lose access to {name}, including its domains and applications. They can be invited back later.":
     "{member} akan kehilangan akses ke {name}, termasuk domain dan aplikasinya. Anggota ini dapat diundang kembali nanti.",
   "Remove member": "Keluarkan anggota",
-  "You are not a member of any organization yet.": "Anda belum menjadi anggota organisasi mana pun.",
-  "People who can manage this organization's domains and applications.":
-    "Orang-orang yang dapat mengelola domain dan aplikasi organisasi ini.",
+  "You are not a member of any workspace yet.": "Anda belum menjadi anggota workspace mana pun.",
+  "People who can manage this workspace's domains and applications.":
+    "Orang-orang yang dapat mengelola domain dan aplikasi workspace ini.",
 
   // Users
-  "Client accounts on the platform and their organization memberships.":
-    "Akun klien di platform beserta keanggotaan organisasinya.",
+  "Client accounts on the platform and their workspace memberships.":
+    "Akun klien di platform beserta keanggotaan workspacenya.",
   "New user": "Pengguna baru",
   "New client account": "Akun klien baru",
   "They sign in with this temporary password and must change it on first login.":
@@ -109,29 +109,29 @@ export default {
   "Temporary password": "Kata sandi sementara",
   "min 8 characters": "minimal 8 karakter",
   "User created": "Pengguna dibuat",
-  "Invite them to an organization from the Team page.":
-    "Undang pengguna ini ke organisasi dari halaman Tim.",
+  "Invite them to a workspace from the Team page.":
+    "Undang pengguna ini ke workspace dari halaman Tim.",
   "User updated": "Pengguna diperbarui",
   "Search email or name…": "Cari email atau nama…",
   "No users found.": "Pengguna tidak ditemukan.",
 
   // Administration
   "Platform administration": "Administrasi platform",
-  "Domain ownership and per-organization OS isolation.":
-    "Kepemilikan domain dan isolasi OS per organisasi.",
+  "Domain ownership and per-workspace OS isolation.":
+    "Kepemilikan domain dan isolasi OS per workspace.",
   "Provisioning log": "Log provisioning",
   "Provisioning output — {name}": "Keluaran provisioning — {name}",
   "Search domain…": "Cari domain…",
   "No domains yet.": "Belum ada domain.",
   "Domain ownership updated": "Kepemilikan domain diperbarui",
   "Its applications moved with it.": "Aplikasinya ikut dipindahkan.",
-  "Move this domain to another organization?": "Pindahkan domain ini ke organisasi lain?",
+  "Move this domain to another workspace?": "Pindahkan domain ini ke workspace lain?",
   "{domain} and its {count} application will move to {organization}.":
     "{domain} beserta {count} aplikasinya akan dipindahkan ke {organization}.",
   "{domain} and its {count} applications will move to {organization}.":
     "{domain} beserta {count} aplikasinya akan dipindahkan ke {organization}.",
-  "The previous organization loses access immediately.":
-    "Organisasi sebelumnya langsung kehilangan akses.",
+  "The previous workspace loses access immediately.":
+    "Workspace sebelumnya langsung kehilangan akses.",
   "Move domain": "Pindahkan domain",
   Isolation: "Isolasi",
   "Not provisioned": "Belum diprovisi",
@@ -139,7 +139,7 @@ export default {
   Provisioned: "Terprovisi",
   Provision: "Provisi",
   "Re-provision": "Provisi ulang",
-  "Search organization…": "Cari organisasi…",
+  "Search workspace…": "Cari workspace…",
   "OS isolation is switched off on this server.": "Isolasi OS dinonaktifkan di server ini.",
   "Set {setting} in the backend environment and restart it before provisioning.":
     "Atur {setting} di environment backend lalu mulai ulang sebelum melakukan provisioning.",
@@ -147,7 +147,7 @@ export default {
     "{user} kini memiliki pengguna OS, direktori home, dan cgroup slice sendiri.",
   "OS user provisioned.": "Pengguna OS berhasil diprovisi.",
   "Re-run provisioning?": "Jalankan ulang provisioning?",
-  "Provision this organization?": "Provisi organisasi ini?",
+  "Provision this workspace?": "Provisi workspace ini?",
   "Creates the OS user {user}, its home, disk quota, cgroup slice and PHP-FPM pool.":
     "Membuat pengguna OS {user} beserta direktori home, kuota disk, cgroup slice, dan pool PHP-FPM-nya.",
   "Re-running also repairs file ownership and re-applies the resource limits — it does not restart running applications.":
@@ -164,12 +164,12 @@ export default {
   "Failed to update user": "Gagal memperbarui pengguna",
   "Failed to assign domain": "Gagal menetapkan domain",
   "Failed to unassign domain": "Gagal melepas domain",
-  "Failed to fetch organizations": "Gagal memuat organisasi",
-  "Failed to fetch organization": "Gagal memuat organisasi",
-  "Failed to provision organization": "Gagal memprovisi organisasi",
+  "Failed to fetch workspaces": "Gagal memuat workspace",
+  "Failed to fetch workspace": "Gagal memuat workspace",
+  "Failed to provision workspace": "Gagal memprovisi workspace",
   "Failed to fetch provisioning logs": "Gagal memuat log provisioning",
   "Failed to add member": "Gagal menambahkan anggota",
-  "Failed to create organization": "Gagal membuat organisasi",
+  "Failed to create workspace": "Gagal membuat workspace",
   "Failed to fetch members": "Gagal memuat anggota",
   "Failed to update member": "Gagal memperbarui anggota",
   "Failed to remove member": "Gagal mengeluarkan anggota",
@@ -189,14 +189,14 @@ export default {
   "On no server yet": "Belum ada di server mana pun",
   "Default server": "Server default",
   "Provisioned on": "Terprovisi di",
-  "New apps of this organization have to pick a server.": "Aplikasi baru organisasi ini harus memilih server.",
+  "New apps of this workspace have to pick a server.": "Aplikasi baru workspace ini harus memilih server.",
   "Default server: {server}": "Server default: {server}",
-  "New apps run on the default server unless another is picked. The organization is provisioned only on the servers its apps use — its OS user has the same UID on each.":
-    "Aplikasi baru berjalan di server default kecuali dipilih server lain. Organisasi hanya diprovisi di server yang dipakai aplikasinya — pengguna OS-nya memiliki UID yang sama di setiap server.",
-  "Runs on every server it is on: {servers}.": "Berjalan di setiap server tempat organisasi ini berada: {servers}.",
+  "New apps run on the default server unless another is picked. The workspace is provisioned only on the servers its apps use — its OS user has the same UID on each.":
+    "Aplikasi baru berjalan di server default kecuali dipilih server lain. Workspace hanya diprovisi di server yang dipakai aplikasinya — pengguna OS-nya memiliki UID yang sama di setiap server.",
+  "Runs on every server it is on: {servers}.": "Berjalan di setiap server tempat workspace ini berada: {servers}.",
   "Runs on its default server, {server}.": "Berjalan di server default-nya, {server}.",
-  "Organization's default server": "Server default organisasi",
+  "Workspace's default server": "Server default workspace",
   "Fixed once the app exists.": "Tidak bisa diubah setelah aplikasi dibuat.",
-  "No organization is provisioned here yet. An organization is provisioned on a server when its first app is placed on it.":
-    "Belum ada organisasi yang diprovisi di sini. Organisasi diprovisi di sebuah server saat aplikasi pertamanya ditempatkan di server itu.",
+  "No workspace is provisioned here yet. A workspace is provisioned on a server when its first app is placed on it.":
+    "Belum ada workspace yang diprovisi di sini. Workspace diprovisi di sebuah server saat aplikasi pertamanya ditempatkan di server itu.",
 } satisfies Record<string, string>;

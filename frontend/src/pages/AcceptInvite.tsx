@@ -46,7 +46,7 @@ export default function AcceptInvite() {
         title: t("Welcome"),
         description: invite?.organizationName
           ? t("You have joined {organization}.", { organization: invite.organizationName })
-          : t("You have joined the organization."),
+          : t("You have joined the workspace."),
       });
       navigate("/");
     },
@@ -142,7 +142,7 @@ export default function AcceptInvite() {
           }
         >
           {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {t("Join organization")}
+          {t("Join workspace")}
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">

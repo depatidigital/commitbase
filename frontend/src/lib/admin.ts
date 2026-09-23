@@ -168,7 +168,7 @@ export const getAdminOrganizations = async (
 ): Promise<Paginated<AdminOrganization>> =>
   unwrap(
     await apiRequest<Paginated<AdminOrganization>>(`/admin/organizations${listQuery(params)}`),
-    t('Failed to fetch organizations')
+    t('Failed to fetch workspaces')
   );
 
 export const provisionOrganization = async (
@@ -180,7 +180,7 @@ export const provisionOrganization = async (
       method: 'POST',
       body: JSON.stringify(limits ?? {}),
     }),
-    t('Failed to provision organization')
+    t('Failed to provision workspace')
   );
 
 export const getProvisionLogs = async (params: ListParams): Promise<Paginated<ProvisionLog>> =>

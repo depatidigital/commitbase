@@ -326,7 +326,7 @@ export default function OrganizationDetail() {
     return (
       <Card>
         <CardContent className="py-10 text-center text-muted-foreground">
-          {t("Organization not found.")}
+          {t("Workspace not found.")}
         </CardContent>
       </Card>
     );
@@ -378,7 +378,7 @@ export default function OrganizationDetail() {
             <OrgNodeBadges nodes={org.nodes} onOpen={(node) => setLogNodeId(node.id)} />
           </div>
           <p className="text-xs text-muted-foreground">
-            {t("New apps run on the default server unless another is picked. The organization is provisioned only on the servers its apps use — its OS user has the same UID on each.")}
+            {t("New apps run on the default server unless another is picked. The workspace is provisioned only on the servers its apps use — its OS user has the same UID on each.")}
           </p>
         </CardContent>
       </Card>
@@ -432,7 +432,7 @@ export default function OrganizationDetail() {
               );
             })}
             <p className="text-xs text-muted-foreground">
-              {t("Databases of that engine are created on this server, owned by the organization's own login there. Moving is refused while the organization has databases on its current server.")}
+              {t("Databases of that engine are created on this server, owned by the workspace's own login there. Moving is refused while the workspace has databases on its current server.")}
             </p>
           </CardContent>
         </Card>
