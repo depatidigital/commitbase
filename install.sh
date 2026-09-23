@@ -68,6 +68,12 @@ apt-get update -qq
 apt-get install -y -qq sudo curl git build-essential quota debian-keyring debian-archive-keyring \
   apt-transport-https ca-certificates gnupg >/dev/null
 
+# Python apps build a virtualenv per release (services/deployment.ts), which
+# needs python3-venv; python3-dev and build-essential above are what a package
+# without a wheel compiles against.
+apt-get install -y -qq python3 python3-venv python3-dev >/dev/null
+note "python $(python3 -V 2>&1 | cut -d' ' -f2) at $(command -v python3)"
+
 if ! command -v node >/dev/null || [ "$(node -v | sed 's/^v//' | cut -d. -f1)" -lt "$NODE_MAJOR" ]; then
   note "Node $NODE_MAJOR from NodeSource"
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null

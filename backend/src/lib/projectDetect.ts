@@ -74,6 +74,15 @@ const EXAMPLE_ENV_FILES = ['.env.example', '.env.sample', '.env.template'] as co
 // read for their presence only — never their contents, which are secrets
 const SECRET_ENV_FILES = ['.env', '.env.local'] as const;
 
+/**
+ * The module a Python app is started from, in the order they are looked for.
+ * Read for their presence only — the framework comes from the requirements.
+ */
+export const PY_ENTRIES = ['app.py', 'main.py', 'server.py', 'wsgi.py', 'asgi.py'] as const;
+
+/** What makes a folder a Python project. */
+const PY_MARKERS = ['requirements.txt', 'pyproject.toml', 'manage.py', ...PY_ENTRIES] as const;
+
 /** The files worth reading. Detection needs nothing else. */
 export const DETECT_FILES = [
   ...EXAMPLE_ENV_FILES,
@@ -91,6 +100,9 @@ export const DETECT_FILES = [
   'next.config.mjs',
   'next.config.ts',
   'requirements.txt',
+  'pyproject.toml',
+  'manage.py',
+  ...PY_ENTRIES,
   'composer.json',
   'index.php',
   'index.html',
@@ -312,7 +324,14 @@ export function detectFromFiles(files: DetectInput, prismaMigrations?: boolean, 
     ...preset,
     env: repoEnvOf(files),
     warnings: warningsOf(files, preset),
-    preDeployCommand: preset.type === 'NODEJS' ? preDeployOf(files, preset.packageManager, prismaMigrations) : null,
+    // Django's migrations are its pre-deploy step, the way Prisma's are Node's:
+    // run before the build, and a failure fails the deploy.
+    preDeployCommand:
+      preset.framework === 'django'
+        ? 'python manage.py migrate --noinput'
+        : preset.type === 'NODEJS'
+          ? preDeployOf(files, preset.packageManager, prismaMigrations)
+          : null,
     generateCommand: preset.type === 'NODEJS' ? generateOf(files, preset.packageManager) : null,
   };
 }
@@ -336,6 +355,72 @@ function warningsOf(files: DetectInput, preset: Omit<DetectedProject, 'env' | 'w
     warnings.push({ code: 'start-binds-all' });
   }
   return warnings;
+}
+
+/**
+ * The distributions a Python project depends on, lowercased and normalised
+ * (`Flask-SQLAlchemy` → `flask-sqlalchemy`). Reads requirements.txt and
+ * pyproject.toml alike. Pure.
+ * ponytail: comments stripped, the rest tokenised — rather than parsing two
+ * formats. A TOML key (`dependencies`) lands in the set too; only the handful
+ * of framework and server names is ever looked up in it.
+ */
+export function pythonDeps(files: DetectInput): Set<string> {
+  const text = [files['requirements.txt'], files['pyproject.toml']].filter(Boolean).join('\n').replace(/#.*$/gm, '');
+  const names = new Set<string>();
+  for (const token of text.matchAll(/[A-Za-z][A-Za-z0-9._-]*/g)) names.add(token[0].toLowerCase().replace(/_/g, '-'));
+  return names;
+}
+
+/** manage.py names the settings module; its first segment is the Django project package. Pure. */
+export function djangoProjectOf(managePy: string | undefined): string | null {
+  const match = String(managePy ?? '').match(/DJANGO_SETTINGS_MODULE["']\s*,\s*["']([\w.]+)["']/);
+  return match ? match[1]!.split('.')[0]! : null;
+}
+
+/**
+ * A Python project's preset: what to install, what to run it with, and the
+ * WSGI/ASGI server to install when the repository does not ship one.
+ *
+ * The app object is assumed to be `app` (Flask and FastAPI's own convention) —
+ * a project that names it otherwise sets its own start command. Pure.
+ */
+function pythonPreset(files: DetectInput): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'> {
+  const has = (name: string) => files[name as keyof DetectInput] !== undefined;
+  const deps = pythonDeps(files);
+  const entry = PY_ENTRIES.find(has)?.replace(/\.py$/, '') ?? null;
+
+  const django = has('manage.py') || deps.has('django');
+  const fastapi = deps.has('fastapi');
+  const flask = deps.has('flask');
+
+  // What the app is served by. A plain script (the stdlib's http.server, a bot,
+  // a worker) is run as itself — nothing to put in front of it.
+  const project = djangoProjectOf(files['manage.py']);
+  const server = django || flask ? 'gunicorn' : fastapi ? 'uvicorn' : null;
+  const startCommand = django
+    ? `gunicorn ${project ?? 'app'}.wsgi:application --bind 127.0.0.1:$PORT`
+    : fastapi
+      ? `uvicorn ${entry ?? 'main'}:app --host 127.0.0.1 --port $PORT`
+      : flask
+        ? `gunicorn ${entry ?? 'app'}:app --bind 127.0.0.1:$PORT`
+        : `python ${entry ?? 'app'}.py`;
+
+  // pip runs inside the release's own virtualenv (deployment.ts) — no --user,
+  // no system packages. Nothing to install is a valid answer: a stdlib-only
+  // script has no requirements file at all.
+  const requirements = has('requirements.txt') ? 'pip install -r requirements.txt' : has('pyproject.toml') ? 'pip install .' : '';
+  const needsServer = server && !deps.has(server);
+  const installCommand = [requirements, needsServer ? `pip install ${server}` : ''].filter(Boolean).join(' && ');
+
+  return base({
+    type: 'PYTHON',
+    framework: django ? 'django' : fastapi ? 'fastapi' : flask ? 'flask' : 'python',
+    label: django ? 'Django' : fastapi ? 'FastAPI' : flask ? 'Flask' : 'Python',
+    installCommand,
+    startCommand,
+    port: 8000,
+  });
 }
 
 function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<DetectedProject, 'env' | 'warnings' | 'preDeployCommand' | 'generateCommand'> {
@@ -376,10 +461,11 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
     });
   }
 
+  // Python before the Node branch, the way PHP is: a Django or FastAPI app that
+  // builds its own assets ships a package.json too, and is not a Node app.
+  if (PY_MARKERS.some((name) => files[name] !== undefined)) return pythonPreset(files);
+
   if (files['package.json'] === undefined) {
-    if (files['requirements.txt'] !== undefined) {
-      return base({ type: 'PYTHON', framework: 'python', label: 'Python', startCommand: 'python app.py', port: 8000 });
-    }
     if (files['index.html'] !== undefined) {
       return base({ type: 'STATIC', framework: 'html', label: 'Static HTML', outputDir: '.' });
     }
@@ -474,7 +560,9 @@ function base(
  * their presence matters; a committed .env is noted, its secrets never read.
  */
 export const presenceOnly = (name: string): boolean =>
-  (SECRET_ENV_FILES as readonly string[]).includes(name) || /(\.lockb?|lock\.json|lock\.yaml)$/.test(name);
+  (SECRET_ENV_FILES as readonly string[]).includes(name) ||
+  (PY_ENTRIES as readonly string[]).includes(name) ||
+  /(\.lockb?|lock\.json|lock\.yaml)$/.test(name);
 
 type ReadText = (file: string) => Promise<string>;
 const readLocal: ReadText = (file) => fs.readFile(file, 'utf-8');
@@ -629,7 +717,7 @@ export async function detectFromRepo(
 
 // never an app of its own: dependencies, build output, an app's assets, tests and examples, dot-folders
 const NOT_APP_DIR = /(^|\/)(node_modules|vendor|dist|build|out|public|tests?|__tests__|fixtures|e2e|examples?|\.[^/]+)(\/|$)/;
-const APP_MARKERS = ['package.json', 'composer.json', 'index.html'];
+const APP_MARKERS = ['package.json', 'composer.json', 'index.html', 'requirements.txt', 'pyproject.toml', 'manage.py'];
 
 /** Folders with an app marker file, 4 deep at most and capped: a repo of fixtures is not 200 apps. */
 function candidateDirsOf(paths: string[]): string[] {

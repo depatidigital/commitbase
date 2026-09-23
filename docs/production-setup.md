@@ -745,6 +745,11 @@ Real and unfixed. Decide whether they block your launch.
 - One PHP version for everything, through the FPM pool version. Node has
   per-app versions through the optional nvm in step 1; PHP does not yet.
 
+- One Python version too, the node's `python3`. A Python app builds a
+  virtualenv of its own per release and runs out of it (`gunicorn` for Django
+  and Flask, `uvicorn` for FastAPI, installed there when the repository does
+  not list one), but `.python-version` and `runtime.txt` are not honoured.
+
 - `GitAccount.accessToken` and `Application.envVars` are stored in plaintext.
 - Uploaded tenant content is served from the platform's own domains rather than
   a separate content domain, so uploaded HTML/JS shares an origin with the panel.

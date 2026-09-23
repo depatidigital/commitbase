@@ -67,11 +67,18 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
 
   let startCommand: string | null = application.startCommand;
   let nodeVersion: string | null = null;
-  if (application.type === 'NODEJS') {
+  if (application.type === 'NODEJS' || application.type === 'PYTHON') {
     const detected = await detectProject(runDir, afs.readText, undefined, treeDir, application.packageManager);
     nodeVersion = detected.nodeVersion;
-    if (!startCommand) startCommand = detected.startCommand;
+    // never a Node start command for an app the operator typed as Python: a
+    // repository detection does not recognise would be started with `npm start`
+    if (!startCommand && (application.type !== 'PYTHON' || detected.type === 'PYTHON')) startCommand = detected.startCommand;
   }
+  // Python runs from the virtualenv the build made in this release: `python`,
+  // `gunicorn` and `uvicorn` in the start command are the app's own, never the
+  // system's. A release built before virtualenvs existed has none — the start
+  // command then resolves on the system PATH, as it did.
+  const venv = application.type === 'PYTHON' ? path.posix.join(runDir, '.venv') : null;
   startCommand = startCommand || DEFAULT_START_COMMANDS[application.type] || 'npm start';
 
   const envVars = readEnv(application.envVars);
@@ -87,6 +94,16 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
     'set -euo pipefail',
     '',
     ...(application.type === 'NODEJS' ? nvmPreamble(nodeVersion, false) : []),
+    ...(venv
+      ? [
+          `export VIRTUAL_ENV=${shellQuote(venv)}`,
+          // `if`, not `&&`: under `set -e` a missing virtualenv would end the script
+          'if [ -d "$VIRTUAL_ENV" ]; then export PATH="$VIRTUAL_ENV/bin:$PATH"; fi',
+          // logs reach journald line by line instead of sitting in a 8K buffer
+          'export PYTHONUNBUFFERED=1',
+          'export PYTHONDONTWRITEBYTECODE=1',
+        ]
+      : []),
     'export NODE_ENV=production',
     `export PORT=${port}`,
     `export HOST=127.0.0.1`,

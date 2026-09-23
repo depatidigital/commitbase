@@ -241,3 +241,61 @@ assert.strictEqual(buildOf('npm', 'tsc -b && vite build'), 'npx tsc -b --noCheck
 assert.strictEqual(buildOf('pnpm', 'tsc --build && vite build'), 'pnpm tsc -b --noCheck && pnpm vite build');
 assert.strictEqual(buildOf('pnpm', 'next build'), 'pnpm run build');
 assert.strictEqual(buildOf('pnpm', 'tsc && node scripts/x.js && vite build'), 'pnpm run build');
+
+// ---------------------------------------------------------------- Python
+import { djangoProjectOf, pythonDeps } from './projectDetect';
+
+// a stdlib-only script: nothing to install, run as itself
+const plain = detectFromFiles({ 'app.py': '' });
+assert.strictEqual(plain.type, 'PYTHON');
+assert.strictEqual(plain.framework, 'python');
+assert.strictEqual(plain.installCommand, '');
+assert.strictEqual(plain.startCommand, 'python app.py');
+assert.strictEqual(plain.port, 8000);
+
+// Flask: gunicorn in front of it, installed because the repo does not ship it
+const flask = detectFromFiles({ 'requirements.txt': 'Flask==3.0.0\nrequests\n', 'app.py': '' });
+assert.strictEqual(flask.framework, 'flask');
+assert.strictEqual(flask.installCommand, 'pip install -r requirements.txt && pip install gunicorn');
+assert.strictEqual(flask.startCommand, 'gunicorn app:app --bind 127.0.0.1:$PORT');
+
+// a repo that ships its own server is not given a second one
+const withServer = detectFromFiles({ 'requirements.txt': 'flask\ngunicorn==21.2\n', 'app.py': '' });
+assert.strictEqual(withServer.installCommand, 'pip install -r requirements.txt');
+
+// FastAPI: uvicorn, on the module the entry file names
+const fastapi = detectFromFiles({ 'requirements.txt': 'fastapi\n', 'main.py': '' });
+assert.strictEqual(fastapi.framework, 'fastapi');
+assert.strictEqual(fastapi.startCommand, 'uvicorn main:app --host 127.0.0.1 --port $PORT');
+assert.strictEqual(fastapi.installCommand, 'pip install -r requirements.txt && pip install uvicorn');
+
+// Django: the wsgi module comes from manage.py, and migrations are the pre-deploy step
+const django = detectFromFiles({
+  'manage.py': "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')",
+  'requirements.txt': 'Django==5.0\n',
+});
+assert.strictEqual(django.framework, 'django');
+assert.strictEqual(django.startCommand, 'gunicorn mysite.wsgi:application --bind 127.0.0.1:$PORT');
+assert.strictEqual(django.preDeployCommand, 'python manage.py migrate --noinput');
+assert.strictEqual(djangoProjectOf(undefined), null);
+
+// a Python app that builds its own assets is not a Node app
+const hybrid = detectFromFiles({
+  'requirements.txt': 'fastapi\n',
+  'main.py': '',
+  'package.json': JSON.stringify({ dependencies: { vite: '5' }, scripts: { build: 'vite build' } }),
+});
+assert.strictEqual(hybrid.type, 'PYTHON');
+
+// pyproject.toml is read for its dependencies too; names normalise
+const pyproject = detectFromFiles({ 'pyproject.toml': '[project]\nname = "svc"\ndependencies = ["FastAPI>=0.110", "httpx"]\n', 'main.py': '' });
+assert.strictEqual(pyproject.framework, 'fastapi');
+assert.strictEqual(pyproject.installCommand, 'pip install . && pip install uvicorn');
+assert.ok(pythonDeps({ 'requirements.txt': 'Flask_SQLAlchemy==1.0' }).has('flask-sqlalchemy'));
+
+// an entry file is known from the tree, never downloaded
+assert.ok(presenceOnly('app.py'));
+// a folder with requirements.txt and no package.json is an app of its own
+assert.deepStrictEqual(appFoldersOf(['requirements.txt', 'web/package.json'], () => ({ scripts: { build: 'vite build' } })), ['', 'web']);
+
+console.log('projectDetect: python ok');

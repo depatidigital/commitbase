@@ -115,6 +115,8 @@ export function buildBlock(opts: {
   installs: string[];
   workDir: string;
   steps: string[];
+  /** Python: the virtualenv the block's commands run in — created by its first install step */
+  venv?: string | null;
 }): string[] {
   const run = (step: string) => ['  echo', `  echo ${q('$ ' + step)}`, `  ${step}`];
   return [
@@ -125,6 +127,16 @@ export function buildBlock(opts: {
     ...Object.entries(opts.env)
       .filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
       .map(([k, v]) => `  export ${k}=${q(v)}`),
+    // after the exports so the app's own env cannot move PATH off the virtualenv;
+    // `python`, `pip`, `gunicorn` and `uvicorn` then all mean the release's own
+    ...(opts.venv
+      ? [
+          `  export VIRTUAL_ENV=${q(opts.venv)}`,
+          '  export PATH="$VIRTUAL_ENV/bin:$PATH"',
+          '  export PYTHONDONTWRITEBYTECODE=1',
+          '  echo "python $(python3 -V 2>&1 || echo missing) at $(command -v python3 || true)"',
+        ]
+      : []),
     ...(opts.installs.length > 0 ? [`  cd ${q(opts.installDir)}`, ...opts.installs.flatMap(run)] : []),
     `  cd ${q(opts.workDir)}`,
     ...opts.steps.flatMap(run),
@@ -548,7 +560,7 @@ export class DeploymentService {
       // ponytail: full copy per release, tar excludes the junk. Hardlink node_modules from the previous release if installs get slow.
       // node_modules unanchored: a monorepo's packages each have their own
       await afs.run(
-        ['sh', '-c', 'tar -C "$1" --exclude=node_modules --exclude=./.next --exclude=./.git -cf - . | tar -C "$2" -xf -', 'sh', sourcesDir, releaseDir],
+        ['sh', '-c', 'tar -C "$1" --exclude=node_modules --exclude=__pycache__ --exclude=.venv --exclude=./.next --exclude=./.git -cf - . | tar -C "$2" -xf -', 'sh', sourcesDir, releaseDir],
         { timeout: 300_000 },
       );
 
@@ -564,7 +576,7 @@ export class DeploymentService {
 
         const detected = await detectProject(workDir, afs.readText, undefined, releaseDir, app.packageManager);
         // a workspace installs at the root; composer.lock is always the folder's own
-        const installDir = detected.installAtRoot && detected.type !== 'PHP' ? releaseDir : workDir;
+        const installDir = detected.installAtRoot && detected.type !== 'PHP' && detected.type !== 'PYTHON' ? releaseDir : workDir;
         await log(`${named(app)}Detected: ${detected.label} (${detected.packageManager})${installDir !== workDir ? ', installing at the repository root' : ''}`);
         docroots[app.id] = join(app.rootDirectory ?? '', detected.outputDir || '.');
 
@@ -582,6 +594,13 @@ export class DeploymentService {
         const inFolder = (f: string) => join(app.rootDirectory ?? '', f);
         const installs: string[] = [];
         const steps: string[] = [];
+        /** Python: the release's virtualenv, on PATH for every step of this app's block. */
+        let venv: string | null = null;
+        // Detection knows the usual entry names; an app the operator typed as
+        // Python is Python whatever its files are called (a `web.py` at the
+        // root), and gets the same virtualenv — without one, `python` in its
+        // start command is not even there on Debian.
+        const isPython = app.type === 'PYTHON' || detected.type === 'PYTHON';
 
         // the app's own install command when set, else the detected one
         const installCommand = app.installCommand || detected.installCommand;
@@ -617,7 +636,10 @@ export class DeploymentService {
             const own = entries.map(([k, v]) => `${k}="${String(v).replace(/(["\\$])/g, '\\$1')}"`);
             await afs.writeFile(join(workDir, '.env'), [...kept, ...own].join(NL) + NL);
           }
-        } else if (await has('package.json')) {
+          // A Python app that also ships a package.json (Django with a Vite front
+          // end) installs its Node dependencies only when it has a build command
+          // to use them — otherwise the install is minutes spent on nothing.
+        } else if ((!isPython || !!app.buildCommand) && (await has('package.json'))) {
           // The env is exported to the build, but some tools read the file
           // itself: Prisma 7's prisma.config.ts loads '.env' and fails on
           // ENOENT without it, and so does anything calling loadEnvFile().
@@ -661,7 +683,22 @@ export class DeploymentService {
             }
           }
         }
-        if (await has('requirements.txt')) steps.push('python3 -m pip install --user -r requirements.txt');
+        // Python: every release gets its own virtualenv, in the folder the app
+        // runs from. Nothing is shared between releases — a rollback runs the
+        // dependencies it was built with — and nothing is installed into the
+        // tenant's home, where the next app would inherit it. The downloads are
+        // shared: PIP_CACHE_DIR below points every build at one cache.
+        // ponytail: a full install per deploy, warm from the cache. Reuse the
+        // previous release's venv if installs get slow — it is not relocatable,
+        // so that means recreating it, not hardlinking.
+        if (isPython) {
+          venv = join(workDir, '.venv');
+          installs.push(`python3 -m venv ${q(venv)}`);
+          // the detected `pip install` only when detection agrees this is Python;
+          // otherwise `installCommand` is a Node one and only the app's own counts
+          const pip = detected.type === 'PYTHON' ? installCommand : app.installCommand;
+          if (pip) installs.push(pip);
+        }
         // every build, even with node_modules reused: the client lands in the release tree
         if (detected.generateCommand) steps.push(detected.generateCommand);
         // Migrations and the like: before the build, which may query the tables
@@ -705,6 +742,9 @@ export class DeploymentService {
               ...envVars,
               PORT: String(app.port || ''),
               CI: '1',
+              // one wheel cache per app tree, so a release's fresh virtualenv
+              // installs from disk instead of downloading everything again
+              ...(venv && { PIP_CACHE_DIR: join(sharedDirFor(appDir), 'pip-cache'), PIP_DISABLE_PIP_VERSION_CHECK: '1' }),
               NEXT_TELEMETRY_DISABLED: '1',
               // V8 reads the host's RAM, not the build cgroup's MemoryMax, so it
               // grows past the cap and the kernel kills the build with no message at
@@ -722,6 +762,7 @@ export class DeploymentService {
             installs,
             workDir,
             steps,
+            venv,
           }),
         );
       }

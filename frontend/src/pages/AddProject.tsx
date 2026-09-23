@@ -28,6 +28,7 @@ import {
   Upload,
   FileCode,
   Server,
+  Code2,
   Check,
   ChevronsUpDown,
   FolderGit2,
@@ -304,12 +305,7 @@ export default function AddProject() {
           ...prev,
           // an unrecognised project leaves the type blank, so the user has
           // to pick one instead of deploying a wrong guess
-          type:
-            result.framework === null
-              ? ""
-              : result.type === "PYTHON"
-                ? "NODEJS"
-                : result.type,
+          type: result.framework === null ? "" : result.type,
         }));
       } catch (error) {
         if (!cancelled) {
@@ -420,6 +416,12 @@ export default function AddProject() {
       label: "Node.js",
       description: t("Node app built and run as a service on the server."),
       icon: Server,
+    },
+    {
+      value: "PYTHON",
+      label: "Python",
+      description: t("Python app run as a service, in a virtualenv of its own."),
+      icon: Code2,
     },
   ];
 

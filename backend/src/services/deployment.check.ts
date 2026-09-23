@@ -100,3 +100,28 @@ if (!process.env.BUILD_MEMORY_MAX) {
   assert.strictEqual(BUILD_HEAP_MB, 1536, 'default 3G cap -> 1536 MiB heap');
   console.log('deployment: BUILD_HEAP_MB OK', BUILD_HEAP_MB);
 }
+
+// A Python block runs everything in the release's virtualenv: the venv is made
+// first, and `pip`/`python` after it resolve there and not on the system PATH.
+// Run for real with bash, in a temp tree, so the ordering is the shell's word.
+if (process.platform !== 'win32') {
+  const { mkdtempSync, writeFileSync } = require('fs');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'pyvenv-'));
+  const venv = path.posix.join(dir.split(path.sep).join('/'), '.venv');
+  // a stand-in for python3 -m venv: a bin/ with a pip that says where it ran from
+  const block = buildBlock({
+    heading: null,
+    nodeVersion: null,
+    env: { PIP_CACHE_DIR: '/tmp/pip-cache' },
+    installDir: dir,
+    installs: [`mkdir -p ${venv}/bin && printf '#!/bin/sh\necho pip-from-venv\n' > ${venv}/bin/pip && chmod +x ${venv}/bin/pip`, 'pip install -r requirements.txt'],
+    workDir: dir,
+    steps: ['echo "cache=$PIP_CACHE_DIR"'],
+    venv,
+  });
+  writeFileSync(path.join(dir, 'requirements.txt'), '');
+  const out = execFileSync('bash', ['-euo', 'pipefail', '-c', buildScript([block])], { cwd: dir, encoding: 'utf8' });
+  assert.ok(out.includes('pip-from-venv'), `pip came from outside the virtualenv:\n${out}`);
+  assert.ok(out.includes('cache=/tmp/pip-cache'), out);
+  console.log('deployment: python virtualenv block OK');
+}
