@@ -120,4 +120,6 @@ export default {
   "Compose files": "File compose",
   "In the folder above; several, comma separated, override in order. Service, port and env files are set on the app's page.":
     "Di folder di atas; beberapa file dipisah koma, yang belakangan menimpa yang sebelumnya. Service, port, dan file env diatur di halaman aplikasi.",
+  "{n} compose files in this folder. Service, port and env files are set on the app's page.":
+    "{n} file compose di folder ini. Service, port, dan file env diatur di halaman aplikasi.",
 };

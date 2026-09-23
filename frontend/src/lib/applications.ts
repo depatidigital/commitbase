@@ -347,6 +347,8 @@ export interface DetectedProject {
   nodeVersion: string | null;
   /** COMPOSE: the compose file found, relative to the folder detected in */
   composeFile?: string | null;
+  /** COMPOSE: every compose file in the folder, the found one first */
+  composeFiles?: string[];
   /** a step before the build — Prisma's migrations — or null */
   preDeployCommand?: string | null;
   /** a step before the build, run by the deploy on its own — Prisma's client generation — or null */

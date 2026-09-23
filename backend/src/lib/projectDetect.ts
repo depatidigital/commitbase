@@ -44,6 +44,8 @@ export interface DetectedProject {
   generateCommand: string | null;
   /** COMPOSE: the compose file found, relative to the folder detected in */
   composeFile?: string | null;
+  /** COMPOSE: every compose file in that folder, the found one first — a stack can ship several */
+  composeFiles?: string[];
   /**
    * An app in a monorepo folder whose lockfile is at the repository root (a
    * pnpm/yarn/npm workspace): install there, build in the folder.
@@ -743,13 +745,29 @@ export async function detectFromRepo(
       .then(({ stdout }) => String(stdout).trim().length > 0)
       .catch(() => undefined);
     // `return await`: a bare return lets `finally` delete the clone while it is still being read
-    if (!rootDirectory) return await detectProject(tmp, undefined, migrations);
-    const dir = path.join(tmp, rootDirectory);
-    if (!(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) throw new Error(`No folder ${rootDirectory} in the repository`);
-    return await detectProject(dir, undefined, migrations, tmp);
+    const dir = rootDirectory ? path.join(tmp, rootDirectory) : tmp;
+    if (rootDirectory && !(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) throw new Error(`No folder ${rootDirectory} in the repository`);
+    const detected = rootDirectory ? await detectProject(dir, undefined, migrations, tmp) : await detectProject(tmp, undefined, migrations);
+    // a stack's folder often holds more than one (CKAN: with and without its own database): offer them all
+    if (detected.type === 'COMPOSE') {
+      const found = await composeFilesIn(dir);
+      detected.composeFiles = [...new Set([...(detected.composeFile && found.includes(detected.composeFile) ? [detected.composeFile] : []), ...found])];
+    }
+    return detected;
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/** The YAML files in a folder that are compose files: a top-level `services:` key. */
+async function composeFilesIn(dir: string): Promise<string[]> {
+  const names = await fs.readdir(dir).catch(() => [] as string[]);
+  const found: string[] = [];
+  for (const name of names.filter((n) => /\.ya?ml$/i.test(n)).sort()) {
+    const text = await fs.readFile(path.join(dir, name), 'utf8').catch(() => '');
+    if (/^services:\s*$/m.test(text)) found.push(name);
+  }
+  return found;
 }
 
 // never an app of its own: dependencies, build output, an app's assets, tests and examples, dot-folders

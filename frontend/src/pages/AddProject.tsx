@@ -866,29 +866,6 @@ export default function AddProject() {
                             onChange={(e) => setRootDirectory(e.target.value)}
                           />
                         )}
-                        {/* what detection made of the folder — a new project is not asked, so say it */}
-                        {!projectId && !typeAsked && detected && (
-                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <CheckCircle className="h-3.5 w-3.5 text-primary" />
-                            {t("Detected: {label}", { label: detected.label })}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {/* a stack can ship several compose files: pick which one runs */}
-                    {!multi && formData.type === "COMPOSE" && (
-                      <div className="space-y-1.5">
-                        <Label htmlFor="composeFile">{t("Compose files")}</Label>
-                        <Input
-                          id="composeFile"
-                          className="font-mono"
-                          value={composeFile}
-                          onChange={(e) => setComposeFile(e.target.value)}
-                          placeholder="docker-compose.yml"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {t("In the folder above; several, comma separated, override in order. Service, port and env files are set on the app's page.")}
-                        </p>
                       </div>
                     )}
                     </div>
@@ -986,7 +963,7 @@ export default function AddProject() {
                 </>
                 )}
 
-                {(projectId || typeAsked) && (
+                {(projectId || typeAsked || (!multi && (!!detected || detecting))) && (
                 <div className="space-y-2">
                   {/* what detection found sits on the heading line */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -1009,8 +986,10 @@ export default function AddProject() {
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <CheckCircle className="h-3.5 w-3.5 text-primary" />
                         {t("Detected: {label}", { label: detected.label })}
-                        {" · "}
-                        {detected.packageManager}
+                        {/* a stack has no package manager of its own: the file it runs is the detail */}
+                        {detected.type === "COMPOSE"
+                          ? detected.composeFile && ` · ${detected.composeFile}`
+                          : ` · ${detected.packageManager}`}
                         {detected.nodeVersion && ` · Node ${detected.nodeVersion}`}
                       </span>
                     ) : null}
@@ -1061,7 +1040,7 @@ export default function AddProject() {
                     <p className="text-xs text-destructive">
                       {t("Could not tell what this project is — pick its type.")}
                     </p>
-                  ) : detected ? (
+                  ) : detected && formData.type !== "COMPOSE" ? (
                     <p className="text-xs text-muted-foreground">
                       {t("Install:")} <code>{detected.installCommand}</code>
                       {detected.buildCommand && (
@@ -1075,6 +1054,40 @@ export default function AddProject() {
                       )}
                     </p>
                   ) : null}
+                  {/* a stack can ship several compose files: pick which one runs */}
+                  {formData.type === "COMPOSE" && !detecting && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="composeFile">{t("Compose files")}</Label>
+                      {detected?.composeFiles?.length ? (
+                        // the ones detection found in the folder: pick, don't type
+                        <Select value={composeFile} onValueChange={setComposeFile}>
+                          <SelectTrigger id="composeFile" className="font-mono">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {detected.composeFiles.map((file) => (
+                              <SelectItem key={file} value={file} className="font-mono">
+                                {file}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          id="composeFile"
+                          className="font-mono"
+                          value={composeFile}
+                          onChange={(e) => setComposeFile(e.target.value)}
+                          placeholder="docker-compose.yml"
+                        />
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {detected?.composeFiles && detected.composeFiles.length > 1
+                          ? t("{n} compose files in this folder. Service, port and env files are set on the app's page.", { n: String(detected.composeFiles.length) })
+                          : t("In the folder above; several, comma separated, override in order. Service, port and env files are set on the app's page.")}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 )}
 
