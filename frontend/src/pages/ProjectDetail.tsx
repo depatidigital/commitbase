@@ -99,8 +99,6 @@ export default function ProjectDetail() {
   const [showDetails, setShowDetails] = useState(false);
   // the header's place for the source panel's main button (the panel is in Settings)
   const [sourceSlot, setSourceSlot] = useState<HTMLSpanElement | null>(null);
-  // where the opened app's actions render: its header's right side
-  const [panelSlot, setPanelSlot] = useState<HTMLDivElement | null>(null);
   // a panel-managed project deploys as one, from its source panel
   const deploy = useMutation({
     mutationFn: (skipPreDeployFor: string[] = []) => deployProject(id, skipPreDeployFor),
@@ -112,11 +110,10 @@ export default function ProjectDetail() {
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
-  // the project's tab (?tab=), or one of its apps opened a level deeper (?service=)
+  // the app's tab (?tab=). Its services have no page of their own anymore: everything is on these tabs
   const tab = ["env", "build", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
-  const openApp = (appId: string) => setSearchParams({ service: appId });
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -129,10 +126,6 @@ export default function ProjectDetail() {
   }
 
   const apps = project.applications;
-  // ?app= is the name before the rename, from old links
-  const opened = apps.find((app) => app.id === (searchParams.get("service") ?? searchParams.get("app")));
-  // a level deeper: the app's own header and page instead of the project's header and tabs
-  const appView = opened;
   const statusOf = (appId: string) => {
     const app = apps.find((a) => a.id === appId)!;
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
@@ -185,40 +178,16 @@ export default function ProjectDetail() {
 
   return (
     <PageLayout
-      backTo={appView ? `/apps/${project.id}` : "/apps"}
+      backTo="/apps"
       title={
-        appView ? (
-          <span className="flex items-center gap-2">
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[statusOf(appView.id).tone]}`} title={statusOf(appView.id).text} />
-            {appView.name}
-          </span>
-        ) : (
-          <span className="flex items-center gap-2">
-            {project.name}
-            <RenameProjectDialog project={project} />
-          </span>
-        )
+        <span className="flex items-center gap-2">
+          {project.name}
+          <RenameProjectDialog project={project} />
+        </span>
       }
-      description={
-        appView ? (
-          <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-muted-foreground">
-            <Link to={`/apps/${project.id}`} className="hover:text-primary hover:underline">
-              {project.name}
-            </Link>
-            <span>›</span>
-            <span>{appView.name}</span>
-          </span>
-        ) : (
-        // what it is built from; where it runs is in the advanced details (ⓘ)
-        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">{origin}</span>
-        )
-      }
+      // what it is built from; where it runs is in the advanced details (ⓘ)
+      description={<span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">{origin}</span>}
       actions={
-        // an app: its own actions (start, stop, build, visit — AppWorkspace portals them here).
-        // The project: how it stands and building it all are in its status card, deleting it in its Settings tab
-        appView ? (
-          <div ref={setPanelSlot} className="flex flex-wrap items-center gap-2" />
-        ) : (
           <div className="flex flex-wrap items-center gap-2">
             {/* what is live, and since when — the last deploy or pull */}
             {project.lastDeployment && (
@@ -251,18 +220,9 @@ export default function ProjectDetail() {
               <Info className="h-4 w-4" />
             </Button>
           </div>
-        )
       }
     >
-      {/* the tabs with the project's panel beside them — or one app, a level deeper, with its own.
-          The same for a project of one app as of many */}
-      <div>
-      {appView ? (
-        // rendered once the header's slot is there, so its actions go straight into it
-        <div>
-          {panelSlot && <AppWorkspace key={appView.id} appId={appView.id} embedded inProject panelSlot={panelSlot} />}
-        </div>
-      ) : (
+      {/* the same tabs for an app of one service as of many */}
       <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>

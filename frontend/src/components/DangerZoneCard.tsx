@@ -33,7 +33,7 @@ const STEP_LABEL: Record<TeardownStepId, () => string> = {
  * open the dialog, type the domain, tick that you understand — only then does
  * the button work. A misclick cannot take a site down.
  */
-export function DangerZoneCard({ application }: { application: Application }) {
+export function DangerZoneCard({ application, onDeleted }: { application: Application; /** after the delete; default: back to the apps list */ onDeleted?: () => void }) {
   const navigate = useNavigate();
   const deleteApp = useDeleteApplication();
   const [open, setOpen] = useState(false);
@@ -196,7 +196,7 @@ export function DangerZoneCard({ application }: { application: Application }) {
             <Button
               variant="destructive"
               disabled={!ready || blocked || deleteApp.isPending}
-              onClick={() => deleteApp.mutate(application.id, { onSuccess: () => navigate("/apps") })}
+              onClick={() => deleteApp.mutate(application.id, { onSuccess: () => (onDeleted ? onDeleted() : navigate("/apps")) })}
             >
               {deleteApp.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
               {t("Delete permanently")}
