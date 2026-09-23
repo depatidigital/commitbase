@@ -2,7 +2,7 @@
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   // list
-  "Manage your custom domains and SSL certificates.": "Kelola domain kustom dan sertifikat SSL Anda.",
+  "Manage domains": "Kelola Domain",
   "Sync domains": "Sinkronkan domain",
   "Connect domain": "Hubungkan domain",
   "Connect a domain": "Hubungkan domain",

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { CreateDomainSchema, UpdateDomainSchema, ApiResponse, Domain } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
-import { orgScope } from '../lib/scope';
+import { orgScope, isPlatformAdmin, getOrgIds } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { syncDomainDns, getOrCreateCloudflareZone, listCloudflareDnsRecords, listCloudflareZones, getZoneSslState, importDnsRecords, createDnsRecord, updateDnsRecord, deleteDnsRecord, getDefaultDnsTarget } from '../services/cloudflareService';
 import { listRdashDomains, findRdashDomain, getRdashDomainDns, updateRdashDomainNameservers, renewRdashDomain, getRdashPricing, checkRdashAvailability, SEARCH_TLDS } from '../services/rdashService';
@@ -176,7 +176,7 @@ router.get('/choices', authenticateToken, async (req: AuthenticatedRequest, res:
  * immediately and the UI can paint the whole result list (with prices) before
  * a single availability answer is in.
  */
-router.get('/search/tlds', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/search/tlds', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const label = searchLabel(req.query.q);
     if (!label) {
@@ -235,7 +235,7 @@ router.get('/search/tlds', authenticateToken, requireRole(['ADMIN']), async (req
  * registry decides. `exclude` lets the client ask for another batch without
  * getting the names it has already seen — that is the loop.
  */
-router.get('/search/suggest', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/search/suggest', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const keyword = String(req.query.q ?? '').trim().slice(0, 80);
     if (!keyword) {
@@ -296,7 +296,7 @@ router.get('/search/suggest', authenticateToken, requireRole(['ADMIN']), async (
  * answer the moment it lands instead of waiting on the slowest registry —
  * the RDAP gate in rdapService keeps the fan-out from bursting the registries.
  */
-router.get('/search/check', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/search/check', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const domain = String(req.query.domain ?? '').trim().toLowerCase();
     if (!/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+$/.test(domain)) {
@@ -328,11 +328,12 @@ router.get('/search/check', authenticateToken, requireRole(['ADMIN']), async (re
 });
 
 /**
- * Buy a domain through RDASH, then wire it up here. Spends registrar balance,
+ * Buy a domain through RDASH, then wire it up here — any user, for an
+ * organization they belong to. Spends registrar balance,
  * so availability is re-checked server-side — the client's search result is a
  * hint, never the authority.
  */
-router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/register', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, organizationId } = req.body ?? {};
     const years = Math.min(Math.max(parseInt(String(req.body?.years ?? 1), 10) || 1, 1), 10);
@@ -359,7 +360,9 @@ router.post('/register', authenticateToken, requireRole(['ADMIN']), async (req: 
       } as ApiResponse);
     }
 
-    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    // a tenant buys for their own organization only; same 404 as a missing one, so ids are not probed
+    const own = isPlatformAdmin(req) || (await getOrgIds(req)).includes(organizationId);
+    const organization = own ? await prisma.organization.findUnique({ where: { id: organizationId } }) : null;
     if (!organization) {
       return res.status(404).json({ success: false, error: 'Owning organization not found' } as ApiResponse);
     }

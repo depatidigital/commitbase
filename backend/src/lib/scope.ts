@@ -32,6 +32,19 @@ export async function getOrgIds(req: AuthenticatedRequest): Promise<string[]> {
 }
 
 /**
+ * The memberships a list shows: the one org the caller switched to
+ * (`X-Organization-Id`, the sidebar switch), else all of them. Lists only —
+ * permission checks keep using getMemberships, so a link into another of
+ * the caller's orgs still opens. A header naming an org they are not in is ignored.
+ */
+export async function listMemberships(req: AuthenticatedRequest): Promise<Memberships> {
+  const memberships = await getMemberships(req);
+  const active = req.header('x-organization-id');
+  const picked = active ? memberships.filter((m) => m.organizationId === active) : [];
+  return picked.length ? picked : memberships;
+}
+
+/**
  * Tenant filter for Prisma `where` clauses on org-owned models
  * (Application, Domain). Platform ADMIN gets an empty filter.
  *
@@ -41,7 +54,7 @@ export async function orgScope(
   req: AuthenticatedRequest
 ): Promise<{ organizationId?: { in: string[] } }> {
   if (isPlatformAdmin(req)) return {};
-  return { organizationId: { in: await getOrgIds(req) } };
+  return { organizationId: { in: (await listMemberships(req)).map((m) => m.organizationId) } };
 }
 
 /** Same filter expressed through a relation, for models that reach an org via `application`. */
@@ -50,7 +63,7 @@ export async function orgScopeVia(
   relation: 'application'
 ): Promise<Record<string, unknown>> {
   if (isPlatformAdmin(req)) return {};
-  return { [relation]: { organizationId: { in: await getOrgIds(req) } } };
+  return { [relation]: { organizationId: { in: (await listMemberships(req)).map((m) => m.organizationId) } } };
 }
 
 /**
@@ -60,7 +73,7 @@ export async function orgScopeVia(
  */
 export async function projectScope(req: AuthenticatedRequest): Promise<Prisma.SourceWhereInput> {
   if (isPlatformAdmin(req)) return {};
-  const memberships = await getMemberships(req);
+  const memberships = await listMemberships(req);
   const userId = req.user!.userId;
   return {
     AND: [

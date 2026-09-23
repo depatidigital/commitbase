@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma';
 import { CreateDatabaseSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { appScope, canManageOrg, getMemberships, isPlatformAdmin } from '../lib/scope';
+import { appScope, canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { paging, paginated, contains } from '../lib/paging';
 import { readEnv, sealEnv } from '../lib/appEnv';
 import { serverForApplication } from '../lib/servers';
@@ -48,7 +48,7 @@ const importUpload = multer({ dest: os.tmpdir(), limits: { fileSize: IMPORT_MAX_
  */
 async function databaseScope(req: AuthenticatedRequest): Promise<Prisma.DatabaseWhereInput> {
   if (isPlatformAdmin(req)) return {};
-  const memberships = await getMemberships(req);
+  const memberships = await listMemberships(req);
   const orgIds = memberships.map((m) => m.organizationId);
   const managed = { in: memberships.filter((m) => m.role !== 'MEMBER').map((m) => m.organizationId) };
   // ponytail: loads the member's project apps' env on every call; fine at tens of apps

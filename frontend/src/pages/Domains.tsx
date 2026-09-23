@@ -30,12 +30,11 @@ import {
   ExternalLink,
   Settings,
   ArrowLeft,
-  LockOpen,
+  CloudOff,
   Cloud,
-  MoreHorizontal,
+  MoreVertical,
   Building2,
   RotateCw,
-  Unlink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -298,27 +297,19 @@ export default function Domains() {
       header: t("Domain"),
       sortKey: "name",
       className: "w-[26%]",
+      // one mark: is its DNS on Cloudflare — SSL and registrar live on its page
       cell: (domain) => {
-        const secure = domain.sslStatus === "ACTIVE";
-        const Icon = secure ? Globe : LockOpen;
-        const sslLabel = secure
-          ? t("HTTPS active — valid certificate served")
-          : domain.sslStatus === "PENDING"
-            ? t("HTTPS pending — certificate not issued yet")
-            : domain.sslStatus === "EXPIRED"
-              ? t("HTTPS expired — the certificate has lapsed")
-              : domain.sslStatus === "ERROR"
-                ? t("HTTPS broken — the certificate is not trusted for this domain")
-                : t("No HTTPS — nothing answered on port 443");
+        const cloudflare = !!domain.cfZoneId;
+        const label = cloudflare ? t("Cloudflare active") : t("Cloudflare not active");
+        const Icon = cloudflare ? Cloud : CloudOff;
+        const provisioning = provisioningOf(domain);
         return (
           <div className="flex min-w-0 items-center space-x-2 font-medium">
             <Icon
-              className={`h-4 w-4 shrink-0 ${
-                secure ? "text-success" : "text-warning"
-              }`}
-              aria-label={sslLabel}
+              className={`h-4 w-4 shrink-0 ${cloudflare ? "text-[#F38020]" : "text-muted-foreground/60"}`}
+              aria-label={label}
             >
-              <title>{sslLabel}</title>
+              <title>{label}</title>
             </Icon>
             <button
               type="button"
@@ -327,57 +318,44 @@ export default function Domains() {
             >
               {domain.name}
             </button>
-            {domain.registrar === "EXTERNAL" && (
-              <Badge
-                variant="outline"
-                className="gap-1 border-border/60 bg-transparent px-1.5 py-0 text-[11px] font-normal text-muted-foreground"
-              >
-                <Unlink className="h-3 w-3" />
-                {t("External")}
-              </Badge>
-            )}
-            {!domain.cfZoneId && (
-              <Badge variant="outline" className="border-warning text-warning">
-                {t("No zone")}
-              </Badge>
-            )}
+            {/* a purchase still running (or stuck) is the one status worth a mark */}
+            {provisioning &&
+              (provisioning.state === "FAILED" ? (
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t("failed")}>
+                  <title>{provisioning.error ?? t("failed")}</title>
+                </AlertCircle>
+              ) : (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" aria-label={t("registering")}>
+                  <title>{provisioning.step}</title>
+                </Loader2>
+              ))}
           </div>
         );
       },
     },
+    // tenants work in one organization (the sidebar switch): the column is for platform admins
+    ...(admin
+      ? [
+          {
+            header: t("Organization"),
+            className: "w-[24%]",
+            cell: (domain: Domain) =>
+              domain.organization ? (
+                <Badge variant="outline" className="max-w-full truncate">
+                  {domain.organization.name}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">{t("Unassigned")}</span>
+              ),
+          },
+        ]
+      : []),
     {
-      header: t("Organization"),
-      className: "w-[24%]",
-      cell: (domain) =>
-        domain.organization ? (
-          <Badge variant="outline" className="max-w-full truncate">
-            {domain.organization.name}
-          </Badge>
-        ) : (
-          <span className="text-muted-foreground">{t("Unassigned")}</span>
-        ),
-    },
-    {
-      header: t("Status"),
-      className: "w-28",
-      cell: (domain) => {
-        // a registration still running says more than the PENDING row behind it
-        const provisioning = provisioningOf(domain);
-        if (provisioning) {
-          return provisioning.state === "FAILED" ? (
-            <Badge variant="destructive" className="gap-1" title={provisioning.error ?? ""}>
-              <AlertCircle className="h-3.5 w-3.5" />
-              {t("failed")}
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="gap-1" title={provisioning.step}>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("registering")}
-            </Badge>
-          );
-        }
-        return getStatusBadge(domain.status, domain.expiresAt);
-      },
+      // ponytail: the day it came onto the platform, not the registry's registration date (not stored); a column synced from RDAP/RDASH when that matters
+      header: t("Registered"),
+      sortKey: "createdAt",
+      className: "w-32 whitespace-nowrap",
+      cell: (domain) => formatDateShort(new Date(domain.createdAt)),
     },
     {
       header: t("Expires"),
@@ -424,7 +402,7 @@ export default function Domains() {
               className="h-8 w-8 p-0"
               aria-label={t("Actions for {name}", { name: domain.name })}
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
@@ -753,7 +731,8 @@ export default function Domains() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-8 animate-fade-in">
+      {/* the list is held to main's height (see PageLayout) so the table scrolls its rows and pagination stays in view */}
+      <div className="flex flex-col gap-8 animate-fade-in [&:has(>div>[data-fill])]:min-h-0">
         {domainId && domainDetail ? (
           <>
             <div className="flex items-center justify-between">
@@ -1190,7 +1169,7 @@ export default function Domains() {
                                         className="h-8 w-8 p-0"
                                         aria-label={t("Actions for {name}", { name: record.name })}
                                       >
-                                        <MoreHorizontal className="h-4 w-4" />
+                                        <MoreVertical className="h-4 w-4" />
                                       </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
@@ -1520,16 +1499,11 @@ export default function Domains() {
             <PageLayout
               icon={Globe}
               title={t("Domains")}
-              description={t("Manage your custom domains and SSL certificates.")}
+              description={t("Manage domains")}
               actions={
                 <div className="flex items-center gap-3">
-                  {/* ponytail: tenants see it but cannot buy yet — a purchase spends the platform's reseller balance until billing exists */}
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate("/domains/register")}
-                    disabled={!admin}
-                    title={admin ? undefined : t("Buying domains opens once billing is available.")}
-                  >
+                  {/* anyone buys, for their own organization */}
+                  <Button variant="outline" onClick={() => navigate("/domains/register")}>
                     <Globe className="h-4 w-4 mr-2" />
                     {t("Buy domain")}
                   </Button>
@@ -1648,10 +1622,6 @@ export default function Domains() {
                 </div>
               }
             >
-              <div className="flex flex-wrap items-center gap-3">
-                <OrganizationFilter query={query} />
-              </div>
-
               {admin && selectedIds.length > 0 && (
                 <div className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-muted/40 p-3">
                   <span className="text-sm font-medium">
@@ -1698,6 +1668,7 @@ export default function Domains() {
                 pagination={domainsData?.pagination}
                 isLoading={isLoading}
                 searchPlaceholder={t("Search domains…")}
+                toolbar={<OrganizationFilter query={query} />}
                 empty={
                   admin
                     ? t("No domains yet — add your first custom domain.")

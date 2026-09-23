@@ -33,7 +33,7 @@ import {
   Eye,
   HardDrive,
   Loader2,
-  MoreHorizontal,
+  MoreVertical,
   Pencil,
   Plus,
   RefreshCw,
@@ -370,7 +370,7 @@ export default function Servers() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t("Actions for {name}", { name: s.name })}>
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">

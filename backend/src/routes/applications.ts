@@ -5,7 +5,7 @@ import { CreateApplicationSchema, UpdateApplicationSchema, ApiResponse, Applicat
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { paging, contains } from '../lib/paging';
-import { appScope, canManageOrg, canManageProject, getOrgIds, isPlatformAdmin, projectScope } from '../lib/scope';
+import { appScope, canManageOrg, canManageProject, getOrgIds, isPlatformAdmin, listMemberships, projectScope } from '../lib/scope';
 import { applyAppDns, inspectHost, normalizeHost, resolveAppHost, sharedHostTaken } from '../lib/appHostname';
 import { appHosts, appIdAt, atEach, hostList, hostRefused, hostsOf, setAppHosts, withDomains } from '../lib/appDomains';
 import { DeploymentService } from '../services/deployment';
@@ -743,7 +743,9 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       }
     } else {
       const orgIds = await getOrgIds(req);
-      organizationId = joining?.organizationId ?? req.body.organizationId ?? (orgIds.length === 1 ? orgIds[0]! : null);
+      // none picked: the org switched to in the sidebar, or the only one
+      const active = (await listMemberships(req)).map((m) => m.organizationId);
+      organizationId = joining?.organizationId ?? req.body.organizationId ?? (active.length === 1 ? active[0]! : null);
       if (!organizationId) {
         return res.status(400).json({ success: false, error: 'Pick the organization this app belongs to' } as ApiResponse);
       }

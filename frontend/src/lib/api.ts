@@ -34,20 +34,42 @@ export const removeAuthToken = (): void => {
   localStorage.removeItem('authToken');
 };
 
+const ORG_KEY = 'activeOrganizationId';
+
+/** The organization picked in the sidebar switch; the API narrows every list to it. */
+export const getActiveOrg = (): string | null => {
+  try {
+    return localStorage.getItem(ORG_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const setActiveOrg = (id: string): void => {
+  try {
+    localStorage.setItem(ORG_KEY, id);
+  } catch {
+    // private mode: the switch lasts until reload
+  }
+};
+
 // Base API request function
 const apiRequest = async <T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> => {
   const token = getAuthToken();
-  
+  const org = getActiveOrg();
+
+  // headers last: a caller's own headers add to these instead of replacing them
   const config: RequestInit = {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
+      ...(org && { 'X-Organization-Id': org }),
       ...options.headers,
     },
-    ...options,
   };
 
   try {

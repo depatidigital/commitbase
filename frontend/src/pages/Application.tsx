@@ -31,7 +31,7 @@ import {
   Eye,
   Power,
   ExternalLink,
-  MoreHorizontal,
+  MoreVertical,
   Layers,
   Server as ServerIcon,
 } from "lucide-react";
@@ -516,7 +516,7 @@ export default function Application() {
               className="h-8 w-8 p-0"
               aria-label={t("Actions for {name}", { name: app.name })}
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">

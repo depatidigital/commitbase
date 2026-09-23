@@ -17,6 +17,7 @@ import {
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { APP_NAME } from "@/lib/branding";
 import { t } from "@/lib/i18n";
+import { OrgSwitcher } from "./OrgSwitcher";
 
 type Item = { title: string; url: string; icon: LucideIcon; show?: boolean };
 
@@ -98,6 +99,13 @@ export function AppSidebar() {
             )}
           </div>
         </div>
+
+        {/* tenants work inside one organization at a time; platform admins see them all */}
+        {!admin && !collapsed && (
+          <div className="px-2 pt-3">
+            <OrgSwitcher />
+          </div>
+        )}
 
         {groups.map((group, index) => {
           const items = group.items.filter((item) => item.show !== false);

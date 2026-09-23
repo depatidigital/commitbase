@@ -124,14 +124,7 @@ const App = () => (
             <Route path="add-app" element={<LegacyAddApp />} />
             <Route path="database" element={<Database />} />
             <Route path="domains" element={<Domains />} />
-            <Route
-              path="domains/register"
-              element={
-                <AdminRoute>
-                  <DomainRegister />
-                </AdminRoute>
-              }
-            />
+            <Route path="domains/register" element={<DomainRegister />} />
             <Route path="domains/:id" element={<Domains />} />
             <Route
               path="team"

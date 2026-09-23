@@ -179,9 +179,31 @@ export function DataTable<T>({
     // data-fill: PageLayout bounds its height when it holds this. The floor keeps
     // a few rows visible when there is a lot above it; past that main scrolls.
     <div data-fill className={`flex min-h-[20rem] flex-col gap-4 ${className}`}>
-      {/* search leads — it is how a row is found; filters sit right after it */}
+      {/* every list alike: page size on the left, search (and filters) on the right */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>{t("Show")}</span>
+          <Select
+            value={String(limit)}
+            onValueChange={(v) => setLimit(Number(v))}
+          >
+            <SelectTrigger className="w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/* a list may open at its own size (20, say): offered too, in order */}
+              {[...new Set([...PAGE_SIZES, limit])].sort((a, b) => a - b).map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span>{t("entries")}</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {toolbar}
           <div className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -191,30 +213,7 @@ export function DataTable<T>({
               onChange={(e) => setInput(e.target.value)}
             />
           </div>
-          {toolbar}
         </div>
-
-        {paged && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>{t("Show")}</span>
-            <Select
-              value={String(limit)}
-              onValueChange={(v) => setLimit(Number(v))}
-            >
-              <SelectTrigger className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZES.map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span>{t("entries")}</span>
-          </div>
-        )}
       </div>
 
       {/* The rows scroll, not the page: this box shrinks to the height left in

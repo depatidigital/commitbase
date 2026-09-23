@@ -37,7 +37,7 @@ import {
   FileUp,
   KeyRound,
   Loader2,
-  MoreHorizontal,
+  MoreVertical,
   Plus,
   RotateCcw,
   Trash2,
@@ -271,7 +271,7 @@ export default function Database() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t("Actions for {name}", { name: db.name })}>
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">

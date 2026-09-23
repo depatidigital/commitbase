@@ -47,7 +47,7 @@ import {
   WifiOff,
   Upload,
   KeyRound,
-  MoreHorizontal,
+  MoreVertical,
   Rocket,
   Undo2,
   Pencil,
@@ -904,7 +904,7 @@ export function AppWorkspace({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline">
-                    <MoreHorizontal className="h-4 w-4 mr-2" />
+                    <MoreVertical className="h-4 w-4 mr-2" />
                     {t("More actions")}
                   </Button>
                 </DropdownMenuTrigger>
