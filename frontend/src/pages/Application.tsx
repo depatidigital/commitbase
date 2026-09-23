@@ -587,7 +587,7 @@ export default function Application() {
           <div className="flex flex-wrap items-center gap-2">
             {/* back to the list by project, the way here came */}
             <Button variant="ghost" asChild>
-              <Link to="/">
+              <Link to="/projects">
                 <ServerIcon className="mr-2 h-4 w-4" />
                 {t("By project")}
               </Link>

@@ -533,7 +533,7 @@ export default function AddProject() {
 
   return (
     <PageLayout
-      backTo={projectId ? `/project/${projectId}` : "/"}
+      backTo={projectId ? `/project/${projectId}` : "/projects"}
       // without ?project=, this makes a project: its source, and its first app
       title={joining ? t("Add an app to {name}", { name: joining.name }) : t("Add project")}
       description={
@@ -1140,7 +1140,7 @@ export default function AddProject() {
         )}
 
         <div className="flex items-center justify-between">
-          <Button type="button" variant="outline" onClick={() => navigate("/")}>
+          <Button type="button" variant="outline" onClick={() => navigate("/projects")}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             {t("Cancel")}
           </Button>

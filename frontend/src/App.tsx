@@ -7,6 +7,7 @@ import { Layout } from "./components/Layout";
 import { AuthGuard } from "./components/AuthGuard";
 import Application from "./pages/Application";
 import Projects from "./pages/Projects";
+import Dashboard from "./pages/Dashboard";
 import ProjectDetail from "./pages/ProjectDetail";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import AddProject from "./pages/AddProject";
@@ -111,8 +112,9 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            {/* the app list is the projects; the flat list of every hostname stays one click away */}
-            <Route index element={<Projects />} />
+            {/* the dashboard; the projects and the flat list of every hostname one click away */}
+            <Route index element={<Dashboard />} />
+            <Route path="projects" element={<Projects />} />
             <Route path="applications" element={<Application />} />
             <Route path="project/:id" element={<ProjectDetail />} />
             <Route path="application/:id" element={<ApplicationDetail />} />

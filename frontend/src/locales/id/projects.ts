@@ -125,4 +125,14 @@ export default {
     "Di folder di atas; beberapa file dipisah koma, yang belakangan menimpa yang sebelumnya. Service, port, dan file env diatur di halaman aplikasi.",
   "{n} compose files in this folder. Service, port and env files are set on the app's page.":
     "{n} file compose di folder ini. Service, port, dan file env diatur di halaman aplikasi.",
+  // the dashboard
+  Dashboard: "Dasbor",
+  "What needs a look, at a glance.": "Yang perlu dicek, sekilas.",
+  "Apps online": "Aplikasi online",
+  "Need attention": "Perlu perhatian",
+  "Domains to renew": "Domain perlu diperpanjang",
+  "All apps are fine.": "Semua aplikasi baik-baik saja.",
+  "Recent deploys": "Deploy terbaru",
+  "No deploys yet.": "Belum ada deploy.",
+  "All projects": "Semua proyek",
 };

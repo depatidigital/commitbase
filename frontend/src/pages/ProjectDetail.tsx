@@ -188,12 +188,12 @@ export default function ProjectDetail() {
     void queryClient.invalidateQueries({ queryKey: ["projects"] });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
     toast({ title: t("Project deleted"), description: t("{count} apps deleted", { count: apps.length }) });
-    navigate("/");
+    navigate("/projects");
   };
 
   return (
     <PageLayout
-      backTo={appView ? `/project/${project.id}` : "/"}
+      backTo={appView ? `/project/${project.id}` : "/projects"}
       title={
         appView ? (
           <span className="flex items-center gap-2">

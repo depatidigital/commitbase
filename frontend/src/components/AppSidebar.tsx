@@ -1,4 +1,4 @@
-import { Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog, HardDrive, DatabaseZap } from "lucide-react";
+import { LayoutDashboard, Server, Database, Terminal, Globe, Link2, Users, ShieldCheck, Settings, Building2, UserCog, HardDrive, DatabaseZap } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -19,7 +19,8 @@ import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
 import { t } from "@/lib/i18n";
 
 const items = [
-  { title: t("Projects"), url: "/", icon: Server },
+  { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
+  { title: t("Projects"), url: "/projects", icon: Server },
   { title: t("Databases"), url: "/database", icon: Database },
   { title: t("Domains"), url: "/domains", icon: Globe },
   { title: t("Logs"), url: "/logs", icon: Terminal },
@@ -36,7 +37,8 @@ export function AppSidebar() {
 
   const isActive = (path: string) => {
     // projects, the apps in them and the flat app list are one section
-    if (path === "/") return location.pathname === "/" || /^\/(project|application|applications)(\/|$)/.test(location.pathname);
+    if (path === "/") return location.pathname === "/";
+    if (path === "/projects") return /^\/(projects?|application|applications|add-project)(\/|$)/.test(location.pathname);
     // whole segments: /database must not light up on /database-servers
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };

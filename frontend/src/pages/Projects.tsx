@@ -27,7 +27,7 @@ import { RenameProjectDialog } from "@/components/RenameProjectDialog";
 const ALL = "__all__";
 
 /** Compact relative time — "3d ago". The exact stamp lives in the title. */
-const ago = (value: string) => {
+export const ago = (value: string) => {
   const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
   if (seconds < 3600) return t("{n}m ago", { n: Math.floor(seconds / 60) });
   if (seconds < 86400) return t("{n}h ago", { n: Math.floor(seconds / 3600) });
