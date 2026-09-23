@@ -230,7 +230,7 @@ export const runSystemCleanup = async (id: string, targets: SystemTarget[]): Pro
 /** Turn this node's live Caddy routes into application rows. */
 export const syncServerApps = async (
   id: string,
-): Promise<{ discovered: number; created: number; updated: number; errors?: string[] }> =>
+): Promise<{ discovered: number; created: number; updated: number; errors?: string[]; sslStarted?: boolean }> =>
   unwrap(
     await apiRequest(`/servers/${id}/sync-apps`, { method: 'POST' }),
     t('Failed to import sites from this server'),

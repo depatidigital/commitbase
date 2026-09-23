@@ -84,7 +84,7 @@ export async function provisionCertificates(node: SshTarget & { publicIp: string
       const found = await recordsOf(host);
       if (!found) return skipped.push({ host, reason: "not in a zone of the panel's Cloudflare account" });
       if (!found.records.some((r) => r.content === node.publicIp)) return skipped.push({ host, reason: `does not point at ${node.publicIp} in Cloudflare` });
-      todo.push({ host, zoneId: found.zoneId, proxied: found.records.filter((r) => r.proxied === true) });
+      return todo.push({ host, zoneId: found.zoneId, proxied: found.records.filter((r) => r.proxied === true) });
     }),
   );
   if (todo.length === 0) return done(skipped.length === 0, issued.length ? 'Every hostname has a certificate.' : 'Nothing to provision.');

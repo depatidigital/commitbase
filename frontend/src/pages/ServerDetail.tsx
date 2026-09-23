@@ -164,11 +164,15 @@ const ServerDetail = () => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       toast({
         title: t("Sites imported"),
-        description: t("{discovered} found — {created} new, {updated} updated", {
-          discovered: result.discovered,
-          created: result.created,
-          updated: result.updated,
-        }),
+        description:
+          t("{discovered} found — {created} new, {updated} updated", {
+            discovered: result.discovered,
+            created: result.created,
+            updated: result.updated,
+          }) +
+          (result.sslStarted
+            ? " " + t("Missing certificates are being provisioned in the background (Cloudflare proxy briefly off, Caddy restarted) — see Log.")
+            : ""),
       });
     },
     onError: (error: Error) =>

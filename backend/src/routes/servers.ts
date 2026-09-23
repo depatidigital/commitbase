@@ -541,7 +541,7 @@ router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), as
 
     return res.json({
       success: true,
-      data: result,
+      data: { ...result, sslStarted },
       message:
         `${result.discovered} site(s) found — ${result.created} imported, ${result.updated} updated` +
         (sslStarted ? '. Missing certificates are being provisioned in the background — see Log.' : ''),
