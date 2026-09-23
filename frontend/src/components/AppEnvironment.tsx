@@ -81,6 +81,28 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
   const [rows, setRows] = useState<EnvRow[]>(initial);
   const [dirty, setDirty] = useState(false);
+
+  // One tab per env file: the configured ones, then any other found in the app's
+  // folder (never the examples). The first file's variables are `rows` — the app's
+  // env, the one the build and the service also get; every other file its own.
+  const configuredFiles = application.composeEnvFiles?.length ? application.composeEnvFiles : [".env"];
+  const files = useMemo(
+    () => [...new Set([...configuredFiles, ...(detected?.env.files ?? []).map((f) => f.file)])],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [configuredFiles.join(","), detected],
+  );
+  const [activeFile, setActiveFile] = useState(configuredFiles[0]!);
+  const firstFile = files[0]!;
+  const savedExtra = application.extraEnvVars ?? {};
+  const initialExtra = useMemo(
+    () => Object.fromEntries(Object.entries(savedExtra).map(([file, env]) => [file, toRows(env)])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(savedExtra)],
+  );
+  const [extraRows, setExtraRows] = useState<Record<string, EnvRow[]>>(initialExtra);
+  // what the repository ships in a file and is not set here — the deploy keeps it as it is
+  const shippedOf = (file: string, set: EnvRow[]) =>
+    (detected?.env.files?.find((f) => f.file === file)?.vars ?? []).filter((v) => !set.some((row) => row.key === v.key));
   const [saving, setSaving] = useState(false);
   const [dbOpen, setDbOpen] = useState(false);
   // Save asked with something still empty or likely wrong: said before it is saved

@@ -401,7 +401,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
         query={query}
         filter={({ row }, search) => row.key.toLowerCase().includes(search.toLowerCase())}
         searchPlaceholder={t("Search variables…")}
-        bodyClassName="max-h-[55vh]"
+        // capped on a page; in a dialog it also shrinks to the room left, so only it scrolls
+        bodyClassName="min-h-0 flex-1 max-h-[55vh]"
         empty={onlyFlagged ? t("Nothing needs a look.") : t("No results.")}
         toolbar={
           <>

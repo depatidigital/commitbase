@@ -82,6 +82,8 @@ export interface Application {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
+  /** the env files after the first, each its own variables (envVars is the first's) */
+  extraEnvVars?: Record<string, Record<string, string>>;
   /** detail only: its env was saved at least once (even empty) — the setup checklist waits for that */
   envConfirmed?: boolean;
   userId: string | null;
@@ -188,6 +190,8 @@ export interface UpdateApplicationData {
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
+  /** the env files after the first, each its own: { ".ckan-env": { KEY: value } } */
+  extraEnvVars?: Record<string, Record<string, string>>;
   /** COMPOSE: empty list = back to the default file */
   composeFiles?: string[];
   composeEnvFiles?: string[];
@@ -361,6 +365,8 @@ export interface DetectedProject {
     /** .env / .env.local committed to the repository */
     committed: string[];
     needsDatabase: boolean;
+    /** the env files in the app's folder on its node (not the examples), each as the repository ships it */
+    files?: Array<{ file: string; vars: Array<{ key: string; value: string }> }>;
   };
   /** what will misbehave behind the proxy — about the start script, so moot once a start command is set */
   warnings: Array<{ code: 'start-fixed-port'; port: string } | { code: 'start-binds-all' }>;

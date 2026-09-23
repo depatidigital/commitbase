@@ -1663,16 +1663,17 @@ function KeptModal({ open, onClose, title, children }: { open: boolean; onClose:
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border bg-background p-6 shadow-lg"
+        // a column bounded to the screen: the title and the form's footer stay, only its body scrolls
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border bg-background p-6 shadow-lg"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex shrink-0 items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{title}</h2>
           <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t("Close")} onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
     </div>
   );

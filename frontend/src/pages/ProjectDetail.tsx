@@ -886,9 +886,8 @@ function AppQuickEdit({ appId }: { appId: string }) {
           if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
         }}
       >
-        {/* a flex column bounded to the screen: the env table shrinks and scrolls, the dialog does not —
-            unless the screen is too short even for that, so Save is never cut off */}
-        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-y-auto">
+        {/* a flex column bounded to the screen: the title and Save stay, only the form's body scrolls */}
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>{t("Env")} — {application.name}</DialogTitle>
           </DialogHeader>
