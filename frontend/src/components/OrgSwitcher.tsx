@@ -1,8 +1,15 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2 } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Building2, Check, ChevronsUpDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { getOrganizations } from "@/lib/organizations";
 import { getActiveOrg, setActiveOrg } from "@/lib/api";
 import { t } from "@/lib/i18n";
@@ -36,22 +43,36 @@ export function OrgSwitcher() {
   if (!current) return null;
 
   return (
-    <Select value={current.id} onValueChange={pick}>
-      {/* no wrapper span: the trigger line-clamps its direct spans, which stacks a flex row */}
-      <SelectTrigger
-        aria-label={t("Organization")}
-        className="h-10 w-full justify-start gap-2 bg-card text-left [&>span]:min-w-0 [&>svg:last-child]:ml-auto [&>svg:last-child]:shrink-0"
-      >
-        <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {organizations.map((org) => (
-          <SelectItem key={org.id} value={org.id}>
-            {org.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              size="lg"
+              aria-label={t("Organization")}
+              className="border bg-card shadow-sm hover:bg-card data-[state=open]:bg-card"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Building2 className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1 text-left leading-tight">
+                <span className="block text-xs text-muted-foreground">{t("Organization")}</span>
+                <span className="block truncate font-medium">{current.name}</span>
+              </span>
+              <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width] min-w-56 bg-popover">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">{t("Organization")}</DropdownMenuLabel>
+            {organizations.map((org) => (
+              <DropdownMenuItem key={org.id} onSelect={() => org.id !== current.id && pick(org.id)} className="gap-2">
+                <span className="truncate">{org.name}</span>
+                {org.id === current.id && <Check className="ml-auto h-4 w-4 shrink-0" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
   );
 }
