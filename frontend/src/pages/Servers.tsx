@@ -61,6 +61,8 @@ import {
   ServerInput,
   createServer,
   deleteServer,
+  diskUsedPct,
+  DISK_RED_PCT,
   getServerLogs,
   getServersPage,
   pingServer,
@@ -295,9 +297,46 @@ export default function Servers() {
               {t("not provisioned")}
             </Badge>
           )}
+          {diskUsedPct(s.disk) >= DISK_RED_PCT && (
+            <Badge variant="destructive" className="text-xs" title={t("{free} free", { free: `${(s.disk!.avail / 1024 ** 3).toFixed(1)} GB` })}>
+              {t("Disk {pct}% full", { pct: String(diskUsedPct(s.disk)) })}
+            </Badge>
+          )}
           <span className="block text-xs text-muted-foreground">{ago(s.lastSeenAt)}</span>
         </div>
       ),
+    },
+    {
+      header: t("Runtime"),
+      className: "w-44",
+      cell: (s) =>
+        s.runtimes?.length ? (
+          <div className="flex flex-wrap gap-1">
+            {s.runtimes.map((r) => {
+              // podman/pm2 have no daemon: present is all there is to say
+              const idle = r.state === "installed";
+              return (
+                <Badge
+                  key={r.name}
+                  variant="outline"
+                  className={`gap-1 text-xs ${r.active || idle ? "" : "text-muted-foreground"}`}
+                  title={r.state ?? (r.active ? "active" : "inactive")}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      r.active ? "bg-emerald-500" : idle ? "bg-sky-500" : "border border-muted-foreground"
+                    }`}
+                  />
+                  {r.name}
+                  {r.version && <span className="font-normal text-muted-foreground">{r.version}</span>}
+                  {!r.active && !idle && <span className="font-normal">· {t("stopped")}</span>}
+                </Badge>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
     },
     {
       header: t("Provisioning"),
@@ -423,7 +462,7 @@ export default function Servers() {
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -439,7 +478,7 @@ export default function Servers() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-4 py-4 sm:grid-cols-2">
+            <div className="grid gap-x-4 gap-y-3 py-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="srv-name">{t("Name")}</Label>
                 <Input
@@ -490,7 +529,7 @@ export default function Servers() {
                   />
                 </div>
               </div>
-              <div className="space-y-2 sm:col-span-2">
+              <div className="space-y-2">
                 <Label htmlFor="srv-auth">{t("Authentication")}</Label>
                 <Select
                   value={form.authMethod}
@@ -507,8 +546,39 @@ export default function Servers() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-2 sm:col-span-2">
+              {form.authMethod === "KEY" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="srv-key">{t("SSH key path")}</Label>
+                  <Input
+                    id="srv-key"
+                    placeholder="/opt/larika/.ssh/id_ed25519"
+                    value={form.sshKeyPath ?? ""}
+                    onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("Path on the control plane, inside the configured key directory. Key material is never stored in the database.")}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="srv-password">{t("SSH password")}</Label>
+                  <Input
+                    id="srv-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={
+                      editing?.hasPassword ? t("Unchanged — type to replace") : t("The node's SSH password")
+                    }
+                    value={form.sshPassword ?? ""}
+                    onChange={(e) => setForm({ ...form, sshPassword: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("Encrypted before it is stored and never returned by the API. Prefer a key where you can: a password does not work on a box with")}
+                    <code className="mx-1">PasswordAuthentication no</code>.
+                  </p>
+                </div>
+              )}
+              <div className="space-y-2">
                 <Label htmlFor="srv-runtime">{t("Container runtime")}</Label>
                 <Select
                   value={form.containerRuntime}
@@ -528,8 +598,7 @@ export default function Servers() {
                   {t("Needed for compose apps, and only for those. Installed by Set up, so run it again after changing this. Podman needs Ubuntu 24.04 or newer.")}
                 </p>
               </div>
-
-              <div className="space-y-2 sm:col-span-2">
+              <div className="space-y-2">
                 <Label htmlFor="srv-tags">{t("Tags")}</Label>
                 <Input
                   id="srv-tags"
@@ -551,39 +620,6 @@ export default function Servers() {
                   {t("Comma separated. Your own labels — used to group and filter nodes.")}
                 </p>
               </div>
-
-              {form.authMethod === "KEY" ? (
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="srv-key">{t("SSH key path")}</Label>
-                  <Input
-                    id="srv-key"
-                    placeholder="/opt/larika/.ssh/id_ed25519"
-                    value={form.sshKeyPath ?? ""}
-                    onChange={(e) => setForm({ ...form, sshKeyPath: e.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("Path on the control plane, inside the configured key directory. Key material is never stored in the database.")}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="srv-password">{t("SSH password")}</Label>
-                  <Input
-                    id="srv-password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
-                      editing?.hasPassword ? t("Unchanged — type to replace") : t("The node's SSH password")
-                    }
-                    value={form.sshPassword ?? ""}
-                    onChange={(e) => setForm({ ...form, sshPassword: e.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("Encrypted before it is stored and never returned by the API. Prefer a key where you can: a password does not work on a box with")}
-                    <code className="mx-1">PasswordAuthentication no</code>.
-                  </p>
-                </div>
-              )}
             </div>
 
             <DialogFooter>

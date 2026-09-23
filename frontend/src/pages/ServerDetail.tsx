@@ -25,8 +25,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageLayout } from "@/components/PageLayout";
 import { ServerStorage } from "@/components/ServerStorage";
+import { ServerSystemCleanup } from "@/components/ServerSystemCleanup";
 import { ProvisionBadge } from "@/components/ProvisionBadge";
 import { NginxMigrateCard } from "@/components/NginxMigrateCard";
+import { DockerContainersCard } from "@/components/DockerContainersCard";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 import {
@@ -206,8 +208,10 @@ const ServerDetail = () => {
           <TabsTrigger value="apps">{t("Applications")}</TabsTrigger>
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="nginx">{t("nginx")}</TabsTrigger>
+          <TabsTrigger value="docker">Docker</TabsTrigger>
           <TabsTrigger value="snapshots">{t("Snapshots")}</TabsTrigger>
           <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>
+          <TabsTrigger value="cleanup">{t("Cleanup")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -356,6 +360,10 @@ const ServerDetail = () => {
           <NginxMigrateCard serverId={id!} />
         </TabsContent>
 
+        <TabsContent value="docker">
+          <DockerContainersCard serverId={id!} />
+        </TabsContent>
+
         <TabsContent value="apps">
           <Card>
             <CardContent className="pt-6">
@@ -418,6 +426,10 @@ const ServerDetail = () => {
 
         <TabsContent value="storage">
           <ServerStorage serverId={id} />
+        </TabsContent>
+
+        <TabsContent value="cleanup">
+          <ServerSystemCleanup serverId={id} />
         </TabsContent>
 
         <TabsContent value="snapshots">

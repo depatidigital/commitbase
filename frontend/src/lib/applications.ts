@@ -13,6 +13,7 @@ export const runtimeLabel = (runtime?: string | null): string =>
     CADDY_PHP: 'Caddy + PHP-FPM',
     CADDY_STATIC: t('Caddy (static files)'),
     CADDY_PROXY: t('Caddy (reverse proxy)'),
+    DOCKER: t('Docker container'),
   })[runtime ?? ''] ?? (runtime || t('Managed by {appName}', { appName: APP_NAME }));
 
 /** `https://github.com/acme/shop.git` → `acme/shop` */
@@ -92,7 +93,7 @@ export interface Application {
   staticBucket?: string | null;
   /** detail endpoint only: the node it runs on (found there, else its organization's) */
   placement?: { id: string; name: string; hostname: string; publicIp: string; tags: string[] } | null;
-  runtime?: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | null;
+  runtime?: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | 'DOCKER' | null;
   processName?: string | null;
   rootPath?: string | null;
   /** imported: the git checkout its folder sits in (the sync's `git rev-parse --show-toplevel`) */
@@ -833,7 +834,7 @@ export interface AppSyncResult {
   apps: Array<{
     name: string;
     bindings: Array<{ host: string; path: string }>;
-    runtime: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY';
+    runtime: 'PM2' | 'CADDY_PHP' | 'CADDY_STATIC' | 'CADDY_PROXY' | 'DOCKER';
     status: 'RUNNING' | 'STOPPED' | 'ERROR';
     port?: number;
     action: 'created' | 'updated';

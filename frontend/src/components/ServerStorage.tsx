@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { cleanupServerDisk, getServerDisk } from "@/lib/servers";
+import { cleanupServerDisk, diskUsedPct, DISK_RED_PCT, getServerDisk } from "@/lib/servers";
 import { locale, t } from "@/lib/i18n";
 import { formatBytes } from "@/lib/utils";
 
@@ -55,7 +55,7 @@ export function ServerStorage({ serverId }: { serverId: string }) {
   });
 
   const reclaimable = (data?.apps ?? []).reduce((sum, app) => sum + app.reclaimableBytes + (withCache ? app.cacheBytes : 0), 0);
-  const usedPct = data?.disk ? Math.round((data.disk.used / data.disk.size) * 100) : 0;
+  const usedPct = diskUsedPct(data?.disk);
 
   return (
     <Card>
@@ -75,11 +75,11 @@ export function ServerStorage({ serverId }: { serverId: string }) {
                   <>
                     <div className="flex justify-between text-sm">
                       <span>{t("{used} of {size} used", { used: bytes(data.disk.used), size: bytes(data.disk.size) })}</span>
-                      <span className={usedPct >= 90 ? "font-medium text-destructive" : "text-muted-foreground"}>
+                      <span className={usedPct >= DISK_RED_PCT ? "font-medium text-destructive" : "text-muted-foreground"}>
                         {t("{free} free", { free: bytes(data.disk.avail) })}
                       </span>
                     </div>
-                    <Progress value={usedPct} className={`h-2 ${usedPct >= 90 ? "[&>div]:bg-destructive" : ""}`} />
+                    <Progress value={usedPct} className={`h-2 ${usedPct >= DISK_RED_PCT ? "[&>div]:bg-destructive" : ""}`} />
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground">{t("The node did not report its disk.")}</p>

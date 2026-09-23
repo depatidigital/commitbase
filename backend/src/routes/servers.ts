@@ -16,6 +16,8 @@ import { canEncrypt, encrypt } from '../lib/secretBox';
 import { appsOnServer } from '../lib/servers';
 import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
+import { cleanSystem, measureSystem, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
+import { dockerView, importDockerContainer } from '../services/dockerAdoptService';
 import { DeploymentService } from '../services/deployment';
 
 const router: Router = Router();
@@ -417,6 +419,47 @@ router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN'])
   }
 });
 
+/** Running docker containers, each published port with the hostnames nginx/Caddy send to it. Read-only. */
+router.get('/:id/docker', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+    return res.json({ success: true, data: await dockerView(server) } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error listing docker containers:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not read this node' } as ApiResponse);
+  }
+});
+
+const DockerImportSchema = z.object({
+  container: z.string().trim().min(1).max(255),
+  port: z.coerce.number().int().min(1).max(65535),
+});
+
+/** Adopt one container's port as an app. The container is not touched. */
+router.post(
+  '/:id/docker/import',
+  authenticateToken,
+  requireRole(['SUPERADMIN']),
+  validateRequest(DockerImportSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+      if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+      const { container, port } = req.body as z.infer<typeof DockerImportSchema>;
+      const result = await importDockerContainer(server, req.user!.userId, container, port);
+      return res.json({
+        success: true,
+        data: result,
+        message: `${container}:${port} ${result.created ? 'imported' : 'linked to its existing app'}`,
+      } as ApiResponse);
+    } catch (error: any) {
+      console.error('Error importing a docker container:', error);
+      return res.status(400).json({ success: false, error: error?.message || 'Could not import' } as ApiResponse);
+    }
+  },
+);
+
 router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
@@ -526,6 +569,42 @@ router.post('/:id/cleanup', authenticateToken, requireRole(['SUPERADMIN']), asyn
     return res.status(502).json({ success: false, error: error?.message || 'Could not clean up this node' } as ApiResponse);
   }
 });
+
+/** The node's own clutter — logs, package caches, crash dumps, temp files — and what each takes. */
+router.get('/:id/system-cleanup', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+    return res.json({ success: true, data: { targets: await measureSystem(server), disk: await nodeDisk(server) } } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error measuring system cleanup:', error);
+    return res.status(502).json({ success: false, error: error?.stderr || error?.message || 'Could not measure the node' } as ApiResponse);
+  }
+});
+
+const SystemCleanupSchema = z.object({ targets: z.array(z.enum(SYSTEM_TARGET_IDS as [SystemTarget, ...SystemTarget[]])).min(1) });
+
+router.post(
+  '/:id/system-cleanup',
+  authenticateToken,
+  requireRole(['SUPERADMIN']),
+  validateRequest(SystemCleanupSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+      if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+      const { targets } = SystemCleanupSchema.parse(req.body);
+      const result = await cleanSystem(server, targets);
+      await prisma.log.create({
+        data: { level: 'INFO', message: `System cleanup on ${server.name}: ${targets.join(', ')}`, userId: req.user!.userId },
+      });
+      return res.json({ success: true, data: { ...result, disk: await nodeDisk(server) } } as ApiResponse);
+    } catch (error: any) {
+      console.error('Error cleaning up system:', error);
+      return res.status(502).json({ success: false, error: error?.stderr || error?.message || 'Could not clean up this node' } as ApiResponse);
+    }
+  }
+);
 
 /** Config backups taken from this node, newest first. */
 router.get('/:id/caddy/snapshots', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {

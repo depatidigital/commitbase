@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { createApplicationWithSource, dropOrphanSources, setSourceOrganization } from '../lib/sources';
 import { setAppBindings, zonesFor } from '../lib/appDomains';
 import { readServe, type Serve } from './hostRouteService';
-import { exec, type SshTarget } from '../lib/runner';
+import { exec, execRoot, type SshTarget } from '../lib/runner';
 import { lockfileManager, parseEnvFile } from '../lib/projectDetect';
 import { sealEnv } from '../lib/appEnv';
 import { allServers } from '../lib/servers';
@@ -25,9 +25,11 @@ export type DockerContainer = { name: string; image: string; status: string; por
  * Empty when there is no docker on the box, which is the usual case.
  */
 export async function listDockerContainers(node: SshTarget): Promise<DockerContainer[]> {
-  const { stdout } = await exec(node, ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'], {
-    timeout: 20_000,
-  }).catch(() => ({ stdout: '' }) as any);
+  const argv = ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'];
+  // the docker socket is root's (or the docker group's): root first, the SSH user on a box not set up
+  const { stdout } = await execRoot(node, argv, { timeout: 20_000 })
+    .catch(() => exec(node, argv, { timeout: 20_000 }))
+    .catch(() => ({ stdout: '' }) as any);
   return parseDockerPs(String(stdout));
 }
 
@@ -538,12 +540,16 @@ export async function probeFolders(node: SshTarget, dirs: string[]): Promise<Map
  * too, under a `<name>.pm2.local` placeholder host.
  */
 export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
-  const [processes, config, listening, parents] = await Promise.all([
+  const [processes, config, listening, parents, containers] = await Promise.all([
     listPm2Processes(node),
     getCaddyConfig(node),
     listListeningPorts(node),
     listParentPids(node),
+    listDockerContainers(node),
   ]);
+  // a proxied port a container publishes is that container, not "some process"
+  const byDockerPort = new Map<number, DockerContainer>();
+  for (const container of containers) for (const port of container.ports) byDockerPort.set(port, container);
   const byPort = new Map<number, Pm2Process>();
   const byPid = new Map<number, Pm2Process>();
   for (const process of processes) {
@@ -590,7 +596,8 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
         const process = spec.port ? byPort.get(spec.port) ?? (pid ? pm2OwnerOf(pid, byPid, parents) : undefined) : undefined;
         if (process) claimed.add(process.name);
 
-        const runtime: Runtime = spec.port ? (process ? 'PM2' : 'CADDY_PROXY') : spec.type === 'PHP' ? 'CADDY_PHP' : 'CADDY_STATIC';
+        const container = spec.port && !process ? byDockerPort.get(spec.port) : undefined;
+        const runtime: Runtime = spec.port ? (process ? 'PM2' : container ? 'DOCKER' : 'CADDY_PROXY') : spec.type === 'PHP' ? 'CADDY_PHP' : 'CADDY_STATIC';
         const knownRoot = spec.rootPath || process?.cwd || (pid ? cwds.get(pid) : undefined);
         // a bucket-proxied site has no directory on the node; a PHP/static route
         // that does not say gets the conventional folder — checked below, kept only if it is there
@@ -609,7 +616,7 @@ export async function scanNode(node: SshTarget): Promise<DiscoveredApp[]> {
         // the first of them in Caddy's file says nothing; else where it answers
         const folder = folderName(knownRoot || guessedRoot);
         const app: DiscoveredApp = {
-          name: process?.name || folder || `${domain}${spec.path}`,
+          name: process?.name || container?.name || folder || `${domain}${spec.path}`,
           bindings: [{ host: domain, path: spec.path }],
           runtime,
           type: spec.type,

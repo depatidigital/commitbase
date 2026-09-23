@@ -9,6 +9,12 @@ export type ServerStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
 /** How the control plane authenticates to a node. Keys are the default. */
 export type AuthMethod = 'KEY' | 'PASSWORD';
 
+/** From here on a disk shows red — the Storage tab and the server list agree. */
+export const DISK_RED_PCT = 90;
+
+export const diskUsedPct = (disk: { size: number; used: number } | null | undefined): number =>
+  disk?.size ? Math.round((disk.used / disk.size) * 100) : 0;
+
 export interface Server {
   id: string;
   name: string;
@@ -23,6 +29,10 @@ export interface Server {
   tags: string[];
   /** "NONE" | "PODMAN" — whether compose apps may be placed here. */
   containerRuntime: ContainerRuntime;
+  /** What the heartbeat found on the box; null until the first successful check. */
+  runtimes: { name: string; active: boolean; state?: string; version?: string }[] | null;
+  /** The tenants' partition, from the last heartbeat, in bytes. */
+  disk: { size: number; used: number; avail: number } | null;
   status: ServerStatus;
   /** Can the panel become root here? A node can be reachable and still not set up. */
   provisioned: boolean;
@@ -199,6 +209,24 @@ export const cleanupServerDisk = async (
     t('Could not clean up'),
   );
 
+/** The node's own clutter, by target id; a target missing from the node is absent. */
+export const SYSTEM_TARGETS = ['journal', 'rotatedLogs', 'pm2Logs', 'aptCache', 'packageCaches', 'docker', 'crashDumps', 'oldTmp'] as const;
+export type SystemTarget = (typeof SYSTEM_TARGETS)[number];
+
+export interface SystemCleanup {
+  targets: Partial<Record<SystemTarget, number>>;
+  disk: ServerDisk['disk'];
+}
+
+export const getSystemCleanup = async (id: string): Promise<SystemCleanup> =>
+  unwrap(await apiRequest<SystemCleanup>(`/servers/${id}/system-cleanup`), t('Could not read the disk usage'));
+
+export const runSystemCleanup = async (id: string, targets: SystemTarget[]): Promise<{ freedBytes: number; failed: string[] }> =>
+  unwrap(
+    await apiRequest(`/servers/${id}/system-cleanup`, { method: 'POST', body: JSON.stringify({ targets }) }),
+    t('Could not clean up'),
+  );
+
 /** Turn this node's live Caddy routes into application rows. */
 export const syncServerApps = async (
   id: string,
@@ -249,3 +277,34 @@ export const getNginxPlan = async (id: string): Promise<NginxPlan> =>
 /** Switch this node's sites from nginx to Caddy, rolling back if any host stops answering. */
 export const migrateNginx = async (id: string): Promise<NginxMigration> =>
   unwrap(await apiRequest<NginxMigration>(`/servers/${id}/nginx/migrate`, { method: 'POST' }), t('Could not migrate this node'));
+
+/** One published port of a running container, and who sends traffic to it. */
+export interface DockerPortMap {
+  port: number;
+  nginxHosts: string[];
+  caddyHosts: string[];
+  /** the panel app already on this port of this node */
+  app: { id: string; name: string; runtime: string | null } | null;
+}
+
+export interface DockerContainerView {
+  name: string;
+  image: string;
+  status: string;
+  ports: number[];
+  maps: DockerPortMap[];
+}
+
+export const getDockerContainers = async (id: string): Promise<DockerContainerView[]> =>
+  unwrap(await apiRequest<DockerContainerView[]>(`/servers/${id}/docker`), t('Could not read the docker containers'));
+
+/** Adopt one container's port as an app. The container itself is not touched. */
+export const importDockerContainer = async (
+  id: string,
+  container: string,
+  port: number,
+): Promise<{ id: string; created: boolean; hosts: string[]; skippedHosts: string[] }> =>
+  unwrap(
+    await apiRequest(`/servers/${id}/docker/import`, { method: 'POST', body: JSON.stringify({ container, port }) }),
+    t('Could not import the container'),
+  );

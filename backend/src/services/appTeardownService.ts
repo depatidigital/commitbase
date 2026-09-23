@@ -175,7 +175,7 @@ export async function teardownPlan(app: TeardownTarget): Promise<TeardownStep[]>
         ? { kept: msg('pm2 process {name} also runs {domain} — kept', { name: app.processName, domain: hostList(sharer) }) }
         : { blocked: isPanel ?? noServer }),
     });
-  } else if (app.runtime === 'CADDY_PROXY' && app.port) {
+  } else if ((app.runtime === 'CADDY_PROXY' || app.runtime === 'DOCKER') && app.port) {
     // not pm2's, so we cannot stop it — but we can see whether it is already gone
     const listening = server ? await listListeningPorts(server) : new Map();
     const port = app.port;
@@ -207,7 +207,7 @@ export async function teardownPlan(app: TeardownTarget): Promise<TeardownStep[]>
 
   // a proxied process may still be running from its folder; do not pull it out
   // from under it. No folder detected: nothing known to delete.
-  if (app.runtime !== 'CADDY_PROXY' && app.rootPath) {
+  if (app.runtime !== 'CADDY_PROXY' && app.runtime !== 'DOCKER' && app.rootPath) {
     const others = server ? await otherFolders(server.id, app.id) : [];
     // another app's files: the app can go, its folder stays
     const shared = sharedWith(app.rootPath, others);

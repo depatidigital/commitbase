@@ -166,6 +166,13 @@ model Server {
   /// authMethod above, so adding a value later needs no migration. Setup passes
   /// it to install.sh as WITH_PODMAN; turning it on is a re-run of Set up.
   containerRuntime String @default("NONE")
+  /// What is actually on the box, as the heartbeat last found it:
+  /// [{ name: "caddy", active: true }, { name: "nginx", active: false }, ...].
+  /// Read-only discovery — containerRuntime above is what setup installs.
+  runtimes      Json?
+  /// The tenants' partition (CB_HOME_ROOT) as the heartbeat last measured it:
+  /// { size, used, avail } in bytes. Null until the first successful check.
+  disk          Json?
 
   /// Node setup queue (serverSetupService): the panel runs install.sh
   /// over SSH. Same states as an organization's provisioning.
