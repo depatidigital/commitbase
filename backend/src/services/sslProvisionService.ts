@@ -56,6 +56,40 @@ const setProxied = (zoneId: string, record: any, proxied: boolean) =>
     proxied,
   });
 
+/** The last hour of Caddy's log on the node — where ACME says why it did not issue. */
+async function caddyJournal(node: SshTarget): Promise<string[]> {
+  const { stdout } = await execRoot(node, ['journalctl', '-u', 'caddy-api', '--since', '1 hour ago', '--no-pager', '-o', 'cat'], {
+    timeout: 30_000,
+  }).catch(() => ({ stdout: '' }) as any);
+  return String(stdout).split('\n');
+}
+
+const RATE_LIMITED = /rateLimited|too many (failed authorizations|certificates|new orders)/i;
+
+/**
+ * Is Let's Encrypt refusing this name for now? Switching its proxy off would
+ * only expose the origin for nothing — and every failed try extends the wait. Pure.
+ */
+export function rateLimitOf(journal: string[], host: string): string | null {
+  const line = [...journal].reverse().find((l) => l.includes(host) && RATE_LIMITED.test(l));
+  if (!line) return null;
+  const after = /retry after ([^",}]+)/i.exec(line)?.[1]?.trim();
+  return `Let's Encrypt is rate-limiting it${after ? ` until ${after}` : ''} — try again later`;
+}
+
+/** The last thing ACME said about this name, for the log. Pure. */
+export function lastAcmeError(journal: string[], host: string): string | null {
+  const line = [...journal].reverse().find((l) => l.includes(host) && /error|fail/i.test(l));
+  if (!line) return null;
+  // Caddy logs JSON; the error field is the readable part
+  try {
+    const entry = JSON.parse(line);
+    return String(entry.error ?? entry.msg ?? line).slice(0, 300);
+  } catch {
+    return line.slice(0, 300);
+  }
+}
+
 /** Every hostname Caddy routes on this node that is not the panel's own infrastructure. */
 export function caddyHostsOf(config: any): string[] {
   return [
@@ -75,12 +109,16 @@ export async function provisionCertificates(node: SshTarget & { publicIp: string
   if (!config) return done(false, 'Caddy is not running on this node.');
   const routed = new Set(caddyHostsOf(config));
 
-  // which of them need one: routed here, no valid certificate yet, and a proxied record the panel can switch
+  // which of them need one: routed here, no valid certificate yet, not refused by
+  // Let's Encrypt right now, and a proxied record the panel can switch
+  const journal = await caddyJournal(node);
   const todo: Array<{ host: string; zoneId: string; proxied: any[] }> = [];
   await Promise.all(
     [...new Set(rawHosts.map((host) => host.trim().toLowerCase()))].map(async (host) => {
       if (!routed.has(host)) return skipped.push({ host, reason: 'Caddy has no route for it here' });
       if (await localCode(node, host)) return issued.push(host);
+      const limited = rateLimitOf(journal, host);
+      if (limited) return skipped.push({ host, reason: limited });
       const found = await recordsOf(host);
       if (!found) return skipped.push({ host, reason: "not in a zone of the panel's Cloudflare account" });
       if (!found.records.some((r) => r.content === node.publicIp)) return skipped.push({ host, reason: `does not point at ${node.publicIp} in Cloudflare` });
@@ -118,7 +156,10 @@ export async function provisionCertificates(node: SshTarget & { publicIp: string
       waiting = answered.filter(([, ok]) => !ok).map(([host]) => host);
       if (!waiting.length) break;
       if (Date.now() > certDeadline) {
-        for (const host of waiting) skipped.push({ host, reason: `no certificate after ${CERT_WAIT_MS / 60_000} minutes — see journalctl -u caddy-api` });
+        const after = await caddyJournal(node);
+        for (const host of waiting) {
+          skipped.push({ host, reason: `no certificate after ${CERT_WAIT_MS / 60_000} minutes: ${lastAcmeError(after, host) ?? 'nothing in the Caddy log — see journalctl -u caddy-api'}` });
+        }
         break;
       }
       await sleep(5000);
