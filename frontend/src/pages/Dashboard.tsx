@@ -1,53 +1,55 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, Globe, Loader2, Plus, Rocket, Server, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, CheckCircle2, CircleDashed, Globe, Loader2, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
-import { locale, t } from "@/lib/i18n";
-import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
-import { getProjects, projectPath } from "@/lib/projects";
+import { HeartbeatBar } from "@/components/HeartbeatBar";
+import { t } from "@/lib/i18n";
+import { appStatus, getHostHealth, type HostHealth, type Tone } from "@/lib/health";
 import { getDomainsPage } from "@/lib/domains";
 import { expiryTone, needsRenewal } from "@/lib/domainExpiry";
-import { ago } from "./Projects";
 import { isSuperAdmin } from "@/lib/auth";
 import { getUsers } from "@/lib/admin";
 
-function Stat({ label, value, icon: Icon, tone = "" }: { label: string; value: number | string; icon: typeof Boxes; tone?: string }) {
+const TONE_TEXT: Record<Tone, string> = {
+  up: "text-success",
+  down: "text-destructive",
+  warn: "text-warning",
+  deploying: "text-warning",
+  muted: "text-muted-foreground",
+};
+
+type Row = HostHealth & ReturnType<typeof appStatus>;
+
+/** A count; coloured only when it is not zero, so a calm day looks calm. */
+function Tile({ label, value, icon: Icon, tone = "" }: { label: string; value: number | string; icon: typeof Globe; tone?: string }) {
+  const lit = value !== 0 && value !== "—" ? tone : "";
   return (
     <Card>
       <CardContent className="flex items-center justify-between p-5">
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className={`text-2xl font-semibold ${tone}`}>{value}</p>
+          <p className={`text-2xl font-semibold ${lit}`}>{value}</p>
         </div>
-        <Icon className={`h-6 w-6 text-muted-foreground ${tone}`} />
+        <Icon className={`h-6 w-6 ${lit || "text-muted-foreground"}`} />
       </CardContent>
     </Card>
   );
 }
 
 /**
- * The landing page: what needs a look now — apps down, domains running out,
- * the latest deploys — with the counts above. Everything links to its page.
+ * The landing page, and the monitor: is everything healthy? Every hostname
+ * (each binding: host + path) with its own uptime checks, worst first, and the
+ * domains running out. It only watches — acting is on the app's page.
  */
 export default function Dashboard() {
-  // ponytail: the first 100 projects (the API's page cap); a summary endpoint when orgs outgrow that
-  const { data: projectsPage, isLoading } = useQuery({
-    queryKey: ["projects", "dashboard"],
-    queryFn: () => getProjects({ page: 1, limit: 100, search: "", sort: "createdAt", order: "desc" }),
-    refetchInterval: 30_000,
-  });
-  const projects = projectsPage?.data ?? [];
-  const apps = projects.flatMap((project) => project.applications.map((app) => ({ app, project })));
+  const navigate = useNavigate();
+  const query = useTableQuery(25);
+  const superAdmin = isSuperAdmin();
 
-  const appIds = apps.map(({ app }) => app.id);
-  const { data: healthById = {} } = useQuery({
-    queryKey: ["applications", "health", appIds],
-    queryFn: () => getApplicationHealth(appIds),
-    enabled: appIds.length > 0,
-    refetchInterval: 60_000,
-  });
+  // every hostname of the workspace, each with its own checks — on the rhythm they are written
+  const { data = [], isLoading } = useQuery({ queryKey: ["hosts", "health"], queryFn: getHostHealth, refetchInterval: 60_000 });
 
   // soonest first; expired sort before the rest, undated last
   const { data: domainsPage } = useQuery({
@@ -56,160 +58,123 @@ export default function Dashboard() {
   });
   const renewals = (domainsPage?.data ?? []).filter(needsRenewal);
 
-  // platform-wide counts: superadmin only
-  const superAdmin = isSuperAdmin();
+  // platform-wide count: superadmin only
   const { data: usersPage } = useQuery({
     queryKey: ["users", "dashboard"],
     queryFn: () => getUsers({ page: 1, limit: 1, search: "" }),
     enabled: superAdmin,
   });
 
-  const statuses = apps.map(({ app, project }) => ({ app, project, ...appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled) }));
-  const attention = statuses.filter((s) => s.rank === 0).sort((a, b) => a.app.name.localeCompare(b.app.name));
-  const online = statuses.filter((s) => s.tone === "up").length;
+  const rows: Row[] = data
+    .map((row) => ({ ...row, ...appStatus(row.service.status, row.health, row.service.disabled) }))
+    .sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
+  const count = (test: (row: Row) => boolean) => rows.filter(test).length;
 
-  const deploys = projects
-    .filter((project) => project.lastDeployment)
-    .sort((a, b) => b.lastDeployment!.createdAt.localeCompare(a.lastDeployment!.createdAt))
-    .slice(0, 8);
+  const columns: Column<Row>[] = [
+    {
+      header: t("Host"),
+      className: "w-[30%]",
+      cell: ({ host, path, app, service }) => (
+        <div className="min-w-0">
+          <span className="block truncate font-medium">
+            {host}
+            {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">{app ? `${app.name} · ${service.name}` : service.name}</span>
+        </div>
+      ),
+    },
+    {
+      header: t("Status"),
+      className: "w-36",
+      cell: ({ text, tone }) => (
+        <span className={`flex items-center gap-1.5 text-sm font-medium ${TONE_TEXT[tone]}`}>
+          {tone === "deploying" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-current" />}
+          {text}
+        </span>
+      ),
+    },
+    {
+      header: t("Last 30 checks"),
+      className: "w-48",
+      cell: ({ health }) => <HeartbeatBar health={health} />,
+    },
+    {
+      header: t("Uptime 24h"),
+      className: "w-28 text-right",
+      cell: ({ health, tone }) =>
+        health?.uptime24h != null ? (
+          <span className={tone === "down" ? "font-medium text-destructive" : ""}>{health.uptime24h}%</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      header: t("Response"),
+      className: "w-24 text-right",
+      cell: ({ health }) =>
+        health?.responseMs != null ? <span className="text-sm">{health.responseMs} ms</span> : <span className="text-muted-foreground">—</span>,
+    },
+    {
+      header: t("Last error"),
+      cell: ({ health }) =>
+        health?.state !== "up" && health?.lastError ? (
+          <span className="block truncate text-xs text-destructive" title={health.lastError}>
+            {health.lastError}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+  ];
 
   return (
-    <PageLayout
-      title={t("Dashboard")}
-      description={t("What needs a look, at a glance.")}
-      actions={
-        <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
-          <Link to="/apps/new">
-            <Plus className="mr-2 h-4 w-4" />
-            {t("Add app")}
-          </Link>
-        </Button>
-      }
-    >
-      {isLoading ? (
-        <div className="flex h-40 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <>
-          <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
-            <Stat label={t("Apps")} value={projectsPage?.pagination.total ?? 0} icon={Boxes} />
-            <Stat label={t("Services online")} value={`${online}/${apps.length}`} icon={Server} />
-            <Stat label={t("Need attention")} value={attention.length} icon={AlertTriangle} tone={attention.length ? "text-destructive" : ""} />
-            <Stat label={t("Domains to renew")} value={renewals.length} icon={Globe} tone={renewals.length ? "text-warning" : ""} />
-            {superAdmin && <Stat label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
-          </div>
+    <PageLayout title={t("Dashboard")} description={t("Uptime of every hostname, checked every minute.")}>
+      <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+        <Tile label={t("Online")} value={count((row) => row.tone === "up")} icon={CheckCircle2} tone="text-success" />
+        <Tile label={t("Need attention")} value={count((row) => row.tone === "down" || row.tone === "warn")} icon={AlertTriangle} tone="text-destructive" />
+        <Tile label={t("Domains to renew")} value={renewals.length} icon={Globe} tone="text-warning" />
+        <Tile label={t("Not monitored")} value={count((row) => row.tone === "muted")} icon={CircleDashed} />
+        {superAdmin && <Tile label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
+      </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <AlertTriangle className="h-4 w-4" />
-                  {t("Need attention")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {attention.length === 0 ? (
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-success" />
-                    {t("All services are fine.")}
-                  </p>
-                ) : (
-                  <ul className="divide-y">
-                    {attention.map(({ app, project, text, tone }) => {
-                      const health = healthById[app.id] as Health | undefined;
-                      return (
-                        <li key={app.id}>
-                          <Link to={`/services/${app.id}`} className="flex items-center gap-2 py-2 text-sm hover:text-primary">
-                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone === "down" ? "bg-destructive" : "bg-warning"}`} />
-                            <span className="min-w-0 flex-1 truncate">
-                              <span className="font-medium">{app.domains[0]?.host ?? app.name}</span>
-                              <span className="text-muted-foreground"> · {project.name}</span>
-                            </span>
-                            <span className={`shrink-0 text-xs ${tone === "down" ? "text-destructive" : "text-warning"}`} title={health?.lastError ?? undefined}>
-                              {text}
-                            </span>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Rocket className="h-4 w-4" />
-                  {t("Recent deploys")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {deploys.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("No deploys yet.")}</p>
-                ) : (
-                  <ul className="divide-y">
-                    {deploys.map((project) => {
-                      const deploy = project.lastDeployment!;
-                      const failed = deploy.status === "FAILED";
-                      return (
-                        <li key={project.id}>
-                          <Link to={projectPath(project)} className="flex items-center gap-2 py-2 text-sm hover:text-primary">
-                            <span className="min-w-0 flex-1 truncate">
-                              <span className="font-medium">{project.name}</span>
-                              {deploy.commitMessage && <span className="text-muted-foreground"> · {deploy.commitMessage}</span>}
-                            </span>
-                            {failed && <span className="shrink-0 text-xs font-medium text-destructive">{t("Failed")}</span>}
-                            <span className="shrink-0 text-xs text-muted-foreground" title={new Date(deploy.createdAt).toLocaleString(locale)}>
-                              {ago(deploy.createdAt)}
-                            </span>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-
-            {renewals.length > 0 && (
-              <Card className="lg:col-span-2">
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Globe className="h-4 w-4" />
-                    {t("Domains to renew")}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="divide-y">
-                    {renewals.map((domain) => {
-                      const tone = expiryTone(new Date(domain.expiresAt!));
-                      return (
-                        <li key={domain.id}>
-                          <Link to={`/domains/${domain.id}`} className="flex items-center gap-2 py-2 text-sm hover:text-primary">
-                            <span className="min-w-0 flex-1 truncate font-medium">{domain.name}</span>
-                            <span className={`shrink-0 text-xs ${tone.className}`}>{tone.note}</span>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <div>
-            <Button variant="ghost" asChild>
-              <Link to="/apps">
-                {t("All apps")}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </>
+      {renewals.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Globe className="h-4 w-4" />
+              {t("Domains to renew")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y">
+              {renewals.map((domain) => {
+                const tone = expiryTone(new Date(domain.expiresAt!));
+                return (
+                  <li key={domain.id}>
+                    <Link to={`/domains/${domain.id}`} className="flex items-center gap-2 py-2 text-sm hover:text-primary">
+                      <span className="min-w-0 flex-1 truncate font-medium">{domain.name}</span>
+                      <span className={`shrink-0 text-xs ${tone.className}`}>{tone.note}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
       )}
+
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        query={query}
+        isLoading={isLoading}
+        searchPlaceholder={t("Search hostname, app or service…")}
+        filter={(row, search) => `${row.id} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
+        empty={t("No hostnames yet.")}
+        onRowClick={(row) => navigate(`/services/${row.service.id}`)}
+      />
     </PageLayout>
   );
 }

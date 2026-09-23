@@ -1,4 +1,4 @@
-import { Activity, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -48,7 +48,6 @@ export function AppSidebar() {
       items: [
         { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
         { title: t("Apps"), url: "/apps", icon: AppWindow },
-        { title: t("Monitor"), url: "/monitor", icon: Activity },
       ],
     },
     {
