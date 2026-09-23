@@ -82,13 +82,20 @@ app.use(cors({
   exposedHeaders: ['Content-Disposition'],
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
+// Rate limiting: only where guessing pays — signing in and redeeming an invite.
+// No limit on the API as a whole: the dashboard polls (project, health, source,
+// deploy progress) and a few open tabs ran past any per-IP cap, locking the
+// user out of sign-in too. Only failed attempts count, so signing in is never
+// blocked by having signed in before. JSON, like every other error the app reads.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many failed sign-in attempts — wait 15 minutes, then try again.' },
 });
-app.use(limiter);
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/accept-invite'], authLimiter);
 
 // Compression middleware
 app.use(compression());
