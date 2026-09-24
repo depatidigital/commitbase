@@ -81,4 +81,15 @@ export default {
   "Crash dumps": "Crash dump",
   "Old temp files": "File temp lama",
   "Files untouched for 7 days.": "File yang tidak diubah selama 7 hari.",
+
+  // translation pass 2026-09-24
+  "PM2 logs (outside the folder)": "Log PM2 (di luar folder)",
+  "Container images": "Image container",
+  "Container layers": "Layer container",
+  "Volumes (data)": "Volume (data)",
+  "Container logs": "Log container",
+  "Storage (all apps)": "Penyimpanan (semua aplikasi)",
+  "Disk {disk} · R2 {r2}": "Disk {disk} · R2 {r2}",
+  "Journal logs {size}": "Log journal {size}",
+  "Server storage": "Penyimpanan server",
 } satisfies Record<string, string>;

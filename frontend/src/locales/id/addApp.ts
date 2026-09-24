@@ -142,4 +142,7 @@ export default {
   "Starting deploy…": "Memulai deploy…",
   "Create & finish setup": "Buat & selesaikan pengaturan",
   "Could not start the deploy": "Gagal memulai deploy",
+  "Python service run as a service, in a virtualenv of its own.": "Layanan Python yang dijalankan sebagai service, dalam virtualenv sendiri.",
+  "Compose stack": "Stack compose",
+  "Containers the server brings up from the repository's compose file.": "Container yang dijalankan server dari file compose repositori.",
 } satisfies Record<string, string>;

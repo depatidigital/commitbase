@@ -94,4 +94,8 @@ export default {
   Type: "Tipe",
   Unassigned: "Belum ditetapkan",
   Unknown: "Tidak diketahui",
+  "Infrastructure": "Infrastruktur",
+  "Usage": "Pemakaian",
+  "New": "Baru",
+  "Language": "Bahasa",
 } satisfies Record<string, string>;

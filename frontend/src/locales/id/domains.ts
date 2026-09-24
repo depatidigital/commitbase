@@ -312,4 +312,11 @@ export default {
     "Kunci service account Google Cloud (JSON) dari project yang mengaktifkan Site Verification API dan Google Search Console API. Kunci disimpan terenkripsi.",
   "Google accounts given owner access to every domain added, so it shows in their Search Console.":
     "Akun Google yang diberi akses pemilik untuk setiap domain yang ditambahkan, agar muncul di Search Console mereka.",
+
+  // translation pass 2026-09-24
+  "Cloudflare active": "Cloudflare aktif",
+  "Cloudflare not active": "Cloudflare tidak aktif",
+  "Registered": "Terdaftar",
+  "Buy domain": "Beli domain",
+  "No domain expires within 30 days.": "Tidak ada domain yang kedaluwarsa dalam 30 hari.",
 } satisfies Record<string, string>;
