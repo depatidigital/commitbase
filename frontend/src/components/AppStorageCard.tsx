@@ -41,6 +41,8 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
     queryKey: ["app-disk", appId],
     queryFn: () => getAppDisk(appId),
     staleTime: 60_000,
+    // a folder that is gone is gone: said at once, not after three quiet retries — Refresh asks again
+    retry: false,
   });
 
   const cleanup = useMutation({
