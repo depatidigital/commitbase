@@ -2,7 +2,7 @@ import * as path from 'path';
 import { Application } from '@prisma/client';
 import { currentDirFor, inRootDirectory } from '../lib/appPaths';
 import { appFsFor, type AppFs } from '../lib/appFs';
-import { execOrg, type ExecResult, type SshTarget } from '../lib/runner';
+import { execOrg, execRoot, type ExecResult, type SshTarget } from '../lib/runner';
 import { envForFile, readEnv, readEnvFiles } from '../lib/appEnv';
 import { prisma } from '../lib/prisma';
 import { serverForApplication } from '../lib/servers';
@@ -391,3 +391,46 @@ export function readPsStatus(stdout: string): 'RUNNING' | 'STOPPED' {
 }
 
 export type { SshTarget };
+
+/** What a stack takes on its node, outside the app's folder: in the org user's Podman. */
+export type StackUsage = {
+  /** the images its containers run — built from the repository, or pulled (redis, solr…) */
+  imagesBytes: number;
+  /** each container's own writable layer: what it wrote outside its volumes */
+  containersBytes: number;
+  /** its named volumes: the stack's data (its database, its uploads) */
+  volumesBytes: number;
+};
+
+/**
+ * The stack's share of its org's Podman, found by its compose project label
+ * (projectName) — never another app's. Null when the stack never ran (no org,
+ * no UID). ponytail: an image two stacks of one org both use is counted in each
+ * — an upper bound, like the node cleanup's; per-layer accounting if it matters.
+ */
+export async function stackUsage(application: AppWithOrg): Promise<StackUsage | null> {
+  const slug = application.organization?.slug;
+  const uid = slug ? await uidOf(application).catch(() => null) : null;
+  if (!slug || !uid) return null;
+  const node = await serverForApplication(application.id);
+  const label = `label=com.docker.compose.project=${projectName(slug, application.id)}`;
+  const podman = async (args: string[]): Promise<any[]> =>
+    JSON.parse((await execOrg(node, slug, uid, ['podman', ...args], { timeout: 120_000 })).stdout || '[]') ?? [];
+
+  const [containers, volumes] = await Promise.all([
+    podman(['ps', '-a', '--size', '--filter', label, '--format', 'json']),
+    podman(['volume', 'ls', '--filter', label, '--format', 'json']),
+  ]);
+  const imageIds = [...new Set(containers.map((c) => String(c.ImageID ?? '')).filter(Boolean))];
+  const images = imageIds.length ? await podman(['image', 'inspect', '--format', 'json', ...imageIds]).catch(() => []) : [];
+  const mounts = volumes.map((v) => v.Mountpoint).filter((m): m is string => typeof m === 'string' && m.startsWith('/'));
+  // as root: a volume's files belong to the container's mapped uids, not the org user
+  const du = mounts.length ? await execRoot(node, ['du', '-scb', '--', ...mounts], { timeout: 300_000 }).catch(() => null) : null;
+
+  return {
+    imagesBytes: images.reduce((sum, image) => sum + (Number(image.Size) || 0), 0),
+    containersBytes: containers.reduce((sum, c) => sum + (Number(c.Size?.rwSize ?? c.Size?.RwSize) || 0), 0),
+    // the last line of du -c is the total
+    volumesBytes: Number(du?.stdout.trim().split('\n').pop()?.split('\t')[0]) || 0,
+  };
+}

@@ -5,6 +5,7 @@ import { exec, type SshTarget } from '../lib/runner';
 import { serverForApplication } from '../lib/servers';
 import { listSiteObjects } from './r2Service';
 import { removeAppTree } from './orgProvisionService';
+import { stackUsage, type StackUsage } from './composeService';
 import * as path from 'path';
 
 const join = path.posix.join;
@@ -29,6 +30,8 @@ export interface AppDisk {
   cacheBytes: number;
   logsBytes: number;
   sourcesBytes: number;
+  /** a compose app's stack in its org's Podman — images, containers, volumes; null for others, or before it ran */
+  stack: StackUsage | null;
   totalBytes: number;
   /** what cleaning up (without the cache) would give back */
   reclaimableBytes: number;
@@ -75,7 +78,7 @@ async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
 
 /** The disk use of the app's tree on its node. Null for a static site — its files are in R2. */
 export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES): Promise<AppDisk | null> {
-  const app = await prisma.application.findUnique({ where: { id: applicationId }, select: { type: true, runtime: true } });
+  const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { organization: { select: { slug: true } } } });
   if (!app || app.type === 'STATIC' || app.runtime) return null;
   const afs = await sourceFsFor(applicationId);
 
@@ -89,12 +92,16 @@ export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES):
   const cacheBytes = measured.get(cache) ?? 0;
   const logsBytes = measured.get(logs) ?? 0;
   const sourcesBytes = measured.get(sources) ?? 0;
+  // most of a compose app lives outside its folder: what its stack takes in Podman. A node that cannot say leaves it out
+  const stack = app.type === 'COMPOSE' ? await stackUsage(app).catch(() => null) : null;
+  const stackBytes = stack ? stack.imagesBytes + stack.containersBytes + stack.volumesBytes : 0;
   return {
     releases: rows,
     cacheBytes,
     logsBytes,
     sourcesBytes,
-    totalBytes: rows.reduce((sum, r) => sum + r.bytes, 0) + cacheBytes + logsBytes + sourcesBytes,
+    stack,
+    totalBytes: rows.reduce((sum, r) => sum + r.bytes, 0) + cacheBytes + logsBytes + sourcesBytes + stackBytes,
     reclaimableBytes: rows.filter((r) => r.state === 'unused').reduce((sum, r) => sum + r.bytes, 0),
   };
 }
