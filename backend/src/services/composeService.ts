@@ -156,6 +156,12 @@ const ENSURE_SOCKET =
   'S="/run/user/$(id -u)/podman/podman.sock"; ' +
   '[ -S "$S" ] || { systemctl --user reset-failed podman.socket podman.service >/dev/null 2>&1; systemctl --user start podman.socket >/dev/null 2>&1; }; ';
 
+/**
+ * A stack's first build can be long — CKAN-sized images compile wheels for most
+ * of an hour — so `up --build` gets its own, longer limit than other commands.
+ */
+const BUILD_TIMEOUT_MS = Number(process.env.COMPOSE_BUILD_TIMEOUT_MS || 120 * 60_000);
+
 async function run(application: AppWithOrg, args: string[], opts: RunOpts = {}): Promise<ExecResult> {
   const slug = slugOf(application);
   const [uid, node, afs] = await Promise.all([uidOf(application), serverForApplication(application.id), appFsFor(application.id)]);
@@ -248,7 +254,10 @@ export async function writeOverride(application: AppWithOrg, afs: AppFs, workDir
 
 /** Bring the stack up, building images that are built from the repository. */
 export async function startApplication(application: AppWithOrg, opts: { build?: boolean; onOutput?: (text: string) => void } = {}): Promise<boolean> {
-  await run(application, ['up', '-d', ...(opts.build === false ? [] : ['--build'])], opts.onOutput ? { onOutput: opts.onOutput } : {});
+  await run(application, ['up', '-d', ...(opts.build === false ? [] : ['--build'])], {
+    timeout: BUILD_TIMEOUT_MS,
+    ...(opts.onOutput && { onOutput: opts.onOutput }),
+  });
   return (await getStatus(application)) === 'RUNNING';
 }
 

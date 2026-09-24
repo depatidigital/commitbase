@@ -3,12 +3,9 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { currentRate, inObjectStorage, priceOf, RATES, type Use } from '../services/usageMeterService';
+import { backfillStorageDays, currentRate, heldBetween, priceOf, RATES, WIB_MS, wibDayStart, type Use } from '../services/usageMeterService';
 
 const router = Router();
-
-/** Days are Jakarta's (WIB, UTC+7): what a customer calls "today". */
-const WIB_MS = 7 * 3_600_000;
 
 /**
  * A workspace's metered use in one month and what it costs — pay for what you
@@ -44,49 +41,42 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
     const dayKey = (at: number) => new Date(at + WIB_MS).toISOString().slice(0, 10);
 
     const days = new Map<string, Use>();
-    // This month's storage is charged by the day from the 1st — or from when a service was made —
-    // on what each holds now, not only since the meter began; the meter's storage is left out
-    // then, or it would count twice. A past month keeps what the meter recorded.
-    const apps = running
-      ? await prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true, type: true, staticBucket: true } })
-      : [];
-    const heldGb = (list: typeof apps, from: number, to: number) =>
-      list.reduce((sum, app) => {
-        const since = Math.max(from, app.createdAt.getTime());
-        return sum + (to > since ? (Number(app.diskBytes ?? 0) / 1024 ** 3) * ((to - since) / 1000) : 0);
-      }, 0);
-    // its user's journal on each node (container logs, user services) is disk it holds — held since it was made
-    const [org, journal] = running
-      ? await Promise.all([
-          prisma.organization.findUnique({ where: { id: organizationId }, select: { createdAt: true } }),
-          prisma.orgNode.aggregate({ where: { organizationId }, _sum: { meterJournalBytes: true } }),
-        ])
-      : [null, null];
-    const journalGb = Number(journal?._sum.meterJournalBytes ?? 0) / 1024 ** 3;
-    const journalSince = Math.max(start.getTime(), org?.createdAt.getTime() ?? start.getTime());
-    if (running) {
-      for (let day = start.getTime(); day < now; day += 86_400_000) {
-        const to = Math.min(day + 86_400_000, now);
-        days.set(dayKey(day), {
-          cpuSeconds: 0,
-          memGbSeconds: 0,
-          storageGbSeconds:
-            heldGb(apps.filter((app) => !inObjectStorage(app)), day, to) + journalGb * (Math.max(0, to - Math.max(day, journalSince)) / 1000),
-          objectGbSeconds: heldGb(apps.filter(inObjectStorage), day, to),
-        });
-      }
+    // storage by the day, at what was held that day — read, or backfilled for days before metering began
+    await backfillStorageDays(organizationId);
+    const stored = await prisma.storageDay.findMany({ where: { organizationId, day: { gte: start, lt: end } } });
+    const GiB = 1024 ** 3;
+    const bill = (day: number, held: { diskBytes: number; journalBytes: number; objectBytes: number }) => {
+      // today: so far
+      const seconds = (Math.min(day + 86_400_000, now) - day) / 1000;
+      days.set(dayKey(day), {
+        cpuSeconds: 0,
+        memGbSeconds: 0,
+        storageGbSeconds: ((held.diskBytes + held.journalBytes) / GiB) * seconds,
+        objectGbSeconds: (held.objectBytes / GiB) * seconds,
+      });
+    };
+    for (const row of stored) {
+      bill(row.day.getTime(), { diskBytes: Number(row.diskBytes), journalBytes: Number(row.journalBytes), objectBytes: Number(row.objectBytes) });
+    }
+    // today before the meter's first reading of it: the sizes known now
+    const today = wibDayStart(now);
+    if (running && !days.has(dayKey(today))) {
+      const [apps, org, journal] = await Promise.all([
+        prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true, type: true, staticBucket: true } }),
+        prisma.organization.findUnique({ where: { id: organizationId }, select: { createdAt: true } }),
+        prisma.orgNode.aggregate({ where: { organizationId }, _sum: { meterJournalBytes: true } }),
+      ]);
+      const held = heldBetween(apps, { bytes: Number(journal._sum.meterJournalBytes ?? 0), since: org?.createdAt ?? new Date(today) }, today, now);
+      if (apps.length) bill(today, held);
     }
     for (const row of hours) {
-      const day = new Date(row.hour.getTime() + WIB_MS).toISOString().slice(0, 10);
+      const day = dayKey(row.hour.getTime());
       const sum = days.get(day) ?? { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 0 };
-      days.set(day, {
-        cpuSeconds: sum.cpuSeconds + row.cpuSeconds,
-        memGbSeconds: sum.memGbSeconds + row.memGbSeconds,
-        storageGbSeconds: sum.storageGbSeconds + (running ? 0 : row.storageGbSeconds),
-        objectGbSeconds: (sum.objectGbSeconds ?? 0) + (running ? 0 : row.objectGbSeconds),
-      });
+      days.set(day, { ...sum, cpuSeconds: sum.cpuSeconds + row.cpuSeconds, memGbSeconds: sum.memGbSeconds + row.memGbSeconds });
     }
-    const total = [...days.values()].reduce(
+    // in date order, for the chart
+    const sorted = new Map([...days.entries()].sort(([a], [b]) => a.localeCompare(b)));
+    const total = [...sorted.values()].reduce(
       (acc, d) => ({
         cpuSeconds: acc.cpuSeconds + d.cpuSeconds,
         memGbSeconds: acc.memGbSeconds + d.memGbSeconds,
@@ -117,7 +107,7 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
         /** what it holds now and costs per hour — the estimate's pace */
         rate,
         monthDays,
-        days: [...days.entries()].map(([date, use]) => ({ date, cost: priceOf(use, monthDays).total })),
+        days: [...sorted.entries()].map(([date, use]) => ({ date, cost: priceOf(use, monthDays).total })),
       },
     } as ApiResponse);
   } catch (error) {

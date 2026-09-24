@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { restoreDatabaseSnapshot } from "@/lib/databases";
-import { History, CheckCircle, XCircle, AlertCircle, Loader2, RotateCcw, Square, Undo2 } from "lucide-react";
+import { History, CheckCircle, XCircle, AlertCircle, Copy, Loader2, RotateCcw, Square, Undo2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,7 +22,7 @@ import { Application, getLiveBuildLog, type Release } from "@/lib/applications";
 import type { Deployment } from "@/lib/deployments";
 import { useDeploymentHistory, useReleases, useRestoreRelease } from "@/hooks/useDeployments";
 import { locale, t } from "@/lib/i18n";
-import { parseAnsi } from "@/lib/ansi";
+import { parseAnsi, stripAnsi } from "@/lib/ansi";
 
 /** Build output keeps the tools' terminal colors; draw them instead of printing the escapes. */
 const AnsiText = ({ text }: { text: string }) => (
@@ -515,6 +515,8 @@ function DeployLogPane({
   });
   const text = onDisk ? live ?? "" : [deployment.deployLogs, deployment.buildLogs].filter((part) => part?.trim()).join("\n\n");
 
+  const { toast } = useToast();
+
   // following a running one: pinned to the newest line as it prints
   const box = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -528,12 +530,28 @@ function DeployLogPane({
         <span className="font-medium text-foreground">{deploymentStatusLabel(deployment.status)}</span>
         {deployment.commitHash && <span className="font-mono">{deployment.commitHash.slice(0, 7)}</span>}
         <span>{running ? t("In progress...") : formatDuration(deployment.createdAt, deployment.updatedAt)}</span>
-        {running && onCancel && (
-          <Button variant="ghost" size="sm" className="ml-auto h-7 text-destructive hover:text-destructive" disabled={cancelling} onClick={onCancel}>
-            <Square className="mr-1.5 h-3.5 w-3.5" />
-            {t("Cancel deploy")}
+        <div className="ml-auto flex items-center gap-1">
+          {running && onCancel && (
+            <Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={cancelling} onClick={onCancel}>
+              <Square className="mr-1.5 h-3.5 w-3.5" />
+              {t("Cancel deploy")}
+            </Button>
+          )}
+          {/* the log as plain text — to paste into an issue or a chat */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7"
+            disabled={!text}
+            onClick={() => {
+              void navigator.clipboard.writeText(stripAnsi(text));
+              toast({ title: t("Copied"), description: t("Text copied to clipboard") });
+            }}
+          >
+            <Copy className="mr-1.5 h-3.5 w-3.5" />
+            {t("Copy log")}
           </Button>
-        )}
+        </div>
       </div>
       {/* the databases as they were before this deploy's migrations — once it is done */}
       {!running && !!deployment.snapshots?.length && <SnapshotRestore snapshots={deployment.snapshots} />}

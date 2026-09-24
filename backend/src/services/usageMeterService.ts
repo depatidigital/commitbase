@@ -13,8 +13,21 @@ import { ORG_SLUG_RE } from '../lib/appPaths';
  */
 
 const GiB = 1024 ** 3;
-/** a gap longer than this (the backend was down) is not billed as if memory was held throughout */
+/** the meter's own rhythm, with room: a reading older than this is a gap */
 const MAX_INTERVAL_S = 15 * 60;
+/**
+ * A gap (the backend was down) is billed at the lower of the readings either
+ * side of it — never more than was held at both ends — for up to this long;
+ * past it nothing is known about the memory, so nothing more is billed.
+ */
+const MAX_GAP_FILL_S = 6 * 3600;
+
+/** Days are Jakarta's (WIB, UTC+7): what a customer calls "today". */
+export const WIB_MS = 7 * 3_600_000;
+const DAY_MS = 86_400_000;
+/** 00:00 WIB of the day `at` falls in, as a UTC instant. */
+export const wibDayStart = (at: number) => Math.floor((at + WIB_MS) / DAY_MS) * DAY_MS - WIB_MS;
+const hourOf = (at: Date) => new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000);
 
 /**
  * CPU and memory per hour (Rp 30k per vCPU-month, Rp 80k per GB-month, over
@@ -78,19 +91,70 @@ export function parseMeter(stdout: string): Map<string, Reading> {
 }
 
 /**
- * What was used since the last reading. Pure. The counter restarts from zero
- * when the slice does (a reboot, a re-provision): then all of it is new.
+ * What was used since the last reading. Pure.
+ *
+ * CPU is the kernel's counter, so a gap loses nothing: it all shows in the
+ * delta — spread over the gap's whole span. The counter restarts from zero when
+ * the slice does (a reboot, a re-provision): then all of it is new.
+ *
+ * Memory is only ever a reading. A normal interval bills this one for its
+ * length; a gap bills the lower of the two readings, up to MAX_GAP_FILL_S —
+ * the last part of the gap, the hours nearest what was read.
+ *
  * No previous reading: nothing yet — the next one has a delta.
  */
 export function usageSince(
-  prev: { cpuUsec: bigint | null; at: Date | null },
+  prev: { cpuUsec: bigint | null; memBytes: bigint | null; at: Date | null },
   now: Reading,
   at: Date,
-): { cpuSeconds: number; memGbSeconds: number; seconds: number } | null {
+): { cpuSeconds: number; cpuFrom: Date; memGbSeconds: number; memFrom: Date } | null {
   if (prev.cpuUsec === null || !prev.at) return null;
-  const seconds = Math.min(MAX_INTERVAL_S, Math.max(0, (at.getTime() - prev.at.getTime()) / 1000));
+  const gap = Math.max(0, (at.getTime() - prev.at.getTime()) / 1000);
   const cpuUsec = now.cpuUsec >= prev.cpuUsec ? now.cpuUsec - prev.cpuUsec : now.cpuUsec;
-  return { cpuSeconds: Number(cpuUsec) / 1e6, memGbSeconds: (now.memBytes / GiB) * seconds, seconds };
+  const gapped = gap > MAX_INTERVAL_S;
+  const memSeconds = gapped ? Math.min(gap, MAX_GAP_FILL_S) : gap;
+  const memBytes = gapped ? Math.min(now.memBytes, Number(prev.memBytes ?? now.memBytes)) : now.memBytes;
+  return {
+    cpuSeconds: Number(cpuUsec) / 1e6,
+    cpuFrom: prev.at,
+    memGbSeconds: (memBytes / GiB) * memSeconds,
+    memFrom: new Date(at.getTime() - memSeconds * 1000),
+  };
+}
+
+/** Each hour [from, to) touches, with its share of the span. Pure. */
+export function spreadHours(from: Date, to: Date): Array<{ hour: Date; share: number }> {
+  const span = to.getTime() - from.getTime();
+  if (span <= 0) return [{ hour: hourOf(to), share: 1 }];
+  const out: Array<{ hour: Date; share: number }> = [];
+  for (let h = hourOf(from).getTime(); h < to.getTime(); h += 3_600_000) {
+    const overlap = Math.min(h + 3_600_000, to.getTime()) - Math.max(h, from.getTime());
+    if (overlap > 0) out.push({ hour: new Date(h), share: overlap / span });
+  }
+  return out;
+}
+
+export type Held = { diskBytes: number; journalBytes: number; objectBytes: number };
+
+/**
+ * What a workspace held on average over [from, to), from the sizes known now: a
+ * service counts from when it was made. Pure. For a day nothing was read on —
+ * before metering began, or a gap.
+ */
+export function heldBetween(
+  apps: Array<{ createdAt: Date; diskBytes: bigint | number | null; type: string; staticBucket: string | null }>,
+  journal: { bytes: number; since: Date },
+  from: number,
+  to: number,
+): Held {
+  const share = (since: number) => (to > from ? Math.max(0, to - Math.max(from, since)) / (to - from) : 0);
+  const held: Held = { diskBytes: 0, journalBytes: journal.bytes * share(journal.since.getTime()), objectBytes: 0 };
+  for (const app of apps) {
+    const bytes = Number(app.diskBytes ?? 0) * share(app.createdAt.getTime());
+    if (inObjectStorage(app)) held.objectBytes += bytes;
+    else held.diskBytes += bytes;
+  }
+  return held;
 }
 
 export type Use = { cpuSeconds: number; memGbSeconds: number; storageGbSeconds: number; objectGbSeconds?: number };
@@ -128,9 +192,7 @@ export async function currentRate(organizationId: string, monthDays = AVG_MONTH_
   return { storageGb, objectGb, journalGb, memGb, cpuCores, perHour: perHour.total };
 }
 
-const hourOf = (at: Date) => new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000);
-
-/** The cron's run: read every provisioned workspace on every node, add what was used to this hour's rows. */
+/** The cron's run: read every provisioned workspace on every node, add what was used to its hours' rows, and today's storage. */
 export async function meterUsage(): Promise<string> {
   const nodes = await prisma.orgNode.findMany({
     where: { state: 'DONE' },
@@ -140,8 +202,19 @@ export async function meterUsage(): Promise<string> {
   for (const node of nodes) byServer.set(node.serverId, [...(byServer.get(node.serverId) ?? []), node]);
 
   const at = new Date();
-  const hour = hourOf(at);
-  const added = new Map<string, { cpuSeconds: number; memGbSeconds: number; seconds: number }>();
+  // per workspace, per hour: what the readings add — a gap's CPU spread over its hours
+  const added = new Map<string, Map<number, { cpuSeconds: number; memGbSeconds: number }>>();
+  const add = (organizationId: string, from: Date, field: 'cpuSeconds' | 'memGbSeconds', amount: number) => {
+    const hours = added.get(organizationId) ?? new Map<number, { cpuSeconds: number; memGbSeconds: number }>();
+    for (const { hour, share } of spreadHours(from, at)) {
+      const sum = hours.get(hour.getTime()) ?? { cpuSeconds: 0, memGbSeconds: 0 };
+      sum[field] += amount * share;
+      hours.set(hour.getTime(), sum);
+    }
+    added.set(organizationId, hours);
+  };
+  // each workspace read on at least one node, with its journal summed over them
+  const journalOf = new Map<string, number>();
   let failed = 0;
 
   for (const group of byServer.values()) {
@@ -158,52 +231,89 @@ export async function meterUsage(): Promise<string> {
     for (const node of group) {
       const now = readings.get(node.organizationId);
       if (!now) continue;
-      const use = usageSince({ cpuUsec: node.meterCpuUsec, at: node.meterAt }, now, at);
+      journalOf.set(node.organizationId, (journalOf.get(node.organizationId) ?? 0) + now.journalBytes);
+      const use = usageSince({ cpuUsec: node.meterCpuUsec, memBytes: node.meterMemBytes, at: node.meterAt }, now, at);
       await prisma.orgNode.update({ where: { id: node.id }, data: { meterCpuUsec: now.cpuUsec, meterMemBytes: BigInt(now.memBytes), meterJournalBytes: BigInt(now.journalBytes), meterAt: at } });
       if (!use) continue;
-      const sum = added.get(node.organizationId) ?? { cpuSeconds: 0, memGbSeconds: 0, seconds: 0 };
-      added.set(node.organizationId, {
-        cpuSeconds: sum.cpuSeconds + use.cpuSeconds,
-        memGbSeconds: sum.memGbSeconds + use.memGbSeconds,
-        // storage is the workspace's, not a node's: held for the longest interval seen
-        seconds: Math.max(sum.seconds, use.seconds),
+      add(node.organizationId, use.cpuFrom, 'cpuSeconds', use.cpuSeconds);
+      add(node.organizationId, use.memFrom, 'memGbSeconds', use.memGbSeconds);
+    }
+  }
+
+  for (const [organizationId, hours] of added) {
+    for (const [hour, use] of hours) {
+      await prisma.usageHour.upsert({
+        where: { organizationId_hour: { organizationId, hour: new Date(hour) } },
+        create: { organizationId, hour: new Date(hour), ...use },
+        update: { cpuSeconds: { increment: use.cpuSeconds }, memGbSeconds: { increment: use.memGbSeconds } },
       });
     }
   }
 
-  // what it stores: its services' measured size — on disk (folders, stacks) and in R2 (static sites), apart
+  // what it stores today — its services' measured sizes (on disk, in R2) and its journal — kept at the day's largest
   const stored = await prisma.application.findMany({
-    where: { organizationId: { in: [...added.keys()] } },
+    where: { organizationId: { in: [...journalOf.keys()] } },
     select: { organizationId: true, type: true, staticBucket: true, diskBytes: true },
   });
-  const storageOf = new Map<string, { disk: number; object: number }>();
-  // its journal on each node is disk it holds too
-  for (const node of nodes) {
-    const sum = storageOf.get(node.organizationId) ?? { disk: 0, object: 0 };
-    sum.disk += Number(node.meterJournalBytes ?? 0);
-    storageOf.set(node.organizationId, sum);
-  }
-  for (const app of stored) {
-    const sum = storageOf.get(app.organizationId!) ?? { disk: 0, object: 0 };
-    if (inObjectStorage(app)) sum.object += Number(app.diskBytes ?? 0);
-    else sum.disk += Number(app.diskBytes ?? 0);
-    storageOf.set(app.organizationId!, sum);
-  }
-
-  for (const [organizationId, use] of added) {
-    const held = storageOf.get(organizationId) ?? { disk: 0, object: 0 };
-    const storageGbSeconds = (held.disk / GiB) * use.seconds;
-    const objectGbSeconds = (held.object / GiB) * use.seconds;
-    await prisma.usageHour.upsert({
-      where: { organizationId_hour: { organizationId, hour } },
-      create: { organizationId, hour, cpuSeconds: use.cpuSeconds, memGbSeconds: use.memGbSeconds, storageGbSeconds, objectGbSeconds },
-      update: {
-        cpuSeconds: { increment: use.cpuSeconds },
-        memGbSeconds: { increment: use.memGbSeconds },
-        storageGbSeconds: { increment: storageGbSeconds },
-        objectGbSeconds: { increment: objectGbSeconds },
-      },
-    });
+  const day = new Date(wibDayStart(at.getTime()));
+  for (const [organizationId, journalBytes] of journalOf) {
+    let diskBytes = 0;
+    let objectBytes = 0;
+    for (const app of stored) {
+      if (app.organizationId !== organizationId) continue;
+      if (inObjectStorage(app)) objectBytes += Number(app.diskBytes ?? 0);
+      else diskBytes += Number(app.diskBytes ?? 0);
+    }
+    await prisma.$executeRaw`
+      INSERT INTO "storage_days" ("organizationId", "day", "diskBytes", "journalBytes", "objectBytes", "backfilled")
+      VALUES (${organizationId}, ${day}, ${BigInt(diskBytes)}, ${BigInt(journalBytes)}, ${BigInt(objectBytes)}, false)
+      ON CONFLICT ("organizationId", "day") DO UPDATE SET
+        "diskBytes" = GREATEST("storage_days"."diskBytes", EXCLUDED."diskBytes"),
+        "journalBytes" = GREATEST("storage_days"."journalBytes", EXCLUDED."journalBytes"),
+        "objectBytes" = GREATEST("storage_days"."objectBytes", EXCLUDED."objectBytes"),
+        "backfilled" = false`;
   }
   return `${added.size} workspace(s) metered on ${byServer.size - failed}/${byServer.size} node(s)`;
+}
+
+/**
+ * Every day a workspace had services but nothing was read — before metering
+ * began, or a gap — written from the sizes known now, each service from the
+ * moment it was made. Up to yesterday: today is the meter's. Written once, so a
+ * past day's bill does not move with later growth or cleanups.
+ */
+export async function backfillStorageDays(organizationId?: string): Promise<string> {
+  const orgs = await prisma.organization.findMany({
+    where: organizationId ? { id: organizationId } : {},
+    select: {
+      id: true,
+      createdAt: true,
+      applications: { select: { createdAt: true, diskBytes: true, type: true, staticBucket: true } },
+      nodes: { select: { meterJournalBytes: true } },
+      storageDays: { select: { day: true } },
+    },
+  });
+  const today = wibDayStart(Date.now());
+  let written = 0;
+  for (const org of orgs) {
+    if (!org.applications.length) continue;
+    const have = new Set(org.storageDays.map((row) => row.day.getTime()));
+    const journal = { bytes: org.nodes.reduce((sum, node) => sum + Number(node.meterJournalBytes ?? 0), 0), since: org.createdAt };
+    const first = wibDayStart(Math.min(...org.applications.map((app) => app.createdAt.getTime())));
+    const rows = [];
+    for (let day = first; day < today; day += DAY_MS) {
+      if (have.has(day)) continue;
+      const held = heldBetween(org.applications, journal, day, day + DAY_MS);
+      rows.push({
+        organizationId: org.id,
+        day: new Date(day),
+        diskBytes: BigInt(Math.round(held.diskBytes)),
+        journalBytes: BigInt(Math.round(held.journalBytes)),
+        objectBytes: BigInt(Math.round(held.objectBytes)),
+        backfilled: true,
+      });
+    }
+    if (rows.length) written += (await prisma.storageDay.createMany({ data: rows, skipDuplicates: true })).count;
+  }
+  return `${written} storage day(s) backfilled`;
 }

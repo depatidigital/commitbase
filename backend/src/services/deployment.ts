@@ -1024,7 +1024,11 @@ export class DeploymentService {
       await deployLog(`[${new Date().toISOString()}] DEPLOYMENT ${started ? 'COMPLETED' : 'FAILED'}`);
       return started;
     } catch (error: any) {
-      const message = error?.stderr || error?.message || String(error);
+      // a timeout is said first: the output alone just stops, and reads like a crash
+      const timedOut = /timed out after/i.test(error?.message ?? '');
+      const message = timedOut
+        ? `${error.message}. The command was stopped — it did not fail by itself.` + (error?.stderr ? NL + error.stderr : '')
+        : error?.stderr || error?.message || String(error);
       await deployLog(`[${new Date().toISOString()}] DEPLOYMENT FAILED:` + NL + message);
       return false;
     }

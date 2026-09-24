@@ -73,6 +73,7 @@ model Organization {
   nodes            OrgNode[]
   sources          Source[]
   usage            UsageHour[]
+  storageDays      StorageDay[]
 
   @@index([defaultServerId])
   @@map("organizations")
@@ -1004,4 +1005,24 @@ model UsageHour {
 
   @@id([organizationId, hour])
   @@map("usage_hours")
+}
+
+/// What a workspace stored on one day (a WIB day), so growth and cleanups are
+/// billed on the day they happened, and a deleted service still pays for its days.
+model StorageDay {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// the day's start: 00:00 WIB, as a UTC instant
+  day            DateTime
+  /// its services on the nodes' disks: bytes — the day's largest reading; backfilled, the day's average
+  diskBytes      BigInt       @default(0)
+  /// its user's journal on the nodes (container logs, user services): bytes, disk too
+  journalBytes   BigInt       @default(0)
+  /// in R2 (static sites): bytes
+  objectBytes    BigInt       @default(0)
+  /// written from later sizes for a day nothing was read (before metering began, a gap)
+  backfilled     Boolean      @default(false)
+
+  @@id([organizationId, day])
+  @@map("storage_days")
 }

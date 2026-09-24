@@ -10,7 +10,7 @@ import { checkAllDatabaseServers } from './databaseServerService';
 import { provisionQueuedOrgs } from './orgProvisionService';
 import { setupQueuedServers } from './serverSetupService';
 import { measureAllAppDisks } from './appDiskService';
-import { meterUsage } from './usageMeterService';
+import { backfillStorageDays, meterUsage } from './usageMeterService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -137,6 +137,12 @@ const jobs: Job[] = [
     // CPU and memory each workspace used since the last reading — pay for what you use
     schedule: process.env.CRON_USAGE_METER || '*/5 * * * *',
     run: meterUsage,
+  },
+  {
+    name: 'storage-days',
+    // a past day nothing was read on gets its storage from the sizes known now, once — then it stays
+    schedule: process.env.CRON_STORAGE_DAYS || '7 * * * *',
+    run: () => backfillStorageDays(),
   },
   {
     name: 'app-disk',
