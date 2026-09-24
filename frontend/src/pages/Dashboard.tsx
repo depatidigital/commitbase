@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CircleDashed, Globe, HardDrive, Loader2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Globe, HardDrive, Loader2, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -16,6 +17,7 @@ import { getProjects, type Project } from "@/lib/projects";
 import { getUsage } from "@/lib/billing";
 import { formatBytes } from "@/lib/utils";
 import { DiskBar } from "@/components/DiskBar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const TONE_TEXT: Record<Tone, string> = {
   up: "text-success",
@@ -51,7 +53,9 @@ function Tile({ label, value, icon: Icon, tone = "", hint }: { label: string; va
  */
 export default function Dashboard() {
   const navigate = useNavigate();
-  const query = useTableQuery(25);
+  // every hostname in one scrolling list — no pages
+  // ponytail: all rows rendered; virtualize if a workspace reaches thousands of hostnames
+  const query = useTableQuery(10_000);
   const superAdmin = isSuperAdmin();
 
   // every hostname of the workspace, each with its own checks — on the rhythm they are written
@@ -97,36 +101,69 @@ export default function Dashboard() {
     .sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
   const count = (test: (row: Row) => boolean) => rows.filter(test).length;
 
+  // the counts are the monitor's filters: a click narrows it, a second click lets go
+  const FILTERS = {
+    up: { label: t("Online"), test: (row: Row) => row.tone === "up", tone: "text-success", icon: CheckCircle2 },
+    attention: { label: t("Need attention"), test: (row: Row) => row.tone === "down" || row.tone === "warn", tone: "text-destructive", icon: AlertTriangle },
+  };
+  const [filter, setFilter] = useState<keyof typeof FILTERS | null>(null);
+  const shown = filter ? rows.filter(FILTERS[filter].test) : rows;
+  const chips = (
+    <div className="flex shrink-0 gap-2">
+      {(Object.keys(FILTERS) as Array<keyof typeof FILTERS>).map((key) => {
+        const { label, test, tone, icon: Icon } = FILTERS[key];
+        const n = count(test);
+        const on = filter === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={on}
+            onClick={() => setFilter(on ? null : key)}
+            className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors ${
+              on ? "border-primary bg-primary/10" : "bg-card hover:bg-muted"
+            }`}
+          >
+            <Icon className={`h-4 w-4 ${n ? tone : "text-muted-foreground"}`} />
+            {label}
+            <span className={`font-semibold ${n ? tone : "text-muted-foreground"}`}>{n}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const columns: Column<Row>[] = [
     {
       header: t("Host"),
       className: "w-[34%]",
-      cell: ({ host, path, app, service }) => (
-        <div className="min-w-0">
-          <span className="block truncate font-medium">
-            {host}
-            {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
-          </span>
-          <span className="block truncate text-xs text-muted-foreground">{app ? `${app.name} · ${service.name}` : service.name}</span>
-        </div>
+      cell: ({ host, path }) => (
+        <span className="block truncate font-medium">
+          {host}
+          {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
+        </span>
       ),
     },
     {
       header: t("Status"),
-      className: "w-40",
-      cell: ({ text, tone, health }) => (
-        <div className="min-w-0">
-          <span className={`flex items-center gap-1.5 text-sm font-medium ${TONE_TEXT[tone]}`}>
-            {tone === "deploying" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-current" />}
-            {text}
-          </span>
-          {health?.state !== "up" && health?.lastError && (
-            <span className="block truncate text-xs text-destructive" title={health.lastError}>
-              {health.lastError}
-            </span>
-          )}
-        </div>
-      ),
+      className: "w-20",
+      // the dot alone; its words (and the last error) on hover
+      cell: ({ text, tone, health }) => {
+        const reason = health?.state !== "up" ? health?.lastError : null;
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={`flex h-5 w-5 items-center justify-center ${TONE_TEXT[tone]}`} aria-label={reason ? `${text} — ${reason}` : text}>
+                {tone === "deploying" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2.5 w-2.5 rounded-full bg-current" />}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className={`font-medium ${TONE_TEXT[tone]}`}>{text}</p>
+              {reason && <p className="text-xs text-muted-foreground">{reason}</p>}
+            </TooltipContent>
+          </Tooltip>
+        );
+      },
     },
     {
       header: t("Last 30 checks"),
@@ -153,28 +190,14 @@ export default function Dashboard() {
 
   return (
     <PageLayout title={t("Dashboard")} description={t("Uptime of every hostname, checked every minute.")}>
-      <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
-        <Tile label={t("Online")} value={count((row) => row.tone === "up")} icon={CheckCircle2} tone="text-success" />
-        <Tile label={t("Need attention")} value={count((row) => row.tone === "down" || row.tone === "warn")} icon={AlertTriangle} tone="text-destructive" />
-        <Tile label={t("Not monitored")} value={count((row) => row.tone === "muted")} icon={CircleDashed} />
-        <Tile
-          label={t("Storage (all apps)")}
-          value={byDisk ? formatBytes(appsBytes + journalBytes, locale) : "—"}
-          icon={HardDrive}
-          hint={
-            t("Disk {disk} · R2 {r2}", { disk: formatBytes(appsBytes - r2Bytes, locale), r2: formatBytes(r2Bytes, locale) }) +
-            (journalBytes > 0 ? ` · ${t("Journal logs {size}", { size: formatBytes(journalBytes, locale) })}` : "")
-          }
-        />
-        {superAdmin && <Tile label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
-      </div>
 
-      {/* bento: the monitor wide — it matters most — domains and servers beside it */}
+      {/* bento: the monitor wide and first — it matters most; counts, domains and servers beside it */}
       <div className="grid items-start gap-4 lg:grid-cols-3">
       <div className="min-w-0 lg:col-span-2">
         <DataTable
           columns={columns}
-          rows={rows}
+          rows={shown}
+          toolbar={chips}
           rowKey={(row) => row.id}
           query={query}
           isLoading={isLoading}
@@ -182,9 +205,26 @@ export default function Dashboard() {
           filter={(row, search) => `${row.id} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
           empty={t("No hostnames yet.")}
           onRowClick={(row) => navigate(`/services/${row.service.id}`)}
+          // the rows scroll under a sticky header; the page stays one screen
+          bodyClassName="max-h-[60vh]"
+          sizePicker={false}
+          showCount={false}
         />
       </div>
       <div className="space-y-4">
+      {/* the counts on top of the side column */}
+        <div className={`grid gap-4 ${superAdmin ? "grid-cols-2" : ""}`}>
+          <Tile
+            label={t("Storage (all apps)")}
+            value={byDisk ? formatBytes(appsBytes + journalBytes, locale) : "—"}
+            icon={HardDrive}
+            hint={
+              t("Disk {disk} · R2 {r2}", { disk: formatBytes(appsBytes - r2Bytes, locale), r2: formatBytes(r2Bytes, locale) }) +
+              (journalBytes > 0 ? ` · ${t("Journal logs {size}", { size: formatBytes(journalBytes, locale) })}` : "")
+            }
+          />
+          {superAdmin && <Tile label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
+        </div>
       {/* the count and its list in one card */}
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">

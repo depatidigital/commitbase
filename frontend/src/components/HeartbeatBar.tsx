@@ -22,9 +22,9 @@ export const HeartbeatBar = ({
   const padding = Math.max(0, bars - beats.length);
 
   return (
-    <div className="flex h-6 items-end gap-[2px]" aria-hidden={!health}>
+    <div className="flex h-4 items-end gap-[2px]" aria-hidden={!health}>
       {Array.from({ length: padding }).map((_, i) => (
-        <span key={`pad-${i}`} className="h-3 w-[3px] rounded-sm bg-muted" />
+        <span key={`pad-${i}`} className="h-2 w-[3px] rounded-sm bg-muted" />
       ))}
       {beats.map((beat, i) => (
         <span
@@ -33,7 +33,7 @@ export const HeartbeatBar = ({
             beat.ok ? t("up") : beat.error || t("down")
           }${beat.responseMs ? ` · ${beat.responseMs}ms` : ""}`}
           className={`w-[3px] rounded-sm ${
-            beat.ok ? "h-5 bg-success" : "h-6 bg-destructive"
+            beat.ok ? "h-3 bg-success" : "h-4 bg-destructive"
           }`}
         />
       ))}

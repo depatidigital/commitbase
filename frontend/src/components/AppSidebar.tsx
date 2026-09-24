@@ -1,8 +1,11 @@
 import { Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { API_BASE_URL } from "@/lib/api";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -158,6 +161,31 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
+      <SidebarFooter>
+        <PlatformStatus collapsed={collapsed} />
+      </SidebarFooter>
     </Sidebar>
+  );
+}
+
+/** Is the panel's API answering? A real signal, not a decorative always-green pill. */
+function PlatformStatus({ collapsed }: { collapsed: boolean }) {
+  const { data: healthy } = useQuery({
+    queryKey: ["platform-health"],
+    queryFn: async () => {
+      const base = (API_BASE_URL || "").replace(/\/api\/?$/, "");
+      const res = await fetch(`${base}/health`);
+      return res.ok;
+    },
+    refetchInterval: 30000,
+    retry: false,
+  });
+  const down = healthy === false;
+  const label = down ? t("Platform Unreachable") : t("Platform Online");
+  return (
+    <div className={`flex items-center gap-2 px-2 py-1.5 text-xs font-medium ${down ? "text-destructive" : "text-success"}`} title={label}>
+      <span className={`h-2 w-2 shrink-0 rounded-full ${down ? "bg-destructive" : "bg-success animate-pulse"}`} />
+      {!collapsed && label}
+    </div>
   );
 }

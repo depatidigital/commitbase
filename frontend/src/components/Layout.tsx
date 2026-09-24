@@ -1,5 +1,4 @@
 import { Outlet } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { Breadcrumbs } from "./Breadcrumbs";
@@ -13,7 +12,6 @@ import { Link } from "react-router-dom";
 import { Settings, LogOut, ChevronDown, Check, Languages } from "lucide-react";
 
 import { useLogout } from "@/hooks/useAuth";
-import { API_BASE_URL } from "@/lib/api";
 import { lang, setLang, t } from "@/lib/i18n";
 // Floating toggle that sits on the sidebar/content divider, above everything.
 function EdgeSidebarTrigger() {
@@ -31,17 +29,6 @@ function EdgeSidebarTrigger() {
 export function Layout() {
   const logoutMutation = useLogout();
 
-  // real health signal instead of a decorative always-green pill
-  const { data: healthy } = useQuery({
-    queryKey: ["platform-health"],
-    queryFn: async () => {
-      const base = (API_BASE_URL || "").replace(/\/api\/?$/, "");
-      const res = await fetch(`${base}/health`);
-      return res.ok;
-    },
-    refetchInterval: 30000,
-    retry: false,
-  });
   const currentUser = getCurrentUser();
   const handleLogout = () => {
     logoutMutation.mutate();
@@ -68,26 +55,7 @@ export function Layout() {
             <div className="pl-4 md:pl-6">
               <Breadcrumbs />
             </div>
-            <div
-              className={`flex items-center space-x-1 px-2 py-1 rounded-full border ml-auto mr-4 ${
-                healthy === false
-                  ? "bg-destructive/10 border-destructive/20"
-                  : "bg-success/10 border-success/20"
-              }`}
-            >
-              <div
-                className={`h-2 w-2 rounded-full ${
-                  healthy === false ? "bg-destructive" : "bg-success animate-pulse"
-                }`}
-              />
-              <span
-                className={`text-xs font-medium ${
-                  healthy === false ? "text-destructive" : "text-success"
-                }`}
-              >
-                {healthy === false ? t("Platform Unreachable") : t("Platform Online")}
-              </span>
-            </div>
+            <div className="ml-auto" />
 
             {/* User Dropdown */}
             {currentUser ? (
