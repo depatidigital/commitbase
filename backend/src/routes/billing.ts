@@ -38,15 +38,35 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
       where: { organizationId, hour: { gte: start, lt: end } },
       orderBy: { hour: 'asc' },
     });
+    const monthDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    const now = Date.now();
+    const running = now >= start.getTime() && now < end.getTime();
+    const dayKey = (at: number) => new Date(at + WIB_MS).toISOString().slice(0, 10);
 
     const days = new Map<string, { cpuSeconds: number; memGbSeconds: number; storageGbSeconds: number }>();
+    // This month's storage is charged by the day from the 1st — or from when a service was made —
+    // on what each holds now, not only since the meter began; the meter's storage is left out
+    // then, or it would count twice. A past month keeps what the meter recorded.
+    const apps = running
+      ? await prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true } })
+      : [];
+    const heldGb = (from: number, to: number) =>
+      apps.reduce((sum, app) => {
+        const since = Math.max(from, app.createdAt.getTime());
+        return sum + (to > since ? (Number(app.diskBytes ?? 0) / 1024 ** 3) * ((to - since) / 1000) : 0);
+      }, 0);
+    if (running) {
+      for (let day = start.getTime(); day < now; day += 86_400_000) {
+        days.set(dayKey(day), { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: heldGb(day, Math.min(day + 86_400_000, now)) });
+      }
+    }
     for (const row of hours) {
       const day = new Date(row.hour.getTime() + WIB_MS).toISOString().slice(0, 10);
       const sum = days.get(day) ?? { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0 };
       days.set(day, {
         cpuSeconds: sum.cpuSeconds + row.cpuSeconds,
         memGbSeconds: sum.memGbSeconds + row.memGbSeconds,
-        storageGbSeconds: sum.storageGbSeconds + row.storageGbSeconds,
+        storageGbSeconds: sum.storageGbSeconds + (running ? 0 : row.storageGbSeconds),
       });
     }
     const total = [...days.values()].reduce(
@@ -57,12 +77,10 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
       }),
       { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0 },
     );
-    const cost = priceOf(total);
+    const cost = priceOf(total, monthDays);
 
     // the month so far, then what is held now for the hours left — only while the month runs
-    const now = Date.now();
-    const running = now >= start.getTime() && now < end.getTime();
-    const rate = running ? await currentRate(organizationId) : null;
+    const rate = running ? await currentRate(organizationId, monthDays) : null;
     const projected = rate ? cost.total + rate.perHour * ((end.getTime() - now) / 3_600_000) : null;
 
     return res.json({
@@ -73,13 +91,14 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
         usage: {
           cpuCoreHours: total.cpuSeconds / 3600,
           memGbHours: total.memGbSeconds / 3600,
-          storageGbHours: total.storageGbSeconds / 3600,
+          storageGbDays: total.storageGbSeconds / 86_400,
         },
         cost,
         projected,
         /** what it holds now and costs per hour — the estimate's pace */
         rate,
-        days: [...days.entries()].map(([date, use]) => ({ date, cost: priceOf(use).total })),
+        monthDays,
+        days: [...days.entries()].map(([date, use]) => ({ date, cost: priceOf(use, monthDays).total })),
       },
     } as ApiResponse);
   } catch (error) {

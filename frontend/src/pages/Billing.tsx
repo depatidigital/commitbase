@@ -39,9 +39,9 @@ export default function Billing() {
         {
           icon: HardDrive,
           label: t("Storage"),
-          // a month's GB-hours ÷ its hours: the average held
-          use: `${amount(data.usage.storageGbHours)} ${t("GB-hours")}`,
-          rate: `${amount(data.rates.storageGbHour)} Rp / ${t("GB-hour")}`,
+          // held from the 1st, or since a service was made — by the day
+          use: `${amount(data.usage.storageGbDays)} ${t("GB-days")}`,
+          rate: `${rupiah(data.rates.storageGbMonth)} / ${t("GB-month")}`,
           cost: data.cost.storage,
         },
       ]

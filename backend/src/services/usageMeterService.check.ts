@@ -32,6 +32,12 @@ const month = 730 * 3600;
 const price = priceOf({ cpuSeconds: month, memGbSeconds: month, storageGbSeconds: 10 * month });
 assert.ok(Math.abs(price.cpu - 730 * RATES.cpuCoreHour) < 1e-6);
 assert.ok(price.total > 120_000 && price.total < 130_000, String(price.total));
+// storage by the day: a whole 30-day month of 34 GB is exactly 34 × Rp 1,500, whatever the month's length
+assert.ok(Math.abs(priceOf({ cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 34 * 30 * 86_400 }, 30).storage - 34 * 1500) < 1e-6);
+assert.ok(Math.abs(priceOf({ cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 34 * 31 * 86_400 }, 31).storage - 34 * 1500) < 1e-6);
+// R2 apart, at its own price: a month of 10 GB there is 10 × Rp 750
+const r2 = priceOf({ cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 10 * 30 * 86_400 }, 30);
+assert.ok(Math.abs(r2.object - 10 * RATES.objectGbMonth) < 1e-6 && r2.storage === 0);
 
 // only safe names reach the shell, and the script parses
 const script = meterScript([

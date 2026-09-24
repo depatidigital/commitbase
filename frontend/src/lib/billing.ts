@@ -4,8 +4,10 @@ import { t } from './i18n';
 /** A workspace's metered use in a month and what it costs — pay for what you use. */
 export interface Usage {
   month: string;
-  rates: { cpuCoreHour: number; memGbHour: number; storageGbHour: number; currency: string };
-  usage: { cpuCoreHours: number; memGbHours: number; storageGbHours: number };
+  /** CPU and memory by the hour; storage by the GB-month, charged per day (the month's price over its days) */
+  rates: { cpuCoreHour: number; memGbHour: number; storageGbMonth: number; currency: string };
+  usage: { cpuCoreHours: number; memGbHours: number; storageGbDays: number };
+  monthDays: number;
   cost: { cpu: number; mem: number; storage: number; total: number };
   /** the month so far plus what is held now for the hours left — only while the month runs */
   projected: number | null;

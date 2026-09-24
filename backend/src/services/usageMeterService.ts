@@ -16,14 +16,27 @@ const GiB = 1024 ** 3;
 /** a gap longer than this (the backend was down) is not billed as if memory was held throughout */
 const MAX_INTERVAL_S = 15 * 60;
 
-/** Per hour. From the plan prices: Rp 30k per vCPU-month, Rp 80k per GB-month of RAM, Rp 1.5k per GB-month of storage (730 h). */
+/**
+ * CPU and memory per hour (Rp 30k per vCPU-month, Rp 80k per GB-month, over
+ * 730 h); storage per GB-month, charged by the day — a day is the month's price
+ * over its days, so a whole month is exactly the price.
+ */
 // ponytail: constants — a superadmin-edited price list when prices start to change
 export const RATES = {
   cpuCoreHour: 41,
   memGbHour: 110,
-  storageGbHour: 2.05,
+  /** disk on a node: its cost with a quarter kept free, and the margin */
+  storageGbMonth: 1500,
+  /** object storage (R2, static sites): Rp 300 cost, no headroom needed, 2.5× */
+  objectGbMonth: 750,
   currency: 'IDR',
 } as const;
+
+/** Stored in R2, not on a node: a static site's files. */
+export const inObjectStorage = (app: { type: string; staticBucket: string | null }) => app.type === 'STATIC' && !!app.staticBucket;
+
+/** The average month, where the month is not known: 730 h. */
+const AVG_MONTH_DAYS = 730 / 24;
 
 /**
  * Reads a unit's cgroup: CPU time used (µs, a counter) and memory now (bytes).
@@ -70,12 +83,15 @@ export function usageSince(
   return { cpuSeconds: Number(cpuUsec) / 1e6, memGbSeconds: (now.memBytes / GiB) * seconds, seconds };
 }
 
-/** Rupiah for an amount of use. Pure. */
-export function priceOf(use: { cpuSeconds: number; memGbSeconds: number; storageGbSeconds: number }) {
+export type Use = { cpuSeconds: number; memGbSeconds: number; storageGbSeconds: number; objectGbSeconds?: number };
+
+/** Rupiah for an amount of use; disk and object storage by the day of a month of `monthDays`. Pure. */
+export function priceOf(use: Use, monthDays = AVG_MONTH_DAYS) {
   const cpu = (use.cpuSeconds / 3600) * RATES.cpuCoreHour;
   const mem = (use.memGbSeconds / 3600) * RATES.memGbHour;
-  const storage = (use.storageGbSeconds / 3600) * RATES.storageGbHour;
-  return { cpu, mem, storage, total: cpu + mem + storage };
+  const storage = (use.storageGbSeconds / 86_400) * (RATES.storageGbMonth / monthDays);
+  const object = ((use.objectGbSeconds ?? 0) / 86_400) * (RATES.objectGbMonth / monthDays);
+  return { cpu, mem, storage, object, total: cpu + mem + storage + object };
 }
 
 /**
@@ -83,19 +99,21 @@ export function priceOf(use: { cpuSeconds: number; memGbSeconds: number; storage
  * sizes, known at once), the memory at the last reading, and its CPU over the
  * last day. What the month's estimate runs forward on.
  */
-export async function currentRate(organizationId: string) {
+export async function currentRate(organizationId: string, monthDays = AVG_MONTH_DAYS) {
   const [apps, nodes, day] = await Promise.all([
-    prisma.application.aggregate({ where: { organizationId }, _sum: { diskBytes: true } }),
+    prisma.application.findMany({ where: { organizationId }, select: { type: true, staticBucket: true, diskBytes: true } }),
     // a reading older than the gap the meter tolerates says nothing about now
     prisma.orgNode.findMany({ where: { organizationId, meterAt: { gte: new Date(Date.now() - MAX_INTERVAL_S * 1000) } }, select: { meterMemBytes: true } }),
     prisma.usageHour.findMany({ where: { organizationId, hour: { gte: new Date(Date.now() - 24 * 3_600_000) } }, select: { cpuSeconds: true } }),
   ]);
-  const storageGb = Number(apps._sum.diskBytes ?? 0) / GiB;
+  const sum = (list: typeof apps) => list.reduce((total, app) => total + Number(app.diskBytes ?? 0), 0) / GiB;
+  const objectGb = sum(apps.filter(inObjectStorage));
+  const storageGb = sum(apps.filter((app) => !inObjectStorage(app)));
   const memGb = nodes.reduce((sum, node) => sum + Number(node.meterMemBytes ?? 0), 0) / GiB;
   const cpuCores = day.length ? day.reduce((sum, h) => sum + h.cpuSeconds, 0) / (day.length * 3600) : 0;
   // an hour of each, priced
-  const perHour = priceOf({ cpuSeconds: cpuCores * 3600, memGbSeconds: memGb * 3600, storageGbSeconds: storageGb * 3600 });
-  return { storageGb, memGb, cpuCores, perHour: perHour.total };
+  const perHour = priceOf({ cpuSeconds: cpuCores * 3600, memGbSeconds: memGb * 3600, storageGbSeconds: storageGb * 3600, objectGbSeconds: objectGb * 3600 }, monthDays);
+  return { storageGb, objectGb, memGb, cpuCores, perHour: perHour.total };
 }
 
 const hourOf = (at: Date) => new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000);
@@ -141,23 +159,31 @@ export async function meterUsage(): Promise<string> {
     }
   }
 
-  // what it stores: its services' measured size (their folders, stacks, R2 files)
-  const storage = await prisma.application.groupBy({
-    by: ['organizationId'],
+  // what it stores: its services' measured size — on disk (folders, stacks) and in R2 (static sites), apart
+  const stored = await prisma.application.findMany({
     where: { organizationId: { in: [...added.keys()] } },
-    _sum: { diskBytes: true },
+    select: { organizationId: true, type: true, staticBucket: true, diskBytes: true },
   });
-  const storageOf = new Map(storage.map((row) => [row.organizationId, Number(row._sum.diskBytes ?? 0)]));
+  const storageOf = new Map<string, { disk: number; object: number }>();
+  for (const app of stored) {
+    const sum = storageOf.get(app.organizationId!) ?? { disk: 0, object: 0 };
+    if (inObjectStorage(app)) sum.object += Number(app.diskBytes ?? 0);
+    else sum.disk += Number(app.diskBytes ?? 0);
+    storageOf.set(app.organizationId!, sum);
+  }
 
   for (const [organizationId, use] of added) {
-    const storageGbSeconds = ((storageOf.get(organizationId) ?? 0) / GiB) * use.seconds;
+    const held = storageOf.get(organizationId) ?? { disk: 0, object: 0 };
+    const storageGbSeconds = (held.disk / GiB) * use.seconds;
+    const objectGbSeconds = (held.object / GiB) * use.seconds;
     await prisma.usageHour.upsert({
       where: { organizationId_hour: { organizationId, hour } },
-      create: { organizationId, hour, cpuSeconds: use.cpuSeconds, memGbSeconds: use.memGbSeconds, storageGbSeconds },
+      create: { organizationId, hour, cpuSeconds: use.cpuSeconds, memGbSeconds: use.memGbSeconds, storageGbSeconds, objectGbSeconds },
       update: {
         cpuSeconds: { increment: use.cpuSeconds },
         memGbSeconds: { increment: use.memGbSeconds },
         storageGbSeconds: { increment: storageGbSeconds },
+        objectGbSeconds: { increment: objectGbSeconds },
       },
     });
   }

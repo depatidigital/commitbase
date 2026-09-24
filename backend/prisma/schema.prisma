@@ -997,6 +997,8 @@ model UsageHour {
   memGbSeconds     Float        @default(0)
   /// storage held × time: GiB-seconds
   storageGbSeconds Float        @default(0)
+  /// object storage (R2: static sites' files) held × time: GiB-seconds — priced apart from disk
+  objectGbSeconds  Float        @default(0)
 
   @@id([organizationId, hour])
   @@map("usage_hours")
