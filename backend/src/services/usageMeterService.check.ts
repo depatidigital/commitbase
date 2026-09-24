@@ -1,13 +1,19 @@
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { heldBetween, meterScript, parseMeter, priceOf, spreadHours, usageSince, wibDayStart, RATES } from './usageMeterService';
+import { COLLECT_SCRIPT, heldBetween, meterOrgArgs, parseMeterLog, priceOf, spreadHours, usageSince, wibDayStart, RATES } from './usageMeterService';
 
 const GiB = 1024 ** 3;
 
-// the node's answer: slice + podman summed
-const readings = parseMeter('cmorg1 5000000 1073741824 1000000 536870912 7340032\ncmorg2 0 0 0 0\n\nbad');
-assert.deepStrictEqual(readings.get('cmorg1'), { cpuUsec: 6_000_000n, memBytes: 1.5 * GiB, journalBytes: 7340032 });
-assert.deepStrictEqual(readings.get('cmorg2'), { cpuUsec: 0n, memBytes: 0, journalBytes: 0 });
+// the node's log: slice + podman summed, each workspace's samples oldest first, junk skipped
+const log = parseMeterLog(
+  '1790244300 depati 5000000 1073741824 1000000 536870912 7340032\n1790244000 depati 1 0 0 0 0\n1790244300 other 0 0 0 0 0\n\nbad line\nx depati 1 1 1 1 1',
+);
+const depati = log.get('depati')!;
+assert.strictEqual(depati.length, 2);
+assert.deepStrictEqual(depati[0]!.at, new Date(1790244000 * 1000));
+const { at: _at, ...latest } = depati[1]!;
+assert.deepStrictEqual(latest, { cpuUsec: 6_000_000n, memBytes: 1.5 * GiB, journalBytes: 7340032 });
+const readings = new Map([['cmorg1', latest], ['cmorg2', { cpuUsec: 0n, memBytes: 0, journalBytes: 0 }]]);
 
 const t0 = new Date('2026-09-24T10:00:00Z');
 const t5 = new Date('2026-09-24T10:05:00Z');
@@ -76,15 +82,20 @@ assert.ok(Math.abs(priceOf({ cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 3
 const r2 = priceOf({ cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 10 * 30 * 86_400 }, 30);
 assert.ok(Math.abs(r2.object - 10 * RATES.objectGbMonth) < 1e-6 && r2.storage === 0);
 
-// only safe names reach the shell, and the script parses
-const script = meterScript([
-  { id: 'cmorg1', slug: 'depati', uid: 200000 },
-  { id: 'cmorg2', slug: 'bad;rm -rf /', uid: 1 },
-  { id: 'x"; rm', slug: 'ok-slug', uid: 2 },
-]);
-assert.ok(script.includes('cb-depati.slice') && script.includes('user@200000.service') && script.includes('jr 200000'));
-assert.ok(!script.includes('rm -rf') && !script.includes('x"; rm'));
-const parsed = spawnSync('sh', ['-n'], { input: script, encoding: 'utf8' });
-if (!parsed.error) assert.strictEqual(parsed.status, 0, parsed.stderr);
+// only safe names reach the node, and both scripts parse (the collector, and the sampler it installs)
+assert.deepStrictEqual(
+  meterOrgArgs([
+    { slug: 'depati', uid: 200000 },
+    { slug: 'bad;rm -rf /', uid: 1 },
+    { slug: 'ok-slug', uid: null },
+  ]),
+  ['depati:200000', 'ok-slug:'],
+);
+const sampler = COLLECT_SCRIPT.split("<<'LARIKA_EOF'\n")[1]!.split('\nLARIKA_EOF')[0]!;
+assert.ok(sampler.startsWith('#!/bin/sh') && sampler.includes('cg "cb-$slug.slice"'));
+for (const script of [COLLECT_SCRIPT, sampler]) {
+  const parsed = spawnSync('sh', ['-n'], { input: script, encoding: 'utf8' });
+  if (!parsed.error) assert.strictEqual(parsed.status, 0, parsed.stderr);
+}
 
 console.log('usageMeterService: ok');
