@@ -5,7 +5,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { backfillStorageDays, currentRate, heldBetween, priceOf, RATES, WIB_MS, wibDayStart, type Use } from '../services/usageMeterService';
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * A workspace's metered use in one month and what it costs — pay for what you
