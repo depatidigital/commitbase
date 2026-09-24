@@ -882,7 +882,8 @@ export default {
   "This service has no hostname, so there is nothing to fix here.": "Layanan ini belum punya hostname, jadi tidak ada yang perlu diperbaiki di sini.",
   "Points {hosts} at the server and turns the Cloudflare proxy on. A record aimed elsewhere is left alone — repoint it from the host.": "Mengarahkan {hosts} ke server dan menyalakan proxy Cloudflare. Record yang mengarah ke tempat lain tidak diubah — arahkan ulang dari host-nya.",
   "Fix DNS": "Perbaiki DNS",
-  "For a site that opens over HTTP only, or shows Cloudflare 521/525: Caddy listens on 443, then each hostname without a certificate gets one (proxy off, Caddy restarted, proxy back on). Every site on the server blinks for a few seconds.": "Untuk situs yang hanya terbuka lewat HTTP, atau menampilkan Cloudflare 521/525: Caddy dibuat listen di 443, lalu setiap hostname tanpa sertifikat dibuatkan sertifikat (proxy dimatikan, Caddy dijalankan ulang, proxy dinyalakan lagi). Semua situs di server putus beberapa detik.",
+  "For a site that opens over HTTP only, or shows Cloudflare 521/525: Caddy listens on 443, then each hostname without a certificate gets one (proxy off, Caddy reloaded, proxy back on). Other sites keep serving.":
+    "Untuk situs yang hanya terbuka lewat HTTP, atau menampilkan Cloudflare 521/525: Caddy dibuat listen di 443, lalu setiap hostname tanpa sertifikat dibuatkan sertifikat (proxy dimatikan, Caddy di-reload, proxy dinyalakan lagi). Situs lain tetap berjalan.",
   "Fix HTTPS": "Perbaiki HTTPS",
   "DNS not fixed for every hostname": "DNS belum diperbaiki untuk semua hostname",
   "DNS fixed": "DNS diperbaiki",

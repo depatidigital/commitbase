@@ -2254,7 +2254,7 @@ router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res
 /**
  * HTTPS for the app's names without a redeploy: Caddy made to listen on :443,
  * then a certificate for each name that has none (Cloudflare proxy off, Caddy
- * restarted, proxy back on). Minutes of work: started here, the outcome in the Log.
+ * reloaded, proxy back on). Minutes of work: started here, the outcome in the Log.
  */
 router.post('/:id/ssl', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {

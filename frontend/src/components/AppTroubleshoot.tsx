@@ -78,7 +78,7 @@ export function AppTroubleshoot({ app, title }: { app: ProjectApp; title?: strin
             {row(
               <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />,
               t("HTTPS"),
-              t("For a site that opens over HTTP only, or shows Cloudflare 521/525: Caddy listens on 443, then each hostname without a certificate gets one (proxy off, Caddy restarted, proxy back on). Every site on the server blinks for a few seconds."),
+              t("For a site that opens over HTTP only, or shows Cloudflare 521/525: Caddy listens on 443, then each hostname without a certificate gets one (proxy off, Caddy reloaded, proxy back on). Other sites keep serving."),
               <Button variant="outline" size="sm" disabled={https.isPending} onClick={() => https.mutate()}>
                 {https.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("Fix HTTPS")}

@@ -269,9 +269,11 @@ export default {
   "I have a snapshot or backup of this server at the provider.": "Saya punya snapshot atau backup server ini di provider.",
   "Grow": "Perbesar",
   "SSL not provisioned": "SSL belum dipasang",
-  "Missing certificates are being provisioned in the background (Cloudflare proxy briefly off, Caddy restarted) — see Log.": "Sertifikat yang kurang sedang dipasang di latar belakang (proxy Cloudflare dimatikan sebentar, Caddy dijalankan ulang) — lihat Log.",
+  "Missing certificates are being provisioned in the background (Cloudflare proxy briefly off, Caddy reloaded) — see Log.":
+    "Sertifikat yang kurang sedang dipasang di latar belakang (proxy Cloudflare dimatikan sebentar, Caddy di-reload) — lihat Log.",
   "Tools": "Alat",
-  "Get a certificate: turns the Cloudflare proxy off, restarts Caddy, waits for the certificate, turns the proxy back on. Takes a few minutes.": "Ambil sertifikat: mematikan proxy Cloudflare, menjalankan ulang Caddy, menunggu sertifikat, lalu menyalakan proxy lagi. Butuh beberapa menit.",
+  "Get a certificate: turns the Cloudflare proxy off, reloads Caddy, waits for the certificate, turns the proxy back on. Takes a few minutes.":
+    "Ambil sertifikat: mematikan proxy Cloudflare, me-reload Caddy, menunggu sertifikat, lalu menyalakan proxy lagi. Butuh beberapa menit.",
   "{count} workspaces": "{count} workspace",
   "Container runtime": "Container runtime",
   "None": "Tidak ada",

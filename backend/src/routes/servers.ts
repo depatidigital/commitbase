@@ -439,7 +439,7 @@ router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN'])
 // ponytail: in-process — one run per node at a time; a second backend process would not see it
 /**
  * Get a first certificate for a hostname behind Cloudflare's proxy: proxy off,
- * Caddy restarted, wait for the certificate, proxy back on — always back on.
+ * Caddy reloaded, wait for the certificate, proxy back on — always back on.
  * Takes minutes; the steps it took come back with the answer.
  */
 router.post('/:id/ssl', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {

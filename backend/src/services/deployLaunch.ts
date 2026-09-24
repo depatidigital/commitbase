@@ -123,8 +123,8 @@ export async function launchDeploy(
     // what the deploy left on disk, for the project list; a miss waits for the cron
     void measureAppDisk(application.id).catch(() => {});
     // its hosts get a certificate on the node — through Cloudflare's proxy too
-    // (proxy off, Caddy restarted, proxy back on). A host that has one already is
-    // skipped, so a redeploy costs a check, not a restart.
+    // (proxy off, Caddy reloaded, proxy back on). A host that has one already is
+    // skipped, so a redeploy costs a check, not a reload.
     if (result.success && names.length) {
       void serverForApplication(application.id)
         .then((node) => provisionInBackground(node, names.map((name) => name.host), userId))

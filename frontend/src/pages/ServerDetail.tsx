@@ -151,7 +151,7 @@ const ServerDetail = () => {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["servers", id] }),
   });
 
-  // one hostname at a time: it toggles that name's Cloudflare proxy and restarts Caddy
+  // one hostname at a time: it toggles that name's Cloudflare proxy and reloads Caddy
   const ssl = useMutation({
     mutationFn: (host: string) => provisionSsl(id!, host),
     onSuccess: (result) => toast({ title: result.message, description: result.steps.join(" → ") }),
@@ -172,7 +172,7 @@ const ServerDetail = () => {
             updated: result.updated,
           }) +
           (result.sslStarted
-            ? " " + t("Missing certificates are being provisioned in the background (Cloudflare proxy briefly off, Caddy restarted) — see Log.")
+            ? " " + t("Missing certificates are being provisioned in the background (Cloudflare proxy briefly off, Caddy reloaded) — see Log.")
             : ""),
       });
     },
@@ -360,7 +360,7 @@ const ServerDetail = () => {
                             size="sm"
                             className="h-7 px-2"
                             disabled={ssl.isPending}
-                            title={t("Get a certificate: turns the Cloudflare proxy off, restarts Caddy, waits for the certificate, turns the proxy back on. Takes a few minutes.")}
+                            title={t("Get a certificate: turns the Cloudflare proxy off, reloads Caddy, waits for the certificate, turns the proxy back on. Takes a few minutes.")}
                             onClick={() => ssl.mutate(site.host)}
                           >
                             {ssl.isPending && ssl.variables === site.host ? (

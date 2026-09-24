@@ -712,10 +712,12 @@ export const ensureHttpsListener = (node: SshTarget) =>
  * rather than at its next retry. `must-revalidate`: without it Caddy skips a
  * config identical to the running one.
  */
-export async function reloadCaddy(node: SshTarget): Promise<void> {
-  const config = await readCaddyConfig(node);
-  await writeCaddy(node, 'POST', '/load', config, { 'Cache-Control': 'must-revalidate' });
-}
+// locked: a route written between the read and the load would be dropped by it
+export const reloadCaddy = (node: SshTarget) =>
+  withNodeLock(node, async () => {
+    const config = await readCaddyConfig(node);
+    await writeCaddy(node, 'POST', '/load', config, { 'Cache-Control': 'must-revalidate' });
+  });
 
 /** The whole live config, for snapshotting. Null when Caddy did not answer. */
 export async function getCaddyConfig(node: SshTarget): Promise<any | null> {

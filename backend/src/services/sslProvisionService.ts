@@ -12,7 +12,7 @@ import { localCode } from './nginxMigrateService';
  * zone forces HTTPS: the challenge is redirected to an origin that has no
  * certificate yet, and fails with a 525. So: grey-cloud the records, let Caddy
  * ask again, wait for the certificates, orange-cloud them back. Done for every
- * name at once, so Caddy restarts once however many need it.
+ * name at once, so Caddy reloads once however many need it.
  *
  * Only the first one needs this. Once Caddy holds a certificate, renewals get
  * through the proxy — Caddy answers the ACME challenge over HTTPS too.
@@ -21,7 +21,7 @@ import { localCode } from './nginxMigrateService';
  * grey exposes the origin's address for as long as nobody notices.
  */
 
-/** Nodes being provisioned now: each run restarts that node's Caddy, so one at a time. */
+/** Nodes being provisioned now: each run toggles proxies and reloads that node's Caddy, so one at a time. */
 export const sslRunning = new Set<string>();
 
 /** A run's outcome in the Log page. */
@@ -176,7 +176,7 @@ export async function provisionCertificates(node: SshTarget & { publicIp: string
     }
     steps.push('resolving to the node');
 
-    // a restart makes Caddy ask for every missing certificate now, not at its next retry
+    // a reload (graceful, nothing dropped) makes Caddy ask for every missing certificate now, not at its next retry
     await reloadCaddy(node);
     steps.push('Caddy reloaded');
 
