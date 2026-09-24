@@ -17,10 +17,17 @@ const sum = (find: string) => `${find} -printf '%s\\n' 2>/dev/null | awk '{s+=$1
 const du = (paths: string) => `{ set -- $(ls -d ${paths} 2>/dev/null); if [ $# -gt 0 ]; then du -scb -- "$@" 2>/dev/null | tail -1 | cut -f1; else echo 0; fi; }`;
 
 const ROTATED_LOGS = `find /var/log -type f \\( -name '*.gz' -o -name '*.[0-9]' -o -name '*.old' -o -name '*.xz' \\)`;
-const PM2_LOGS = `find /root/.pm2/logs /home/*/.pm2/logs -type f -name '*.log'`;
+// the apps' logs, and pm2's own (pm2.log, the daemon's)
+const PM2_LOGS = `find /root/.pm2/logs /home/*/.pm2/logs /root/.pm2/pm2.log /home/*/.pm2/pm2.log -type f -name '*.log'`;
 // every package manager's download cache, in root's home, the users' and the build user's (/var/lib/larika-build)
 const CACHE_DIRS = ['.npm/_cacache', '.cache/yarn', '.local/share/pnpm/store', '.cache/pnpm', '.cache/pip', '.cache/composer', '.composer/cache', '.bun/install/cache'];
-const PKG_CACHES = ['/root', '/home/*', '/var/lib/*'].flatMap((home) => CACHE_DIRS.map((dir) => `${home}/${dir}`)).join(' ');
+const HOMES = ['/root', '/home/*', '/var/lib/*'];
+const PKG_CACHES = HOMES.flatMap((home) => CACHE_DIRS.map((dir) => `${home}/${dir}`)).join(' ');
+// other toolchains' download and build caches — rebuilt on the next build. Not the headless
+// browsers (puppeteer, playwright): a running app may launch Chromium from there
+const BUILD_DIRS = ['.cache/node-gyp', '.cache/go-build', 'go/pkg/mod', '.gradle/caches', '.m2/repository', '.cargo/registry', '.nvm/.cache', '.cache/typescript'];
+const BUILD_CACHES = [...HOMES.flatMap((home) => BUILD_DIRS.map((dir) => `${home}/${dir}`)), '/opt/nvm/.cache'].join(' ');
+const TRASH = '/root/.local/share/Trash /home/*/.local/share/Trash';
 const OLD_TMP = `find /tmp /var/tmp -xdev -type f -mtime +7`;
 // logs still being written, grown past 50 MB: emptied in place (the writer keeps its handle); the journal has its own target
 const BIG_LOGS = `find /var/log -xdev -type f -size +50M ! -path '/var/log/journal/*' \\( -name '*.log' -o -name syslog -o -name messages -o -name kern.log -o -name '*.err' \\)`;
@@ -51,6 +58,20 @@ export const SYSTEM_TARGETS = {
   packageCaches: {
     measure: du(PKG_CACHES),
     clean: `rm -rf -- ${PKG_CACHES}`,
+  },
+  buildCaches: {
+    measure: du(BUILD_CACHES),
+    // go's module cache is read-only on purpose: made writable first, or rm cannot empty it
+    clean: `chmod -R u+w -- ${BUILD_CACHES} 2>/dev/null; rm -rf -- ${BUILD_CACHES}`,
+  },
+  snapCache: {
+    // hard links of the snaps themselves: freed only when nothing else links them, rebuilt by snapd
+    measure: `command -v snap >/dev/null && ${du('/var/lib/snapd/cache/*')}`,
+    clean: 'rm -f -- /var/lib/snapd/cache/*',
+  },
+  trash: {
+    measure: du(TRASH),
+    clean: `rm -rf -- ${TRASH}`,
   },
   docker: {
     // dangling images and build cache only: stopped containers and tagged images may be an app's

@@ -22,10 +22,16 @@ const LABELS: Record<SystemTarget, { title: string; path: string; note: string }
   journal: { title: "Systemd journal", path: "/var/log/journal", note: "Entries older than 7 days are removed." },
   rotatedLogs: { title: "Rotated logs", path: "/var/log/*.gz, *.1, *.old", note: "Old log files logrotate left behind." },
   bigLogs: { title: "Large logs", path: "/var/log/**/*.log, syslog over 50 MB", note: "Emptied, not deleted — whatever writes them keeps going." },
-  pm2Logs: { title: "PM2 logs", path: "~/.pm2/logs/*.log", note: "Emptied, not deleted — PM2 keeps them open." },
+  pm2Logs: { title: "PM2 logs", path: "~/.pm2/logs/*.log, ~/.pm2/pm2.log", note: "Emptied, not deleted — PM2 keeps them open." },
   aptCache: { title: "APT package cache", path: "/var/cache/apt/archives", note: "Downloaded .deb files, fetched again when needed." },
   aptAutoremove: { title: "Unused packages", path: "old kernels, orphaned libraries (apt autoremove)", note: "The running kernel and the one before it are kept." },
   oldSnaps: { title: "Old snap revisions", path: "/var/lib/snapd/snaps", note: "Disabled revisions only; the active one stays." },
+  snapCache: { title: "Snap cache", path: "/var/lib/snapd/cache", note: "Rebuilt by snapd when needed." },
+  buildCaches: {
+    title: "Other build caches",
+    path: "node-gyp, Go, Gradle, Maven, Cargo, nvm, TypeScript",
+    note: "Rebuilt on the next build. Headless browsers (Puppeteer, Playwright) are kept — a running app may use them.",
+  },
   packageCaches: {
     title: "Package caches",
     path: "npm, Yarn, pnpm, pip, Composer, Bun — root, users, build user",
@@ -44,6 +50,7 @@ const LABELS: Record<SystemTarget, { title: string; path: string; note: string }
   },
   crashDumps: { title: "Crash dumps", path: "/var/crash, /var/lib/systemd/coredump", note: "" },
   oldTmp: { title: "Old temp files", path: "/tmp, /var/tmp", note: "Files untouched for 7 days." },
+  trash: { title: "Trash", path: "~/.local/share/Trash", note: "Files deleted from a desktop session, still on disk." },
 };
 
 /** Clutter outside the app trees: logs, caches, dumps, deleted apps' containers. Measured when the tab opens, not polled. */
