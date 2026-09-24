@@ -11,14 +11,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Layers, Loader2, Rocket, RotateCcw, Settings, SkipForward, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, RotateCcw, Settings, SkipForward, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
 import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, hostsOf, updateApplication, type StartOptions } from "@/lib/applications";
 import { t } from "@/lib/i18n";
-import { ComposePreview } from "@/components/ComposePreview";
+import { ComposeServiceSelect } from "@/components/ComposePreview";
 
 interface AppSetupCardProps {
   application: Application;
@@ -217,18 +217,21 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
   const webLine = webDone
     ? t("{service} on port {port}", { service: application.composeService ?? "", port: String(application.composePort ?? "") })
     : t("None yet — pick the service that serves the site (the one with a port).");
-  const [pickOpen, setPickOpen] = useState(false);
   const pickWeb = useMutation({
     mutationFn: ({ service, port }: { service: string; port: string }) =>
       updateApplication(application.id, { composeService: service, ...(port && { composePort: Number(port) }) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
-      setPickOpen(false);
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not save"), description: error.message }),
   });
   const picker = (
-    <ComposePreview applicationId={application.id} selected={application.composeService ?? ""} onPick={(service, port) => pickWeb.mutate({ service, port })} />
+    <ComposeServiceSelect
+      applicationId={application.id}
+      value={application.composeService ?? ""}
+      onPick={(service, port) => pickWeb.mutate({ service, port })}
+      className="h-8 w-auto min-w-40 text-xs"
+    />
   );
   const ready = hostsDone && envDone && webDone;
   const envLine = detecting
@@ -271,14 +274,11 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           <span className={`min-w-0 truncate ${hostsDone ? "font-mono text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}>{hostLine}</span>
         </button>
         {isCompose && (
-          <>
-            <button type="button" onClick={() => setPickOpen(!pickOpen)} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
-              <Mark done={webDone} />
-              <span className="shrink-0 font-medium">{t("Web service")}</span>
-              <span className={`min-w-0 truncate ${webDone ? "font-mono text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}>{webLine}</span>
-            </button>
-            {pickOpen && picker}
-          </>
+          <div className="flex w-full min-w-0 items-center gap-2">
+            <Mark done={webDone} />
+            <span className="shrink-0 font-medium">{t("Web service")}</span>
+            {picker}
+          </div>
         )}
         <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
           <Mark done={envDone} warn={dbFailed || env.warnings.length > 0} />
@@ -382,15 +382,9 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             <Step
               done={webDone}
               title={t("Web service")}
-              action={
-                <Button type="button" variant="outline" size="sm" onClick={() => setPickOpen(!pickOpen)}>
-                  <Layers className="h-4 w-4 mr-2" />
-                  {webDone ? t("Change") : t("Pick")}
-                </Button>
-              }
+              action={picker}
             >
-              <p className={`text-xs ${webDone ? "font-mono text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}>{webLine}</p>
-              {(pickOpen || !webDone) && <div className="mt-2">{picker}</div>}
+              {!webDone && <p className="text-xs text-amber-600 dark:text-amber-400">{webLine}</p>}
             </Step>
           )}
 

@@ -3,30 +3,81 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Box, ChevronDown, ChevronRight, Eye, EyeOff, Hammer, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getStackServices, type StackService } from "@/lib/applications";
 import { isSecret } from "@/lib/env";
 import { t } from "@/lib/i18n";
 
-/**
- * What a compose stack defines — every service, built or pulled, what it
- * publishes and waits on — read on the node from the saved compose files.
- * Picking one fills the service and port Caddy proxies to.
- */
-export function ComposePreview({
-  applicationId,
-  selected,
-  onPick,
-}: {
-  applicationId: string;
-  selected: string;
-  onPick: (service: string, port: string) => void;
-}) {
-  const { data, error, isFetching, refetch } = useQuery({
+// the container side of the first published port: what Caddy should dial
+const portOf = (service: StackService) => service.ports[0]?.split(":").pop() ?? "";
+
+/** The stack's services, as the node reads them; the picker and the list share one read. */
+const useStackServices = (applicationId: string) =>
+  useQuery({
     queryKey: ["application", applicationId, "compose-services"],
     queryFn: () => getStackServices(applicationId),
     retry: false,
     staleTime: 60_000,
   });
+
+/**
+ * Which service takes the hosts' traffic — only one can, so a dropdown of
+ * the services that publish a port (not db, redis…). Compose files not
+ * readable yet: a plain name box when `typeable` (a form saved by hand, the
+ * port left to its own field), else the error.
+ */
+export function ComposeServiceSelect({
+  applicationId,
+  value,
+  onPick,
+  className = "",
+  typeable = false,
+}: {
+  applicationId: string;
+  value: string;
+  onPick: (service: string, port: string) => void;
+  className?: string;
+  typeable?: boolean;
+}) {
+  const { data, error } = useStackServices(applicationId);
+  if (error && !typeable) return <span className="min-w-0 truncate text-xs text-destructive">{(error as Error).message}</span>;
+  if (error) {
+    return <Input value={value} onChange={(e) => onPick(e.target.value, "")} placeholder="web" className={`font-mono ${className}`} />;
+  }
+  const web = data?.filter((service) => portOf(service)) ?? [];
+  return (
+    <Select
+      value={value}
+      disabled={!data}
+      onValueChange={(name) => {
+        const service = web.find((s) => s.name === name);
+        if (service) onPick(service.name, portOf(service));
+      }}
+    >
+      <SelectTrigger className={`font-mono ${className}`}>
+        <SelectValue placeholder={data ? t("Pick a service") : t("Reading the compose files…")} />
+      </SelectTrigger>
+      <SelectContent>
+        {/* saved before its port went away: still shown, so the value is not blank */}
+        {value && !web.some((s) => s.name === value) && <SelectItem value={value}>{value}</SelectItem>}
+        {web.map((service) => (
+          <SelectItem key={service.name} value={service.name}>
+            {t("{service} (port {port})", { service: service.name, port: portOf(service) })}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * What a compose stack defines — every service, built or pulled, what it
+ * publishes and waits on — read on the node from the saved compose files.
+ * Shows which one serves traffic; picking it is ComposeServiceSelect's.
+ */
+export function ComposePreview({ applicationId, selected }: { applicationId: string; selected: string }) {
+  const { data, error, isFetching, refetch } = useStackServices(applicationId);
   // the service whose env is open, one at a time
   const [openEnv, setOpenEnv] = useState<string | null>(null);
 
@@ -46,20 +97,8 @@ export function ComposePreview({
       ) : !data ? (
         <p className="text-xs text-muted-foreground">{t("Reading the compose files…")}</p>
       ) : (
-        <>
-        {/* nothing picked: no route — the hosts do not open, the stack only publishes its own ports */}
-        {!selected && data.some((service) => service.ports.length > 0) && (
-          <p className="flex items-start gap-1.5 rounded-md bg-warning/10 px-2.5 py-2 text-xs text-warning">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              {t("No service takes the host's traffic yet, so the hosts do not open. Point the host at the web service (the one with a port), then deploy.")}
-            </span>
-          </p>
-        )}
         <ul className="divide-y divide-border/60">
           {data.map((service) => {
-            // the container side of the first published port: what Caddy should dial
-            const port = service.ports[0]?.split(":").pop() ?? "";
             const envCount = Object.keys(service.environment ?? {}).length;
             const envOpen = openEnv === service.name;
             return (
@@ -91,30 +130,13 @@ export function ComposePreview({
                     {envOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                     {t("Env ({count})", { count: envCount })}
                   </Button>
-                  {selected === service.name ? (
-                    <Badge className="px-1.5 py-0 text-[10px]">{t("Serves traffic")}</Badge>
-                  ) : (
-                    // only a service that publishes a port can take the host's traffic (not db, redis…)
-                    port && (
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-xs"
-                        title={t("Send the service's hosts to this service, on port {port}", { port })}
-                        onClick={() => onPick(service.name, port)}
-                      >
-                        {t("Point the host here")}
-                      </Button>
-                    )
-                  )}
+                  {selected === service.name && <Badge className="px-1.5 py-0 text-[10px]">{t("Serves traffic")}</Badge>}
                 </li>
                 {envOpen && <ServiceEnv service={service} />}
               </Fragment>
             );
           })}
         </ul>
-        </>
       )}
       <p className="text-[11px] text-muted-foreground">{t("From the saved compose files — save a change to them to see it here.")}</p>
     </div>

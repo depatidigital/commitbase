@@ -69,7 +69,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getStackServices, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
-import { ComposePreview } from "@/components/ComposePreview";
+import { ComposePreview, ComposeServiceSelect } from "@/components/ComposePreview";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { DeployProgress } from "@/components/DeployProgress";
@@ -1835,11 +1835,11 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <label className="text-sm font-medium">{t("Service")}</label>
-              <Input
+              <ComposeServiceSelect
+                applicationId={application.id}
                 value={formData.composeService}
-                onChange={(e) => handleInputChange('composeService', e.target.value)}
-                placeholder="web"
-                className="font-mono"
+                typeable
+                onPick={(service, port) => setFormData((prev) => ({ ...prev, composeService: service, composePort: port || prev.composePort }))}
               />
               <p className="text-xs text-muted-foreground">{t("The service that serves traffic, and the one commands run in by default.")}</p>
             </div>
@@ -1857,11 +1857,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             </div>
           </div>
 
-          <ComposePreview
-            applicationId={application.id}
-            selected={formData.composeService}
-            onPick={(service, port) => setFormData((prev) => ({ ...prev, composeService: service, composePort: port || prev.composePort }))}
-          />
+          <ComposePreview applicationId={application.id} selected={formData.composeService} />
         </>
       )}
 

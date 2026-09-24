@@ -513,7 +513,6 @@ export default {
   "built from the repository": "di-build dari repositori",
   "needs {services}": "butuh {services}",
   "Serves traffic": "Melayani trafik",
-  "Point the host here": "Arahkan host ke sini",
   "Edit manually": "Ubah manual",
   "In the stack": "Di stack",
   Stack: "Stack",

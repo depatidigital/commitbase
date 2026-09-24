@@ -1369,22 +1369,11 @@ function QuickAddService({ projectId, open, onOpenChange }: { projectId: string;
 
 /**
  * A compose service's stack, as `compose config` reads its files on the node:
- * each of its services, image, ports, what it depends on. Picking one makes it
- * the one the domain points at — saved, used at the next deploy.
+ * each of its services, image, ports, what it depends on. Which one serves the
+ * domain is picked in the app's setup and settings.
  */
 function StackSection({ app }: { app: ProjectApp }) {
   const { data: application } = useApplication(app.id);
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const pick = useMutation({
-    mutationFn: ({ service, port }: { service: string; port: string }) =>
-      updateApplication(app.id, { composeService: service, ...(port && { composePort: Number(port) }) }),
-    onSuccess: (_, { service }) => {
-      void queryClient.invalidateQueries({ queryKey: ["application", app.id] });
-      toast({ title: t("Saved"), description: t("{service} serves the domain from the next deploy.", { service }) });
-    },
-    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not save"), description: error.message }),
-  });
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -1394,11 +1383,7 @@ function StackSection({ app }: { app: ProjectApp }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ComposePreview
-          applicationId={app.id}
-          selected={application?.composeService ?? ""}
-          onPick={(service, port) => pick.mutate({ service, port })}
-        />
+        <ComposePreview applicationId={app.id} selected={application?.composeService ?? ""} />
       </CardContent>
     </Card>
   );
