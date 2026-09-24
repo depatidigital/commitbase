@@ -21,9 +21,16 @@ import { formatBytes } from "@/lib/utils";
 const LABELS: Record<SystemTarget, { title: string; path: string; note: string }> = {
   journal: { title: "Systemd journal", path: "/var/log/journal", note: "Entries older than 7 days are removed." },
   rotatedLogs: { title: "Rotated logs", path: "/var/log/*.gz, *.1, *.old", note: "Old log files logrotate left behind." },
+  bigLogs: { title: "Large logs", path: "/var/log/**/*.log, syslog over 50 MB", note: "Emptied, not deleted — whatever writes them keeps going." },
   pm2Logs: { title: "PM2 logs", path: "~/.pm2/logs/*.log", note: "Emptied, not deleted — PM2 keeps them open." },
   aptCache: { title: "APT package cache", path: "/var/cache/apt/archives", note: "Downloaded .deb files, fetched again when needed." },
-  packageCaches: { title: "npm / Yarn caches", path: "~/.npm/_cacache, ~/.cache/yarn", note: "The next install downloads again." },
+  aptAutoremove: { title: "Unused packages", path: "old kernels, orphaned libraries (apt autoremove)", note: "The running kernel and the one before it are kept." },
+  oldSnaps: { title: "Old snap revisions", path: "/var/lib/snapd/snaps", note: "Disabled revisions only; the active one stays." },
+  packageCaches: {
+    title: "Package caches",
+    path: "npm, Yarn, pnpm, pip, Composer, Bun — root, users, build user",
+    note: "The next install downloads again.",
+  },
   docker: { title: "Docker leftovers", path: "dangling images, build cache", note: "Containers and tagged images are kept." },
   podman: {
     title: "Podman leftovers",

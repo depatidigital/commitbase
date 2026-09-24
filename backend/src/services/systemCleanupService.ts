@@ -18,8 +18,14 @@ const du = (paths: string) => `{ set -- $(ls -d ${paths} 2>/dev/null); if [ $# -
 
 const ROTATED_LOGS = `find /var/log -type f \\( -name '*.gz' -o -name '*.[0-9]' -o -name '*.old' -o -name '*.xz' \\)`;
 const PM2_LOGS = `find /root/.pm2/logs /home/*/.pm2/logs -type f -name '*.log'`;
-const PKG_CACHES = '/root/.npm/_cacache /home/*/.npm/_cacache /root/.cache/yarn /home/*/.cache/yarn';
+// every package manager's download cache, in root's home, the users' and the build user's (/var/lib/larika-build)
+const CACHE_DIRS = ['.npm/_cacache', '.cache/yarn', '.local/share/pnpm/store', '.cache/pnpm', '.cache/pip', '.cache/composer', '.composer/cache', '.bun/install/cache'];
+const PKG_CACHES = ['/root', '/home/*', '/var/lib/*'].flatMap((home) => CACHE_DIRS.map((dir) => `${home}/${dir}`)).join(' ');
 const OLD_TMP = `find /tmp /var/tmp -xdev -type f -mtime +7`;
+// logs still being written, grown past 50 MB: emptied in place (the writer keeps its handle); the journal has its own target
+const BIG_LOGS = `find /var/log -xdev -type f -size +50M ! -path '/var/log/journal/*' \\( -name '*.log' -o -name syslog -o -name messages -o -name kern.log -o -name '*.err' \\)`;
+// snaps keep their previous revisions, disabled: path per revision
+const OLD_SNAPS = `snap list --all 2>/dev/null | awk '$NF ~ /disabled/'`;
 
 export const JOURNAL_KEEP = '7d';
 
@@ -54,6 +60,22 @@ export const SYSTEM_TARGETS = {
       `docker system df --format '{{.Type}}|{{.Reclaimable}}' | awk -F'|' '$1=="Build Cache"{split($2,a," "); u=a[1]; gsub(/[0-9.]/,"",u); print int((a[1]+0)*(u=="kB"?1e3:u=="MB"?1e6:u=="GB"?1e9:u=="TB"?1e12:1))}'; ` +
       `} | awk '{s+=$1} END{print s+0}'`,
     clean: 'docker image prune -f && docker builder prune -af',
+  },
+  aptAutoremove: {
+    // what apt itself says nothing needs anymore: old kernels, their headers, orphaned libraries.
+    // Ubuntu keeps the running kernel and the one before it
+    measure:
+      `command -v apt-get >/dev/null && apt-get -s autoremove 2>/dev/null | awk '/^Remv /{print $2}' | ` +
+      `xargs -r dpkg-query -Wf '\${Installed-Size}\n' 2>/dev/null | awk '{s+=$1*1024} END{print s+0}'`,
+    clean: 'DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y',
+  },
+  oldSnaps: {
+    measure: `command -v snap >/dev/null && ${OLD_SNAPS} | awk '{print "/var/lib/snapd/snaps/"$1"_"$3".snap"}' | xargs -r du -b 2>/dev/null | awk '{s+=$1} END{print s+0}'`,
+    clean: `${OLD_SNAPS} | awk '{print $1, $3}' | while read -r name rev; do snap remove "$name" --revision="$rev"; done`,
+  },
+  bigLogs: {
+    measure: sum(BIG_LOGS),
+    clean: `${BIG_LOGS} -exec truncate -s 0 {} + 2>/dev/null; true`,
   },
   crashDumps: {
     measure: du('/var/crash/* /var/lib/systemd/coredump/*'),
