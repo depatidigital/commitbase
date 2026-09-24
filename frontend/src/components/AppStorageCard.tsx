@@ -30,7 +30,7 @@ const STATE_LABEL: Record<ReleaseState, string> = {
  * What the app takes on its node — releases, build cache, logs — and a button
  * that gives back the unused part. Measured on open (a du over SSH), not polled.
  */
-export function AppStorageCard({ appId, deploying }: { appId: string; deploying: boolean }) {
+export function AppStorageCard({ appId, deploying, title }: { appId: string; deploying: boolean; /** the service's name, where an app has several */ title?: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
@@ -63,7 +63,7 @@ export function AppStorageCard({ appId, deploying }: { appId: string; deploying:
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="flex items-center gap-2">
           <HardDrive className="h-5 w-5 text-primary" />
-          <span>{t("Storage")}</span>
+          <span>{title ?? t("Storage")}</span>
           {disk && <span className="text-sm font-normal text-muted-foreground">{bytes(disk.totalBytes)}</span>}
         </CardTitle>
         <div className="flex items-center gap-2">
@@ -124,6 +124,23 @@ export function AppStorageCard({ appId, deploying }: { appId: string; deploying:
                 <span>{t("Logs")}</span>
                 <span>{bytes(disk.logsBytes)}</span>
               </div>
+              {/* a compose stack: most of it is in its workspace's Podman, not in the folder */}
+              {disk.stack && (
+                <>
+                  <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                    <span>{t("Container images")}</span>
+                    <span>{bytes(disk.stack.imagesBytes)}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                    <span>{t("Container layers")}</span>
+                    <span>{bytes(disk.stack.containersBytes)}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                    <span>{t("Volumes (data)")}</span>
+                    <span>{bytes(disk.stack.volumesBytes)}</span>
+                  </div>
+                </>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
               {t("Files shared between releases (node_modules while the lockfile is unchanged) are counted once, on the live release.")}{" "}

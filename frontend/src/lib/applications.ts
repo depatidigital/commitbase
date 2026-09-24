@@ -792,6 +792,8 @@ export interface AppDisk {
   cacheBytes: number;
   logsBytes: number;
   sourcesBytes: number;
+  /** a compose app's stack in its workspace's Podman; null for other apps, or before it ran */
+  stack?: { imagesBytes: number; containersBytes: number; volumesBytes: number } | null;
   totalBytes: number;
   reclaimableBytes: number;
 }

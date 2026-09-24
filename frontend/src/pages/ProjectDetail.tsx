@@ -330,7 +330,14 @@ export default function ProjectDetail() {
             keep them; an imported one's files are whoever set it up's. Any app of it measures the source's tree */}
         {hasStorage && (
           <TabsContent value="storage">
-            <AppStorageCard appId={apps[0].id} deploying={deploying} />
+            <div className="space-y-4">
+              {/* every service with a tree on the node — not uploaded files (in object storage), not imported ones */}
+              {apps
+                .filter((app) => app.type !== "STATIC" && !app.runtime)
+                .map((app, _, stored) => (
+                  <AppStorageCard key={app.id} appId={app.id} deploying={deploying} title={stored.length > 1 ? app.name : undefined} />
+                ))}
+            </div>
           </TabsContent>
         )}
 
