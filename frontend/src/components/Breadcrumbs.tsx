@@ -14,7 +14,7 @@ import { t } from "@/lib/i18n";
 const LABELS: Record<string, string> = {
   apps: t("Apps"),
   services: t("Services"),
-  billing: t("Cost"),
+  usage: t("Usage"),
   new: t("New"),
   database: t("Databases"),
   domains: t("Domains"),

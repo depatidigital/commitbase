@@ -65,7 +65,7 @@ export default function Billing() {
   return (
     <PageLayout
       icon={Wallet}
-      title={t("Cost")}
+      title={t("Usage")}
       description={t("Pay for what you use: CPU and memory metered every five minutes, storage as it is held.")}
       actions={
         <Select value={month} onValueChange={setMonth}>

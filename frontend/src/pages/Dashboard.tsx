@@ -5,13 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { HeartbeatBar } from "@/components/HeartbeatBar";
-import { t } from "@/lib/i18n";
+import { locale, t } from "@/lib/i18n";
 import { appStatus, getHostHealth, type HostHealth, type Tone } from "@/lib/health";
 import { getDomainsPage } from "@/lib/domains";
 import { expiryTone, needsRenewal } from "@/lib/domainExpiry";
 import { isSuperAdmin } from "@/lib/auth";
 import { getUsers } from "@/lib/admin";
 import { diskUsedPct, getServers } from "@/lib/servers";
+import { getProjects, type Project } from "@/lib/projects";
+import { getUsage } from "@/lib/billing";
+import { formatBytes } from "@/lib/utils";
 import { DiskBar } from "@/components/DiskBar";
 
 const TONE_TEXT: Record<Tone, string> = {
@@ -70,6 +73,25 @@ export default function Dashboard() {
   // every server's disk, fullest first — which one wants a cleanup (superadmin)
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superAdmin, refetchInterval: 60_000 });
   const disks = servers.filter((server) => server.disk).sort((a, b) => diskUsedPct(b.disk) - diskUsedPct(a.disk));
+
+  // what the workspace stores, largest app first — disk, R2 and (for its owners) its journal logs
+  // ponytail: the first 100 apps (the API's page cap) make the total; a summary endpoint past that
+  const { data: byDisk } = useQuery({
+    queryKey: ["projects", "dashboard-disk"],
+    queryFn: () => getProjects({ page: 1, limit: 100, search: "", sort: "disk", order: "desc" }),
+    refetchInterval: 5 * 60_000,
+  });
+  // the journal is measured per workspace, on the Biaya page — its owners and admins only; others see apps alone
+  const { data: usage } = useQuery({ queryKey: ["billing", "usage", "dashboard"], queryFn: () => getUsage(), retry: false });
+  const sizeOf = (project: Project) => project.applications.reduce((sum, app) => sum + (app.diskBytes ?? 0), 0);
+  // a static site the panel deployed is in R2, everything else on a node's disk
+  const inR2 = (app: Project["applications"][number]) => app.type === "STATIC" && !app.runtime;
+  const apps = byDisk?.data ?? [];
+  const r2Bytes = apps.reduce((sum, p) => sum + p.applications.filter(inR2).reduce((s2, a) => s2 + (a.diskBytes ?? 0), 0), 0);
+  const appsBytes = apps.reduce((sum, p) => sum + sizeOf(p), 0);
+  const journalBytes = (usage?.rate?.journalGb ?? 0) * 1024 ** 3;
+  const biggest = apps.filter((p) => sizeOf(p) > 0).slice(0, 5);
+  const biggestMax = Math.max(1, ...biggest.map(sizeOf));
 
   const rows: Row[] = data
     .map((row) => ({ ...row, ...appStatus(row.service.status, row.health, row.service.disabled) }))
@@ -165,6 +187,42 @@ export default function Dashboard() {
                   </li>
                 );
               })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {appsBytes > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <HardDrive className="h-4 w-4" />
+                {t("Storage (all apps)")}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("Disk {disk} · R2 {r2}", { disk: formatBytes(appsBytes - r2Bytes, locale), r2: formatBytes(r2Bytes, locale) })}
+                {journalBytes > 0 && ` · ${t("Journal logs {size}", { size: formatBytes(journalBytes, locale) })}`}
+              </p>
+            </div>
+            <p className="text-2xl font-semibold">{formatBytes(appsBytes + journalBytes, locale)}</p>
+          </CardHeader>
+          <CardContent>
+            {/* the largest first: where a cleanup pays */}
+            <ul className="space-y-2">
+              {biggest.map((project) => (
+                <li key={project.id}>
+                  <Link to={`/apps/${project.id}?tab=storage`} className="group block space-y-1">
+                    <span className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate font-medium group-hover:text-primary">{project.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{formatBytes(sizeOf(project), locale)}</span>
+                    </span>
+                    <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+                      <span className="block h-full bg-primary" style={{ width: `${(sizeOf(project) / biggestMax) * 100}%` }} />
+                    </span>
+                  </Link>
+                </li>
+              ))}
             </ul>
           </CardContent>
         </Card>

@@ -62,7 +62,7 @@ export function AppSidebar() {
       label: t("Workspace"),
       items: [
         { title: t("Team"), url: "/team", icon: Users, show: !admin },
-        { title: t("Cost"), url: "/billing", icon: Wallet, show: !admin },
+        { title: t("Usage"), url: "/usage", icon: Wallet, show: !admin },
       ],
     },
     // ponytail: the admin side as it was, restyled only — to be narrowed to organizations, users and billing

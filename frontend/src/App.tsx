@@ -255,7 +255,8 @@ const App = () => (
                 </SuperAdminRoute>
               }
             />
-            <Route path="billing" element={<Billing />} />
+            <Route path="usage" element={<Billing />} />
+            <Route path="billing" element={<Navigate to="/usage" replace />} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>
