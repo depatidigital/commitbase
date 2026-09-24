@@ -1,7 +1,7 @@
 import { Resolver } from 'dns/promises';
 import { execRoot, type SshTarget } from '../lib/runner';
 import { prisma } from '../lib/prisma';
-import { allRoutesOf, getCaddyConfig } from './caddyService';
+import { allRoutesOf, ensureHttpsListener, getCaddyConfig } from './caddyService';
 import { findCloudflareZone, listCloudflareDnsRecords, updateDnsRecord } from './cloudflareService';
 import { localCode } from './nginxMigrateService';
 
@@ -137,6 +137,8 @@ export async function provisionCertificates(node: SshTarget & { publicIp: string
 
   const config = await getCaddyConfig(node).catch(() => null);
   if (!config) return done(false, 'Caddy is not running on this node.');
+  // nothing on :443 means no certificate can be served, whatever happens below
+  if (await ensureHttpsListener(node)) steps.push('Caddy now listens on :443');
   const routed = new Set(caddyHostsOf(config));
 
   // which of them need one: routed here, no valid certificate yet, not refused by

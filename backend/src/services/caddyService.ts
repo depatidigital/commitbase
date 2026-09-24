@@ -687,6 +687,24 @@ export async function listCaddyRouteHosts(node: SshTarget): Promise<string[] | n
   ];
 }
 
+/**
+ * Make the tenant routes' block listen on :443 when no block does — the fix for
+ * a node whose Caddyfile block took :80 only (HTTPS refused, Cloudflare 521),
+ * without waiting for the next route write. true when it added it.
+ */
+export const ensureHttpsListener = (node: SshTarget) =>
+  withNodeLock(node, async () => {
+    const existing = await fetchCaddyConfig(node);
+    const before = JSON.stringify(existing?.apps?.http?.servers ?? {});
+    const config = ensureHttpServer(existing ?? {});
+    const name = serverNameFor(config);
+    if (!existing?.apps?.http?.servers?.[name] || JSON.stringify(config.apps.http.servers) === before) return false;
+    await keepBefore(node, existing, 'listen on :443');
+    await writeCaddy(node, 'PATCH', `/config/apps/http/servers/${encodeURIComponent(name)}/listen`, config.apps.http.servers[name].listen);
+    await keepAfter(node, 'listen on :443', await (await snapshots()).coversCheckpoint(node.id, existing, []));
+    return true;
+  });
+
 /** The whole live config, for snapshotting. Null when Caddy did not answer. */
 export async function getCaddyConfig(node: SshTarget): Promise<any | null> {
   return fetchCaddyConfig(node);
