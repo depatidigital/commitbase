@@ -310,6 +310,16 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
       const node = afs.node;
       follows.push((send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, tagLines(app.name, send), signal));
     }
+    // a stack's containers write to the engine, not log files: `compose logs`, which
+    // prefixes each line with its service already. No out/error split there.
+    for (const app of wanted.filter((app) => !app.runtime && compose.needsCompose(app.type))) {
+      const withOrg = await prisma.application.findUniqueOrThrow({
+        where: { id: app.id },
+        include: { organization: { select: { slug: true } } },
+      });
+      server ??= await serverForApplication(app.id);
+      follows.push((send, signal) => compose.followLogs(withOrg, lines, tagLines(app.name, send), signal));
+    }
     if (!server || follows.length === 0) {
       return res.status(400).json({ success: false, error: 'Live logs are not available for these apps' } as ApiResponse);
     }

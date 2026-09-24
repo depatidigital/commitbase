@@ -977,7 +977,7 @@ export class DeploymentService {
         // there is nothing of ours to wait on, and the stack being up is the answer
         const probePort = application.composeService && application.composePort ? application.port : null;
         if (up && probePort) {
-          await deployLog(`Waiting for the stack to answer on 127.0.0.1:${probePort}`);
+          await deployLog(`Waiting for ${application.composeService} (container port ${application.composePort}) to answer on 127.0.0.1:${probePort}`);
         }
         const healthy = up && probePort ? await this.waitForHealthy(afs, probePort, COMPOSE_HEALTH_TIMEOUT_MS) : up;
         if (up && !healthy) {

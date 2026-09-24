@@ -146,6 +146,8 @@ assert.deepStrictEqual(
   ],
 );
 assert.deepStrictEqual(servicesOf(null), []);
+// with the override: the loopback binding shows, the container port stays last
+assert.deepStrictEqual(servicesOf({ services: { ckan: { ports: [{ target: 5000, published: '20004', host_ip: '127.0.0.1' }] } } })[0]!.ports, ['127.0.0.1:20004:5000']);
 
 // a recreate Podman refused: the old container's id, once however often compose says it
 const id = 'd2df8015efcce8d9a09fb593add9a8aa8e0f859188c349e8576e428b6dd4ec14';

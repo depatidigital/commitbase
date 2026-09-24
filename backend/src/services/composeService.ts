@@ -362,7 +362,7 @@ export type StackService = {
   envFiles: string[];
 };
 
-/** The stack's services as `compose config` reads its files — the app's own, without the platform's override. Pure. */
+/** The stack's services as `compose config` reads its files. Ports as published, the host IP too when bound to one. Pure. */
 export function servicesOf(config: any): StackService[] {
   return Object.entries<any>(config?.services ?? {}).map(([name, spec]) => ({
     name,
@@ -370,7 +370,7 @@ export function servicesOf(config: any): StackService[] {
     build: !!spec?.build,
     ports: (Array.isArray(spec?.ports) ? spec.ports : [])
       .filter((p: any) => p?.target)
-      .map((p: any) => (p.published ? `${p.published}:${p.target}` : String(p.target))),
+      .map((p: any) => (p.published ? `${p.host_ip ? `${p.host_ip}:` : ''}${p.published}:${p.target}` : String(p.target))),
     dependsOn: Object.keys(spec?.depends_on ?? {}),
     environment: Object.fromEntries(Object.entries<any>(spec?.environment ?? {}).map(([key, value]) => [key, value == null ? '' : String(value)])),
     // compose prints env_file as paths (absolute, after config) or { path } objects
@@ -380,9 +380,13 @@ export function servicesOf(config: any): StackService[] {
   }));
 }
 
-/** What the stack would run, before anything runs: from the live release, else the pulled checkout. */
+/**
+ * What the stack runs: from the live release, else the pulled checkout — with
+ * the platform's port override once a deploy wrote it, so the ports shown are
+ * the ones actually published (127.0.0.1:<allocated>:<container>).
+ */
 export async function previewStack(application: AppWithOrg): Promise<StackService[]> {
-  const { stdout } = await run(application, ['config', '--format', 'json'], { withoutOverride: true, timeout: 2 * 60_000 });
+  const { stdout } = await run(application, ['config', '--format', 'json'], { timeout: 2 * 60_000 });
   return servicesOf(JSON.parse(stdout));
 }
 
