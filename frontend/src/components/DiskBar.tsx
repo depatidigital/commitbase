@@ -4,7 +4,7 @@ import { locale, t } from "@/lib/i18n";
 import { formatBytes } from "@/lib/utils";
 
 /**
- * How full a server's disk is: the share used, what is free, a bar — green,
+ * How full a server's disk is: the share used, what is free, a bar — blue,
  * amber from DISK_AMBER_PCT, red from DISK_RED_PCT — and, once it is getting
  * full, the way to its cleanup. The server list and the dashboard alike.
  */

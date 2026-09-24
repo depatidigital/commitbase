@@ -14,13 +14,13 @@ export const DISK_RED_PCT = 90;
 /** From here a disk shows amber: time to look at a cleanup, before it is urgent. */
 export const DISK_AMBER_PCT = 75;
 
-/** The one colour rule for a disk's fill, everywhere it is drawn: green, amber, red. */
+/** The one colour rule for a disk's fill, everywhere it is drawn: the brand blue while fine, then amber, then red. */
 export const diskTone = (pct: number): { bar: string; text: string } =>
   pct >= DISK_RED_PCT
     ? { bar: "bg-destructive", text: "font-medium text-destructive" }
     : pct >= DISK_AMBER_PCT
       ? { bar: "bg-warning", text: "font-medium text-warning" }
-      : { bar: "bg-success", text: "text-muted-foreground" };
+      : { bar: "bg-primary", text: "text-muted-foreground" };
 
 export const diskUsedPct = (disk: { size: number; used: number } | null | undefined): number =>
   disk?.size ? Math.round((disk.used / disk.size) * 100) : 0;
