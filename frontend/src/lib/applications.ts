@@ -793,7 +793,9 @@ export interface AppDisk {
   logsBytes: number;
   sourcesBytes: number;
   /** a compose app's stack in its workspace's Podman; null for other apps, or before it ran */
-  stack?: { imagesBytes: number; containersBytes: number; volumesBytes: number } | null;
+  stack?: { imagesBytes: number; containersBytes: number; volumesBytes: number; logsBytes: number } | null;
+  /** imported (pm2, Caddy files): sourcesBytes is its folder, logsBytes its pm2 logs outside it; nothing to clean */
+  imported?: boolean;
   totalBytes: number;
   reclaimableBytes: number;
 }

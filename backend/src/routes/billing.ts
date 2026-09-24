@@ -55,13 +55,23 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
         const since = Math.max(from, app.createdAt.getTime());
         return sum + (to > since ? (Number(app.diskBytes ?? 0) / 1024 ** 3) * ((to - since) / 1000) : 0);
       }, 0);
+    // its user's journal on each node (container logs, user services) is disk it holds — held since it was made
+    const [org, journal] = running
+      ? await Promise.all([
+          prisma.organization.findUnique({ where: { id: organizationId }, select: { createdAt: true } }),
+          prisma.orgNode.aggregate({ where: { organizationId }, _sum: { meterJournalBytes: true } }),
+        ])
+      : [null, null];
+    const journalGb = Number(journal?._sum.meterJournalBytes ?? 0) / 1024 ** 3;
+    const journalSince = Math.max(start.getTime(), org?.createdAt.getTime() ?? start.getTime());
     if (running) {
       for (let day = start.getTime(); day < now; day += 86_400_000) {
         const to = Math.min(day + 86_400_000, now);
         days.set(dayKey(day), {
           cpuSeconds: 0,
           memGbSeconds: 0,
-          storageGbSeconds: heldGb(apps.filter((app) => !inObjectStorage(app)), day, to),
+          storageGbSeconds:
+            heldGb(apps.filter((app) => !inObjectStorage(app)), day, to) + journalGb * (Math.max(0, to - Math.max(day, journalSince)) / 1000),
           objectGbSeconds: heldGb(apps.filter(inObjectStorage), day, to),
         });
       }

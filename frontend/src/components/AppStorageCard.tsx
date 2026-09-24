@@ -73,7 +73,8 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
           <Button
             variant="outline"
             size="sm"
-            disabled={!disk || deploying || cleanup.isPending}
+            // an imported service's folder is not the panel's to clean
+            disabled={!disk || disk.imported || deploying || cleanup.isPending}
             title={deploying ? t("A deployment is running — clean up once it has finished") : undefined}
             onClick={() => setConfirming(true)}
           >
@@ -93,6 +94,19 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
         ) : disk ? (
           <>
             <div className="divide-y rounded-md border">
+              {disk.imported ? (
+                <>
+                  <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                    <span>{t("Folder on the server")}</span>
+                    <span>{bytes(disk.sourcesBytes)}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                    <span>{t("PM2 logs (outside the folder)")}</span>
+                    <span>{bytes(disk.logsBytes)}</span>
+                  </div>
+                </>
+              ) : (
+              <>
               {disk.releases.length === 0 && (
                 <p className="px-3 py-2 text-muted-foreground">{t("No releases on the server.")}</p>
               )}
@@ -124,6 +138,8 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
                 <span>{t("Logs")}</span>
                 <span>{bytes(disk.logsBytes)}</span>
               </div>
+              </>
+              )}
               {/* a compose stack: most of it is in its workspace's Podman, not in the folder */}
               {disk.stack && (
                 <>
@@ -138,6 +154,10 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
                   <div className="flex justify-between px-3 py-2 text-muted-foreground">
                     <span>{t("Volumes (data)")}</span>
                     <span>{bytes(disk.stack.volumesBytes)}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                    <span>{t("Container logs")}</span>
+                    <span>{bytes(disk.stack.logsBytes)}</span>
                   </div>
                 </>
               )}

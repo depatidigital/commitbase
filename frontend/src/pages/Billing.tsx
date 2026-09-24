@@ -39,8 +39,10 @@ export default function Billing() {
         {
           icon: HardDrive,
           label: t("Disk"),
-          // held from the 1st, or since a service was made — by the day
-          use: `${amount(data.usage.storageGbDays)} ${t("GB-days")}`,
+          // held from the 1st, or since a service was made — by the day; the workspace's journal (container logs) in it
+          use:
+            `${amount(data.usage.storageGbDays)} ${t("GB-days")}` +
+            (data.rate && data.rate.journalGb > 0 ? ` · ${t("incl. {size} GB journal logs", { size: amount(data.rate.journalGb, 3) })}` : ""),
           rate: `${rupiah(data.rates.storageGbMonth)} / ${t("GB-month")}`,
           cost: data.cost.storage,
         },

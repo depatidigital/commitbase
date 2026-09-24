@@ -400,6 +400,8 @@ export type StackUsage = {
   containersBytes: number;
   /** its named volumes: the stack's data (its database, its uploads) */
   volumesBytes: number;
+  /** its containers' log files (the k8s-file driver). With journald they are in the workspace's journal, counted there */
+  logsBytes: number;
 };
 
 /**
@@ -426,11 +428,20 @@ export async function stackUsage(application: AppWithOrg): Promise<StackUsage | 
   const mounts = volumes.map((v) => v.Mountpoint).filter((m): m is string => typeof m === 'string' && m.startsWith('/'));
   // as root: a volume's files belong to the container's mapped uids, not the org user
   const du = mounts.length ? await execRoot(node, ['du', '-scb', '--', ...mounts], { timeout: 300_000 }).catch(() => null) : null;
+  // each container's log file, where the driver writes one (k8s-file); journald leaves it empty
+  const ids = containers.map((c) => String(c.Id ?? '')).filter(Boolean);
+  const inspected = ids.length ? await podman(['container', 'inspect', '--format', 'json', ...ids]).catch(() => []) : [];
+  const logFiles = inspected
+    .map((c) => c.HostConfig?.LogConfig?.Path || c.LogPath)
+    .filter((p): p is string => typeof p === 'string' && p.startsWith('/'));
+  const logs = logFiles.length ? await execRoot(node, ['du', '-scb', '--', ...logFiles], { timeout: 120_000 }).catch(() => null) : null;
+  // the last line of du -c is the total
+  const total = (out: typeof du) => Number(out?.stdout.trim().split('\n').pop()?.split('\t')[0]) || 0;
 
   return {
     imagesBytes: images.reduce((sum, image) => sum + (Number(image.Size) || 0), 0),
     containersBytes: containers.reduce((sum, c) => sum + (Number(c.Size?.rwSize ?? c.Size?.RwSize) || 0), 0),
-    // the last line of du -c is the total
-    volumesBytes: Number(du?.stdout.trim().split('\n').pop()?.split('\t')[0]) || 0,
+    volumesBytes: total(du),
+    logsBytes: total(logs),
   };
 }

@@ -145,7 +145,7 @@ export default function ProjectDetail() {
   const deploying =
     project.status === "DEPLOYING" || ["PENDING", "BUILDING", "DEPLOYING"].includes(project.lastDeployment?.status ?? "") || deploy.isPending;
   // what the panel's own services take: a tree on the node, or a static site's files in R2
-  const hasStorage = !imported && !!apps[0];
+  const hasStorage = !!apps[0];
 
   const origin = project.repository ? (
     <>
@@ -333,7 +333,8 @@ export default function ProjectDetail() {
             <div className="space-y-4">
               {/* every service with a tree on the node — not uploaded files (in object storage), not imported ones */}
               {apps
-                .filter((app) => app.type !== "STATIC" && !app.runtime)
+                // a tree on the node: the panel's own (not static: R2), and imported ones (their folder, pm2 logs)
+                .filter((app) => app.runtime || app.type !== "STATIC")
                 .map((app) => (
                   <AppStorageCard key={app.id} appId={app.id} deploying={deploying} title={apps.length > 1 ? app.name : undefined} />
                 ))}

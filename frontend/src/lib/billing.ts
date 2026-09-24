@@ -13,7 +13,7 @@ export interface Usage {
   /** the month so far plus what is held now for the hours left — only while the month runs */
   projected: number | null;
   /** what it holds now and costs per hour: the estimate's pace (current month only) */
-  rate: { storageGb: number; objectGb: number; memGb: number; cpuCores: number; perHour: number } | null;
+  rate: { storageGb: number; objectGb: number; journalGb: number; memGb: number; cpuCores: number; perHour: number } | null;
   days: Array<{ date: string; cost: number }>;
 }
 

@@ -99,7 +99,7 @@ export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES):
   const sourcesBytes = measured.get(sources) ?? 0;
   // most of a compose app lives outside its folder: what its stack takes in Podman. A node that cannot say leaves it out
   const stack = app.type === 'COMPOSE' ? await stackUsage(app).catch(() => null) : null;
-  const stackBytes = stack ? stack.imagesBytes + stack.containersBytes + stack.volumesBytes : 0;
+  const stackBytes = stack ? stack.imagesBytes + stack.containersBytes + stack.volumesBytes + stack.logsBytes : 0;
   return {
     releases: rows,
     cacheBytes,
@@ -118,6 +118,8 @@ export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES):
  * Positional args only — no path is ever spliced into the script.
  */
 export const IMPORTED_DU =
+  // a folder that is gone says so: 0 bytes would read as "measured, empty"
+  `[ -e "$1" ] || { echo missing; exit 0; }; ` +
   `du -sb -- "$1" 2>/dev/null | cut -f1; root="$1"; shift; t=0; ` +
   // a log inside the folder is in its du already: counted once
   `for p in "$@"; do case "$p" in "$root"/*) continue ;; esac; d=$(dirname -- "$p"); b=$(basename -- "$p"); s=\${b%.log}; ` +
@@ -126,7 +128,8 @@ export const IMPORTED_DU =
 
 /** An imported service's folder on its node and its pm2 logs. As root: the folder and the logs are other users'. */
 async function importedDisk(app: { id: string; rootPath: string | null; processName: string | null; runtime: string | null }): Promise<AppDisk | null> {
-  if (!app.rootPath?.startsWith('/')) return null;
+  // said, not guessed at: nothing measured is not the same as nothing stored
+  if (!app.rootPath?.startsWith('/')) throw new Error('Its folder on the server is not known — Sync Apps finds it');
   const node = await serverForApplication(app.id);
   // where pm2 says this process logs to; not pm2's (Caddy files): no logs of its own
   const logPaths =
@@ -134,6 +137,7 @@ async function importedDisk(app: { id: string; rootPath: string | null; processN
       ? (await listPm2Processes(node)).find((process) => process.name === app.processName)?.logPaths ?? []
       : [];
   const { stdout } = await execRoot(node, ['sh', '-c', IMPORTED_DU, 'sh', app.rootPath, ...logPaths], { timeout: 300_000 });
+  if (stdout.trim() === 'missing') throw new Error(`${app.rootPath} is not on the server anymore — Sync Apps finds where it went`);
   const [folder = '0', logs = '0'] = stdout.trim().split('\n');
   const sourcesBytes = Number(folder) || 0;
   const logsBytes = Number(logs) || 0;
@@ -181,7 +185,8 @@ export async function cleanupAppReleases(
 /** Measured before and after, so what was freed is a fact, not an estimate. */
 export async function cleanupApp(applicationId: string, opts: { cache?: boolean } = {}) {
   const before = await appDiskUsage(applicationId);
-  if (!before) return null;
+  // an imported service's folder is someone else's: measured, never cleaned — a releases/ of its own is not ours to prune
+  if (!before || before.imported) return null;
   const { removed } = await cleanupAppReleases(await sourceFsFor(applicationId), applicationId, opts);
   const after = await appDiskUsage(applicationId);
   return { removed, freedBytes: Math.max(0, before.totalBytes - (after?.totalBytes ?? 0)), after };

@@ -5,9 +5,9 @@ import { meterScript, parseMeter, priceOf, usageSince, RATES } from './usageMete
 const GiB = 1024 ** 3;
 
 // the node's answer: slice + podman summed
-const readings = parseMeter('cmorg1 5000000 1073741824 1000000 536870912\ncmorg2 0 0 0 0\n\nbad');
-assert.deepStrictEqual(readings.get('cmorg1'), { cpuUsec: 6_000_000n, memBytes: 1.5 * GiB });
-assert.deepStrictEqual(readings.get('cmorg2'), { cpuUsec: 0n, memBytes: 0 });
+const readings = parseMeter('cmorg1 5000000 1073741824 1000000 536870912 7340032\ncmorg2 0 0 0 0\n\nbad');
+assert.deepStrictEqual(readings.get('cmorg1'), { cpuUsec: 6_000_000n, memBytes: 1.5 * GiB, journalBytes: 7340032 });
+assert.deepStrictEqual(readings.get('cmorg2'), { cpuUsec: 0n, memBytes: 0, journalBytes: 0 });
 
 const t0 = new Date('2026-09-24T10:00:00Z');
 const t5 = new Date('2026-09-24T10:05:00Z');
@@ -25,7 +25,7 @@ assert.strictEqual(use.seconds, 300);
 assert.strictEqual(usageSince({ cpuUsec: 9_000_000n, at: t0 }, readings.get('cmorg1')!, t5)!.cpuSeconds, 6);
 
 // a long gap (backend was down) is capped, not billed as held throughout
-assert.strictEqual(usageSince({ cpuUsec: 0n, at: new Date('2026-09-24T08:00:00Z') }, { cpuUsec: 0n, memBytes: GiB }, t5)!.seconds, 900);
+assert.strictEqual(usageSince({ cpuUsec: 0n, at: new Date('2026-09-24T08:00:00Z') }, { cpuUsec: 0n, memBytes: GiB, journalBytes: 0 }, t5)!.seconds, 900);
 
 // a month of 1 vCPU flat out, 1 GiB, 10 GiB stored ≈ Rp 30k + 80k + 15k
 const month = 730 * 3600;
@@ -45,7 +45,7 @@ const script = meterScript([
   { id: 'cmorg2', slug: 'bad;rm -rf /', uid: 1 },
   { id: 'x"; rm', slug: 'ok-slug', uid: 2 },
 ]);
-assert.ok(script.includes('cb-depati.slice') && script.includes('user@200000.service'));
+assert.ok(script.includes('cb-depati.slice') && script.includes('user@200000.service') && script.includes('jr 200000'));
 assert.ok(!script.includes('rm -rf') && !script.includes('x"; rm'));
 const parsed = spawnSync('sh', ['-n'], { input: script, encoding: 'utf8' });
 if (!parsed.error) assert.strictEqual(parsed.status, 0, parsed.stderr);

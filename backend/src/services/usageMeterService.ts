@@ -44,25 +44,35 @@ const AVG_MONTH_DAYS = 730 / 24;
  */
 const CG = `cg() { p=$(systemctl show -p ControlGroup --value "$1" 2>/dev/null); d="/sys/fs/cgroup$p"; if [ -n "$p" ] && [ -d "$d" ]; then u=$(awk '/^usage_usec/{print $2}' "$d/cpu.stat" 2>/dev/null); m=$(cat "$d/memory.current" 2>/dev/null); echo "\${u:-0} \${m:-0}"; else echo "0 0"; fi; }`;
 
-/** One line per workspace: `<orgId> <sliceUsec> <sliceMem> <podmanUsec> <podmanMem>`. Slugs are checked, uids are numbers. */
+/**
+ * The user's journal on this node: rootless podman's container logs (journald
+ * driver) and its user services', in bytes. Exact names — user-200000 must not
+ * take user-2000001's — persistent and volatile, archives and all.
+ */
+const JR = `jr() { du -cb /var/log/journal/*/user-$1.journal /var/log/journal/*/user-$1@*.journal* /run/log/journal/*/user-$1.journal /run/log/journal/*/user-$1@*.journal* 2>/dev/null | tail -1 | cut -f1; }`;
+
+/** One line per workspace: `<orgId> <sliceUsec> <sliceMem> <podmanUsec> <podmanMem> <journalBytes>`. Slugs are checked, uids are numbers. */
 export function meterScript(orgs: Array<{ id: string; slug: string; uid: number | null }>): string {
   const lines = orgs
     .filter((org) => ORG_SLUG_RE.test(org.slug) && /^[a-z0-9]+$/.test(org.id))
-    .map((org) => `echo "${org.id} $(cg cb-${org.slug}.slice) $(${org.uid ? `cg user@${Number(org.uid)}.service` : 'echo 0 0'})"`);
-  return [CG, ...lines].join('\n');
+    .map((org) => {
+      const uid = org.uid ? Number(org.uid) : null;
+      return `echo "${org.id} $(cg cb-${org.slug}.slice) $(${uid ? `cg user@${uid}.service` : 'echo 0 0'}) $(${uid ? `jr ${uid}` : 'echo 0'})"`;
+    });
+  return [CG, JR, ...lines].join('\n');
 }
 
-export type Reading = { cpuUsec: bigint; memBytes: number };
+export type Reading = { cpuUsec: bigint; memBytes: number; journalBytes: number };
 
 /** Parse meterScript's output. Pure. */
 export function parseMeter(stdout: string): Map<string, Reading> {
   const out = new Map<string, Reading>();
   for (const line of stdout.split('\n')) {
-    const [id, u1, m1, u2, m2] = line.trim().split(/\s+/);
+    const [id, u1, m1, u2, m2, j] = line.trim().split(/\s+/);
     if (!id || u1 === undefined) continue;
     const big = (v?: string) => (v && /^\d+$/.test(v) ? BigInt(v) : 0n);
     const num = (v?: string) => (v && /^\d+$/.test(v) ? Number(v) : 0);
-    out.set(id, { cpuUsec: big(u1) + big(u2), memBytes: num(m1) + num(m2) });
+    out.set(id, { cpuUsec: big(u1) + big(u2), memBytes: num(m1) + num(m2), journalBytes: num(j) });
   }
   return out;
 }
@@ -103,17 +113,19 @@ export async function currentRate(organizationId: string, monthDays = AVG_MONTH_
   const [apps, nodes, day] = await Promise.all([
     prisma.application.findMany({ where: { organizationId }, select: { type: true, staticBucket: true, diskBytes: true } }),
     // a reading older than the gap the meter tolerates says nothing about now
-    prisma.orgNode.findMany({ where: { organizationId, meterAt: { gte: new Date(Date.now() - MAX_INTERVAL_S * 1000) } }, select: { meterMemBytes: true } }),
+    prisma.orgNode.findMany({ where: { organizationId, meterAt: { gte: new Date(Date.now() - MAX_INTERVAL_S * 1000) } }, select: { meterMemBytes: true, meterJournalBytes: true } }),
     prisma.usageHour.findMany({ where: { organizationId, hour: { gte: new Date(Date.now() - 24 * 3_600_000) } }, select: { cpuSeconds: true } }),
   ]);
   const sum = (list: typeof apps) => list.reduce((total, app) => total + Number(app.diskBytes ?? 0), 0) / GiB;
   const objectGb = sum(apps.filter(inObjectStorage));
-  const storageGb = sum(apps.filter((app) => !inObjectStorage(app)));
+  // its user's journal on each node (container logs, user services): disk too
+  const journalGb = nodes.reduce((total, node) => total + Number(node.meterJournalBytes ?? 0), 0) / GiB;
+  const storageGb = sum(apps.filter((app) => !inObjectStorage(app))) + journalGb;
   const memGb = nodes.reduce((sum, node) => sum + Number(node.meterMemBytes ?? 0), 0) / GiB;
   const cpuCores = day.length ? day.reduce((sum, h) => sum + h.cpuSeconds, 0) / (day.length * 3600) : 0;
   // an hour of each, priced
   const perHour = priceOf({ cpuSeconds: cpuCores * 3600, memGbSeconds: memGb * 3600, storageGbSeconds: storageGb * 3600, objectGbSeconds: objectGb * 3600 }, monthDays);
-  return { storageGb, objectGb, memGb, cpuCores, perHour: perHour.total };
+  return { storageGb, objectGb, journalGb, memGb, cpuCores, perHour: perHour.total };
 }
 
 const hourOf = (at: Date) => new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000);
@@ -147,7 +159,7 @@ export async function meterUsage(): Promise<string> {
       const now = readings.get(node.organizationId);
       if (!now) continue;
       const use = usageSince({ cpuUsec: node.meterCpuUsec, at: node.meterAt }, now, at);
-      await prisma.orgNode.update({ where: { id: node.id }, data: { meterCpuUsec: now.cpuUsec, meterMemBytes: BigInt(now.memBytes), meterAt: at } });
+      await prisma.orgNode.update({ where: { id: node.id }, data: { meterCpuUsec: now.cpuUsec, meterMemBytes: BigInt(now.memBytes), meterJournalBytes: BigInt(now.journalBytes), meterAt: at } });
       if (!use) continue;
       const sum = added.get(node.organizationId) ?? { cpuSeconds: 0, memGbSeconds: 0, seconds: 0 };
       added.set(node.organizationId, {
@@ -165,6 +177,12 @@ export async function meterUsage(): Promise<string> {
     select: { organizationId: true, type: true, staticBucket: true, diskBytes: true },
   });
   const storageOf = new Map<string, { disk: number; object: number }>();
+  // its journal on each node is disk it holds too
+  for (const node of nodes) {
+    const sum = storageOf.get(node.organizationId) ?? { disk: 0, object: 0 };
+    sum.disk += Number(node.meterJournalBytes ?? 0);
+    storageOf.set(node.organizationId, sum);
+  }
   for (const app of stored) {
     const sum = storageOf.get(app.organizationId!) ?? { disk: 0, object: 0 };
     if (inObjectStorage(app)) sum.object += Number(app.diskBytes ?? 0);
