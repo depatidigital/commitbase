@@ -110,34 +110,54 @@ export class HostRouteError extends Error {}
  * serve is not known (an imported site nobody changed) is left exactly as it
  * is on the server — its hand-written route is never rebuilt for nothing.
  */
-export async function recomposeHosts(node: SshTarget, hosts: string[], { without }: { without?: string } = {}): Promise<void> {
-  for (const host of [...new Set(hosts)]) {
-    const bound = await prisma.appDomain.findMany({
-      // `without`: as if that app were gone already — its delete removes the rows after
-      where: { host, ...(without && { applicationId: { not: without } }) },
-      select: { path: true, stripPrefix: true, application: { select: { name: true, serve: true, runtime: true } } },
-    });
-    if (bound.length === 0) {
-      await removeCaddySite(node, host);
-      continue;
-    }
-    // A panel app not deployed yet has nothing to route: its hosts are set up
-    // before its first deploy, which routes them (serveApp). Left out until then.
-    const rows = bound.filter((row) => readServe(row.application.serve) || row.application.runtime);
-    if (rows.length === 0) continue;
-    const unknown = rows.filter((row) => !readServe(row.application.serve));
-    if (unknown.length) {
-      if (rows.length === 1) continue;
-      throw new HostRouteError(
-        `${host} cannot be routed: the panel does not know what ${unknown.map((row) => row.application.name).join(', ')} is served by — sync the apps first`,
-      );
-    }
-    await setHostRoute(
-      node,
-      host,
-      composeHostHandle(rows.map((row) => ({ path: row.path, stripPrefix: row.stripPrefix, serve: readServe(row.application.serve)! }))),
+export async function recomposeHosts(node: SshTarget, hosts: string[], opts: { without?: string } = {}): Promise<void> {
+  for (const host of [...new Set(hosts)]) await oneAtATime(host, () => recomposeHost(node, host, opts));
+}
+
+/**
+ * One host's route read and written as one step. Two deploys of apps on the
+ * same name (a frontend and its /api backend) finishing together would each
+ * read both apps' serve and write the host — the later write carrying the other
+ * app's serve as it was before its own update: a frontend pointed back at a
+ * release folder since pruned.
+ * ponytail: per process — one panel per set of servers; a DB advisory lock if it ever runs twice.
+ */
+const hostQueues = new Map<string, Promise<unknown>>();
+function oneAtATime<T>(host: string, work: () => Promise<T>): Promise<T> {
+  const run = (hostQueues.get(host) ?? Promise.resolve()).catch(() => {}).then(work);
+  hostQueues.set(host, run);
+  void run.catch(() => {}).finally(() => {
+    if (hostQueues.get(host) === run) hostQueues.delete(host);
+  });
+  return run;
+}
+
+async function recomposeHost(node: SshTarget, host: string, { without }: { without?: string }): Promise<void> {
+  const bound = await prisma.appDomain.findMany({
+    // `without`: as if that app were gone already — its delete removes the rows after
+    where: { host, ...(without && { applicationId: { not: without } }) },
+    select: { path: true, stripPrefix: true, application: { select: { name: true, serve: true, runtime: true } } },
+  });
+  if (bound.length === 0) {
+    await removeCaddySite(node, host);
+    return;
+  }
+  // A panel app not deployed yet has nothing to route: its hosts are set up
+  // before its first deploy, which routes them (serveApp). Left out until then.
+  const rows = bound.filter((row) => readServe(row.application.serve) || row.application.runtime);
+  if (rows.length === 0) return;
+  const unknown = rows.filter((row) => !readServe(row.application.serve));
+  if (unknown.length) {
+    if (rows.length === 1) return;
+    throw new HostRouteError(
+      `${host} cannot be routed: the panel does not know what ${unknown.map((row) => row.application.name).join(', ')} is served by — sync the apps first`,
     );
   }
+  await setHostRoute(
+    node,
+    host,
+    composeHostHandle(rows.map((row) => ({ path: row.path, stripPrefix: row.stripPrefix, serve: readServe(row.application.serve)! }))),
+  );
 }
 
 /** Say what an app is served by, then route its hostnames again with it. */

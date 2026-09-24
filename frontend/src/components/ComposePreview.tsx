@@ -46,6 +46,16 @@ export function ComposePreview({
       ) : !data ? (
         <p className="text-xs text-muted-foreground">{t("Reading the compose files…")}</p>
       ) : (
+        <>
+        {/* nothing picked: no route — the hosts do not open, the stack only publishes its own ports */}
+        {!selected && data.some((service) => service.ports.length > 0) && (
+          <p className="flex items-start gap-1.5 rounded-md bg-warning/10 px-2.5 py-2 text-xs text-warning">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              {t("No service takes the host's traffic yet, so the hosts do not open. Point the host at the web service (the one with a port), then deploy.")}
+            </span>
+          </p>
+        )}
         <ul className="divide-y divide-border/60">
           {data.map((service) => {
             // the container side of the first published port: what Caddy should dial
@@ -104,6 +114,7 @@ export function ComposePreview({
             );
           })}
         </ul>
+        </>
       )}
       <p className="text-[11px] text-muted-foreground">{t("From the saved compose files — save a change to them to see it here.")}</p>
     </div>
