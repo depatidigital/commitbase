@@ -142,12 +142,10 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
                 </>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t("Files shared between releases (node_modules while the lockfile is unchanged) are counted once, on the live release.")}{" "}
-              {disk.reclaimableBytes > 0
-                ? t("{size} can be freed now.", { size: bytes(disk.reclaimableBytes) })
-                : t("Nothing unused right now.")}
-            </p>
+            {/* only when there is something to free: the Clean up button says the rest */}
+            {disk.reclaimableBytes > 0 && (
+              <p className="text-xs text-muted-foreground">{t("{size} can be freed now.", { size: bytes(disk.reclaimableBytes) })}</p>
+            )}
           </>
         ) : null}
       </CardContent>
