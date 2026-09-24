@@ -64,29 +64,109 @@ const CG = `cg() { p=$(systemctl show -p ControlGroup --value "$1" 2>/dev/null);
  */
 const JR = `jr() { du -cb /var/log/journal/*/user-$1.journal /var/log/journal/*/user-$1@*.journal* /run/log/journal/*/user-$1.journal /run/log/journal/*/user-$1@*.journal* 2>/dev/null | tail -1 | cut -f1; }`;
 
-/** One line per workspace: `<orgId> <sliceUsec> <sliceMem> <podmanUsec> <podmanMem> <journalBytes>`. Slugs are checked, uids are numbers. */
-export function meterScript(orgs: Array<{ id: string; slug: string; uid: number | null }>): string {
-  const lines = orgs
-    .filter((org) => ORG_SLUG_RE.test(org.slug) && /^[a-z0-9]+$/.test(org.id))
-    .map((org) => {
-      const uid = org.uid ? Number(org.uid) : null;
-      return `echo "${org.id} $(cg cb-${org.slug}.slice) $(${uid ? `cg user@${uid}.service` : 'echo 0 0'}) $(${uid ? `jr ${uid}` : 'echo 0'})"`;
-    });
-  return [CG, JR, ...lines].join('\n');
+/**
+ * The meter lives on each node: a systemd timer samples every workspace every
+ * five minutes into /var/lib/larika/meter.log, whether the panel is up or not.
+ * The panel only collects what was written since it last looked — a panel that
+ * was down a day loses nothing, memory included, and a node's last sample before
+ * a reboot is on its disk.
+ *
+ * Line: `<epoch> <slug> <sliceUsec> <sliceMem> <podmanUsec> <podmanMem> <journalBytes>`.
+ * Which workspaces to sample the panel writes to meter.orgs (`<slug> <uid>`),
+ * checked on both ends. Bump METER_VERSION to reinstall the sampler everywhere.
+ */
+const METER_VERSION = '1';
+
+const SAMPLER = `#!/bin/sh
+# larika-meter v${METER_VERSION}: one line per workspace, appended to /var/lib/larika/meter.log
+${CG}
+${JR}
+D=/var/lib/larika
+[ -f "$D/meter.orgs" ] || exit 0
+now=$(date +%s)
+while read -r slug uid; do
+  case "$slug" in ''|*[!a-z0-9-]*) continue;; esac
+  case "$uid" in *[!0-9]*) uid=;; esac
+  if [ -n "$uid" ]; then p=$(cg "user@$uid.service"); j=$(jr "$uid"); else p="0 0"; j=0; fi
+  echo "$now $slug $(cg "cb-$slug.slice") $p \${j:-0}"
+done < "$D/meter.orgs" >> "$D/meter.log"
+# about a week of samples for a few dozen workspaces
+n=$(wc -l < "$D/meter.log")
+if [ "$n" -gt 60000 ]; then tail -n 50000 "$D/meter.log" > "$D/meter.log.tmp" && mv "$D/meter.log.tmp" "$D/meter.log"; fi
+exit 0`;
+
+const SERVICE = `[Unit]
+Description=Larika usage meter
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /usr/local/lib/larika-meter.sh`;
+
+const TIMER = `[Unit]
+Description=Larika usage meter, every five minutes
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+[Install]
+WantedBy=timers.target`;
+
+/**
+ * What the panel runs as root on a node: install (or upgrade) the sampler and
+ * its timer, name the workspaces to sample, take a sample now, and print every
+ * line written after $1 (an epoch). Fixed text; the workspaces come as
+ * arguments (`<slug>:<uid>`), checked again here.
+ */
+export const COLLECT_SCRIPT = `set -e
+if ! grep -q "larika-meter v${METER_VERSION}:" /usr/local/lib/larika-meter.sh 2>/dev/null; then
+  mkdir -p /usr/local/lib
+  cat > /usr/local/lib/larika-meter.sh <<'LARIKA_EOF'
+${SAMPLER}
+LARIKA_EOF
+  cat > /etc/systemd/system/larika-meter.service <<'LARIKA_EOF'
+${SERVICE}
+LARIKA_EOF
+  cat > /etc/systemd/system/larika-meter.timer <<'LARIKA_EOF'
+${TIMER}
+LARIKA_EOF
+  systemctl daemon-reload
+  systemctl enable --now larika-meter.timer >/dev/null 2>&1 || true
+fi
+mkdir -p /var/lib/larika
+since="$1"; shift
+case "$since" in ''|*[!0-9]*) since=0;; esac
+: > /var/lib/larika/meter.orgs.tmp
+for o in "$@"; do
+  slug=\${o%%:*}; uid=\${o#*:}
+  case "$slug" in ''|*[!a-z0-9-]*) continue;; esac
+  case "$uid" in *[!0-9]*) uid=;; esac
+  echo "$slug $uid" >> /var/lib/larika/meter.orgs.tmp
+done
+mv /var/lib/larika/meter.orgs.tmp /var/lib/larika/meter.orgs
+/bin/sh /usr/local/lib/larika-meter.sh
+touch /var/lib/larika/meter.log
+awk -v t="$since" '$1 > t' /var/lib/larika/meter.log`;
+
+/** The arguments COLLECT_SCRIPT takes after the epoch: safe slugs, numeric uids. */
+export function meterOrgArgs(orgs: Array<{ slug: string; uid: number | null }>): string[] {
+  return orgs.filter((org) => ORG_SLUG_RE.test(org.slug)).map((org) => `${org.slug}:${org.uid ? Number(org.uid) : ''}`);
 }
 
 export type Reading = { cpuUsec: bigint; memBytes: number; journalBytes: number };
+export type Sample = Reading & { at: Date };
 
-/** Parse meterScript's output. Pure. */
-export function parseMeter(stdout: string): Map<string, Reading> {
-  const out = new Map<string, Reading>();
+/** Parse the meter log: each workspace's samples, oldest first. Pure. */
+export function parseMeterLog(stdout: string): Map<string, Sample[]> {
+  const out = new Map<string, Sample[]>();
+  const big = (v?: string) => (v && /^\d+$/.test(v) ? BigInt(v) : 0n);
+  const num = (v?: string) => (v && /^\d+$/.test(v) ? Number(v) : 0);
   for (const line of stdout.split('\n')) {
-    const [id, u1, m1, u2, m2, j] = line.trim().split(/\s+/);
-    if (!id || u1 === undefined) continue;
-    const big = (v?: string) => (v && /^\d+$/.test(v) ? BigInt(v) : 0n);
-    const num = (v?: string) => (v && /^\d+$/.test(v) ? Number(v) : 0);
-    out.set(id, { cpuUsec: big(u1) + big(u2), memBytes: num(m1) + num(m2), journalBytes: num(j) });
+    const [epoch, slug, u1, m1, u2, m2, j] = line.trim().split(/\s+/);
+    if (!epoch || !/^\d+$/.test(epoch) || !slug || u1 === undefined) continue;
+    const list = out.get(slug) ?? [];
+    list.push({ at: new Date(Number(epoch) * 1000), cpuUsec: big(u1) + big(u2), memBytes: num(m1) + num(m2), journalBytes: num(j) });
+    out.set(slug, list);
   }
+  for (const list of out.values()) list.sort((a, b) => a.at.getTime() - b.at.getTime());
   return out;
 }
 
@@ -204,9 +284,9 @@ export async function meterUsage(): Promise<string> {
   const at = new Date();
   // per workspace, per hour: what the readings add — a gap's CPU spread over its hours
   const added = new Map<string, Map<number, { cpuSeconds: number; memGbSeconds: number }>>();
-  const add = (organizationId: string, from: Date, field: 'cpuSeconds' | 'memGbSeconds', amount: number) => {
+  const add = (organizationId: string, from: Date, to: Date, field: 'cpuSeconds' | 'memGbSeconds', amount: number) => {
     const hours = added.get(organizationId) ?? new Map<number, { cpuSeconds: number; memGbSeconds: number }>();
-    for (const { hour, share } of spreadHours(from, at)) {
+    for (const { hour, share } of spreadHours(from, to)) {
       const sum = hours.get(hour.getTime()) ?? { cpuSeconds: 0, memGbSeconds: 0 };
       sum[field] += amount * share;
       hours.set(hour.getTime(), sum);
@@ -219,24 +299,42 @@ export async function meterUsage(): Promise<string> {
 
   for (const group of byServer.values()) {
     const server = group[0]!.server;
-    let readings: Map<string, Reading>;
+    // what the node wrote since the panel last looked — the oldest cursor of the workspaces on it,
+    // or the last quarter hour for one never read (its first sample is only a starting point)
+    const since = Math.min(...group.map((node) => (node.meterAt ?? new Date(at.getTime() - MAX_INTERVAL_S * 1000)).getTime()));
+    let samples: Map<string, Sample[]>;
     try {
-      const { stdout } = await execRoot(server, ['sh', '-c', meterScript(group.map((n) => n.organization))], { timeout: 60_000 });
-      readings = parseMeter(stdout);
+      const { stdout } = await execRoot(
+        server,
+        ['sh', '-c', COLLECT_SCRIPT, 'sh', String(Math.floor(since / 1000)), ...meterOrgArgs(group.map((n) => n.organization))],
+        { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 },
+      );
+      samples = parseMeterLog(stdout);
     } catch (error: any) {
       failed += 1;
       console.warn(`usage meter on ${server.name}: ${error?.stderr || error?.message || error}`);
       continue;
     }
     for (const node of group) {
-      const now = readings.get(node.organizationId);
-      if (!now) continue;
-      journalOf.set(node.organizationId, (journalOf.get(node.organizationId) ?? 0) + now.journalBytes);
-      const use = usageSince({ cpuUsec: node.meterCpuUsec, memBytes: node.meterMemBytes, at: node.meterAt }, now, at);
-      await prisma.orgNode.update({ where: { id: node.id }, data: { meterCpuUsec: now.cpuUsec, meterMemBytes: BigInt(now.memBytes), meterJournalBytes: BigInt(now.journalBytes), meterAt: at } });
-      if (!use) continue;
-      add(node.organizationId, use.cpuFrom, 'cpuSeconds', use.cpuSeconds);
-      add(node.organizationId, use.memFrom, 'memGbSeconds', use.memGbSeconds);
+      // this workspace's samples it has not taken yet, in order; a new one starts from its latest
+      const all = (samples.get(node.organization.slug) ?? []).filter((s) => !node.meterAt || s.at > node.meterAt);
+      const fresh = node.meterAt ? all : all.slice(-1);
+      if (!fresh.length) continue;
+      let prev = { cpuUsec: node.meterCpuUsec, memBytes: node.meterMemBytes, at: node.meterAt };
+      for (const sample of fresh) {
+        const use = usageSince(prev, sample, sample.at);
+        if (use) {
+          add(node.organizationId, use.cpuFrom, sample.at, 'cpuSeconds', use.cpuSeconds);
+          add(node.organizationId, use.memFrom, sample.at, 'memGbSeconds', use.memGbSeconds);
+        }
+        prev = { cpuUsec: sample.cpuUsec, memBytes: BigInt(sample.memBytes), at: sample.at };
+      }
+      const last = fresh[fresh.length - 1]!;
+      journalOf.set(node.organizationId, (journalOf.get(node.organizationId) ?? 0) + last.journalBytes);
+      await prisma.orgNode.update({
+        where: { id: node.id },
+        data: { meterCpuUsec: last.cpuUsec, meterMemBytes: BigInt(last.memBytes), meterJournalBytes: BigInt(last.journalBytes), meterAt: last.at },
+      });
     }
   }
 
