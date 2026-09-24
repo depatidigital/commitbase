@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Cloud, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ComposePreview } from "@/components/ComposePreview";
 import { ServerEnv } from "@/components/ServerEnv";
@@ -52,7 +52,7 @@ import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
 import { APP_NAME } from "@/lib/branding";
 import { expectedRows } from "@/lib/env";
-import { timeAgo } from "@/lib/utils";
+import { formatBytes, timeAgo } from "@/lib/utils";
 import { buildProject, deployProject, getProject, type ProjectApp } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
@@ -144,8 +144,8 @@ export default function ProjectDetail() {
   // (queued, no service has changed its status yet)
   const deploying =
     project.status === "DEPLOYING" || ["PENDING", "BUILDING", "DEPLOYING"].includes(project.lastDeployment?.status ?? "") || deploy.isPending;
-  // releases and a build cache on its node: the panel's own projects, but for static sites (their files are in R2)
-  const hasStorage = !imported && !!apps[0] && !apps.every((app) => app.type === "STATIC");
+  // what the panel's own services take: a tree on the node, or a static site's files in R2
+  const hasStorage = !imported && !!apps[0];
 
   const origin = project.repository ? (
     <>
@@ -334,8 +334,30 @@ export default function ProjectDetail() {
               {/* every service with a tree on the node — not uploaded files (in object storage), not imported ones */}
               {apps
                 .filter((app) => app.type !== "STATIC" && !app.runtime)
-                .map((app, _, stored) => (
-                  <AppStorageCard key={app.id} appId={app.id} deploying={deploying} title={stored.length > 1 ? app.name : undefined} />
+                .map((app) => (
+                  <AppStorageCard key={app.id} appId={app.id} deploying={deploying} title={apps.length > 1 ? app.name : undefined} />
+                ))}
+              {/* a static site's files are in R2, not on the node: the size the cron measures there */}
+              {apps
+                .filter((app) => app.type === "STATIC" && !app.runtime)
+                .map((app) => (
+                  <Card key={app.id}>
+                    <CardContent className="flex items-center justify-between gap-3 p-4">
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 font-medium">
+                          <Cloud className="h-4 w-4 shrink-0 text-primary" />
+                          <span className="truncate">{app.name}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {t("Static files in object storage (R2), every release.")}
+                          {app.diskMeasuredAt && (
+                            <span title={new Date(app.diskMeasuredAt).toLocaleString(locale)}> · {t("measured {ago}", { ago: timeAgo(app.diskMeasuredAt) })}</span>
+                          )}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-medium">{app.diskBytes != null ? formatBytes(app.diskBytes, locale) : "—"}</span>
+                    </CardContent>
+                  </Card>
                 ))}
             </div>
           </TabsContent>
