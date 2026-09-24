@@ -2,7 +2,7 @@
  * Self-check for where a new route lands: npx tsx src/services/caddyService.check.ts
  */
 import assert from 'assert';
-import { buildRoute, withHostBeside, withoutHosts, withRoute } from './caddyService';
+import { buildRoute, ensureHttpServer, withHostBeside, withoutHosts, withRoute } from './caddyService';
 
 const site = (host: string) => ({ match: [{ host: [host] }], handle: [], terminal: true });
 const route = buildRoute('new.example.com', { type: 'runtime', upstreamPort: 3000 });
@@ -43,4 +43,11 @@ assert.deepStrictEqual(withHostBeside([cms, site('x.com')], 'c.go.id', 'd.go.id'
   ['x.com'],
 ]);
 
-console.log('caddyService: withRoute + withoutHosts + withHostBeside OK');
+// a Caddyfile block on :80 only gets :443 (else HTTPS is refused); a node where
+// another block already holds :443 is left alone — two servers on it fail the load
+const listenOf = (servers: any) => Object.fromEntries(Object.entries<any>(ensureHttpServer({ apps: { http: { servers } } }).apps.http.servers).map(([k, v]) => [k, v.listen]));
+assert.deepStrictEqual(listenOf({ srv0: { listen: [':80'], routes: [] } }), { srv0: [':80', ':443'] });
+assert.deepStrictEqual(listenOf({ srv0: { listen: [':80'] }, srv1: { listen: [':443'] } }), { srv0: [':80'], srv1: [':443'] });
+assert.deepStrictEqual(listenOf({}), { larika: [':80', ':443'] });
+
+console.log('caddyService: withRoute + withoutHosts + withHostBeside + ensureHttpServer OK');

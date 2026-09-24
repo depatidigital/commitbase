@@ -20,11 +20,11 @@ import { serverForApplication } from '../lib/servers';
  * name at us, so a "running" app did not resolve. Everything here closes that
  * gap, and says plainly when it cannot.
  *
- * Records are created DNS-only (never proxied): Caddy takes the certificate
- * itself over HTTP-01, and Cloudflare's proxy would answer that challenge
- * instead.
- * ponytail: DNS-only means the origin IP is public. Switch to proxied records
- * once Caddy issues certificates over DNS-01 with a Cloudflare token.
+ * An app's own record is created proxied (orange cloud): Cloudflare answers
+ * HTTPS at its edge, so the site opens before, or without, a certificate on
+ * the node, and the origin IP stays private. When Caddy does need its own
+ * certificate, sslProvisionService turns the proxy off around the HTTP-01
+ * challenge and back on. The zone's wildcard stays DNS-only.
  */
 
 export type HostnameOutcome =
@@ -82,10 +82,14 @@ async function zoneFor(application: Pick<AppAt, 'domainId' | 'domain'>) {
  * A record that already points somewhere else is left alone and reported as a
  * conflict — silently stealing a live hostname is worse than an unreachable
  * app. `force` overwrites it, for the caller that has asked the user.
+ *
+ * `proxy`: a record of ours that is DNS-only is switched to proxied — for the
+ * user adding the host. A deploy leaves it as it is, so a record someone set
+ * grey on purpose is not flipped back on every deploy.
  */
 export async function ensureAppHostname(
   application: AppAt,
-  { force = false }: { force?: boolean } = {},
+  { force = false, proxy = false }: { force?: boolean; proxy?: boolean } = {},
 ): Promise<HostnameOutcome> {
   const host = lower(application.domain);
   const zone = await zoneFor(application);
@@ -125,21 +129,27 @@ export async function ensureAppHostname(
   // forced: the user agreed to replace them — a CNAME cannot sit next to our A anyway
   for (const record of elsewhere) await deleteDnsRecord(zone.zoneId, record.id);
 
-  if (atHost.some(pointsAtUs)) {
-    if (elsewhere.length) await refreshDomainSummary(zone.domain.id);
-    return { state: 'exists', detail: `${host} already points here` };
+  const ours = atHost.filter(pointsAtUs);
+  if (ours.length) {
+    const grey = proxy ? ours.filter((record: any) => record.proxied !== true) : [];
+    for (const record of grey) {
+      await updateDnsRecord(zone.zoneId, record.id, { type: record.type, name: record.name, content: record.content, ttl: 1, proxied: true });
+    }
+    if (elsewhere.length || grey.length) await refreshDomainSummary(zone.domain.id);
+    return { state: 'exists', detail: grey.length ? `${host} already points here — Cloudflare proxy turned on` : `${host} already points here` };
   }
 
-  // a wildcard on the zone already answers for every hostname under it
+  // a wildcard on the zone already answers for every hostname under it — but it
+  // is DNS-only, so a host that should be proxied gets its own record (which wins)
   const wildcard = records.find(
     (record: any) => lower(record?.name) === `*.${lower(zone.domain.name)}` && pointsAtUs(record),
   );
-  if (wildcard && host !== lower(zone.domain.name)) {
+  if (wildcard && host !== lower(zone.domain.name) && (wildcard.proxied === true || !proxy)) {
     if (elsewhere.length) await refreshDomainSummary(zone.domain.id);
     return { state: 'wildcard', detail: `Covered by the ${wildcard.name} record` };
   }
 
-  await createDnsRecord(zone.zoneId, { type: target.type, name: host, content: target.content, ttl: 1, proxied: false });
+  await createDnsRecord(zone.zoneId, { type: target.type, name: host, content: target.content, ttl: 1, proxied: true });
 
   await refreshDomainSummary(zone.domain.id);
   return {

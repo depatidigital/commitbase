@@ -289,7 +289,7 @@ export function allRoutesOf(config: any): any[] {
   );
 }
 
-function ensureHttpServer(config: any): any {
+export function ensureHttpServer(config: any): any {
   const updatedConfig = config || {};
 
   if (!updatedConfig.apps) {
@@ -316,6 +316,15 @@ function ensureHttpServer(config: any): any {
 
   if (!Array.isArray(servers[serverName].routes)) {
     servers[serverName].routes = [];
+  }
+
+  // A block adopted from a Caddyfile (`srv0`) may listen on :80 only: our routes
+  // there answer HTTP, and HTTPS is refused (Cloudflare 521). Add :443 unless
+  // another block already holds it — two servers on one port fail the load.
+  const listen: string[] = Array.isArray(servers[serverName].listen) ? servers[serverName].listen : [];
+  const holds443 = (server: any) => (Array.isArray(server?.listen) ? server.listen : []).some((a: string) => /:443$/.test(String(a)));
+  if (!Object.values(servers).some(holds443)) {
+    servers[serverName].listen = [...listen, ':443'];
   }
 
   return updatedConfig;

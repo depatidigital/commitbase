@@ -238,7 +238,8 @@ export async function applyAppDns(
   }
 
   const force = consent && (await mayForceDns(req, application.domainId));
-  return ensureAppHostname(application, { force });
+  // the user adding the host: its record proxied, like every new one
+  return ensureAppHostname(application, { force, proxy: true });
 }
 
 /** Overwriting a conflicting DNS record is an admin's call under a shared domain. */

@@ -388,17 +388,37 @@ else
 fi
 
 # --------------------------------------------------------------- 6. firewall
+# Caddy needs 80 (ACME HTTP-01, redirects) and 443 (HTTPS; udp for HTTP/3).
+say "Firewall"
+UFW_ACTIVE=0
 if command -v ufw >/dev/null; then
-  say "Firewall"
   ufw allow OpenSSH >/dev/null
   ufw allow 80,443/tcp >/dev/null
+  ufw allow 443/udp >/dev/null
   if ufw status | grep -q '^Status: active'; then
+    UFW_ACTIVE=1
     note "ufw active — rules for 22/80/443 ensured, nothing else changed"
   else
     note "ufw is installed but inactive — NOT enabling it, since other services on this box may need ports open."
     note "when ready: ufw allow <your other ports>; ufw enable"
   fi
 fi
+# No ufw in charge but plain iptables rules that drop (a hand-made or provider
+# image firewall): open 80/443 at the top of INPUT. A box whose INPUT accepts
+# everything is left alone.
+if [ "$UFW_ACTIVE" = 0 ] && command -v iptables >/dev/null \
+  && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT DROP|-j (DROP|REJECT)'; then
+  for rule in "-p tcp --dport 80" "-p tcp --dport 443" "-p udp --dport 443"; do
+    # shellcheck disable=SC2086 # the rule is meant to split into arguments
+    iptables -C INPUT $rule -j ACCEPT 2>/dev/null || iptables -I INPUT $rule -j ACCEPT
+  done
+  if command -v netfilter-persistent >/dev/null; then
+    netfilter-persistent save >/dev/null 2>&1 && note "iptables: 80/443 accepted and saved"
+  else
+    note "iptables: 80/443 accepted — NOT persistent (no netfilter-persistent); save your rules the way this box does"
+  fi
+fi
+note "a firewall at the provider (security group, cloud panel) is not visible from here — open 80/tcp, 443/tcp and 443/udp there too"
 
 # ----------------------------------------------------------------- 7. verify
 say "Verify"
