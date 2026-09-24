@@ -8,6 +8,7 @@ import { AuthGuard } from "./components/AuthGuard";
 import Application from "./pages/Application";
 import Projects from "./pages/Projects";
 import Dashboard from "./pages/Dashboard";
+import Billing from "./pages/Billing";
 import ComingSoon from "./pages/ComingSoon";
 import { Mail } from "lucide-react";
 import ProjectDetail from "./pages/ProjectDetail";
@@ -254,6 +255,7 @@ const App = () => (
                 </SuperAdminRoute>
               }
             />
+            <Route path="billing" element={<Billing />} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

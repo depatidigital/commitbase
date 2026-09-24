@@ -10,6 +10,7 @@ import { checkAllDatabaseServers } from './databaseServerService';
 import { provisionQueuedOrgs } from './orgProvisionService';
 import { setupQueuedServers } from './serverSetupService';
 import { measureAllAppDisks } from './appDiskService';
+import { meterUsage } from './usageMeterService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -130,6 +131,12 @@ const jobs: Job[] = [
     // Same shape: kicked in-process, swept for what a restart cut short.
     schedule: process.env.CRON_SERVER_SETUP || '* * * * *',
     run: setupQueuedServers,
+  },
+  {
+    name: 'usage-meter',
+    // CPU and memory each workspace used since the last reading — pay for what you use
+    schedule: process.env.CRON_USAGE_METER || '*/5 * * * *',
+    run: meterUsage,
   },
   {
     name: 'app-disk',

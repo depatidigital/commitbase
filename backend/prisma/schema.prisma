@@ -11,28 +11,28 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String
-  role      UserRole @default(USER)
-  isActive  Boolean  @default(true)
-  mustChangePassword Boolean @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  name               String?
+  password           String
+  role               UserRole @default(USER)
+  isActive           Boolean  @default(true)
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // Relations
-  applications Application[]
-  logs        Log[]
-  deployments Deployment[]
-  domains     Domain[]
-  gitAccounts GitAccount[]
-  memberships Membership[]
-  invitesSent Invite[]     @relation("InvitedBy")
-  databaseImports DatabaseImport[]
-  sourcesCreated  Source[]        @relation("SourceCreator")
-  projectMembers  ProjectMember[]
-  databasesCreated Database[]     @relation("DatabaseCreator")
+  applications     Application[]
+  logs             Log[]
+  deployments      Deployment[]
+  domains          Domain[]
+  gitAccounts      GitAccount[]
+  memberships      Membership[]
+  invitesSent      Invite[]         @relation("InvitedBy")
+  databaseImports  DatabaseImport[]
+  sourcesCreated   Source[]         @relation("SourceCreator")
+  projectMembers   ProjectMember[]
+  databasesCreated Database[]       @relation("DatabaseCreator")
 
   @@map("users")
 }
@@ -48,13 +48,13 @@ model Organization {
   // application carries its own serverId, so an org can span nodes, and it is
   // provisioned only on the nodes it uses (OrgNode). The column keeps its old
   // name — this was the one-node-per-org placement before.
-  defaultServerId String?  @map("serverId")
-  defaultServer   Server?  @relation("OrgDefaultServer", fields: [defaultServerId], references: [id])
+  defaultServerId String? @map("serverId")
+  defaultServer   Server? @relation("OrgDefaultServer", fields: [defaultServerId], references: [id])
 
   /// Linux UID (and GID) of cb-<slug> — the same on every node, so files keep
   /// their owner when an app is copied or moved between nodes. Assigned on the
   /// org's first provisioning (adopted from the node when the user already exists).
-  uid             Int?     @unique
+  uid Int? @unique
 
   // Which database server this org's databases are created on, per engine.
   // Same rule as serverId: null means "not placed", and creating a database
@@ -72,6 +72,7 @@ model Organization {
   databaseAccounts OrgDatabaseAccount[]
   nodes            OrgNode[]
   sources          Source[]
+  usage            UsageHour[]
 
   @@index([defaultServerId])
   @@map("organizations")
@@ -82,22 +83,26 @@ model Organization {
 /// node, or by an admin — so an org is provisioned only where it runs.
 /// The provisioning queue (orgProvisionService) lives on these rows.
 model OrgNode {
-  id             String         @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   serverId       String
-  server         Server         @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  server         Server       @relation(fields: [serverId], references: [id], onDelete: Restrict)
 
-  state          ProvisionState @default(NONE)
-  error          String?
+  state         ProvisionState @default(NONE)
+  error         String?
   /// Tail of cb-provision-org's output, written while it runs (live view) and kept after
-  log            String?
+  log           String?
   /// { userId, trigger, diskQuota?, cpuQuota?, memoryMax? } of the pending request
-  job            Json?
-  provisionedAt  DateTime?
+  job           Json?
+  provisionedAt DateTime?
 
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  /// the usage meter's last reading here: the org's CPU time counter (µs, cgroup) and when — the next reading is a delta of it
+  meterCpuUsec BigInt?
+  meterAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([organizationId, serverId])
   @@index([state])
@@ -121,45 +126,45 @@ enum ProvisionState {
 /// defaults) stay in the environment — a column per node would be one more
 /// thing to keep in sync for no gain.
 model Server {
-  id            String   @id @default(cuid())
-  name          String
+  id          String   @id @default(cuid())
+  name        String
   /// SSH target - hostname or IP. The control plane's own VM is a row like any other.
-  hostname      String
-  sshUser       String   @default("larika")
-  sshPort       Int      @default(22)
+  hostname    String
+  sshUser     String   @default("larika")
+  sshPort     Int      @default(22)
   /// How the control plane authenticates to this node. A key is the default and
   /// the one to prefer; PASSWORD exists for boxes where installing a key is not
   /// an option (a managed VPS, a first connection before the key is in place).
-  authMethod    String   @default("KEY")
+  authMethod  String   @default("KEY")
   /// Path to the private key ON THE CONTROL PLANE. Never key material in the
   /// database. Required when authMethod is KEY.
-  sshKeyPath    String?
+  sshKeyPath  String?
   /// AES-256-GCM ciphertext of the SSH password, never the password itself.
   /// Required when authMethod is PASSWORD. Never leaves the backend.
-  sshPassword   String?
+  sshPassword String?
   /// Public address for this node's apps. Becomes the Cloudflare A record target.
-  publicIp      String
+  publicIp    String
   /// Free-form labels — "production", "jakarta", "php8.3". Grouping a growing
   /// fleet is the operator's own vocabulary, not something to model as columns.
-  tags          String[]
+  tags        String[]
   /// Deprecated: the Caddy admin API is unauthenticated, so it is never
   /// addressed directly. Each node's is reached at its own 127.0.0.1:2019
   /// through the SSH connection above. Kept only so an existing row survives;
   /// drop the column once nothing reads it.
-  caddyApiUrl   String   @default("")
+  caddyApiUrl String   @default("")
 
   /// ONLINE, OFFLINE or UNKNOWN, from the heartbeat. With more than one node,
   /// "the panel cannot reach this box" is a state an admin has to be able to
   /// see before a tenant reports it.
-  status        String    @default("UNKNOWN")
+  status      String    @default("UNKNOWN")
   /// Whether the panel can become root on this node (the runner scripts are
   /// sent over SSH, so that is all "set up" needs). Separate from status on purpose: a box can be perfectly reachable and simply not set up
   /// yet, and those two problems have completely different fixes.
-  provisioned   Boolean   @default(false)
-  lastSeenAt    DateTime?
+  provisioned Boolean   @default(false)
+  lastSeenAt  DateTime?
   /// Why the last heartbeat failed. Kept so the failure is diagnosable from
   /// the UI without shell access to either machine.
-  lastError     String?
+  lastError   String?
 
   /// Which container runtime setup installs here, and therefore whether COMPOSE
   /// apps may be placed on this node: "NONE" or "PODMAN". A string, like
@@ -169,25 +174,25 @@ model Server {
   /// What is actually on the box, as the heartbeat last found it:
   /// [{ name: "caddy", active: true }, { name: "nginx", active: false }, ...].
   /// Read-only discovery — containerRuntime above is what setup installs.
-  runtimes      Json?
+  runtimes         Json?
   /// The tenants' partition (CB_HOME_ROOT) as the heartbeat last measured it:
   /// { size, used, avail } in bytes. Null until the first successful check.
-  disk          Json?
+  disk             Json?
 
   /// Node setup queue (serverSetupService): the panel runs install.sh
   /// over SSH. Same states as an organization's provisioning.
-  setupState    ProvisionState @default(NONE)
-  setupError    String?
+  setupState ProvisionState @default(NONE)
+  setupError String?
   /// Unused since PHP-FPM is always installed (was { withPhp }). Kept so existing rows survive.
-  setupJob      Json?
+  setupJob   Json?
   /// Tail of the last setup run's output.
-  setupLog      String?
-  setupAt       DateTime?
+  setupLog   String?
+  setupAt    DateTime?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  defaultForOrganizations Organization[] @relation("OrgDefaultServer")
+  defaultForOrganizations Organization[]   @relation("OrgDefaultServer")
   orgNodes                OrgNode[]
   applications            Application[]
   sources                 Source[]
@@ -250,16 +255,16 @@ model DatabaseServer {
 /// The organization's login on one database server — created with the org's
 /// first database there, and the owner of every database it has on it.
 model OrgDatabaseAccount {
-  id               String         @id @default(cuid())
+  id               String          @id @default(cuid())
   organizationId   String
-  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   databaseServerId String
-  databaseServer   DatabaseServer @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
+  databaseServer   DatabaseServer  @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
   /// org_<slug> — the role/user name on the server
   username         String
   /// AES-256-GCM ciphertext (secretBox)
   passwordEnc      String
-  createdAt        DateTime       @default(now())
+  createdAt        DateTime        @default(now())
   rotatedAt        DateTime?
   grants           DatabaseGrant[]
 
@@ -309,9 +314,9 @@ enum DbServerMode {
 }
 
 model Membership {
-  id             String   @id @default(cuid())
-  role           OrgRole  @default(MEMBER)
-  createdAt      DateTime @default(now())
+  id        String   @id @default(cuid())
+  role      OrgRole  @default(MEMBER)
+  createdAt DateTime @default(now())
 
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -324,13 +329,13 @@ model Membership {
 }
 
 model Invite {
-  id             String    @id @default(cuid())
-  email          String
-  role           OrgRole   @default(MEMBER)
-  tokenHash      String    @unique // sha256 of the token; the raw token is shown once
-  expiresAt      DateTime
-  acceptedAt     DateTime?
-  createdAt      DateTime  @default(now())
+  id         String    @id @default(cuid())
+  email      String
+  role       OrgRole   @default(MEMBER)
+  tokenHash  String    @unique // sha256 of the token; the raw token is shown once
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -343,28 +348,28 @@ model Invite {
 }
 
 model Application {
-  id          String   @id @default(cuid())
-  name        String
+  id      String      @id @default(cuid())
+  name    String
   /// The hostnames (and paths) it answers on — one or more, all alike (AppDomain).
-  domains     AppDomain[]
+  domains AppDomain[]
   /// What Caddy sends its requests to — `{ kind: 'proxy', port }`, `{ kind:
   /// 'files', root, spa }`, `{ kind: 'php', root, socket }`, `{ kind: 'bucket',
   /// origin }`, `{ kind: 'placeholder' }` (hostRouteService). Written by the
   /// deploy for the panel's apps and by the sync for imported ones; a hostname's
   /// route is composed from the serve of every app bound to it.
-  serve       Json?
-  type        AppType
-  status      AppStatus @default(STOPPED)
-  port        Int?
-  memory      String?
-  cpu         String?
-  uptime      String?
+  serve   Json?
+  type    AppType
+  status  AppStatus   @default(STOPPED)
+  port    Int?
+  memory  String?
+  cpu     String?
+  uptime  String?
 
   // Where the code comes from — repository, branch, clone account, releases.
   // Several apps of one monorepo share a source. Null only until
   // backfillSources has run at startup (lib/sources.ts).
-  sourceId    String?
-  source      Source?  @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  sourceId      String?
+  source        Source? @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   /// The app's folder in the repository (monorepos): built, run and detected
   /// there. Null = the repository root.
   rootDirectory String?
@@ -372,14 +377,14 @@ model Application {
   // Deprecated: moved to Source. Nothing reads or writes these any more; they
   // stay so `prisma db push` on an upgrade adds the new table instead of
   // dropping data before it is copied. Drop once every install has started once.
-  repository  String?
-  branch      String? @default("main")
+  repository String?
+  branch     String? @default("main")
 
   // Deprecated: moved to AppDomain (`domains`). Only backfillAppDomains reads
   // these, once, and clears `domain`; nothing else reads or writes them.
-  domain       String?  @unique
+  domain       String? @unique
   domainId     String?
-  parentDomain Domain?  @relation("DomainApplications", fields: [domainId], references: [id])
+  parentDomain Domain? @relation("DomainApplications", fields: [domainId], references: [id])
 
   // Build & runtime config
   /// npm | pnpm | yarn | bun; null = the lockfile's. pnpm without its lockfile runs pnpm import first.
@@ -391,15 +396,15 @@ model Application {
   preDeployCommand String?
   /// After the build: devDependencies removed from the release (pnpm prune --prod).
   /// Not when the start command runs one (tsx, ts-node, nodemon) — deployment.ts.
-  pruneDevDeps     Boolean  @default(false)
+  pruneDevDeps     Boolean @default(false)
   startCommand     String?
   /// `{ "$enc": <secretBox blob> }` once written through lib/appEnv; a plain
   /// object on rows from before encryption, read as is until next saved.
-  envVars     Json?
+  envVars          Json?
   /// The other env files' own variables: { "<file>": { KEY: value } }, sealed
   /// whole like envVars. envVars is the first env file's (and the one the
   /// build and the service get); each file here is written with its own.
-  extraEnvVars Json?
+  extraEnvVars     Json?
 
   // Static sites: the R2 bucket holding the files and the public host Caddy
   // proxies to (Cloudflare caches in front of it)
@@ -421,8 +426,8 @@ model Application {
   composeService  String?
 
   // Deployment info
-  lastDeployment DateTime?
-  deploymentCount Int @default(0)
+  lastDeployment  DateTime?
+  deploymentCount Int       @default(0)
 
   /// What it takes on disk (its tree on the node, or its files in R2), measured
   /// after each deploy and by the app-disk cron. Null until measured.
@@ -430,10 +435,10 @@ model Application {
   diskMeasuredAt DateTime?
 
   // Server inventory — filled by the app sync (pm2 + Caddy site files)
-  runtime      String?   // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for apps we deploy
-  processName  String?   // pm2 process name, when the runtime is PM2
-  rootPath     String?   // document root / working directory on the server
-  configPath   String?   // /etc/caddy/sites/<name>.caddy
+  runtime      String? // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for apps we deploy
+  processName  String? // pm2 process name, when the runtime is PM2
+  rootPath     String? // document root / working directory on the server
+  configPath   String? // /etc/caddy/sites/<name>.caddy
   /// A hostname its server splits by path — [{ path, proxy?, root? }] in the
   /// order Caddy tries them: `/api/*` to the app, the rest a static front end.
   /// null = one thing serves all of it. From the sync (appSyncService routeParts).
@@ -442,37 +447,37 @@ model Application {
 
   /// Switched off by an operator: kept, but not monitored and listed last.
   /// Nothing on the server changes; the sync still updates it.
-  disabled     Boolean   @default(false)
-  
+  disabled Boolean @default(false)
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relations — organization owns the app; user is the creator (audit only)
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   userId String?
-  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   // Deprecated: moved to Source (see repository above)
   gitAccountId String?
   gitAccount   GitAccount? @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
 
-  deployments Deployment[]
-  logs        Log[]
-  databases   Database[]
+  deployments     Deployment[]
+  logs            Log[]
+  databases       Database[]
   // Deprecated: releases and the active one belong to the Source now
-  releases    Release[] @relation("ApplicationReleases")
+  releases        Release[]    @relation("ApplicationReleases")
   activeReleaseId String?
-  activeRelease   Release? @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
+  activeRelease   Release?     @relation("ActiveRelease", fields: [activeReleaseId], references: [id])
 
   // The node this app runs on — where it is built, served and routed. Chosen
   // when the app is created (default: its organization's default server), or
   // where the server sync found it for imported apps. Moving an app is a
   // migration (files, DNS), not an edit of this field.
-  serverId     String?
-  server       Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
+  serverId String?
+  server   Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([domainId])
@@ -518,42 +523,42 @@ model AppDomain {
 /// Created with its first app, sharing that app's id, so the source's tree is
 /// the app's own directory; removed with its last app (dropOrphanSources).
 model Source {
-  id              String      @id @default(cuid())
+  id              String          @id @default(cuid())
   /// What the UI calls it (a "Proyek"). null = derived: the repository's name,
   /// else the checkout folder's, else its first app's hostname (lib/sources sourceName).
   name            String?
   /// Owner. Its apps follow it — an org is assigned per source, never per app.
   organizationId  String?
-  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  organization    Organization?   @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   /// The node its code is on; every app of it runs there.
   serverId        String?
-  server          Server?     @relation(fields: [serverId], references: [id], onDelete: SetNull)
+  server          Server?         @relation(fields: [serverId], references: [id], onDelete: SetNull)
   /// Imported apps: the git checkout (or folder) on that node the apps are
   /// served from — pulled as one. null for the panel's own sources, whose tree
   /// is apps/<id> in the org's home.
   path            String?
   /// null for uploaded sources
   repository      String?
-  branch          String?     @default("main")
+  branch          String?         @default("main")
   /// Which connected git account clones the repository. Null for public repos
   /// and uploads. SetNull: disconnecting an account only makes the next deploy
   /// ask for a reconnect.
   gitAccountId    String?
-  gitAccount      GitAccount? @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
+  gitAccount      GitAccount?     @relation(fields: [gitAccountId], references: [id], onDelete: SetNull)
   /// What is live: the release `current` points at, or the R2 folder a static site serves
   activeReleaseId String?
-  activeRelease   Release?    @relation("SourceActiveRelease", fields: [activeReleaseId], references: [id], onDelete: SetNull)
+  activeRelease   Release?        @relation("SourceActiveRelease", fields: [activeReleaseId], references: [id], onDelete: SetNull)
   /// Who made it. With `members`, who besides the org's owners/admins sees it.
   /// null for imported sources — admins only until someone is added.
   createdById     String?
-  createdBy       User?       @relation("SourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy       User?           @relation("SourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
   members         ProjectMember[]
 
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  applications    Application[]
-  releases        Release[]   @relation("SourceReleases")
+  applications Application[]
+  releases     Release[]     @relation("SourceReleases")
 
   @@unique([serverId, path])
   @@index([gitAccountId])
@@ -576,23 +581,23 @@ model ProjectMember {
 }
 
 model Deployment {
-  id          String   @id @default(cuid())
-  status      DeploymentStatus @default(PENDING)
-  buildLogs   String?
-  deployLogs  String?
-  commitHash  String?
+  id            String           @id @default(cuid())
+  status        DeploymentStatus @default(PENDING)
+  buildLogs     String?
+  deployLogs    String?
+  commitHash    String?
   commitMessage String?
-  
+
   // Build metrics
-  buildTime   Int? // in seconds
-  buildSize   String? // e.g., "45MB"
-  
+  buildTime Int? // in seconds
+  buildSize String? // e.g., "45MB"
+
   // Environment
-  envVars     Json? // Override env vars for this deployment
-  
+  envVars Json? // Override env vars for this deployment
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relations — the app it was started from. A deploy builds the app's whole
   // source, so it is in the history of every app of that source (sourceId).
   applicationId String
@@ -602,7 +607,7 @@ model Deployment {
   sourceId      String?
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([sourceId])
   @@map("deployments")
@@ -616,7 +621,7 @@ model Release {
   // one app of a shared source never takes the source's releases with it.
   applicationId String?
   application   Application?  @relation("ApplicationReleases", fields: [applicationId], references: [id], onDelete: SetNull)
-  imageTag      String?  // legacy: image reference from the removed Docker runtime
+  imageTag      String? // legacy: image reference from the removed Docker runtime
   commitSha     String?
   createdAt     DateTime      @default(now())
   status        ReleaseStatus @default(PENDING)
@@ -624,7 +629,7 @@ model Release {
   ports         Json?
   health        String?
   logsRef       String?
-  path          String?       // releases/<stamp> directory this release was built into
+  path          String? // releases/<stamp> directory this release was built into
   // the deploy that produced it, so the history shows one row per version.
   // ponytail: plain id, no relation — null for releases from before this column
   deploymentId  String?
@@ -632,30 +637,30 @@ model Release {
   // with the same key reuses this tree instead of installing and building again
   buildKey      String?
 
-  @@index([sourceId])
-  @@map("releases")
-
   activeForApplications Application[] @relation("ActiveRelease")
   activeForSources      Source[]      @relation("SourceActiveRelease")
+
+  @@index([sourceId])
+  @@map("releases")
 }
 
 model Database {
-  id          String   @id @default(cuid())
-  name        String
-  type        DatabaseType
-  status      DatabaseStatus @default(CREATING)
+  id               String         @id @default(cuid())
+  name             String
+  type             DatabaseType
+  status           DatabaseStatus @default(CREATING)
   connectionString String?
-  port        Int?
-  memory      String?
-  cpu         String?
-  
+  port             Int?
+  memory           String?
+  cpu              String?
+
   // Configuration
-  version     String?
-  config      Json? // Database-specific configuration
-  
+  version String?
+  config  Json? // Database-specific configuration
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relations
   // Optional: a database belongs to its organization, and one found on a
   // server by the inventory sync has no app at all until it is attached.
@@ -668,14 +673,14 @@ model Database {
   // databases are created for real: rows from before database servers carry no
   // server, and the backfill fills organizationId from their application.
   organizationId   String?
-  organization     Organization?   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   databaseServerId String?
-  databaseServer   DatabaseServer? @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
+  databaseServer   DatabaseServer?  @relation(fields: [databaseServerId], references: [id], onDelete: Restrict)
   /// The database's real name on the server, <slug>_<name>
   dbName           String?
   /// Found on the server by the inventory sync rather than created by us.
   /// Unassigned until a superadmin gives it an organization.
-  discovered       Boolean         @default(false)
+  discovered       Boolean          @default(false)
   /// On-disk size from the last sync, in bytes
   sizeBytes        Float?
   /// Why the last create or drop on the server failed — shown on the row, cleared on success
@@ -686,7 +691,7 @@ model Database {
   ownerRole        String?
   /// Who made it — an org member sees the databases they made, besides their projects'
   createdById      String?
-  createdBy        User?           @relation("DatabaseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy        User?            @relation("DatabaseCreator", fields: [createdById], references: [id], onDelete: SetNull)
   /// The logins that may reach this database
   grants           DatabaseGrant[]
   imports          DatabaseImport[]
@@ -722,44 +727,44 @@ model DatabaseImport {
 }
 
 model Log {
-  id          String   @id @default(cuid())
-  level       LogLevel
-  message     String
-  timestamp   DateTime @default(now())
-  metadata    Json? // Additional log metadata
-  
+  id        String   @id @default(cuid())
+  level     LogLevel
+  message   String
+  timestamp DateTime @default(now())
+  metadata  Json? // Additional log metadata
+
   // Relations
   applicationId String?
   application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  
+
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("logs")
 }
 
 model Domain {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  status      DomainStatus @default(ACTIVE)
-  dnsRecords  Json? // Store DNS records as JSON
-  sslStatus   SSLStatus @default(PENDING)
-  sslExpiry   DateTime?
-  
+  id         String       @id @default(cuid())
+  name       String       @unique
+  status     DomainStatus @default(ACTIVE)
+  dnsRecords Json? // Store DNS records as JSON
+  sslStatus  SSLStatus    @default(PENDING)
+  sslExpiry  DateTime?
+
   // Configuration
-  redirectTo  String? // Domain redirect target
+  redirectTo   String? // Domain redirect target
   customConfig Json? // Custom domain configuration
 
   // Where the domain comes from — filled by the integrations sync
-  registrar    String?   // "RDASH" | "EXTERNAL" | null when unknown
-  cfZoneId     String?   // set when a Cloudflare zone exists for it
+  registrar    String? // "RDASH" | "EXTERNAL" | null when unknown
+  cfZoneId     String? // set when a Cloudflare zone exists for it
   expiresAt    DateTime? // domain registration expiry, from the registrar
   lastSyncedAt DateTime?
 
   /// A platform domain any organization may put apps under (`shop.<name>`),
   /// so an app never waits on a domain of its own. Apps under it belong to
   /// the org that created them, not to the domain's org. Set by an admin.
-  shared       Boolean   @default(false)
+  shared Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -769,7 +774,7 @@ model Domain {
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   userId String?
-  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   /// Deprecated: see Application.domainId
   applications Application[] @relation("DomainApplications")
@@ -782,12 +787,12 @@ model Domain {
 }
 
 model SystemMetric {
-  id          String   @id @default(cuid())
-  type        MetricType
-  value       Float
-  unit        String?
-  timestamp   DateTime @default(now())
-  metadata    Json? // Additional metric data
+  id        String     @id @default(cuid())
+  type      MetricType
+  value     Float
+  unit      String?
+  timestamp DateTime   @default(now())
+  metadata  Json? // Additional metric data
 
   @@map("system_metrics")
 }
@@ -805,18 +810,18 @@ model IntegrationConfig {
 }
 
 model GitAccount {
-  id          String   @id @default(cuid())
-  provider    String   // "github" or "gitlab"
-  externalId  String   // provider user ID
-  username    String
-  displayName String
-  accessToken String
+  id             String    @id @default(cuid())
+  provider       String // "github" or "gitlab"
+  externalId     String // provider user ID
+  username       String
+  displayName    String
+  accessToken    String
   /// GitLab access tokens expire (2h); GitHub OAuth App tokens do not. Both
   /// columns stay null for GitHub.
   refreshToken   String?
   tokenExpiresAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -942,18 +947,18 @@ model Heartbeat {
 }
 
 model CaddySnapshot {
-  id        String   @id @default(cuid())
+  id         String   @id @default(cuid())
   /// The node this config belongs to. Each node runs its own Caddy, so a
   /// snapshot is only ever restorable onto the box it came from.
-  serverId  String
-  config    Json
-  hosts     String[]
+  serverId   String
+  config     Json
+  hosts      String[]
   /// What produced it: "route larika.id → bucket", "before restore", "health check"…
-  reason    String?
+  reason     String?
   /// A baseline the watchdog may restore on its own. History rows (the state
   /// around each write) are false: restorable only by an admin picking one.
-  checkpoint Boolean @default(true)
-  createdAt DateTime @default(now())
+  checkpoint Boolean  @default(true)
+  createdAt  DateTime @default(now())
 
   @@index([serverId, createdAt])
   @@map("caddy_snapshots")
@@ -975,4 +980,22 @@ enum MetricType {
   NETWORK_OUT
   APP_COUNT
   DEPLOYMENT_COUNT
-} 
+}
+
+/// What one workspace used in one hour, summed over its nodes — metered every
+/// few minutes (usageMeterService), priced on the Biaya page. Pay for what you use.
+model UsageHour {
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// the hour's start (UTC)
+  hour             DateTime
+  /// CPU time used: core-seconds
+  cpuSeconds       Float        @default(0)
+  /// memory held × time: GiB-seconds
+  memGbSeconds     Float        @default(0)
+  /// storage held × time: GiB-seconds
+  storageGbSeconds Float        @default(0)
+
+  @@id([organizationId, hour])
+  @@map("usage_hours")
+}

@@ -1,4 +1,4 @@
-import { Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -60,7 +60,10 @@ export function AppSidebar() {
     },
     {
       label: t("Workspace"),
-      items: [{ title: t("Team"), url: "/team", icon: Users, show: !admin }],
+      items: [
+        { title: t("Team"), url: "/team", icon: Users, show: !admin },
+        { title: t("Cost"), url: "/billing", icon: Wallet, show: !admin },
+      ],
     },
     // ponytail: the admin side as it was, restyled only — to be narrowed to organizations, users and billing
     {

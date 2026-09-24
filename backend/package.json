@@ -19,7 +19,8 @@
     "db:seed-server": "tsx src/scripts/seedServer.ts",
     "check:app-paths": "tsx src/scripts/checkAppPaths.ts",
     "check:source-bucket": "tsx src/scripts/checkSourceBucket.ts",
-    "check:disk-grow": "tsx src/services/diskGrowService.check.ts"
+    "check:disk-grow": "tsx src/services/diskGrowService.check.ts",
+    "check:usage-meter": "tsx src/services/usageMeterService.check.ts"
   },
   "keywords": [
     "api",
