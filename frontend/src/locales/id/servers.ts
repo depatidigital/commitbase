@@ -213,8 +213,6 @@ export default {
   "Waiting to start…": "Menunggu dimulai…",
   "Waiting for output…": "Menunggu keluaran…",
   "Failed to queue server setup": "Gagal mengantrekan penyiapan server",
-
-  // translation pass 2026-09-24
   "reverse proxy to localhost:{port}": "reverse proxy ke localhost:{port}",
   "PHP files in {root}": "file PHP di {root}",
   "static files in {root}, single-page fallback": "file statis di {root}, dengan fallback single-page",

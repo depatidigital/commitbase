@@ -138,8 +138,6 @@ export default {
   "Recent deploys": "Deploy terbaru",
   "No deploys yet.": "Belum ada deploy.",
   "All apps": "Semua aplikasi",
-
-  // translation pass 2026-09-24
   "Last commit": "Commit terakhir",
   "Advanced details": "Detail lanjutan",
   "Static files in object storage (R2), every release.": "File statis di object storage (R2), setiap rilis.",

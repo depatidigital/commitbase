@@ -81,8 +81,6 @@ export default {
   "Crash dumps": "Crash dump",
   "Old temp files": "File temp lama",
   "Files untouched for 7 days.": "File yang tidak diubah selama 7 hari.",
-
-  // translation pass 2026-09-24
   "PM2 logs (outside the folder)": "Log PM2 (di luar folder)",
   "Container images": "Image container",
   "Container layers": "Layer container",

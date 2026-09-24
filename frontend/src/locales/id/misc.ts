@@ -245,8 +245,6 @@ export default {
   "Save.": "Simpan.",
   "Users can now connect their GitHub and GitLab accounts from Add service and pick repositories from them.":
     "Pengguna kini dapat menghubungkan akun GitHub dan GitLab dari Tambah layanan dan memilih repositori darinya.",
-
-  // translation pass 2026-09-24
   "core-hours": "core-jam",
   "core-hour": "core-jam",
   "Memory": "Memori",

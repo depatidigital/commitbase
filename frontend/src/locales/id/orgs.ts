@@ -199,8 +199,6 @@ export default {
   "Fixed once the service exists.": "Tidak bisa diubah setelah layanan dibuat.",
   "No workspace is provisioned here yet. A workspace is provisioned on a server when its first service is placed on it.":
     "Belum ada workspace yang diprovisi di sini. Workspace diprovisi di sebuah server saat layanan pertamanya ditempatkan di server itu.",
-
-  // translation pass 2026-09-24
   "One per client or business: its own apps, domains, databases and team.": "Satu per klien atau bisnis: aplikasi, domain, database, dan tim sendiri.",
   "e.g. Warung Kopi Senja": "mis. Warung Kopi Senja",
   "Total users": "Total pengguna",
