@@ -90,8 +90,6 @@ export default function Dashboard() {
   const r2Bytes = apps.reduce((sum, p) => sum + p.applications.filter(inR2).reduce((s2, a) => s2 + (a.diskBytes ?? 0), 0), 0);
   const appsBytes = apps.reduce((sum, p) => sum + sizeOf(p), 0);
   const journalBytes = (usage?.rate?.journalGb ?? 0) * 1024 ** 3;
-  const biggest = apps.filter((p) => sizeOf(p) > 0).slice(0, 5);
-  const biggestMax = Math.max(1, ...biggest.map(sizeOf));
 
   const rows: Row[] = data
     .map((row) => ({ ...row, ...appStatus(row.service.status, row.health, row.service.disabled) }))
@@ -158,23 +156,26 @@ export default function Dashboard() {
 
   return (
     <PageLayout title={t("Dashboard")} description={t("Uptime of every hostname, checked every minute.")}>
-      <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+      <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         <Tile label={t("Online")} value={count((row) => row.tone === "up")} icon={CheckCircle2} tone="text-success" />
         <Tile label={t("Need attention")} value={count((row) => row.tone === "down" || row.tone === "warn")} icon={AlertTriangle} tone="text-destructive" />
-        <Tile label={t("Domains to renew")} value={renewals.length} icon={Globe} tone="text-warning" />
         <Tile label={t("Not monitored")} value={count((row) => row.tone === "muted")} icon={CircleDashed} />
         {superAdmin && <Tile label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
       </div>
 
-      {renewals.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
+      {/* bento: storage wide, renewals beside it, servers across */}
+      <div className="grid gap-4 lg:grid-cols-3">
+      {/* the count and its list in one card */}
+        <Card className={appsBytes > 0 ? "lg:order-2" : "lg:col-span-3"}>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Globe className="h-4 w-4" />
               {t("Domains to renew")}
             </CardTitle>
+            <p className={`text-2xl font-semibold ${renewals.length ? "text-warning" : ""}`}>{renewals.length}</p>
           </CardHeader>
           <CardContent>
+            {renewals.length === 0 && <p className="text-sm text-muted-foreground">{t("No domain expires within 30 days.")}</p>}
             <ul className="divide-y">
               {renewals.map((domain) => {
                 const tone = expiryTone(new Date(domain.expiresAt!));
@@ -190,11 +191,10 @@ export default function Dashboard() {
             </ul>
           </CardContent>
         </Card>
-      )}
 
       {appsBytes > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
+        <Card className="lg:order-1 lg:col-span-2">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
                 <HardDrive className="h-4 w-4" />
@@ -207,29 +207,11 @@ export default function Dashboard() {
             </div>
             <p className="text-2xl font-semibold">{formatBytes(appsBytes + journalBytes, locale)}</p>
           </CardHeader>
-          <CardContent>
-            {/* the largest first: where a cleanup pays */}
-            <ul className="space-y-2">
-              {biggest.map((project) => (
-                <li key={project.id}>
-                  <Link to={`/apps/${project.id}?tab=storage`} className="group block space-y-1">
-                    <span className="flex items-center justify-between gap-3 text-sm">
-                      <span className="truncate font-medium group-hover:text-primary">{project.name}</span>
-                      <span className="shrink-0 text-muted-foreground">{formatBytes(sizeOf(project), locale)}</span>
-                    </span>
-                    <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
-                      <span className="block h-full bg-primary" style={{ width: `${(sizeOf(project) / biggestMax) * 100}%` }} />
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
         </Card>
       )}
 
       {superAdmin && disks.length > 0 && (
-        <Card>
+        <Card className="lg:order-3 lg:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <HardDrive className="h-4 w-4" />
@@ -248,6 +230,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+      </div>
 
       <DataTable
         columns={columns}

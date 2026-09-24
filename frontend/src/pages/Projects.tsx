@@ -16,7 +16,7 @@ import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { MigrationChoices } from "@/components/DeployConfirmDialog";
 import { TYPES } from "@/components/AppTypeBadge";
 import { useToast } from "@/hooks/use-toast";
-import { timeAgo } from "@/lib/utils";
+import { formatBytes, timeAgo } from "@/lib/utils";
 import { useSyncServerApps } from "@/hooks/useApplications";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -231,6 +231,18 @@ export default function Projects() {
             )}
           </div>
         );
+      },
+    },
+    {
+      header: t("Storage"),
+      sortKey: "disk",
+      sortFirst: "desc",
+      className: "w-32 whitespace-nowrap text-right text-sm",
+      cell: (project) => {
+        // all its services: disk and R2 alike; unmeasured reads as a dash, not 0 B
+        const measured = project.applications.filter((app) => app.diskBytes != null);
+        if (!measured.length) return <span className="text-muted-foreground">—</span>;
+        return formatBytes(measured.reduce((sum, app) => sum + (app.diskBytes ?? 0), 0), locale);
       },
     },
     {
