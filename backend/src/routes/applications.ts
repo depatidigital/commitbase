@@ -28,6 +28,7 @@ import { hostsOnlyOf, normalizeBindingPath, readServe, recomposeHosts, serveApp,
 import { appDiskUsage, cleanupApp, measureAppDisk } from '../services/appDiskService';
 import { ensureAppHostname, removeAppHostname, checkAppHostname, dnsManaged, healthPath, whereHostnamePoints } from '../services/appDnsService';
 import { serverForApplication } from '../lib/servers';
+import { provisionInBackground } from '../services/sslProvisionService';
 import { forgetPointing, healthFor, isServing } from '../services/heartbeatService';
 import * as systemd from '../services/systemdService';
 import * as compose from '../services/composeService';
@@ -2247,6 +2248,33 @@ router.post('/:id/dns', authenticateToken, async (req: AuthenticatedRequest, res
       success: false,
       error: error?.message || 'Could not set up DNS for this hostname',
     } as ApiResponse);
+  }
+});
+
+/**
+ * HTTPS for the app's names without a redeploy: Caddy made to listen on :443,
+ * then a certificate for each name that has none (Cloudflare proxy off, Caddy
+ * restarted, proxy back on). Minutes of work: started here, the outcome in the Log.
+ */
+router.post('/:id/ssl', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({
+      where: { id: req.params.id as string, ...(await appScope(req)) },
+      include: withDomains,
+    });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const hosts = atEach(application).map((name) => name.domain);
+    if (hosts.length === 0) return res.status(400).json({ success: false, error: 'This service has no hostname' } as ApiResponse);
+
+    const node = await serverForApplication(application.id);
+    if (!provisionInBackground(node, hosts, req.user!.userId)) {
+      return res.status(409).json({ success: false, error: 'Certificates are already being provisioned on this server — try again in a few minutes' } as ApiResponse);
+    }
+    forgetPointing(application.id);
+    return res.json({ success: true, message: `Getting HTTPS ready for ${hosts.join(', ')}` } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error provisioning application SSL:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'Could not start' } as ApiResponse);
   }
 });
 

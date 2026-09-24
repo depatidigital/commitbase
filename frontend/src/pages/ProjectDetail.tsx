@@ -40,6 +40,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
 import { RestartDialog } from "@/components/RestartDialog";
+import { AppTroubleshoot } from "@/components/AppTroubleshoot";
 import { AppStorageCard } from "@/components/AppStorageCard";
 import { SourcePanel } from "@/components/SourcePanel";
 import { ProjectMembersCard } from "@/components/ProjectMembersCard";
@@ -122,7 +123,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the app's tab (?tab=). Its services have no page of their own anymore: everything is on these tabs
-  const tab = ["env", "build", "deployments", "stack", "logs", "database", "storage", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["env", "build", "deployments", "stack", "logs", "database", "storage", "troubleshoot", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   if (isLoading) {
@@ -240,6 +241,7 @@ export default function ProjectDetail() {
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
+          <TabsTrigger value="troubleshoot">{t("Troubleshoot")}</TabsTrigger>
           <TabsTrigger value="settings">{t("Settings")}</TabsTrigger>
         </TabsList>
 
@@ -319,6 +321,13 @@ export default function ProjectDetail() {
 
         <TabsContent value="logs">
           <ProjectLogs projectId={project.id} apps={apps} />
+        </TabsContent>
+
+        {/* repairs that do not need a redeploy — DNS, HTTPS — one card per service */}
+        <TabsContent value="troubleshoot" className="space-y-4">
+          {apps.map((app) => (
+            <AppTroubleshoot key={app.id} app={app} title={apps.length > 1 ? app.name : undefined} />
+          ))}
         </TabsContent>
 
         {/* the databases its apps share — connected from each app's Environment */}

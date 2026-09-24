@@ -297,6 +297,13 @@ export const setupApplicationDns = async (
   throw new Error(response.error || t("Failed to set up DNS"));
 };
 
+/** HTTPS for the app's names without a redeploy: :443 on the node, then certificates — started, it runs for minutes. */
+export const fixApplicationHttps = async (id: string): Promise<string> => {
+  const response = await apiRequest(`/applications/${id}/ssl`, { method: 'POST' });
+  if (response.success) return response.message ?? '';
+  throw new Error(response.error || t("Could not start"));
+};
+
 /** Build and restart an imported pm2 app in its folder on its server. `consent`: the user ticked that the site may err meanwhile. */
 export const startPm2Build = async (id: string, consent: boolean): Promise<string> => {
   const response = await apiRequest<{ deploymentId: string }>(`/applications/${id}/pm2-deploy`, {
