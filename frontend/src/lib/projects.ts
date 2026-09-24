@@ -146,18 +146,19 @@ export const checkoutProject = async (id: string, branch: string, consent: boole
 };
 
 /** Build every imported app of a project where it lives, one after the other. `consent`: the user ticked that the sites may err meanwhile. */
-export const buildProject = async (id: string, consent: boolean): Promise<string[]> => {
-  const response = await apiRequest<{ apps: string[] }>(`/sources/${id}/build`, { method: 'POST', body: JSON.stringify({ consent }) });
+export const buildProject = async (id: string, consent: boolean, only?: string[]): Promise<string[]> => {
+  const response = await apiRequest<{ apps: string[] }>(`/sources/${id}/build`, { method: 'POST', body: JSON.stringify({ consent, ...(only && { only }) }) });
   if (response.success && response.data) return response.data.apps;
   throw new Error(response.error || t('Could not start the build'));
 };
 
 /** Build and release every app of a panel-managed project. */
 /** `skipPreDeployFor`: the apps whose pre-deploy step (migrations) is left out this once. */
-export const deployProject = async (id: string, skipPreDeployFor: string[] = []): Promise<string> => {
+/** `only`: the services to deploy — all of them when left out. */
+export const deployProject = async (id: string, skipPreDeployFor: string[] = [], only?: string[]): Promise<string> => {
   const response = await apiRequest<{ deploymentId: string }>(`/sources/${id}/deploy`, {
     method: 'POST',
-    ...(skipPreDeployFor.length > 0 && { body: JSON.stringify({ skipPreDeployFor }) }),
+    ...((skipPreDeployFor.length > 0 || only) && { body: JSON.stringify({ skipPreDeployFor, ...(only && { only }) }) }),
   });
   if (response.success && response.data) return response.data.deploymentId;
   throw new Error(response.error || t('Could not start the deployment'));

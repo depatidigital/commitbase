@@ -162,9 +162,14 @@ export async function startPm2DeployTracked(applicationId: string, userId: strin
  * has its own row. Returns the apps it will build, while it runs.
  * ponytail: two processes from one folder build it twice — group by folder if that time matters.
  */
-export async function buildProject(sourceId: string, userId: string): Promise<string[]> {
+export async function buildProject(sourceId: string, userId: string, only?: string[]): Promise<string[]> {
   const apps = await prisma.application.findMany({
-    where: { sourceId, rootPath: { not: null }, OR: [{ runtime: 'CADDY_STATIC' }, { runtime: 'PM2', processName: { not: null } }] },
+    where: {
+      sourceId,
+      ...(only && { id: { in: only } }),
+      rootPath: { not: null },
+      OR: [{ runtime: 'CADDY_STATIC' }, { runtime: 'PM2', processName: { not: null } }],
+    },
     select: { id: true, name: true, runtime: true },
     orderBy: { createdAt: 'asc' },
   });

@@ -27,7 +27,8 @@ interface SourcePanelProps {
   /** the project (source) the page's app — or the page — is about */
   projectId: string;
   /** the page's deploy: saves pending env edits, then starts it (the whole project); `skipPreDeployFor`: apps whose migrations are left out */
-  onDeploy: (skipPreDeployFor?: string[]) => void;
+  /** `only`: the services to deploy — all of them when left out */
+  onDeploy: (skipPreDeployFor?: string[], only?: string[]) => void;
   starting?: boolean;
   /** a deploy is running — nothing to offer until it ends */
   deploying?: boolean;
@@ -119,20 +120,25 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
   const [confirmPull, setConfirmPull] = useState(false);
   // the pull dialog's choice: the code only, or the code and a redeploy of every app (the sites can err while they build)
   const [redeploy, setRedeploy] = useState(false);
-  // apps with migrations: each asked before a deploy, on by default (DeployConfirmDialog)
-  const migrating = apps.filter((app) => app.preDeployCommand);
+  // what "redeploy" redeploys: the panel's own services, or — imported — the ones built where they live
+  const redeployable = apps.filter((app) => (readOnly ? !!app.runtime : !app.runtime));
+  // unticked in the dialog: left as they run; all ticked by default
+  const [leaveOut, setLeaveOut] = useState<Set<string>>(new Set());
+  const picked = redeployable.filter((app) => !leaveOut.has(app.id));
+  // apps with migrations: each asked before a deploy, on by default (DeployConfirmDialog) — of the ones picked
+  const migrating = picked.filter((app) => app.preDeployCommand);
   const [skipMigrations, setSkipMigrations] = useState<Set<string>>(new Set());
   const confirmDeploy = useMigrationsConfirm(t("Deploy {name}?", { name: project?.name ?? "" }), apps, (skipFor) => onDeploy(skipFor));
   const pull = useMutation({
-    mutationFn: async ({ redeploy, skipFor }: { redeploy: boolean; skipFor: string[] }) => {
+    mutationFn: async ({ redeploy, skipFor, only }: { redeploy: boolean; skipFor: string[]; only?: string[] }) => {
       const pulled = await pullProject(projectId);
       // the pull stands whatever the build does: its failure is said on its own
       let built: string[] | null = null;
       let buildError: string | null = null;
-      if (redeploy && !readOnly) onDeploy(skipFor);
+      if (redeploy && !readOnly) onDeploy(skipFor, only);
       else if (redeploy) {
         try {
-          built = await buildProject(projectId, true);
+          built = await buildProject(projectId, true, only);
         } catch (error) {
           buildError = (error as Error).message;
         }
@@ -401,6 +407,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
             setConfirmPull(open);
             setRedeploy(false);
             setSkipMigrations(new Set());
+            setLeaveOut(new Set());
           }}
         >
           <AlertDialogContent>
@@ -439,11 +446,45 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
                 </button>
               ))}
             </div>
+            {/* redeploying: which services — all ticked; one alone is not worth a list */}
+            {redeploy && redeployable.length > 1 && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">{t("Services to redeploy")}</p>
+                <div className="divide-y rounded-md border">
+                  {redeployable.map((app) => (
+                    <label key={app.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm">
+                      <Checkbox
+                        checked={!leaveOut.has(app.id)}
+                        onCheckedChange={(checked) => {
+                          const next = new Set(leaveOut);
+                          if (checked === true) next.delete(app.id);
+                          else next.add(app.id);
+                          setLeaveOut(next);
+                        }}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{app.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* redeploying: each app's migrations, on by default */}
             {redeploy && !readOnly && migrating.length > 0 && <MigrationChoices apps={migrating} skip={skipMigrations} onChange={setSkipMigrations} />}
             <AlertDialogFooter>
               <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => pull.mutate({ redeploy, skipFor: [...skipMigrations] })}>{redeploy ? t("Pull and redeploy") : t("Pull only")}</AlertDialogAction>
+              <AlertDialogAction
+                disabled={redeploy && picked.length === 0}
+                onClick={() =>
+                  pull.mutate({
+                    redeploy,
+                    skipFor: [...skipMigrations].filter((id) => !leaveOut.has(id)),
+                    // all ticked: the whole app, as before
+                    ...(leaveOut.size > 0 && { only: picked.map((app) => app.id) }),
+                  })
+                }
+              >
+                {redeploy ? t("Pull and redeploy") : t("Pull only")}
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

@@ -593,7 +593,9 @@ router.post('/:id/build', authenticateToken, async (req: AuthenticatedRequest, r
     if (req.body?.consent !== true) {
       return res.status(400).json({ success: false, error: 'Confirm that the sites may err while they build' } as ApiResponse);
     }
-    const apps = await buildProject(source.id, req.user!.userId);
+    // only: the services picked in the pull dialog; none named, all of them
+    const only = Array.isArray(req.body?.only) ? req.body.only.map(String) : undefined;
+    const apps = await buildProject(source.id, req.user!.userId, only);
     if (apps.length === 0) return res.status(400).json({ success: false, error: 'Nothing in this project is built on its server' } as ApiResponse);
     return res.status(202).json({ success: true, data: { apps }, message: `Building ${apps.length} app(s)` } as ApiResponse);
   } catch (error) {
@@ -615,7 +617,11 @@ router.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRequest, 
       } as ApiResponse);
     }
 
-    const applications = await prisma.application.findMany({ where: { id: { in: managed.map((app) => app.id) } } });
+    // only: the services picked in the pull dialog; none named, all of them
+    const only = Array.isArray(req.body?.only) ? new Set<string>(req.body.only.map(String)) : null;
+    const picked = managed.filter((app) => !only || only.has(app.id));
+    if (picked.length === 0) return res.status(400).json({ success: false, error: 'Pick at least one service to deploy' } as ApiResponse);
+    const applications = await prisma.application.findMany({ where: { id: { in: picked.map((app) => app.id) } } });
     // skipPreDeployFor: the apps whose pre-deploy step (migrations) is left out this once
     const skipFor = new Set<string>(Array.isArray(req.body?.skipPreDeployFor) ? req.body.skipPreDeployFor.map(String) : []);
     const launched: string[] = [];
