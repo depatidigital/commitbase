@@ -13,6 +13,7 @@ import {
   quoteEnv,
   readPsStatus,
   servicesOf,
+  stuckContainers,
   DEFAULT_COMPOSE_FILE,
   DEFAULT_ENV_FILE,
   OVERRIDE_FILE,
@@ -145,5 +146,12 @@ assert.deepStrictEqual(
   ],
 );
 assert.deepStrictEqual(servicesOf(null), []);
+
+// a recreate Podman refused: the old container's id, once however often compose says it
+const id = 'd2df8015efcce8d9a09fb593add9a8aa8e0f859188c349e8576e428b6dd4ec14';
+const refused = `Error response from daemon: cannot remove container ${id} as it is running - running or paused containers cannot be removed without force: container state improper`;
+assert.deepStrictEqual(stuckContainers(`${refused}
+${refused}`), [id]);
+assert.deepStrictEqual(stuckContainers('Error response from daemon: no such container'), []);
 
 console.log('composeService: ok');

@@ -56,6 +56,16 @@ const formatDuration = (startTime: string, endTime: string) => {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
+/** A running deploy's time so far, ticking each second (against this browser's clock). */
+function Elapsed({ since }: { since: string }) {
+  const [now, setNow] = useState(() => new Date().toISOString());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date().toISOString()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <>{t("In progress...")} {formatDuration(since, now)}</>;
+}
+
 /** What changed, in the words of whoever made the change. */
 const deployTitle = (deployment: Deployment, fromRepository: boolean) =>
   isRestore(deployment.deployLogs)
@@ -339,7 +349,7 @@ export default function DeploymentHistory({ application, showApp = false, onlyAp
                   <div className="space-y-3 px-3 pb-3 pl-10">
                     <p className="font-mono text-xs text-muted-foreground">
                       {deployment.commitHash && <>{deployment.commitHash.slice(0, 7)} · </>}
-                      {done ? formatDuration(deployment.createdAt, deployment.updatedAt) : t("In progress...")}
+                      {done ? formatDuration(deployment.createdAt, deployment.updatedAt) : <Elapsed since={deployment.createdAt} />}
                     </p>
                     {deployment.deployLogs && (
                       <div className="space-y-1">
@@ -529,7 +539,7 @@ function DeployLogPane({
         <DeployIcon deployment={deployment} />
         <span className="font-medium text-foreground">{deploymentStatusLabel(deployment.status)}</span>
         {deployment.commitHash && <span className="font-mono">{deployment.commitHash.slice(0, 7)}</span>}
-        <span>{running ? t("In progress...") : formatDuration(deployment.createdAt, deployment.updatedAt)}</span>
+        <span className="tabular-nums">{running ? <Elapsed since={deployment.createdAt} /> : formatDuration(deployment.createdAt, deployment.updatedAt)}</span>
         <div className="ml-auto flex items-center gap-1">
           {running && onCancel && (
             <Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={cancelling} onClick={onCancel}>

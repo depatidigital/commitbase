@@ -252,9 +252,38 @@ export async function writeOverride(application: AppWithOrg, afs: AppFs, workDir
   await afs.writeFile(path.posix.join(workDir, OVERRIDE_FILE), overrideYaml(portRules(config, main)), { mode: 0o660 });
 }
 
+/**
+ * The containers compose meant to replace but could not remove: on Podman a
+ * recreate can reach `rm` while the old one is still running ("container state
+ * improper"). Their ids, from compose's own output for this stack.
+ */
+export function stuckContainers(output: string): string[] {
+  return [...new Set([...output.matchAll(/cannot remove container ([0-9a-f]{64}) as it is running/g)].map((m) => m[1]!))];
+}
+
+/**
+ * `up`, and once more after force-removing the containers it failed to replace
+ * — they are the old ones it was removing anyway. Any other failure is thrown.
+ */
+async function up(application: AppWithOrg, args: string[], opts: RunOpts = {}): Promise<void> {
+  try {
+    await run(application, args, opts);
+  } catch (error: any) {
+    const stuck = stuckContainers(`${error?.stderr ?? ''}
+${error?.stdout ?? ''}
+${error?.message ?? ''}`);
+    if (!stuck.length) throw error;
+    opts.onOutput?.(`Removing ${stuck.length} old container(s) that were still running, then bringing the stack up again.
+`);
+    const [uid, node] = await Promise.all([uidOf(application), serverForApplication(application.id)]);
+    await execOrg(node, slugOf(application), uid, ['podman', 'rm', '-f', ...stuck], { timeout: 2 * 60_000 });
+    await run(application, args, opts);
+  }
+}
+
 /** Bring the stack up, building images that are built from the repository. */
 export async function startApplication(application: AppWithOrg, opts: { build?: boolean; onOutput?: (text: string) => void } = {}): Promise<boolean> {
-  await run(application, ['up', '-d', ...(opts.build === false ? [] : ['--build'])], {
+  await up(application, ['up', '-d', ...(opts.build === false ? [] : ['--build'])], {
     timeout: BUILD_TIMEOUT_MS,
     ...(opts.onOutput && { onOutput: opts.onOutput }),
   });
@@ -270,7 +299,7 @@ export async function restartApplication(application: AppWithOrg): Promise<void>
   // Env is in files, so rewrite them first or an edit would not take effect.
   const afs = await appFsFor(application.id);
   await writeComposeEnv(application, afs, await stackDirOf(application, afs));
-  await run(application, ['up', '-d', '--force-recreate']);
+  await up(application, ['up', '-d', '--force-recreate']);
 }
 
 /**
