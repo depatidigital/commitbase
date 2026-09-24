@@ -1,5 +1,6 @@
 import { Resolver } from 'dns/promises';
 import { execRoot, type SshTarget } from '../lib/runner';
+import { prisma } from '../lib/prisma';
 import { allRoutesOf, getCaddyConfig } from './caddyService';
 import { findCloudflareZone, listCloudflareDnsRecords, updateDnsRecord } from './cloudflareService';
 import { localCode } from './nginxMigrateService';
@@ -19,6 +20,35 @@ import { localCode } from './nginxMigrateService';
  * The proxy is always put back, whatever happens in between: a record left
  * grey exposes the origin's address for as long as nobody notices.
  */
+
+/** Nodes being provisioned now: each run restarts that node's Caddy, so one at a time. */
+export const sslRunning = new Set<string>();
+
+/** A run's outcome in the Log page. */
+export const logSsl = (serverName: string, userId: string, result: SslProvisionResult) =>
+  prisma.log.create({
+    data: {
+      level: result.ok ? 'INFO' : 'WARN',
+      message:
+        `SSL on ${serverName}: ${result.message} [${result.steps.join(' → ')}]` +
+        (result.skipped.length ? ` Skipped: ${result.skipped.map((s) => `${s.host} (${s.reason})`).join('; ')}` : ''),
+      userId,
+    },
+  });
+
+/**
+ * provisionCertificates after the answer — minutes of work — its outcome in the
+ * Log when it did or skipped something. false: one is already running on the node.
+ */
+export function provisionInBackground(node: SshTarget & { id: string; publicIp: string; name?: string }, hosts: string[], userId: string): boolean {
+  if (hosts.length === 0 || sslRunning.has(node.id)) return false;
+  sslRunning.add(node.id);
+  void provisionCertificates(node, hosts)
+    .then((ssl) => (ssl.steps.length || ssl.skipped.length ? logSsl(node.name ?? node.hostname, userId, ssl) : undefined))
+    .catch((error) => console.error(`SSL on ${node.name ?? node.hostname}:`, error?.message))
+    .finally(() => sslRunning.delete(node.id));
+  return true;
+}
 
 const DNS_WAIT_MS = 5 * 60_000;
 const CERT_WAIT_MS = 6 * 60_000;

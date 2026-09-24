@@ -4,6 +4,8 @@ import { readEnv } from '../lib/appEnv';
 import { DeploymentService } from './deployment';
 import { ensureAppHostname } from './appDnsService';
 import { measureAppDisk } from './appDiskService';
+import { provisionInBackground } from './sslProvisionService';
+import { serverForApplication } from '../lib/servers';
 
 const deploymentService = new DeploymentService();
 
@@ -120,6 +122,14 @@ export async function launchDeploy(
     );
     // what the deploy left on disk, for the project list; a miss waits for the cron
     void measureAppDisk(application.id).catch(() => {});
+    // its hosts get a certificate on the node — through Cloudflare's proxy too
+    // (proxy off, Caddy restarted, proxy back on). A host that has one already is
+    // skipped, so a redeploy costs a check, not a restart.
+    if (result.success && names.length) {
+      void serverForApplication(application.id)
+        .then((node) => provisionInBackground(node, names.map((name) => name.host), userId))
+        .catch(() => {});
+    }
   }).catch(async (error) => {
     console.error('Deployment failed:', error);
 

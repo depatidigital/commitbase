@@ -19,7 +19,7 @@ import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
 import { cleanSystem, measureSystem, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
 import { growDisk, inspectDisk } from '../services/diskGrowService';
 import { dockerView, importDockerContainer } from '../services/dockerAdoptService';
-import { caddyHostsOf, provisionCertificates, type SslProvisionResult } from '../services/sslProvisionService';
+import { caddyHostsOf, logSsl, provisionCertificates, provisionInBackground, sslRunning } from '../services/sslProvisionService';
 import { DeploymentService } from '../services/deployment';
 
 const router: Router = Router();
@@ -437,19 +437,6 @@ router.post('/:id/nginx/migrate', authenticateToken, requireRole(['SUPERADMIN'])
 });
 
 // ponytail: in-process — one run per node at a time; a second backend process would not see it
-const sslRunning = new Set<string>();
-
-const logSsl = (serverName: string, userId: string, result: SslProvisionResult) =>
-  prisma.log.create({
-    data: {
-      level: result.ok ? 'INFO' : 'WARN',
-      message:
-        `SSL on ${serverName}: ${result.message} [${result.steps.join(' → ')}]` +
-        (result.skipped.length ? ` Skipped: ${result.skipped.map((s) => `${s.host} (${s.reason})`).join('; ')}` : ''),
-      userId,
-    },
-  });
-
 /**
  * Get a first certificate for a hostname behind Cloudflare's proxy: proxy off,
  * Caddy restarted, wait for the certificate, proxy back on — always back on.
@@ -530,15 +517,7 @@ router.post('/:id/sync-apps', authenticateToken, requireRole(['SUPERADMIN']), as
     // work, so after the answer — the outcome lands in the log.
     const config = await getCaddyConfig(server).catch(() => null);
     const hosts = config ? caddyHostsOf(config).filter((host) => !isNotAnApp(host)) : [];
-    const sslStarted = hosts.length > 0 && !sslRunning.has(server.id);
-    if (sslStarted) {
-      sslRunning.add(server.id);
-      const userId = req.user!.userId;
-      void provisionCertificates(server, hosts)
-        .then((ssl) => (ssl.steps.length || ssl.skipped.length ? logSsl(server.name, userId, ssl) : undefined))
-        .catch((error) => console.error(`SSL after import on ${server.name}:`, error?.message))
-        .finally(() => sslRunning.delete(server.id));
-    }
+    const sslStarted = provisionInBackground(server, hosts, req.user!.userId);
 
     return res.json({
       success: true,
