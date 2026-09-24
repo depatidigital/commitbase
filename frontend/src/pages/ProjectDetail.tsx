@@ -81,7 +81,9 @@ export default function ProjectDetail() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ["project", id],
     queryFn: () => getProject(id),
-    refetchInterval: (q) => (q.state.data?.status === "DEPLOYING" ? 3_000 : 10_000),
+    // faster while a deploy runs — or waits in the queue
+    refetchInterval: (q) =>
+      q.state.data?.status === "DEPLOYING" || ["PENDING", "BUILDING", "DEPLOYING"].includes(q.state.data?.lastDeployment?.status ?? "") ? 3_000 : 10_000,
   });
   const appIds = project?.applications.map((app) => app.id) ?? [];
   const { data: healthById = {} } = useQuery({
@@ -138,6 +140,10 @@ export default function ProjectDetail() {
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
   };
   const imported = project.kind === "IMPORTED";
+  // a deploy in flight: a service building, or the newest deployment still queued or running
+  // (queued, no service has changed its status yet)
+  const deploying =
+    project.status === "DEPLOYING" || ["PENDING", "BUILDING", "DEPLOYING"].includes(project.lastDeployment?.status ?? "") || deploy.isPending;
   // releases and a build cache on its node: the panel's own projects, but for static sites (their files are in R2)
   const hasStorage = !imported && !!apps[0] && !apps.every((app) => app.type === "STATIC");
 
@@ -210,8 +216,8 @@ export default function ProjectDetail() {
             <span ref={setSourceSlot} className="contents" />
             {/* imported: every service built where it lives — the sites' files, then the processes */}
             {imported && project.canSwitchBranch && (
-              <Button variant="outline" onClick={() => setConfirmBuild(true)}>
-                <Hammer className="mr-2 h-4 w-4" />
+              <Button variant="outline" disabled={deploying || building} onClick={() => setConfirmBuild(true)}>
+                {deploying || building ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Hammer className="mr-2 h-4 w-4" />}
                 {t("Redeploy")}
               </Button>
             )}
@@ -324,7 +330,7 @@ export default function ProjectDetail() {
             keep them; an imported one's files are whoever set it up's. Any app of it measures the source's tree */}
         {hasStorage && (
           <TabsContent value="storage">
-            <AppStorageCard appId={apps[0].id} deploying={project.status === "DEPLOYING"} />
+            <AppStorageCard appId={apps[0].id} deploying={deploying} />
           </TabsContent>
         )}
 
@@ -335,7 +341,7 @@ export default function ProjectDetail() {
               projectId={project.id}
               onDeploy={(skipPreDeployFor) => deploy.mutate(skipPreDeployFor ?? [])}
               starting={deploy.isPending}
-              deploying={project.status === "DEPLOYING"}
+              deploying={deploying}
               actionSlot={sourceSlot}
             />
           )}

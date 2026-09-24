@@ -370,10 +370,11 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
                 <Button
                   type="button"
                   className={`${wide} bg-gradient-primary`}
-                  disabled={starting || saveBranch.isPending || pull.isPending || (changed && deploying)}
+                  // mid-deploy (queued too) there is nothing to start: it says so and waits
+                  disabled={starting || deploying || saveBranch.isPending || pull.isPending}
                   onClick={() => (changed || needsDeploy ? void deployBranch() : setConfirmPull(true))}
                 >
-                  {starting || saveBranch.isPending || pull.isPending ? (
+                  {starting || deploying || saveBranch.isPending || pull.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : changed || needsDeploy ? (
                     <Rocket className="h-4 w-4 mr-2" />
@@ -381,7 +382,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
                     <Download className="h-4 w-4 mr-2" />
                   )}
                   {/* same branch, newer commits: pulled, then every app built and switched. Another branch is a switch */}
-                  {pull.isPending ? t("Pulling…") : changed || needsDeploy ? t("Deploy {branch}", { branch }) : t("Pull")}
+                  {pull.isPending ? t("Pulling…") : deploying ? t("Deploying…") : changed || needsDeploy ? t("Deploy {branch}", { branch }) : t("Pull")}
                 </Button>,
                 )}
                 {changed && (
