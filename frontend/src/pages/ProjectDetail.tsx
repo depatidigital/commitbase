@@ -782,6 +782,20 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
   const [confirmStop, setConfirmStop] = useState(false);
   const [hostsOpen, setHostsOpen] = useState(false);
   const deploying = ["DEPLOYING", "BUILDING"].includes(app.status);
+  // redeploy this service alone: the panel's own through its deploy (migrations asked first),
+  // an imported one built where it lives — only on a yes, its site can err meanwhile
+  const redeploy = useStartApplication();
+  const confirmRedeploy = useDeployConfirm(application ?? undefined, (options) => redeploy.mutate({ id: app.id, ...options }));
+  const [confirmBuild, setConfirmBuild] = useState(false);
+  const build = useMutation({
+    mutationFn: () => startPm2Build(app.id, true),
+    onSuccess: () => {
+      toast({ title: t("Building {name}", { name: app.name }) });
+      void queryClient.invalidateQueries({ queryKey: ["application", app.id] });
+      void queryClient.invalidateQueries({ queryKey: ["deployments"] });
+    },
+    onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the build"), description: error.message }),
+  });
   // a process the panel or pm2 starts and stops — not a PHP site or static files, nor someone else's;
   // started again from its built release, so one never deployed is deployed, not started.
   // COMPOSE is controllable: start/stop/restart map to compose up/stop/force-recreate
@@ -894,6 +908,14 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={deploying || redeploy.isPending || build.isPending || (!!app.runtime && !["PM2", "CADDY_STATIC"].includes(app.runtime))}
+                onClick={() => (app.runtime ? setConfirmBuild(true) : confirmRedeploy.deploy())}
+              >
+                <Rocket className="mr-2 h-4 w-4" />
+                {t("Redeploy")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setRenameOpen(true)}>
                 <Pencil className="mr-2 h-4 w-4" />
                 {t("Rename service")}
@@ -925,6 +947,21 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
           </DropdownMenu>
         </span>
         <RenameAppDialog app={app} open={renameOpen} onOpenChange={setRenameOpen} />
+        {confirmRedeploy.dialog}
+        <AlertDialog open={confirmBuild} onOpenChange={setConfirmBuild}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("Redeploy {name}?", { name: app.name })}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("It is installed, built and restarted in its folder on the server. The site may show errors until that is done.")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => build.mutate()}>{t("Redeploy")}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {application && (
           <Dialog open={!!dialog} onOpenChange={(open) => !open && setDialog(null)}>
             <DialogContent className="max-h-[90vh] max-w-3xl overflow-auto">
