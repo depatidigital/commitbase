@@ -28,16 +28,17 @@ const TONE_TEXT: Record<Tone, string> = {
 type Row = HostHealth & ReturnType<typeof appStatus>;
 
 /** A count; coloured only when it is not zero, so a calm day looks calm. */
-function Tile({ label, value, icon: Icon, tone = "" }: { label: string; value: number | string; icon: typeof Globe; tone?: string }) {
+function Tile({ label, value, icon: Icon, tone = "", hint }: { label: string; value: number | string; icon: typeof Globe; tone?: string; hint?: string }) {
   const lit = value !== 0 && value !== "—" ? tone : "";
   return (
     <Card>
       <CardContent className="flex items-center justify-between p-5">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className={`text-2xl font-semibold ${lit}`}>{value}</p>
+          {hint && <p className="truncate text-xs text-muted-foreground" title={hint}>{hint}</p>}
         </div>
-        <Icon className={`h-6 w-6 ${lit || "text-muted-foreground"}`} />
+        <Icon className={`h-6 w-6 shrink-0 ${lit || "text-muted-foreground"}`} />
       </CardContent>
     </Card>
   );
@@ -99,7 +100,7 @@ export default function Dashboard() {
   const columns: Column<Row>[] = [
     {
       header: t("Host"),
-      className: "w-[30%]",
+      className: "w-[34%]",
       cell: ({ host, path, app, service }) => (
         <div className="min-w-0">
           <span className="block truncate font-medium">
@@ -112,12 +113,19 @@ export default function Dashboard() {
     },
     {
       header: t("Status"),
-      className: "w-36",
-      cell: ({ text, tone }) => (
-        <span className={`flex items-center gap-1.5 text-sm font-medium ${TONE_TEXT[tone]}`}>
-          {tone === "deploying" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-current" />}
-          {text}
-        </span>
+      className: "w-40",
+      cell: ({ text, tone, health }) => (
+        <div className="min-w-0">
+          <span className={`flex items-center gap-1.5 text-sm font-medium ${TONE_TEXT[tone]}`}>
+            {tone === "deploying" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-2 w-2 rounded-full bg-current" />}
+            {text}
+          </span>
+          {health?.state !== "up" && health?.lastError && (
+            <span className="block truncate text-xs text-destructive" title={health.lastError}>
+              {health.lastError}
+            </span>
+          )}
+        </div>
       ),
     },
     {
@@ -141,32 +149,44 @@ export default function Dashboard() {
       cell: ({ health }) =>
         health?.responseMs != null ? <span className="text-sm">{health.responseMs} ms</span> : <span className="text-muted-foreground">—</span>,
     },
-    {
-      header: t("Last error"),
-      cell: ({ health }) =>
-        health?.state !== "up" && health?.lastError ? (
-          <span className="block truncate text-xs text-destructive" title={health.lastError}>
-            {health.lastError}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        ),
-    },
   ];
 
   return (
     <PageLayout title={t("Dashboard")} description={t("Uptime of every hostname, checked every minute.")}>
-      <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+      <div className={`grid grid-cols-2 gap-4 ${superAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
         <Tile label={t("Online")} value={count((row) => row.tone === "up")} icon={CheckCircle2} tone="text-success" />
         <Tile label={t("Need attention")} value={count((row) => row.tone === "down" || row.tone === "warn")} icon={AlertTriangle} tone="text-destructive" />
         <Tile label={t("Not monitored")} value={count((row) => row.tone === "muted")} icon={CircleDashed} />
+        <Tile
+          label={t("Storage (all apps)")}
+          value={byDisk ? formatBytes(appsBytes + journalBytes, locale) : "—"}
+          icon={HardDrive}
+          hint={
+            t("Disk {disk} · R2 {r2}", { disk: formatBytes(appsBytes - r2Bytes, locale), r2: formatBytes(r2Bytes, locale) }) +
+            (journalBytes > 0 ? ` · ${t("Journal logs {size}", { size: formatBytes(journalBytes, locale) })}` : "")
+          }
+        />
         {superAdmin && <Tile label={t("Total users")} value={usersPage?.pagination.total ?? "—"} icon={Users} />}
       </div>
 
-      {/* bento: storage wide, renewals beside it, servers across */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* bento: the monitor wide — it matters most — domains and servers beside it */}
+      <div className="grid items-start gap-4 lg:grid-cols-3">
+      <div className="min-w-0 lg:col-span-2">
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          query={query}
+          isLoading={isLoading}
+          searchPlaceholder={t("Search hostname, app or service…")}
+          filter={(row, search) => `${row.id} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
+          empty={t("No hostnames yet.")}
+          onRowClick={(row) => navigate(`/services/${row.service.id}`)}
+        />
+      </div>
+      <div className="space-y-4">
       {/* the count and its list in one card */}
-        <Card className={appsBytes > 0 ? "lg:order-2" : "lg:col-span-3"}>
+        <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Globe className="h-4 w-4" />
@@ -192,33 +212,16 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-      {appsBytes > 0 && (
-        <Card className="lg:order-1 lg:col-span-2">
-          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <HardDrive className="h-4 w-4" />
-                {t("Storage (all apps)")}
-              </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("Disk {disk} · R2 {r2}", { disk: formatBytes(appsBytes - r2Bytes, locale), r2: formatBytes(r2Bytes, locale) })}
-                {journalBytes > 0 && ` · ${t("Journal logs {size}", { size: formatBytes(journalBytes, locale) })}`}
-              </p>
-            </div>
-            <p className="text-2xl font-semibold">{formatBytes(appsBytes + journalBytes, locale)}</p>
-          </CardHeader>
-        </Card>
-      )}
 
       {superAdmin && disks.length > 0 && (
-        <Card className="lg:order-3 lg:col-span-3">
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <HardDrive className="h-4 w-4" />
               {t("Server storage")}
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
             {disks.map((server) => (
               <div key={server.id} className="min-w-0 space-y-1.5">
                 <Link to={`/servers/${server.id}`} className="block truncate text-sm font-medium hover:text-primary">
@@ -231,18 +234,7 @@ export default function Dashboard() {
         </Card>
       )}
       </div>
-
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(row) => row.id}
-        query={query}
-        isLoading={isLoading}
-        searchPlaceholder={t("Search hostname, app or service…")}
-        filter={(row, search) => `${row.id} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
-        empty={t("No hostnames yet.")}
-        onRowClick={(row) => navigate(`/services/${row.service.id}`)}
-      />
+      </div>
     </PageLayout>
   );
 }
