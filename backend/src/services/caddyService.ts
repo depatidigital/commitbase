@@ -21,6 +21,7 @@ async function caddyRequest(
   method: 'GET' | 'POST' | 'PATCH',
   path: string,
   body?: any,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: string }> {
   // A node whose :80/:443 still belong to another web server is set up with
   // Caddy installed but stopped (install.sh), so the admin port is simply not
@@ -50,7 +51,7 @@ async function caddyRequest(
         timeout: REQUEST_TIMEOUT_MS,
         createConnection: () => stream as any,
         ...(payload && {
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...extraHeaders },
         }),
       },
       (response) => {
@@ -210,8 +211,8 @@ async function fetchCaddyConfig(server: SshTarget): Promise<any | null> {
   }
 }
 
-async function writeCaddy(server: SshTarget, method: 'POST' | 'PATCH', path: string, body: any): Promise<void> {
-  const response = await caddyRequest(server, method, path, body);
+async function writeCaddy(server: SshTarget, method: 'POST' | 'PATCH', path: string, body: any, headers: Record<string, string> = {}): Promise<void> {
+  const response = await caddyRequest(server, method, path, body, headers);
   if (response.status >= 400) {
     throw new Error(`Caddy rejected the config (HTTP ${response.status}): ${response.body.slice(0, 200)}`);
   }
@@ -704,6 +705,17 @@ export const ensureHttpsListener = (node: SshTarget) =>
     await keepAfter(node, 'listen on :443', await (await snapshots()).coversCheckpoint(node.id, existing, []));
     return true;
   });
+
+/**
+ * Reload Caddy with the config it runs — graceful, no connection dropped. It
+ * re-provisions TLS, so every name without a certificate is asked for again now
+ * rather than at its next retry. `must-revalidate`: without it Caddy skips a
+ * config identical to the running one.
+ */
+export async function reloadCaddy(node: SshTarget): Promise<void> {
+  const config = await readCaddyConfig(node);
+  await writeCaddy(node, 'POST', '/load', config, { 'Cache-Control': 'must-revalidate' });
+}
 
 /** The whole live config, for snapshotting. Null when Caddy did not answer. */
 export async function getCaddyConfig(node: SshTarget): Promise<any | null> {

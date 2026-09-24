@@ -1,7 +1,7 @@
 import { Resolver } from 'dns/promises';
 import { execRoot, type SshTarget } from '../lib/runner';
 import { prisma } from '../lib/prisma';
-import { allRoutesOf, ensureHttpsListener, getCaddyConfig } from './caddyService';
+import { allRoutesOf, ensureHttpsListener, getCaddyConfig, reloadCaddy } from './caddyService';
 import { findCloudflareZone, listCloudflareDnsRecords, updateDnsRecord } from './cloudflareService';
 import { localCode } from './nginxMigrateService';
 
@@ -177,8 +177,8 @@ export async function provisionCertificates(node: SshTarget & { publicIp: string
     steps.push('resolving to the node');
 
     // a restart makes Caddy ask for every missing certificate now, not at its next retry
-    await execRoot(node, ['systemctl', 'restart', 'caddy-api'], { timeout: 60_000 });
-    steps.push('Caddy restarted');
+    await reloadCaddy(node);
+    steps.push('Caddy reloaded');
 
     const certDeadline = Date.now() + CERT_WAIT_MS;
     let waiting = todo.map((t) => t.host);
