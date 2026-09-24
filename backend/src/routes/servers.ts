@@ -17,6 +17,7 @@ import { appsOnServer } from '../lib/servers';
 import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
 import { cleanSystem, measureSystem, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
+import { growDisk, inspectDisk } from '../services/diskGrowService';
 import { dockerView, importDockerContainer } from '../services/dockerAdoptService';
 import { caddyHostsOf, provisionCertificates, type SslProvisionResult } from '../services/sslProvisionService';
 import { DeploymentService } from '../services/deployment';
@@ -653,6 +654,32 @@ router.get('/:id/system-cleanup', authenticateToken, requireRole(['SUPERADMIN'])
   } catch (error: any) {
     console.error('Error measuring system cleanup:', error);
     return res.status(502).json({ success: false, error: error?.stderr || error?.message || 'Could not measure the node' } as ApiResponse);
+  }
+});
+
+/** The root disk's layout: disk, partition, filesystem — and what growing it into the disk would add. */
+router.get('/:id/tools/disk', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+    return res.json({ success: true, data: await inspectDisk(server) } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error inspecting the disk:', error);
+    return res.status(502).json({ success: false, error: error?.stderr || error?.message || 'Could not read the disk layout' } as ApiResponse);
+  }
+});
+
+/** Grow the root partition and filesystem into the whole disk — after the provider enlarged it. Online. */
+router.post('/:id/tools/disk/grow', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+    const after = await growDisk(server);
+    console.log(`disk grown on ${server.name} by ${req.user!.userId}: ${after.filesystemBytes} bytes`);
+    return res.json({ success: true, data: after } as ApiResponse);
+  } catch (error: any) {
+    console.error('Error growing the disk:', error);
+    return res.status(502).json({ success: false, error: String(error?.stderr || error?.message || 'Could not grow the disk').trim().slice(0, 500) } as ApiResponse);
   }
 });
 

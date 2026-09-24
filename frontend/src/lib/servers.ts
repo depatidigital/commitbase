@@ -11,6 +11,8 @@ export type AuthMethod = 'KEY' | 'PASSWORD';
 
 /** From here on a disk shows red — the Storage tab and the server list agree. */
 export const DISK_RED_PCT = 90;
+/** From here a disk shows amber: time to look at a cleanup, before it is urgent. */
+export const DISK_AMBER_PCT = 75;
 
 export const diskUsedPct = (disk: { size: number; used: number } | null | undefined): number =>
   disk?.size ? Math.round((disk.used / disk.size) * 100) : 0;
@@ -325,3 +327,26 @@ export const provisionSsl = async (id: string, host: string): Promise<{ ok: bool
     await apiRequest(`/servers/${id}/ssl`, { method: 'POST', body: JSON.stringify({ host }) }),
     t('Could not provision SSL'),
   );
+
+/** The root disk as the node has it: after a provider enlarges a disk, the partition and filesystem lag until grown. */
+export interface DiskLayout {
+  source: string;
+  fstype: string;
+  lvm: boolean;
+  disk: string;
+  partition: string;
+  diskBytes: number;
+  partitionBytes: number;
+  filesystemBytes: number;
+  availBytes: number;
+  /** what growing would add */
+  growableBytes: number;
+  growpart: string | null;
+  supported: boolean;
+}
+
+export const getDiskLayout = async (id: string): Promise<DiskLayout> =>
+  unwrap(await apiRequest<DiskLayout>(`/servers/${id}/tools/disk`), t('Could not read the disk layout'));
+
+export const growServerDisk = async (id: string): Promise<DiskLayout> =>
+  unwrap(await apiRequest<DiskLayout>(`/servers/${id}/tools/disk/grow`, { method: 'POST' }), t('Could not grow the disk'));

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CircleDashed, Globe, Loader2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Globe, HardDrive, Loader2, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -11,6 +11,8 @@ import { getDomainsPage } from "@/lib/domains";
 import { expiryTone, needsRenewal } from "@/lib/domainExpiry";
 import { isSuperAdmin } from "@/lib/auth";
 import { getUsers } from "@/lib/admin";
+import { diskUsedPct, getServers } from "@/lib/servers";
+import { DiskBar } from "@/components/DiskBar";
 
 const TONE_TEXT: Record<Tone, string> = {
   up: "text-success",
@@ -64,6 +66,10 @@ export default function Dashboard() {
     queryFn: () => getUsers({ page: 1, limit: 1, search: "" }),
     enabled: superAdmin,
   });
+
+  // every server's disk, fullest first — which one wants a cleanup (superadmin)
+  const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superAdmin, refetchInterval: 60_000 });
+  const disks = servers.filter((server) => server.disk).sort((a, b) => diskUsedPct(b.disk) - diskUsedPct(a.disk));
 
   const rows: Row[] = data
     .map((row) => ({ ...row, ...appStatus(row.service.status, row.health, row.service.disabled) }))
@@ -160,6 +166,27 @@ export default function Dashboard() {
                 );
               })}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {superAdmin && disks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <HardDrive className="h-4 w-4" />
+              {t("Server storage")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            {disks.map((server) => (
+              <div key={server.id} className="min-w-0 space-y-1.5">
+                <Link to={`/servers/${server.id}`} className="block truncate text-sm font-medium hover:text-primary">
+                  {server.name}
+                </Link>
+                <DiskBar serverId={server.id} disk={server.disk} />
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

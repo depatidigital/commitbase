@@ -55,14 +55,13 @@ import { PageLayout } from "@/components/PageLayout";
 import { ProvisionBadge } from "@/components/ProvisionBadge";
 import { isProvisionPending } from "@/lib/organizations";
 import { t } from "@/lib/i18n";
+import { DiskBar } from "@/components/DiskBar";
 import {
   LogSource,
   Server,
   ServerInput,
   createServer,
   deleteServer,
-  diskUsedPct,
-  DISK_RED_PCT,
   getServerLogs,
   getServersPage,
   pingServer,
@@ -238,51 +237,47 @@ export default function Servers() {
   const columns: Column<Server>[] = [
     {
       header: t("Name"),
-      className: "w-[20%]",
+      className: "w-[34%]",
+      // who it is, how the panel reaches it, and its tags — one cell
       cell: (s) => (
-        <div className="min-w-0">
-          <Link to={`/servers/${s.id}`} className="block truncate font-medium hover:underline">
-            {s.name}
-          </Link>
-          <span className="block truncate text-xs text-muted-foreground">{s.publicIp}</span>
-        </div>
-      ),
-    },
-    {
-      header: "SSH",
-      className: "w-[24%]",
-      cell: (s) => (
-        <div className="min-w-0">
-          <span className="block truncate text-muted-foreground">
+        <div className="min-w-0 space-y-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <Link to={`/servers/${s.id}`} className="truncate font-medium hover:underline" title={s.name}>
+              {s.name}
+            </Link>
+            {/* provisioning is only news when it is not done: queued, running, failed, never */}
+            {s.setupState !== "DONE" && (
+              <span className="shrink-0">
+                <ProvisionBadge
+                  state={s.setupState}
+                  error={s.setupError}
+                  at={s.setupAt}
+                  onClick={s.setupLog || isProvisionPending(s.setupState) ? () => setSetupLogFor(s.id) : undefined}
+                />
+              </span>
+            )}
+          </span>
+          <span className="block truncate font-mono text-xs text-muted-foreground" title={`${s.sshUser}@${s.hostname}:${s.sshPort}`}>
             {s.sshUser}@{s.hostname}:{s.sshPort}
+            <span className="font-sans"> · {s.authMethod === "PASSWORD" ? t("password") : t("key")}</span>
           </span>
-          <span className="block text-xs text-muted-foreground">
-            {s.authMethod === "PASSWORD" ? t("password") : t("key")}
-          </span>
+          {s.tags?.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {s.tags.map((tag) => (
+                // clicking a tag filters the list to it — the point of tagging
+                <Badge
+                  key={tag}
+                  variant="outline"
+                  className={`cursor-pointer px-1.5 py-0 text-[11px] ${tag === tagFilter ? "border-primary text-primary" : ""}`}
+                  onClick={() => setTagFilter(tag === tagFilter ? "" : tag)}
+                >
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
       ),
-    },
-    {
-      header: t("Tags"),
-      className: "w-[18%]",
-      cell: (s) =>
-        s.tags?.length ? (
-          <div className="flex flex-wrap gap-1">
-            {s.tags.map((tag) => (
-              // clicking a tag filters the list to it — the point of tagging
-              <Badge
-                key={tag}
-                variant="outline"
-                className="cursor-pointer text-xs"
-                onClick={() => setTagFilter(tag === tagFilter ? "" : tag)}
-              >
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        ),
     },
     {
       header: t("Status"),
@@ -297,18 +292,22 @@ export default function Servers() {
               {t("not provisioned")}
             </Badge>
           )}
-          {diskUsedPct(s.disk) >= DISK_RED_PCT && (
-            <Badge variant="destructive" className="text-xs" title={t("{free} free", { free: `${(s.disk!.avail / 1024 ** 3).toFixed(1)} GB` })}>
-              {t("Disk {pct}% full", { pct: String(diskUsedPct(s.disk)) })}
-            </Badge>
-          )}
           <span className="block text-xs text-muted-foreground">{ago(s.lastSeenAt)}</span>
+          {/* how many workspaces are placed on it */}
+          <span className="block text-xs text-muted-foreground">{t("{count} workspaces", { count: s._count.orgNodes })}</span>
         </div>
       ),
     },
     {
+      // how full its disk is, at a glance — which node needs a cleanup
+      header: t("Storage"),
+      className: "w-52",
+      cell: (s) => <DiskBar serverId={s.id} disk={s.disk} />,
+    },
+    {
       header: t("Runtime"),
-      className: "w-44",
+      // wide enough for the chips to sit side by side, not one per line
+      className: "w-80",
       cell: (s) =>
         s.runtimes?.length ? (
           <div className="flex flex-wrap gap-1">
@@ -338,19 +337,6 @@ export default function Servers() {
           <span className="text-xs text-muted-foreground">—</span>
         ),
     },
-    {
-      header: t("Provisioning"),
-      className: "w-32",
-      cell: (s) => (
-        <ProvisionBadge
-          state={s.setupState}
-          error={s.setupError}
-          at={s.setupAt}
-          onClick={s.setupLog || isProvisionPending(s.setupState) ? () => setSetupLogFor(s.id) : undefined}
-        />
-      ),
-    },
-    { header: t("Orgs"), className: "w-20", cell: (s) => s._count.orgNodes },
     {
       header: t("Last error"),
       className: "w-[22%]",

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ServerDiskGrow } from "@/components/ServerDiskGrow";
 import { PageLayout } from "@/components/PageLayout";
 import { ServerStorage } from "@/components/ServerStorage";
 import { ProvisionBadge } from "@/components/ProvisionBadge";
@@ -84,6 +85,7 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 
 const ServerDetail = () => {
   const { id = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [logSource, setLogSource] = useState<LogSource>("errors");
@@ -213,7 +215,8 @@ const ServerDetail = () => {
         </div>
       }
     >
-      <Tabs defaultValue="overview" className="space-y-4">
+      {/* ?tab= opens one straight away — the server list's "Clean up" goes to storage */}
+      <Tabs defaultValue={searchParams.get("tab") ?? "overview"} className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">{t("Overview")}</TabsTrigger>
           <TabsTrigger value="sites">{t("Caddy sites")}</TabsTrigger>
@@ -223,6 +226,7 @@ const ServerDetail = () => {
           <TabsTrigger value="docker">Docker</TabsTrigger>
           <TabsTrigger value="snapshots">{t("Snapshots")}</TabsTrigger>
           <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>
+          <TabsTrigger value="tools">{t("Tools")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -450,6 +454,11 @@ const ServerDetail = () => {
           <pre className="max-h-[60vh] overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 text-xs leading-relaxed">
             {logs.data?.output ?? (logs.error as Error)?.message ?? "…"}
           </pre>
+        </TabsContent>
+
+        {/* one-off operations on the node itself */}
+        <TabsContent value="tools" className="space-y-4">
+          <ServerDiskGrow serverId={id} />
         </TabsContent>
 
         <TabsContent value="storage">
