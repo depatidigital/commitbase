@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Cloud, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Cloud, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ComposePreview } from "@/components/ComposePreview";
 import { ServerEnv } from "@/components/ServerEnv";
@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -46,7 +47,7 @@ import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProject
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { ApplicationSettingsForm, Field } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
-import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, updateApplication, hostList, isPublicHost, repoName, runtimeLabel } from "@/lib/applications";
+import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, updateApplication, hostList, isPublicHost, repoName, runtimeLabel, startPm2Build } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
 import { isSuperAdmin } from "@/lib/auth";
 import { locale, t } from "@/lib/i18n";
@@ -784,6 +785,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
   const deploying = ["DEPLOYING", "BUILDING"].includes(app.status);
   // redeploy this service alone: the panel's own through its deploy (migrations asked first),
   // an imported one built where it lives — only on a yes, its site can err meanwhile
+  const { toast } = useToast();
   const redeploy = useStartApplication();
   const confirmRedeploy = useDeployConfirm(application ?? undefined, (options) => redeploy.mutate({ id: app.id, ...options }));
   const [confirmBuild, setConfirmBuild] = useState(false);
