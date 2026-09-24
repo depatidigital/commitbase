@@ -78,6 +78,26 @@ export function priceOf(use: { cpuSeconds: number; memGbSeconds: number; storage
   return { cpu, mem, storage, total: cpu + mem + storage };
 }
 
+/**
+ * What the workspace costs per hour right now: the storage it holds (measured
+ * sizes, known at once), the memory at the last reading, and its CPU over the
+ * last day. What the month's estimate runs forward on.
+ */
+export async function currentRate(organizationId: string) {
+  const [apps, nodes, day] = await Promise.all([
+    prisma.application.aggregate({ where: { organizationId }, _sum: { diskBytes: true } }),
+    // a reading older than the gap the meter tolerates says nothing about now
+    prisma.orgNode.findMany({ where: { organizationId, meterAt: { gte: new Date(Date.now() - MAX_INTERVAL_S * 1000) } }, select: { meterMemBytes: true } }),
+    prisma.usageHour.findMany({ where: { organizationId, hour: { gte: new Date(Date.now() - 24 * 3_600_000) } }, select: { cpuSeconds: true } }),
+  ]);
+  const storageGb = Number(apps._sum.diskBytes ?? 0) / GiB;
+  const memGb = nodes.reduce((sum, node) => sum + Number(node.meterMemBytes ?? 0), 0) / GiB;
+  const cpuCores = day.length ? day.reduce((sum, h) => sum + h.cpuSeconds, 0) / (day.length * 3600) : 0;
+  // an hour of each, priced
+  const perHour = priceOf({ cpuSeconds: cpuCores * 3600, memGbSeconds: memGb * 3600, storageGbSeconds: storageGb * 3600 });
+  return { storageGb, memGb, cpuCores, perHour: perHour.total };
+}
+
 const hourOf = (at: Date) => new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000);
 
 /** The cron's run: read every provisioned workspace on every node, add what was used to this hour's rows. */
@@ -109,7 +129,7 @@ export async function meterUsage(): Promise<string> {
       const now = readings.get(node.organizationId);
       if (!now) continue;
       const use = usageSince({ cpuUsec: node.meterCpuUsec, at: node.meterAt }, now, at);
-      await prisma.orgNode.update({ where: { id: node.id }, data: { meterCpuUsec: now.cpuUsec, meterAt: at } });
+      await prisma.orgNode.update({ where: { id: node.id }, data: { meterCpuUsec: now.cpuUsec, meterMemBytes: BigInt(now.memBytes), meterAt: at } });
       if (!use) continue;
       const sum = added.get(node.organizationId) ?? { cpuSeconds: 0, memGbSeconds: 0, seconds: 0 };
       added.set(node.organizationId, {

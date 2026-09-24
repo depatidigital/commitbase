@@ -47,6 +47,10 @@ export default function Billing() {
       ]
     : [];
   const peak = Math.max(1, ...(data?.days.map((d) => d.cost) ?? []));
+  // every day of the month, the unmetered ones empty — one day is one thin bar, not the whole width
+  const costOf = new Map(data?.days.map((d) => [d.date, d.cost]));
+  const [year, mon] = month.split("-").map(Number) as [number, number];
+  const monthDays = Array.from({ length: new Date(Date.UTC(year, mon, 0)).getUTCDate() }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
 
   return (
     <PageLayout
@@ -87,8 +91,25 @@ export default function Billing() {
             <Card>
               <CardContent className="flex items-center justify-between p-5">
                 <div>
-                  <p className="text-sm text-muted-foreground">{t("Estimate for the whole month")}</p>
+                  {/* the month so far plus the hours left at today's pace — days before metering began cost nothing */}
+                  <p className="text-sm text-muted-foreground">{t("Estimate to month end")}</p>
                   <p className="text-3xl font-semibold">{data.projected !== null ? rupiah(data.projected) : "—"}</p>
+                  {/* the pace it runs on: what is held right now */}
+                  {data.rate && (
+                    <p className="mt-1 text-sm">
+                      {t("Full month at this rate: {amount}", { amount: rupiah(data.rate.perHour * 730) })}
+                    </p>
+                  )}
+                  {data.rate && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("Now: {rate} per hour — {storage} GB stored, {memory} GB memory, {cpu} CPU cores", {
+                        rate: rupiah(data.rate.perHour),
+                        storage: amount(data.rate.storageGb),
+                        memory: amount(data.rate.memGb),
+                        cpu: amount(data.rate.cpuCores, 3),
+                      })}
+                    </p>
+                  )}
                 </div>
                 <TrendingUp className="h-6 w-6 text-muted-foreground" />
               </CardContent>
@@ -123,12 +144,23 @@ export default function Billing() {
                 <p className="text-sm text-muted-foreground">{t("Nothing metered in this month yet.")}</p>
               ) : (
                 // one bar per day, as tall as its cost against the month's busiest day
-                <div className="flex h-40 items-end gap-1">
-                  {data.days.map((day) => (
-                    <div key={day.date} className="group flex h-full flex-1 flex-col justify-end" title={`${day.date}: ${rupiah(day.cost)}`}>
-                      <div className="rounded-t bg-primary/70 group-hover:bg-primary" style={{ height: `${Math.max(2, (day.cost / peak) * 100)}%` }} />
-                    </div>
-                  ))}
+                <div className="space-y-1">
+                  <div className="flex h-40 items-end gap-1">
+                    {monthDays.map((date) => {
+                      const cost = costOf.get(date);
+                      return (
+                        <div key={date} className="group flex h-full flex-1 flex-col justify-end" title={cost !== undefined ? `${date}: ${rupiah(cost)}` : date}>
+                          {cost !== undefined && (
+                            <div className="rounded-t bg-primary/70 group-hover:bg-primary" style={{ height: `${Math.max(2, (cost / peak) * 100)}%` }} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>1</span>
+                    <span>{monthDays.length}</span>
+                  </div>
                 </div>
               )}
             </CardContent>

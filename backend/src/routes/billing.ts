@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { priceOf, RATES } from '../services/usageMeterService';
+import { currentRate, priceOf, RATES } from '../services/usageMeterService';
 
 const router = Router();
 
@@ -59,11 +59,11 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
     );
     const cost = priceOf(total);
 
-    // the month so far, stretched to its end at the same pace — only while it runs
+    // the month so far, then what is held now for the hours left — only while the month runs
     const now = Date.now();
     const running = now >= start.getTime() && now < end.getTime();
-    const metered = hours.length ? Math.min(now, end.getTime()) - Math.max(start.getTime(), hours[0]!.hour.getTime()) : 0;
-    const projected = running && metered > 3_600_000 ? (cost.total * (end.getTime() - start.getTime())) / metered : null;
+    const rate = running ? await currentRate(organizationId) : null;
+    const projected = rate ? cost.total + rate.perHour * ((end.getTime() - now) / 3_600_000) : null;
 
     return res.json({
       success: true,
@@ -77,6 +77,8 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
         },
         cost,
         projected,
+        /** what it holds now and costs per hour — the estimate's pace */
+        rate,
         days: [...days.entries()].map(([date, use]) => ({ date, cost: priceOf(use).total })),
       },
     } as ApiResponse);

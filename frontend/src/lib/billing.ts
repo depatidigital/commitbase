@@ -7,8 +7,10 @@ export interface Usage {
   rates: { cpuCoreHour: number; memGbHour: number; storageGbHour: number; currency: string };
   usage: { cpuCoreHours: number; memGbHours: number; storageGbHours: number };
   cost: { cpu: number; mem: number; storage: number; total: number };
-  /** where the month is heading at this pace — only while it runs */
+  /** the month so far plus what is held now for the hours left — only while the month runs */
   projected: number | null;
+  /** what it holds now and costs per hour: the estimate's pace (current month only) */
+  rate: { storageGb: number; memGb: number; cpuCores: number; perHour: number } | null;
   days: Array<{ date: string; cost: number }>;
 }
 

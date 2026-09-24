@@ -98,8 +98,10 @@ model OrgNode {
   provisionedAt DateTime?
 
   /// the usage meter's last reading here: the org's CPU time counter (µs, cgroup) and when — the next reading is a delta of it
-  meterCpuUsec BigInt?
-  meterAt      DateTime?
+  meterCpuUsec  BigInt?
+  /// …and the memory it held then — what the Biaya page's current rate starts from
+  meterMemBytes BigInt?
+  meterAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
