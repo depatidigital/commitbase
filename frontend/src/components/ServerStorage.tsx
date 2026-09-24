@@ -5,7 +5,6 @@ import { Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,7 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { cleanupServerDisk, diskUsedPct, DISK_RED_PCT, getServerDisk } from "@/lib/servers";
+import { cleanupServerDisk, diskTone, diskUsedPct, getServerDisk } from "@/lib/servers";
 import { locale, t } from "@/lib/i18n";
 import { formatBytes } from "@/lib/utils";
 import { ServerSystemCleanup } from "@/components/ServerSystemCleanup";
@@ -77,11 +76,14 @@ export function ServerStorage({ serverId }: { serverId: string }) {
                   <>
                     <div className="flex justify-between text-sm">
                       <span>{t("{used} of {size} used", { used: bytes(data.disk.used), size: bytes(data.disk.size) })}</span>
-                      <span className={usedPct >= DISK_RED_PCT ? "font-medium text-destructive" : "text-muted-foreground"}>
+                      <span className={diskTone(usedPct).text}>
                         {t("{free} free", { free: bytes(data.disk.avail) })}
                       </span>
                     </div>
-                    <Progress value={usedPct} className={`h-2 ${usedPct >= DISK_RED_PCT ? "[&>div]:bg-destructive" : ""}`} />
+                    {/* the same colours as the server list and the dashboard (diskTone) */}
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div className={`h-full ${diskTone(usedPct).bar}`} style={{ width: `${Math.min(100, usedPct)}%` }} />
+                    </div>
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground">{t("The node did not report its disk.")}</p>

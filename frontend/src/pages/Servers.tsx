@@ -284,7 +284,10 @@ export default function Servers() {
       className: "w-44",
       cell: (s) => (
         <div className="space-y-1">
-          <Badge variant={STATUS_VARIANT[s.status] ?? "secondary"}>{s.status}</Badge>
+          {/* the last error, when there is one, on hover — no column of its own */}
+          <Badge variant={STATUS_VARIANT[s.status] ?? "secondary"} title={s.lastError ?? undefined}>
+            {s.status}
+          </Badge>
           {/* reachable but bare is a different problem from unreachable, and
               has a completely different fix, so it gets its own badge */}
           {s.status === "ONLINE" && !s.provisioned && (
@@ -333,18 +336,6 @@ export default function Servers() {
               );
             })}
           </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        ),
-    },
-    {
-      header: t("Last error"),
-      className: "w-[22%]",
-      cell: (s) =>
-        s.lastError ? (
-          <span className="block truncate text-xs text-destructive" title={s.lastError}>
-            {s.lastError}
-          </span>
         ) : (
           <span className="text-xs text-muted-foreground">—</span>
         ),

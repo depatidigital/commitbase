@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { DISK_AMBER_PCT, DISK_RED_PCT, diskUsedPct } from "@/lib/servers";
+import { DISK_AMBER_PCT, diskTone, diskUsedPct } from "@/lib/servers";
 import { locale, t } from "@/lib/i18n";
 import { formatBytes } from "@/lib/utils";
 
@@ -11,8 +11,7 @@ import { formatBytes } from "@/lib/utils";
 export function DiskBar({ serverId, disk }: { serverId: string; disk: { size: number; used: number; avail: number } | null }) {
   if (!disk) return <span className="text-xs text-muted-foreground">—</span>;
   const pct = diskUsedPct(disk);
-  const text = pct >= DISK_RED_PCT ? "font-medium text-destructive" : pct >= DISK_AMBER_PCT ? "font-medium text-warning" : "";
-  const bar = pct >= DISK_RED_PCT ? "bg-destructive" : pct >= DISK_AMBER_PCT ? "bg-warning" : "bg-success";
+  const { text, bar } = diskTone(pct);
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2 text-xs">
