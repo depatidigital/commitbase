@@ -128,10 +128,13 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
                   </span>
                 </div>
               ))}
-              <div className="flex justify-between px-3 py-2 text-muted-foreground">
-                <span>{t("Build cache (Next.js)")}</span>
-                <span>{bytes(disk.cacheBytes)}</span>
-              </div>
+              {/* only a Next.js app has one — elsewhere a 0 B row just confuses */}
+              {disk.cacheBytes > 0 && (
+                <div className="flex justify-between px-3 py-2 text-muted-foreground">
+                  <span>{t("Build cache (Next.js)")}</span>
+                  <span>{bytes(disk.cacheBytes)}</span>
+                </div>
+              )}
               <div className="flex justify-between px-3 py-2 text-muted-foreground">
                 <span>{t("Source checkout")}</span>
                 <span>{bytes(disk.sourcesBytes)}</span>
