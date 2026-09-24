@@ -172,6 +172,8 @@ export type Pm2Process = {
   startCommand?: string | undefined;
   /** the node pm2 runs it with, e.g. `24.13.0` — a build must use the same one */
   nodeVersion?: string | undefined;
+  /** where pm2 writes its stdout and stderr — ~/.pm2/logs by default, anywhere an ecosystem file says */
+  logPaths?: string[] | undefined;
 };
 
 /**
@@ -240,6 +242,7 @@ export async function listPm2Processes(node: SshTarget): Promise<Pm2Process[]> {
           uptime: env.pm_uptime ? humanUptime(env.pm_uptime) : undefined,
           startCommand: pm2StartCommand(env),
           nodeVersion: typeof env.node_version === 'string' ? env.node_version : undefined,
+          logPaths: [...new Set([env.pm_out_log_path, env.pm_err_log_path].filter((p): p is string => typeof p === 'string' && p.startsWith('/')))],
         };
       })
       .filter((process) => process.name);

@@ -1,7 +1,8 @@
 import { prisma } from '../lib/prisma';
 import { sourceFsFor, type AppFs } from '../lib/appFs';
 import { currentDirFor, logsDirFor, releasesDirFor, sharedDirFor } from '../lib/appPaths';
-import { exec, type SshTarget } from '../lib/runner';
+import { exec, execRoot, type SshTarget } from '../lib/runner';
+import { listPm2Processes } from './appSyncService';
 import { serverForApplication } from '../lib/servers';
 import { listSiteObjects } from './r2Service';
 import { removeAppTree } from './orgProvisionService';
@@ -32,6 +33,8 @@ export interface AppDisk {
   sourcesBytes: number;
   /** a compose app's stack in its org's Podman — images, containers, volumes; null for others, or before it ran */
   stack: StackUsage | null;
+  /** imported (pm2, Caddy files — someone else's): its folder is sourcesBytes, its pm2 logs logsBytes; nothing of it is the panel's to clean */
+  imported?: boolean;
   totalBytes: number;
   /** what cleaning up (without the cache) would give back */
   reclaimableBytes: number;
@@ -79,7 +82,9 @@ async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
 /** The disk use of the app's tree on its node. Null for a static site — its files are in R2. */
 export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES): Promise<AppDisk | null> {
   const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { organization: { select: { slug: true } } } });
-  if (!app || app.type === 'STATIC' || app.runtime) return null;
+  if (!app) return null;
+  if (app.runtime) return importedDisk(app);
+  if (app.type === 'STATIC') return null;
   const afs = await sourceFsFor(applicationId);
 
   const { releases } = await releasesOf(afs, applicationId, keep);
@@ -104,6 +109,35 @@ export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES):
     totalBytes: rows.reduce((sum, r) => sum + r.bytes, 0) + cacheBytes + logsBytes + sourcesBytes + stackBytes,
     reclaimableBytes: rows.filter((r) => r.state === 'unused').reduce((sum, r) => sum + r.bytes, 0),
   };
+}
+
+/**
+ * The folder ($1), then its pm2 logs ($2…): the paths pm2 itself says it writes
+ * to, and the copies pm2-logrotate keeps beside each (<name>__<date>.log) — the
+ * ones outside the folder; those inside are in its du already.
+ * Positional args only — no path is ever spliced into the script.
+ */
+export const IMPORTED_DU =
+  `du -sb -- "$1" 2>/dev/null | cut -f1; root="$1"; shift; t=0; ` +
+  // a log inside the folder is in its du already: counted once
+  `for p in "$@"; do case "$p" in "$root"/*) continue ;; esac; d=$(dirname -- "$p"); b=$(basename -- "$p"); s=\${b%.log}; ` +
+  `n=$(find "$d" -maxdepth 1 -type f \\( -name "$b" -o -name "\${s}__*" \\) -printf '%s\\n' 2>/dev/null | awk '{s+=$1} END{print s+0}'); ` +
+  `t=$((t + n)); done; echo "$t"`;
+
+/** An imported service's folder on its node and its pm2 logs. As root: the folder and the logs are other users'. */
+async function importedDisk(app: { id: string; rootPath: string | null; processName: string | null; runtime: string | null }): Promise<AppDisk | null> {
+  if (!app.rootPath?.startsWith('/')) return null;
+  const node = await serverForApplication(app.id);
+  // where pm2 says this process logs to; not pm2's (Caddy files): no logs of its own
+  const logPaths =
+    app.runtime === 'PM2' && app.processName
+      ? (await listPm2Processes(node)).find((process) => process.name === app.processName)?.logPaths ?? []
+      : [];
+  const { stdout } = await execRoot(node, ['sh', '-c', IMPORTED_DU, 'sh', app.rootPath, ...logPaths], { timeout: 300_000 });
+  const [folder = '0', logs = '0'] = stdout.trim().split('\n');
+  const sourcesBytes = Number(folder) || 0;
+  const logsBytes = Number(logs) || 0;
+  return { releases: [], cacheBytes: 0, logsBytes, sourcesBytes, stack: null, imported: true, totalBytes: sourcesBytes + logsBytes, reclaimableBytes: 0 };
 }
 
 /**
@@ -173,14 +207,11 @@ export async function measureAppDisk(applicationId: string): Promise<number | nu
   });
   if (!app) return null;
   let bytes: number | null = null;
-  if (app.type === 'STATIC') {
+  if (app.runtime) {
+    // imported: its folder on the server, as the sync found it, and its pm2 logs — a static one too (Caddy's files, not R2)
+    bytes = (await appDiskUsage(applicationId))?.totalBytes ?? null;
+  } else if (app.type === 'STATIC') {
     if (app.staticBucket) bytes = (await listSiteObjects(app.staticBucket)).reduce((sum, file) => sum + file.size, 0);
-  } else if (app.runtime) {
-    // imported: its folder on the server, as the sync found it
-    if (app.rootPath && app.rootPath.startsWith('/')) {
-      const { stdout } = await exec(await serverForApplication(applicationId), ['du', '-sb', '--', app.rootPath], { timeout: 300_000 });
-      bytes = Number(stdout.split('\t')[0]) || 0;
-    }
   } else {
     bytes = (await appDiskUsage(applicationId))?.totalBytes ?? null;
   }

@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { currentRate, priceOf, RATES } from '../services/usageMeterService';
+import { currentRate, inObjectStorage, priceOf, RATES, type Use } from '../services/usageMeterService';
 
 const router = Router();
 
@@ -43,30 +43,37 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
     const running = now >= start.getTime() && now < end.getTime();
     const dayKey = (at: number) => new Date(at + WIB_MS).toISOString().slice(0, 10);
 
-    const days = new Map<string, { cpuSeconds: number; memGbSeconds: number; storageGbSeconds: number }>();
+    const days = new Map<string, Use>();
     // This month's storage is charged by the day from the 1st — or from when a service was made —
     // on what each holds now, not only since the meter began; the meter's storage is left out
     // then, or it would count twice. A past month keeps what the meter recorded.
     const apps = running
-      ? await prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true } })
+      ? await prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true, type: true, staticBucket: true } })
       : [];
-    const heldGb = (from: number, to: number) =>
-      apps.reduce((sum, app) => {
+    const heldGb = (list: typeof apps, from: number, to: number) =>
+      list.reduce((sum, app) => {
         const since = Math.max(from, app.createdAt.getTime());
         return sum + (to > since ? (Number(app.diskBytes ?? 0) / 1024 ** 3) * ((to - since) / 1000) : 0);
       }, 0);
     if (running) {
       for (let day = start.getTime(); day < now; day += 86_400_000) {
-        days.set(dayKey(day), { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: heldGb(day, Math.min(day + 86_400_000, now)) });
+        const to = Math.min(day + 86_400_000, now);
+        days.set(dayKey(day), {
+          cpuSeconds: 0,
+          memGbSeconds: 0,
+          storageGbSeconds: heldGb(apps.filter((app) => !inObjectStorage(app)), day, to),
+          objectGbSeconds: heldGb(apps.filter(inObjectStorage), day, to),
+        });
       }
     }
     for (const row of hours) {
       const day = new Date(row.hour.getTime() + WIB_MS).toISOString().slice(0, 10);
-      const sum = days.get(day) ?? { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0 };
+      const sum = days.get(day) ?? { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 0 };
       days.set(day, {
         cpuSeconds: sum.cpuSeconds + row.cpuSeconds,
         memGbSeconds: sum.memGbSeconds + row.memGbSeconds,
         storageGbSeconds: sum.storageGbSeconds + (running ? 0 : row.storageGbSeconds),
+        objectGbSeconds: (sum.objectGbSeconds ?? 0) + (running ? 0 : row.objectGbSeconds),
       });
     }
     const total = [...days.values()].reduce(
@@ -74,8 +81,9 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
         cpuSeconds: acc.cpuSeconds + d.cpuSeconds,
         memGbSeconds: acc.memGbSeconds + d.memGbSeconds,
         storageGbSeconds: acc.storageGbSeconds + d.storageGbSeconds,
+        objectGbSeconds: (acc.objectGbSeconds ?? 0) + (d.objectGbSeconds ?? 0),
       }),
-      { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0 },
+      { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 0 },
     );
     const cost = priceOf(total, monthDays);
 
@@ -92,6 +100,7 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
           cpuCoreHours: total.cpuSeconds / 3600,
           memGbHours: total.memGbSeconds / 3600,
           storageGbDays: total.storageGbSeconds / 86_400,
+          objectGbDays: (total.objectGbSeconds ?? 0) / 86_400,
         },
         cost,
         projected,

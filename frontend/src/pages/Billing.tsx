@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, Cpu, HardDrive, Loader2, MemoryStick, TrendingUp, Wallet } from "lucide-react";
+import { AlertCircle, Cloud, Cpu, HardDrive, Loader2, MemoryStick, TrendingUp, Wallet } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageLayout } from "@/components/PageLayout";
@@ -38,11 +38,19 @@ export default function Billing() {
         { icon: MemoryStick, label: t("Memory"), use: `${amount(data.usage.memGbHours)} ${t("GB-hours")}`, rate: `${rupiah(data.rates.memGbHour)} / ${t("GB-hour")}`, cost: data.cost.mem },
         {
           icon: HardDrive,
-          label: t("Storage"),
+          label: t("Disk"),
           // held from the 1st, or since a service was made — by the day
           use: `${amount(data.usage.storageGbDays)} ${t("GB-days")}`,
           rate: `${rupiah(data.rates.storageGbMonth)} / ${t("GB-month")}`,
           cost: data.cost.storage,
+        },
+        {
+          icon: Cloud,
+          label: t("Object storage (R2)"),
+          // static sites' files: cheaper than disk, no free space to keep
+          use: `${amount(data.usage.objectGbDays)} ${t("GB-days")}`,
+          rate: `${rupiah(data.rates.objectGbMonth)} / ${t("GB-month")}`,
+          cost: data.cost.object,
         },
       ]
     : [];
@@ -91,20 +99,23 @@ export default function Billing() {
             <Card>
               <CardContent className="flex items-center justify-between p-5">
                 <div>
-                  {/* the month so far plus the hours left at today's pace — days before metering began cost nothing */}
-                  <p className="text-sm text-muted-foreground">{t("Estimate to month end")}</p>
+                  {/* what this month will actually cost: so far, then the days left at the rate now —
+                      what is charged. A full month at that rate under it: the forecast for next month */}
+                  <p className="text-sm text-muted-foreground" title={t("So far, plus the days left at the rate now")}>
+                    {t("Expected {month} bill", { month: monthLabel(data.month).split(" ")[0]! })}
+                  </p>
                   <p className="text-3xl font-semibold">{data.projected !== null ? rupiah(data.projected) : "—"}</p>
-                  {/* the pace it runs on: what is held right now */}
                   {data.rate && (
-                    <p className="mt-1 text-sm">
-                      {t("Full month at this rate: {amount}", { amount: rupiah(data.rate.perHour * 730) })}
+                    <p className="mt-1 text-sm" title={t("A whole month at what is held now")}>
+                      {t("Next month (full) ≈ {amount}", { amount: rupiah(data.rate.perHour * data.monthDays * 24) })}
                     </p>
                   )}
                   {data.rate && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {t("Now: {rate} per hour — {storage} GB stored, {memory} GB memory, {cpu} CPU cores", {
+                      {t("Now: {rate} per hour — {storage} GB on disk, {object} GB in R2, {memory} GB memory, {cpu} CPU cores", {
                         rate: rupiah(data.rate.perHour),
                         storage: amount(data.rate.storageGb),
+                        object: amount(data.rate.objectGb, 3),
                         memory: amount(data.rate.memGb),
                         cpu: amount(data.rate.cpuCores, 3),
                       })}

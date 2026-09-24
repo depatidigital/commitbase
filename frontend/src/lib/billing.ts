@@ -5,14 +5,15 @@ import { t } from './i18n';
 export interface Usage {
   month: string;
   /** CPU and memory by the hour; storage by the GB-month, charged per day (the month's price over its days) */
-  rates: { cpuCoreHour: number; memGbHour: number; storageGbMonth: number; currency: string };
-  usage: { cpuCoreHours: number; memGbHours: number; storageGbDays: number };
+  /** CPU and memory by the hour; disk and object storage (R2) by the GB-month, charged per day */
+  rates: { cpuCoreHour: number; memGbHour: number; storageGbMonth: number; objectGbMonth: number; currency: string };
+  usage: { cpuCoreHours: number; memGbHours: number; storageGbDays: number; objectGbDays: number };
   monthDays: number;
-  cost: { cpu: number; mem: number; storage: number; total: number };
+  cost: { cpu: number; mem: number; storage: number; object: number; total: number };
   /** the month so far plus what is held now for the hours left — only while the month runs */
   projected: number | null;
   /** what it holds now and costs per hour: the estimate's pace (current month only) */
-  rate: { storageGb: number; memGb: number; cpuCores: number; perHour: number } | null;
+  rate: { storageGb: number; objectGb: number; memGb: number; cpuCores: number; perHour: number } | null;
   days: Array<{ date: string; cost: number }>;
 }
 
