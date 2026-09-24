@@ -39,6 +39,7 @@ import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
+import { RestartDialog } from "@/components/RestartDialog";
 import { AppStorageCard } from "@/components/AppStorageCard";
 import { SourcePanel } from "@/components/SourcePanel";
 import { ProjectMembersCard } from "@/components/ProjectMembersCard";
@@ -781,6 +782,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
   const stop = useStopApplication();
   const restart = useRestartApplication();
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
   const [hostsOpen, setHostsOpen] = useState(false);
   const deploying = ["DEPLOYING", "BUILDING"].includes(app.status);
   // redeploy this service alone: the panel's own through its deploy (migrations asked first),
@@ -891,7 +893,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
             !deploying &&
             (running ? (
               <>
-                <Button variant="ghost" size="icon" className="h-8 w-8" title={t("Restart")} aria-label={t("Restart")} disabled={pending} onClick={() => restart.mutate(app.id)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" title={t("Restart")} aria-label={t("Restart")} disabled={pending} onClick={() => setConfirmRestart(true)}>
                   <RefreshCw className={`h-4 w-4 ${restart.isPending ? "animate-spin" : ""}`} />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title={t("Stop")} aria-label={t("Stop")} disabled={pending} onClick={() => setConfirmStop(true)}>
@@ -988,6 +990,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
             </DialogContent>
           </Dialog>
         )}
+        <RestartDialog name={app.name} open={confirmRestart} onOpenChange={setConfirmRestart} onConfirm={() => restart.mutate(app.id)} />
         {/* stopping takes it offline: asked first, as on its page */}
         <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
           <AlertDialogContent>

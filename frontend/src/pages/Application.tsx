@@ -71,6 +71,7 @@ import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { useDomains } from "@/hooks/useDomains";
 import { bulkAssignApplications, hasBeenDeployed, hostList, hostsOf, isPublicHost, runtimeLabel, setApplicationDisabled } from "@/lib/applications";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
+import { RestartDialog } from "@/components/RestartDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -124,6 +125,7 @@ export default function Application() {
   const query = useTableQuery(100);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
+  const [restartTarget, setRestartTarget] = useState<{ id: string; name: string } | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     type: "stop";
     appId: string;
@@ -213,8 +215,8 @@ export default function Application() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
-  // no confirm: a deploy replaces nothing until it works, and a start or
-  // restart only brings back what was running. Stop still asks.
+  // no confirm: a deploy replaces nothing until it works, and a start only
+  // brings back what was stopped. Restart and stop drop the site: they ask.
   const handleStart = (id: string) => startApp.mutate(id);
   const handleStartExisting = (id: string) => startExistingApp.mutate(id);
   const handleRestart = (id: string) => restartApp.mutate(id);
@@ -553,7 +555,7 @@ export default function Application() {
             {app.status === "RUNNING" && (
               <DropdownMenuItem
                 disabled={restartApp.isPending}
-                onClick={() => handleRestart(app.id)}
+                onClick={() => setRestartTarget({ id: app.id, name: app.name })}
               >
                 <RotateCcw className="mr-2 h-4 w-4" />
                 {t("Restart")}
@@ -748,6 +750,13 @@ export default function Application() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <RestartDialog
+          name={restartTarget?.name ?? ""}
+          open={!!restartTarget}
+          onOpenChange={(open) => !open && setRestartTarget(null)}
+          onConfirm={() => restartTarget && handleRestart(restartTarget.id)}
+        />
 
         {/* Confirmation Dialog */}
         {confirmAction && dialogContent && (

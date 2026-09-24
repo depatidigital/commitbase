@@ -876,4 +876,5 @@ export default {
   "The service that serves traffic, and the one commands run in by default.": "Service yang melayani trafik, sekaligus tempat perintah dijalankan secara default.",
   "Container port": "Port container",
   "The port that service listens on inside the stack. The platform republishes it on loopback and points the domain at it; leave both empty to keep whatever the compose file publishes.": "Port yang didengarkan service itu di dalam stack. Platform mem-publish ulang port ini di loopback dan mengarahkan domain ke sana; kosongkan keduanya untuk memakai port yang di-publish file compose.",
+  "It stops and starts again, so the site may not answer for a few seconds.": "Layanan dihentikan lalu dijalankan lagi, jadi situs mungkin tidak merespons selama beberapa detik.",
 } satisfies Record<string, string>;

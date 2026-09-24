@@ -70,6 +70,7 @@ import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cance
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { ComposePreview, ComposeServiceSelect } from "@/components/ComposePreview";
+import { RestartDialog } from "@/components/RestartDialog";
 import { AppEnvironment, type EnvStatus } from "@/components/AppEnvironment";
 import DeploymentHistory, { RestoreDialog, deploymentStatusLabel } from "@/components/DeploymentHistory";
 import { DeployProgress } from "@/components/DeployProgress";
@@ -262,6 +263,7 @@ export function AppWorkspace({
   const [droppedFiles, setDroppedFiles] = useState<UploadEntry[]>();
   // only Stop asks first: a deploy replaces nothing until it works, and can be cancelled
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
   // the in-place build of an imported pm2 app: asked first, with a tick — the site can err while it builds
   const [confirmPm2Build, setConfirmPm2Build] = useState(false);
   const [pm2Consent, setPm2Consent] = useState(false);
@@ -957,7 +959,7 @@ export function AppWorkspace({
                   )}
                   {canStop && (
                     <>
-                      <DropdownMenuItem disabled={restartApp.isPending} onClick={() => restartApp.mutate(application.id)}>
+                      <DropdownMenuItem disabled={restartApp.isPending} onClick={() => setConfirmRestart(true)}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         {t("Restart")}
                       </DropdownMenuItem>
@@ -1577,6 +1579,8 @@ export function AppWorkspace({
 
         <RestoreDialog appId={application.id} isStatic={isStatic} release={undoTo} onClose={() => setUndoTo(null)} />
 
+
+        <RestartDialog name={application.name} open={confirmRestart} onOpenChange={setConfirmRestart} onConfirm={() => restartApp.mutate(application.id)} />
 
         <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
           <AlertDialogContent>
