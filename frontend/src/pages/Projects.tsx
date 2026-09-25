@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ArrowRightLeft, ExternalLink, GitBranch, HardDrive, Layers, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Rocket, RotateCw, Server as ServerIcon, Upload } from "lucide-react";
+import { AlertCircle, ArrowRightLeft, CornerUpRight, ExternalLink, GitBranch, HardDrive, Layers, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Rocket, RotateCw, Server as ServerIcon, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -135,8 +135,11 @@ export default function Projects() {
   const toggleOne = (id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   // the hostnames it answers on, paths left out (those are routing, on its page)
+  // redirects left out too: they are listed under the host they send visitors to
   const hostsOf = (project: Project) =>
-    [...new Set(project.applications.flatMap((app) => app.domains.filter((d) => !d.path && isPublicHost(d.host)).map((d) => d.host)))].sort();
+    [...new Set(project.applications.flatMap((app) => app.domains.filter((d) => !d.path && !d.redirectTo && isPublicHost(d.host)).map((d) => d.host)))].sort();
+  const redirectsTo = (project: Project, host: string) =>
+    project.applications.flatMap((app) => app.domains.filter((d) => d.redirectTo === host).map((d) => `${d.host}${d.path ?? ""}`));
 
   const originOf = (project: Project) =>
     project.repository
@@ -219,16 +222,25 @@ export default function Projects() {
         const [first, ...rest] = hostsOf(project);
         if (!first) return <span className="text-muted-foreground">—</span>;
         return (
-          <div className="flex min-w-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            <a href={`https://${first}`} target="_blank" rel="noreferrer" className="truncate hover:text-primary hover:underline">
-              {first}
-            </a>
-            <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-            {rest.length > 0 && (
-              <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
-                +{rest.length}
+          <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <a href={`https://${first}`} target="_blank" rel="noreferrer" className="truncate hover:text-primary hover:underline">
+                {first}
+              </a>
+              <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+              {rest.length > 0 && (
+                <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
+                  +{rest.length}
+                </span>
+              )}
+            </div>
+            {/* as on the dashboard: the hosts redirecting to it, under it */}
+            {redirectsTo(project, first).map((from) => (
+              <span key={from} className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={t("Redirects to {target}", { target: first })}>
+                <CornerUpRight className="h-3 w-3 shrink-0" />
+                {from}
               </span>
-            )}
+            ))}
           </div>
         );
       },
