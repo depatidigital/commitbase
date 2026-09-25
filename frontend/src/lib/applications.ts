@@ -340,12 +340,6 @@ export const setBindingStripPrefix = async (id: string, host: string, path: stri
   if (!response.success) throw new Error(response.error || t("Could not change the route"));
 };
 
-/** Make a binding redirect to another host of the app (path and query kept), or serve the app again (null). */
-export const setBindingRedirect = async (id: string, host: string, path: string, redirectTo: string | null): Promise<void> => {
-  const response = await apiRequest(`/applications/${id}/domains`, { method: 'PATCH', body: JSON.stringify({ host, path, redirectTo }) });
-  if (!response.success) throw new Error(response.error || t("Could not change the route"));
-};
-
 /** Take a binding off the app: no longer routed; a name nothing else answers on loses its record. Never the last one. */
 export const removeAppDomain = async (id: string, host: string, path = ''): Promise<void> => {
   const query = path ? `?path=${encodeURIComponent(path)}` : '';

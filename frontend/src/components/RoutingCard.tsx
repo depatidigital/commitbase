@@ -22,7 +22,7 @@ import { HostnamePicker, hostnameProblem, joinHost } from "@/components/Hostname
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { useApplicationHostname } from "@/hooks/useApplications";
 import { useToast } from "@/hooks/use-toast";
-import { type AppDomain, type Application, addAppDomain, bindingLabel, removeAppDomain, setBindingRedirect } from "@/lib/applications";
+import { type AppDomain, type Application, addAppDomain, bindingLabel, removeAppDomain } from "@/lib/applications";
 import { getDomainChoices } from "@/lib/domains";
 import { t } from "@/lib/i18n";
 
@@ -112,9 +112,6 @@ export function RoutingCard({
       .filter(([, value]) => String(value).includes(host))
       .map(([key]) => key);
   const last = application.domains.length === 1;
-  // where a route may redirect: the app's whole hosts that serve it, never itself — no chains
-  const redirectTargets = (route: AppDomain) =>
-    [...new Set(routes.filter((d) => !d.path && !d.redirectTo && d.host !== route.host).map((d) => d.host))];
   const serving = routes.filter((d) => !d.redirectTo);
   const redirects = routes.filter((d) => d.redirectTo);
   const removeButton = (route: AppDomain) => {
@@ -196,32 +193,8 @@ export function RoutingCard({
                         {route.path && <span className="text-muted-foreground">{route.path}</span>}
                       </span>
                       <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      {/* its target, or back to opening the app */}
-                      <Select
-                        value={route.redirectTo!}
-                        disabled={!!busy}
-                        onValueChange={(value) => {
-                          const redirectTo = value === SERVE ? null : value;
-                          void change(
-                            route,
-                            () => setBindingRedirect(application.id, route.host, route.path ?? "", redirectTo),
-                            t("Could not change the route"),
-                            redirectTo ? t("{host} redirects to {target}", { host: label, target: redirectTo }) : t("{host} serves {app} again", { host: label, app: application.name }),
-                          );
-                        }}
-                      >
-                        <SelectTrigger className="h-8 w-auto max-w-[18rem] gap-1 font-mono text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[...new Set([route.redirectTo!, ...redirectTargets(route)])].map((target) => (
-                            <SelectItem key={target} value={target} className="font-mono">
-                              {target}
-                            </SelectItem>
-                          ))}
-                          <SelectItem value={SERVE}>{t("Stop redirecting — open the app")}</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      {/* fixed once added: to change it, remove and add again */}
+                      <span className="min-w-0 break-all font-mono text-sm">{route.redirectTo}</span>
                       <span className="ml-auto">{removeButton(route)}</span>
                     </li>
                   );
