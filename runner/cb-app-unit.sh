@@ -15,6 +15,10 @@
 #       removes <app-dir>/<tree> (an old release, a build's node_modules) as root
 #   cb-app-unit cancel-build <org-slug> <app-id>
 #       stops that app's running build (its transient cb-build-* unit), if any
+#   cb-app-unit packages <org-slug> <app-id> <key>...
+#       makes sure the system packages the app needs are on this node. A key
+#       from the fixed list below, never a package name: installed system-wide,
+#       read-only for every tenant, and never removed (others may use them).
 #   cb-app-unit build <org-slug> <app-id> [memory-max] [cpu-weight]
 #       runs <app-dir>/build.sh as the build user inside cb-build.slice with a
 #       memory ceiling and low CPU/IO weight, so a build cannot starve the apps
@@ -49,7 +53,7 @@ esac
 [[ "$BUILD_CPU_WEIGHT" =~ ^[0-9]{1,5}$ ]]    || { echo "cb-app-unit: invalid cpu weight: '$BUILD_CPU_WEIGHT'" >&2; exit 2; }
 HOME_ROOT="${CB_HOME_ROOT:-/home}"
 
-[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build|cancel-build|rm-tree)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
+[[ "$ACTION" =~ ^(install|start|stop|restart|remove|status|chown|build|cancel-build|rm-tree|packages)$ ]] || { echo "cb-app-unit: unknown action: '$ACTION'" >&2; exit 2; }
 [[ "$SLUG"   =~ ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ ]]            || { echo "cb-app-unit: invalid slug: '$SLUG'" >&2; exit 2; }
 [[ "$APP_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                        || { echo "cb-app-unit: invalid app id: '$APP_ID'" >&2; exit 2; }
 [[ "$SOURCE_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]                     || { echo "cb-app-unit: invalid source id: '$SOURCE_ID'" >&2; exit 2; }
@@ -88,6 +92,28 @@ hand_to_tenant() {
 }
 
 case "$ACTION" in
+  packages)
+    shift 3
+    for KEY in "$@"; do
+      # the list lives here too: a panel that sends anything else gets nothing installed
+      case "$KEY" in
+        libreoffice) PKGS=(libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation fonts-dejavu fonts-noto-core) ;;
+        *) echo "cb-app-unit: unknown system package: '$KEY'" >&2; exit 2 ;;
+      esac
+      MISSING=()
+      for P in "${PKGS[@]}"; do
+        dpkg-query -W -f='${Status}' "$P" 2>/dev/null | grep -q 'install ok installed' || MISSING+=("$P")
+      done
+      if [ ${#MISSING[@]} -eq 0 ]; then echo "$KEY: already installed"; continue; fi
+      echo "$KEY: installing ${MISSING[*]}"
+      # two deploys at once wait for each other's apt lock instead of failing;
+      # a stale package index is refreshed once and tried again
+      APT=(env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends)
+      "${APT[@]}" "${MISSING[@]}" >/dev/null || { apt-get -o DPkg::Lock::Timeout=600 update -qq && "${APT[@]}" "${MISSING[@]}" >/dev/null; }
+      echo "$KEY: installed"
+    done
+    ;;
+
   chown)
     hand_to_tenant "$APP_DIR"
     echo "chowned $APP_DIR"

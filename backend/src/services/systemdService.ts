@@ -1,3 +1,4 @@
+import { detectSystemPackages } from '../lib/systemPackages';
 import * as path from 'path';
 import { Application } from '@prisma/client';
 import { logsDirFor, currentDirFor, inRootDirectory } from '../lib/appPaths';
@@ -112,6 +113,14 @@ export async function writeRunScript(application: Application, afs: AppFs): Prom
         ]
       : []),
     'export NODE_ENV=production',
+    // LibreOffice keeps a profile under ~/.config, read-only in the unit (ProtectHome):
+    // /tmp instead, the unit's own (PrivateTmp) — per app, so two apps never lock one
+    // profile. Two ways, so either one holding is enough: XDG_CONFIG_HOME is where it
+    // looks for ~/.config on Linux; UserInstallation is its own bootstrap variable.
+    // The app's own env, exported after, still wins.
+    ...(application.systemPackages?.includes('libreoffice') || detectSystemPackages(envVars).some((d) => d.key === 'libreoffice')
+      ? ["export XDG_CONFIG_HOME='/tmp/.config'", "export UserInstallation='file:///tmp/libreoffice'"]
+      : []),
     `export PORT=${port}`,
     `export HOST=127.0.0.1`,
     // Next's standalone server.js binds to HOSTNAME, not HOST

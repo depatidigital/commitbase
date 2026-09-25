@@ -1,3 +1,4 @@
+import type { SystemPackage } from '../lib/systemPackages';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Prisma } from '@prisma/client';
@@ -216,6 +217,18 @@ export async function removeAppTree(slug: string, dirId: string, tree: string, a
   if (!APP_ID_RE.test(dirId)) throw new Error(`Invalid app id: ${dirId}`);
   if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(tree) || /(^|\/)\.\.(\/|$)/.test(tree)) throw new Error(`Invalid tree: ${tree}`);
   return sudo(await serverForApplication(applicationId), 'cb-app-unit', ['rm-tree', slug, dirId, tree], 5 * 60_000);
+}
+
+/**
+ * Make sure the system packages these apps need are on their node (as root,
+ * from the runner's fixed list). Already there: a dpkg check, well under a
+ * second. The first install can take minutes; apt's lock queues two at once.
+ */
+export async function ensureSystemPackages(slug: string, applicationId: string, keys: SystemPackage[]): Promise<string> {
+  assertSlug(slug);
+  if (!APP_ID_RE.test(applicationId)) throw new Error(`Invalid application id: ${applicationId}`);
+  if (keys.length === 0) return '';
+  return sudo(await serverForApplication(applicationId), 'cb-app-unit', ['packages', slug, applicationId, ...keys], 15 * 60_000);
 }
 
 /**

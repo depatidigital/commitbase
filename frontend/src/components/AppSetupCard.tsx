@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, CheckCircle, Circle, Database, Globe, KeyRound, Loader2, Rocket, RotateCcw, Settings, SkipForward, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Cpu, Database, Globe, KeyRound, Loader2, Rocket, RotateCcw, Settings, SkipForward, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EnvStatus } from "@/components/AppEnvironment";
@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Application, DetectedProject, hostsOf, updateApplication, type StartOptions } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 import { ComposeServiceSelect } from "@/components/ComposePreview";
+import { enabledSystemPackages, SYSTEM_PACKAGE_NAMES } from "@/lib/env";
 
 interface AppSetupCardProps {
   application: Application;
@@ -243,6 +244,14 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
         : env.dirty
           ? t("Unsaved changes — saved when you deploy.")
           : t("Every expected variable has a value.");
+  // what the deploy installs on the server first (LibreOffice…): ticked on Build, or named in the env.
+  // Not for a site or a stack — neither runs on the server's own programs.
+  const packages = isCompose || application.type === "STATIC"
+    ? null
+    : enabledSystemPackages(application.systemPackages ?? [], Object.entries(application.envVars ?? {}).map(([key, value]) => ({ key, value })));
+  const packagesLine = packages?.length
+    ? t("{names} — installed on the server at deploy, if missing", { names: packages.map((key) => SYSTEM_PACKAGE_NAMES[key] ?? key).join(", ") })
+    : t("None — tick one on Build if the service calls a program (LibreOffice…)");
   // about the repo's start script — an app with its own start command has taken that over
   const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
 
@@ -279,6 +288,13 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
             <span className="shrink-0 font-medium">{t("Web service")}</span>
             {picker}
           </div>
+        )}
+        {packages && (
+          <button type="button" onClick={onEditBuild} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
+            <Mark done />
+            <span className="shrink-0 font-medium">{t("System requirements")}</span>
+            <span className="min-w-0 truncate text-muted-foreground">{packagesLine}</span>
+          </button>
         )}
         <button type="button" onClick={onEditEnv} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
           <Mark done={envDone} warn={dbFailed || env.warnings.length > 0} />
@@ -385,6 +401,21 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
               action={picker}
             >
               {!webDone && <p className="text-xs text-amber-600 dark:text-amber-400">{webLine}</p>}
+            </Step>
+          )}
+
+          {packages && (
+            <Step
+              done
+              title={t("System requirements")}
+              action={
+                <Button type="button" variant="ghost" size="sm" onClick={onEditBuild}>
+                  <Cpu className="h-4 w-4 mr-2" />
+                  {t("Edit")}
+                </Button>
+              }
+            >
+              <p className="text-xs text-muted-foreground">{packagesLine}</p>
             </Step>
           )}
 

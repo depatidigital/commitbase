@@ -140,6 +140,35 @@ const SERVICE_URL = /DATABASE|DB_|_DB|REDIS|MONGO|POSTGRES|MYSQL|AMQP|RABBIT|KAF
  * the local one (`http://localhost:3000/auth` → `https://<domain>/auth`).
  * null when it holds something else, or names another service.
  */
+/** Where apt puts each system requirement (backend lib/systemPackages) — the binary first, some libraries want its folder. */
+const SYSTEM_PACKAGE_PATHS: Record<string, string[]> = {
+  libreoffice: ['/usr/bin/soffice', '/usr/bin/libreoffice', '/usr/lib/libreoffice/program'],
+};
+/** An env var naming one — the same test the deploy makes. */
+const SYSTEM_PACKAGE_MENTIONS: Record<string, RegExp> = {
+  libreoffice: /libre[_\s-]?office|soffice/i,
+};
+
+/** A requirement's name, as the Build tab shows it. */
+export const SYSTEM_PACKAGE_NAMES: Record<string, string> = { libreoffice: 'LibreOffice' };
+
+/** The requirements an app has: ticked, or named in its env (a name or a value). Pure. */
+export function enabledSystemPackages(ticked: string[], rows: Array<{ key: string; value: string }>): string[] {
+  const named = Object.keys(SYSTEM_PACKAGE_MENTIONS).filter((pkg) => rows.some((row) => SYSTEM_PACKAGE_MENTIONS[pkg]!.test(row.key) || SYSTEM_PACKAGE_MENTIONS[pkg]!.test(row.value)));
+  return [...new Set([...ticked, ...named])];
+}
+
+/**
+ * Paths to offer for an env var: one naming a requirement (LIBREOFFICE_PATH,
+ * SOFFICE_BIN) gets its paths; any other *_PATH, those of every requirement
+ * the app has. Offered, never forced — the field stays free text. Pure.
+ */
+export function systemPathOptions(key: string, enabled: string[]): string[] {
+  const named = Object.keys(SYSTEM_PACKAGE_PATHS).filter((pkg) => SYSTEM_PACKAGE_MENTIONS[pkg]?.test(key));
+  const pkgs = named.length ? named : /_PATH$/i.test(key) ? enabled : [];
+  return pkgs.flatMap((pkg) => SYSTEM_PACKAGE_PATHS[pkg] ?? []);
+}
+
 export function suggestAppUrl(key: string, value: string, domain: string): string | null {
   if (!domain || !/(URL|ORIGIN)$/i.test(key) || SERVICE_URL.test(key)) return null;
   const target = `https://${domain}`;

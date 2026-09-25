@@ -402,6 +402,10 @@ model Application {
   /// After the build: devDependencies removed from the release (pnpm prune --prod).
   /// Not when the start command runs one (tsx, ts-node, nodemon) — deployment.ts.
   pruneDevDeps     Boolean @default(false)
+  /// System requirements (lib/systemPackages): keys like "libreoffice" that
+  /// deploy makes sure are installed on the app's node. A record of what the
+  /// app needs, not a switch — once installed, every app on the node has them.
+  systemPackages   String[] @default([])
   startCommand     String?
   /// `{ "$enc": <secretBox blob> }` once written through lib/appEnv; a plain
   /// object on rows from before encryption, read as is until next saved.

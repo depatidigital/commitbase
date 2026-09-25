@@ -81,6 +81,8 @@ export interface Application {
   preDeployCommand?: string | null;
   /** after the build: devDependencies removed from the release */
   pruneDevDeps?: boolean;
+  /** system requirements ("libreoffice"): installed on its server at deploy */
+  systemPackages?: string[];
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;
@@ -189,6 +191,7 @@ export interface UpdateApplicationData {
   /** '' removes the step */
   preDeployCommand?: string;
   pruneDevDeps?: boolean;
+  systemPackages?: string[];
   startCommand?: string;
   port?: number;
   envVars?: Record<string, string>;

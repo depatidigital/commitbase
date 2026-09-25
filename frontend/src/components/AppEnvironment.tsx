@@ -30,6 +30,8 @@ import {
   requiredKeys,
   rowsToEnv,
   suggestAppUrl,
+  systemPathOptions,
+  enabledSystemPackages,
   type EnvRow,
 } from "@/lib/env";
 import { t } from "@/lib/i18n";
@@ -81,6 +83,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
 
   const [rows, setRows] = useState<EnvRow[]>(initial);
   const [dirty, setDirty] = useState(false);
+  // what the app needs on its server, ticked or named in the env being edited — their paths offered on *_PATH rows
+  const enabledPackages = enabledSystemPackages(application.systemPackages ?? [], rows);
 
   // One tab per env file: the configured ones, then any other found in the app's
   // folder (never the examples). The first file's variables are `rows` — the app's
@@ -412,6 +416,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           key={activeFile}
           rows={extraRows[activeFile] ?? []}
           suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
+          options={(row) => systemPathOptions(row.key, enabledPackages)}
           generate={(row) => (row.value ? null : generateSecret(row.key))}
           urlOptions={urlOptions}
           disabled={saving}
@@ -444,6 +449,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         }
         // the app's own https URL for NEXT_PUBLIC_BASE_URL and friends
         suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
+        // where apt put LibreOffice, for LIBREOFFICE_PATH and friends
+        options={(row) => systemPathOptions(row.key, enabledPackages)}
         // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY…)
         generate={(row) => (row.value ? null : generateSecret(row.key))}
         // tried from the node the app runs on, with the value as typed

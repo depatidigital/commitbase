@@ -3,7 +3,8 @@ import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { staticRouteError } from './caddyService';
 import { serveApp, serveStatic } from './hostRouteService';
-import { appBuild, BUILD_HEAP_MB, BUILD_MEMORY_MAX, ensureOrgOnNode, removeAppTree, sourceTreeUnit } from './orgProvisionService';
+import { appBuild, BUILD_HEAP_MB, BUILD_MEMORY_MAX, ensureOrgOnNode, ensureSystemPackages, removeAppTree, sourceTreeUnit } from './orgProvisionService';
+import { detectSystemPackages, readSystemPackages } from '../lib/systemPackages';
 import { serverForApplication, appsOnServer } from '../lib/servers';
 import type { AppWithOrg } from './systemdService';
 import { isPublishable, uploadSiteObject } from './r2Service';
@@ -557,6 +558,15 @@ export class DeploymentService {
 
       // appended: the deploy emptied build.log when it began — one log for the whole deploy
       await afs.appendFile(buildLogPath, `[${new Date().toISOString()}] BUILD STARTED` + NL);
+
+      // what the apps need on the node (LibreOffice…): ticked, or named in their env
+      const detected = group.flatMap((app) => detectSystemPackages(envs.get(app.id) ?? {}));
+      const packages = [...new Set([...group.flatMap((app) => readSystemPackages(app.systemPackages) ?? []), ...detected.map((d) => d.key)])];
+      if (packages.length && first.organization?.slug) {
+        const said = detected.map((d) => `${d.key} (env ${d.from})`);
+        await log(`System requirements: ${packages.join(', ')}${said.length ? ` — detected: ${said.join(', ')}` : ''}`);
+        await log((await ensureSystemPackages(first.organization.slug, first.id, packages)).trim());
+      }
 
       const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
       const releaseDir = join(releasesDirFor(appDir), stamp);

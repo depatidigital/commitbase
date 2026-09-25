@@ -1,3 +1,4 @@
+import { readSystemPackages, SYSTEM_PACKAGES } from '../lib/systemPackages';
 import { Router, Request, Response } from 'express';
 import { AppType, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
@@ -1220,6 +1221,8 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     const { name, type, repository, branch, installCommand, buildCommand, preDeployCommand, pruneDevDeps, startCommand, port, envVars, extraEnvVars, gitAccountId, rootDirectory, packageManager } =
       req.body || {};
     const { composeFiles, composeEnvFiles, composePort, composeService } = req.body || {};
+    const systemPackages = req.body?.systemPackages === undefined ? undefined : readSystemPackages(req.body.systemPackages);
+    if (systemPackages === null) return res.status(400).json({ success: false, error: `systemPackages must be a list of: ${SYSTEM_PACKAGES.join(', ')}` });
     if (packageManager !== undefined && packageManager !== null && packageManager !== '' && !['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
       return res.status(400).json({ success: false, error: 'packageManager must be npm, pnpm, yarn or bun' });
     }
@@ -1276,6 +1279,7 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
         buildCommand,
         ...(preDeployCommand !== undefined && { preDeployCommand: preDeployCommand.trim() || null }),
         ...(typeof pruneDevDeps === 'boolean' && { pruneDevDeps }),
+        ...(systemPackages && { systemPackages }),
         startCommand,
         port,
         ...(envVars !== undefined && { envVars: sealEnv(envVars) }),

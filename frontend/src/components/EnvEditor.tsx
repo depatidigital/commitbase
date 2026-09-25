@@ -35,6 +35,8 @@ interface EnvEditorProps {
   renderValue?: (row: EnvRow) => React.ReactNode;
   /** a better value for a row, offered as a one-click fix (the app's own URL for NEXT_PUBLIC_BASE_URL) */
   suggest?: (row: EnvRow) => string | null;
+  /** values to pick from for a row whatever its name (LIBREOFFICE_PATH: where apt puts soffice) */
+  options?: (row: EnvRow) => string[];
   /** a freshly generated value for a row (a secret the app mints itself), offered as "Generate" */
   generate?: (row: EnvRow) => string | null;
   /**
@@ -70,7 +72,7 @@ const CONNECTION_NAME = /(DATABASE|DB|POSTGRES|MYSQL|MONGO|REDIS|AMQP|RABBIT|KAF
  * whole .env into any name field splits it into rows, which is how most people
  * arrive with their variables.
  */
-export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, generate, verify, urlOptions = [], group, disabled }: EnvEditorProps) {
+export function EnvEditor({ rows, onChange, required, locked, hints, renderAction, renderValue, suggest, options, generate, verify, urlOptions = [], group, disabled }: EnvEditorProps) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [pasting, setPasting] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -260,6 +262,8 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
   const valueCell = ({ row, index }: Indexed) => {
     if (group && index === groupAt) return group.value;
     const { missing, secret, shown, multiline, check, checked, local, suggestion, generatable, platform, customValue } = view(row, index);
+    // the dropdown: the row's suggestion, the project's hosts on a URL-ish name, and the row's own options
+    const choices = [...new Set([...(URL_NAME.test(row.key) ? [...(suggestion ? [suggestion] : []), ...urlOptions] : []), ...(options?.(row) ?? [])])];
     const action = renderAction?.(row);
     const invalidValue = missing || (checked && checked !== "pending" && !checked.ok);
     return (
@@ -326,7 +330,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             suggestion first, then the project's hosts — each alone and under its path. Picked, or typed over */}
         {/* not where the row has a picker of its own (DATABASE_URL's database), nor on a connection
             string — a database, a cache or a queue is never one of the project's web hosts */}
-        {!customValue && !action && !secret && !CONNECTION_NAME.test(row.key) && (urlOptions.length > 0 || suggestion) && URL_NAME.test(row.key) && (
+        {!customValue && !action && !secret && !CONNECTION_NAME.test(row.key) && choices.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
               <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" title={t("Suggestions")} disabled={disabled}>
@@ -335,7 +339,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
             </PopoverTrigger>
             <PopoverContent align="end" className="w-auto min-w-[16rem] p-1">
               <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("Suggestions")}</p>
-              {[...new Set([...(suggestion ? [suggestion] : []), ...urlOptions])].map((url) => (
+              {choices.map((url) => (
                 <PopoverClose asChild key={url}>
                   <button
                     type="button"

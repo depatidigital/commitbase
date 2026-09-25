@@ -1697,6 +1697,17 @@ const splitList = (value: string): string[] =>
     .map((part) => part.trim())
     .filter(Boolean);
 
+/** The system requirements a service may ask for — the keys backend/src/lib/systemPackages.ts accepts. */
+const SYSTEM_PACKAGES = [
+  {
+    key: "libreoffice",
+    name: "LibreOffice",
+    // the same test the deploy makes (backend lib/systemPackages): an env var naming it
+    mentions: /libre[_\s-]?office|soffice/i,
+    description: t("Convert documents (docx, xlsx, pptx → PDF) with soffice --headless. About 400 MB on the server, the first deploy takes a few minutes longer."),
+  },
+];
+
 const settingsOf = (application: Application) => ({
   composeFiles: (application?.composeFiles || []).join(', '),
   composeEnvFiles: (application?.composeEnvFiles || []).join(', '),
@@ -1707,6 +1718,7 @@ const settingsOf = (application: Application) => ({
   buildCommand: application?.buildCommand || '',
   preDeployCommand: application?.preDeployCommand || '',
   pruneDevDeps: !!application?.pruneDevDeps,
+  systemPackages: application?.systemPackages ?? [],
   startCommand: application?.startCommand || '',
   port: application?.port?.toString() || '',
 });
@@ -1723,7 +1735,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
   const isCompose = application.type === 'COMPOSE';
   const buildable = !isStatic && !isCompose;
 
-  const handleInputChange = (field: string, value: string | boolean) => {
+  const handleInputChange = (field: string, value: string | boolean | string[]) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -1745,6 +1757,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         buildCommand: formData.buildCommand || undefined,
         preDeployCommand: formData.preDeployCommand,
         pruneDevDeps: formData.pruneDevDeps,
+        systemPackages: formData.systemPackages,
         startCommand: formData.startCommand || undefined,
         port: formData.port ? parseInt(formData.port) : undefined,
         // every type's: where its deploy writes the env
@@ -1929,6 +1942,35 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             </span>
           </span>
         </label>
+      )}
+
+      {/* what the app needs on its server: a record the deploy acts on, not a switch — once installed, every app there has it */}
+      {buildable && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{t("System requirements")}</p>
+          <p className="text-xs text-muted-foreground">{t("Installed on this service's server at deploy, if missing. Shared by the server's services and never removed.")}</p>
+          {SYSTEM_PACKAGES.map((pkg) => (
+            <label key={pkg.key} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+              <Checkbox
+                checked={formData.systemPackages.includes(pkg.key)}
+                onCheckedChange={(checked) =>
+                  handleInputChange('systemPackages', checked === true ? [...formData.systemPackages, pkg.key] : formData.systemPackages.filter((key) => key !== pkg.key))
+                }
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">{pkg.name}</span>
+                <span className="block text-xs text-muted-foreground">{pkg.description}</span>
+                {(() => {
+                  const from = Object.entries(application.envVars ?? {}).find(([name, value]) => pkg.mentions.test(name) || pkg.mentions.test(String(value)))?.[0];
+                  return from && !formData.systemPackages.includes(pkg.key) ? (
+                    <span className="mt-1 block text-xs text-primary">{t("Detected from env {key} — installed at deploy even unticked.", { key: from })}</span>
+                  ) : null;
+                })()}
+              </span>
+            </label>
+          ))}
+        </div>
       )}
 
       {/* a static site is served, not started: no start command, no port */}
