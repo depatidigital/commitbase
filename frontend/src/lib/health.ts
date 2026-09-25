@@ -67,6 +67,8 @@ export interface HostHealth {
   id: string;
   host: string;
   path: string;
+  /** hosts (host + path) that redirect here — shown under it, not as rows of their own */
+  redirects?: string[];
   service: { id: string; name: string; status: string; disabled: boolean };
   /** the app (API: source) it belongs to */
   app: { id: string; name: string } | null;

@@ -574,17 +574,19 @@ router.get('/health/hosts', authenticateToken, async (req: AuthenticatedRequest,
         serve: true,
         sourceId: true,
         source: { select: { name: true, repository: true, path: true } },
-        domains: { select: { host: true, path: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
+        domains: { select: { host: true, path: true, redirectTo: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
       },
     });
     const rows = apps.flatMap((app) =>
       app.domains
         // names that only exist inside the platform have nothing to check
-        .filter((d) => !d.host.endsWith('.local'))
+        // a redirect is not a row of its own: it is listed under the host it sends visitors to
+        .filter((d) => !d.host.endsWith('.local') && !d.redirectTo)
         .map((d) => ({
           id: `${d.host}${d.path}`,
           host: d.host,
           path: d.path,
+          redirects: d.path ? [] : app.domains.filter((r) => r.redirectTo === d.host).map((r) => `${r.host}${r.path}`),
           service: { id: app.id, name: app.name, status: app.status, disabled: app.disabled },
           app: app.sourceId && app.source ? { id: app.sourceId, name: sourceName(app.source, app.domains[0]?.host) } : null,
           serving: isServing(app),

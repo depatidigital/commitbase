@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, ExternalLink, Globe, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle, ExternalLink, Globe, Loader2, Plus, Settings2, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,8 +115,24 @@ export function RoutingCard({
   // where a route may redirect: the app's whole hosts that serve it, never itself — no chains
   const redirectTargets = (route: AppDomain) =>
     [...new Set(routes.filter((d) => !d.path && !d.redirectTo && d.host !== route.host).map((d) => d.host))];
-  // hosts others redirect to: they have to keep serving the app
-  const redirectedTo = new Set(routes.map((d) => d.redirectTo).filter(Boolean));
+  const serving = routes.filter((d) => !d.redirectTo);
+  const redirects = routes.filter((d) => d.redirectTo);
+  const removeButton = (route: AppDomain) => {
+    const label = bindingLabel(route);
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+        disabled={!!busy}
+        title={t("Remove {host}", { host: label })}
+        aria-label={t("Remove {host}", { host: label })}
+        onClick={() => setConfirmRemove(route)}
+      >
+        {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+      </Button>
+    );
+  };
 
   // a status mark per route: a tick when it answers from here, else what is wrong
   const status = (route: AppDomain) => {
@@ -140,24 +156,49 @@ export function RoutingCard({
       <Dialog open={editOpen} onOpenChange={(open) => !busy && setEditOpen(open)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-auto">
           <DialogHeader>
-            <DialogTitle>{t("Edit hosts")}</DialogTitle>
+            <DialogTitle>{t("Manage hosts & redirects")}</DialogTitle>
             <DialogDescription>{t("The hosts and paths that go to {app}.", { app: application.name })}</DialogDescription>
           </DialogHeader>
 
-          <ul className="divide-y divide-border/60 rounded-md border border-border/60 empty:hidden">
-            {routes.map((route) => {
-              const label = bindingLabel(route);
-              return (
-                <li key={label} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-                  <span className="min-w-0 break-all font-mono text-sm">
-                    {route.host}
-                    {route.path && <span className="text-muted-foreground">{route.path}</span>}
-                  </span>
-                  {/* serve the app, or send visitors to another of its hosts (a 301, path and query kept) */}
-                  <span className="ml-auto flex items-center gap-2">
-                    {(route.redirectTo || (redirectTargets(route).length > 0 && !redirectedTo.has(route.host))) && (
+          {/* two kinds, said apart: hosts that open the app, and hosts that send visitors on to one of them */}
+          <section className="space-y-1.5">
+            <p className="text-sm font-medium">
+              {t("Hosts")} <span className="font-normal text-muted-foreground">({t("open {app}", { app: application.name })})</span>
+            </p>
+            <ul className="divide-y divide-border/60 rounded-md border border-border/60 empty:hidden">
+              {serving.map((route) => {
+                const label = bindingLabel(route);
+                return (
+                  <li key={label} className="flex items-center gap-3 px-3 py-2">
+                    <span className="min-w-0 break-all font-mono text-sm">
+                      {route.host}
+                      {route.path && <span className="text-muted-foreground">{route.path}</span>}
+                    </span>
+                    <span className="ml-auto">{removeButton(route)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          {redirects.length > 0 && (
+            <section className="space-y-1.5">
+              <p className="text-sm font-medium">
+                {t("Redirects")} <span className="font-normal text-muted-foreground">({t("to the host on the right, same path, 301")})</span>
+              </p>
+              <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+                {redirects.map((route) => {
+                  const label = bindingLabel(route);
+                  return (
+                    <li key={label} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+                      <span className="min-w-0 break-all font-mono text-sm">
+                        {route.host}
+                        {route.path && <span className="text-muted-foreground">{route.path}</span>}
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {/* its target, or back to opening the app */}
                       <Select
-                        value={route.redirectTo ?? SERVE}
+                        value={route.redirectTo!}
                         disabled={!!busy}
                         onValueChange={(value) => {
                           const redirectTo = value === SERVE ? null : value;
@@ -169,35 +210,25 @@ export function RoutingCard({
                           );
                         }}
                       >
-                        <SelectTrigger className="h-8 w-auto max-w-[18rem] gap-1 text-xs">
+                        <SelectTrigger className="h-8 w-auto max-w-[18rem] gap-1 font-mono text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={SERVE}>{t("Serves the app")}</SelectItem>
-                          {[...new Set([...(route.redirectTo ? [route.redirectTo] : []), ...redirectTargets(route)])].map((target) => (
+                          {[...new Set([route.redirectTo!, ...redirectTargets(route)])].map((target) => (
                             <SelectItem key={target} value={target} className="font-mono">
-                              → {target}
+                              {target}
                             </SelectItem>
                           ))}
+                          <SelectItem value={SERVE}>{t("Stop redirecting — open the app")}</SelectItem>
                         </SelectContent>
                       </Select>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      disabled={!!busy}
-                      title={t("Remove {host}", { host: label })}
-                      aria-label={t("Remove {host}", { host: label })}
-                      onClick={() => setConfirmRemove(route)}
-                    >
-                      {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                    </Button>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+                      <span className="ml-auto">{removeButton(route)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           <Separator />
           <AddRouteForm application={application} onAdded={refresh} />
@@ -286,7 +317,7 @@ export function RoutingCard({
           </p>
           {routes.length > 0 && (
             <Button variant="ghost" size="sm" className="-my-1 h-6 px-2 text-xs" onClick={() => setEditOpen(true)}>
-              <Pencil className="mr-1 h-3 w-3" />
+              <Settings2 className="mr-1 h-3 w-3" />
               {t("Manage")}
             </Button>
           )}
@@ -329,7 +360,7 @@ export function RoutingCard({
         </div>
         {routes.length > 0 && (
           <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-            <Pencil className="mr-2 h-3.5 w-3.5" />
+            <Settings2 className="mr-2 h-3.5 w-3.5" />
             {t("Manage")}
           </Button>
         )}
@@ -400,6 +431,9 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   const [dnsConsent, setDnsConsent] = useState(false);
   const [move, setMove] = useState(false);
   const [adding, setAdding] = useState(false);
+  // what the new route does: serve the app, or send visitors to one of its hosts that does
+  const [redirectTo, setRedirectTo] = useState(SERVE);
+  const targets = [...new Set(application.domains.filter((d) => !d.path && !d.redirectTo).map((d) => d.host))];
   const picked = choices.find((choice) => choice.name === domain);
   const useRoot = root && !!picked && !picked.shared;
   const host = joinHost(subdomain, domain, useRoot);
@@ -414,21 +448,25 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
     const label = `${host}${nextPath}`;
     try {
       // a move takes exactly this host+path from the app that has it; beside another app's path needs none
-      const { dns } = await addAppDomain(application.id, { host, path: nextPath, dnsConsent: dnsConsent || undefined, move: move || undefined });
+      const target = redirectTo === SERVE || redirectTo === host ? undefined : redirectTo;
+      const { dns } = await addAppDomain(application.id, { host, path: nextPath, redirectTo: target, dnsConsent: dnsConsent || undefined, move: move || undefined });
       // the app it came from lost it
       if (move) void queryClient.invalidateQueries({ queryKey: ["application"] });
       const dnsProblem = ["conflict", "unavailable"].includes(dns.state);
       toast(
         dnsProblem
           ? { variant: "destructive", title: t("{host} added", { host: label }), description: dns.detail }
-          : { title: t("{host} added", { host: label }), description: t("It goes to {app}.", { app: application.name }) },
+          : {
+              title: t("{host} added", { host: label }),
+              description: target ? t("Visitors are sent on to {target}, with the same path.", { target }) : t("It goes to {app}.", { app: application.name }),
+            },
       );
       setSubdomain("");
       setPath("");
       // in the list at once — the refetch below only confirms it
       queryClient.setQueryData<Application>(["application", application.id], (prev) =>
         prev && !prev.domains.some((d) => d.host === host && (d.path ?? "") === nextPath)
-          ? { ...prev, domains: [...prev.domains, { host, path: nextPath, stripPrefix: false, domainId: picked?.id ?? null } as AppDomain] }
+          ? { ...prev, domains: [...prev.domains, { host, path: nextPath, stripPrefix: false, redirectTo: target ?? null, domainId: picked?.id ?? null } as AppDomain] }
           : prev,
       );
       await onAdded();
@@ -442,7 +480,31 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   if (isLoading) return <Loader2 className="h-5 w-5 animate-spin" />;
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium">{t("Add route")}</p>
+      {/* a route opens the app; a redirect sends its visitors on to one of the hosts that does */}
+      {targets.length > 0 ? (
+        <div className="inline-flex rounded-md border border-border/60 p-0.5 text-sm" role="tablist">
+          {[
+            { redirect: false, label: t("Add route") },
+            { redirect: true, label: t("Add redirect") },
+          ].map((tab) => {
+            const active = (redirectTo !== SERVE) === tab.redirect;
+            return (
+              <button
+                key={tab.label}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`rounded px-3 py-1 font-medium transition-colors ${active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setRedirectTo(tab.redirect ? (redirectTo !== SERVE ? redirectTo : targets[0]!) : SERVE)}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-sm font-medium">{t("Add route")}</p>
+      )}
       {/* one line: subdomain . domain, an optional path under it, Add */}
       <HostnamePicker
         bare
@@ -504,6 +566,25 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
         }
       />
       {pathProblem && <p className="text-xs text-destructive">{pathProblem}</p>}
+      {/* a redirect needs a host of the app that serves it to go to */}
+      {redirectTo !== SERVE && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">{t("Redirect to")}</span>
+          <Select value={redirectTo} onValueChange={setRedirectTo}>
+            <SelectTrigger className="h-8 w-auto max-w-[20rem] gap-1 font-mono text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {targets.map((target) => (
+                <SelectItem key={target} value={target} className="font-mono">
+                  {target}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">{t("with the same path (301)")}</span>
+        </div>
+      )}
     </div>
   );
 }

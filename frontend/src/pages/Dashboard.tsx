@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Globe, HardDrive, Loader2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CornerUpRight, Globe, HardDrive, Loader2, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -137,11 +137,20 @@ export default function Dashboard() {
     {
       header: t("Host"),
       className: "w-[34%]",
-      cell: ({ host, path }) => (
-        <span className="block truncate font-medium">
-          {host}
-          {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
-        </span>
+      cell: ({ host, path, redirects }) => (
+        <>
+          <span className="block truncate font-medium">
+            {host}
+            {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
+          </span>
+          {/* the hosts that redirect here: under it, not rows of their own */}
+          {redirects?.map((from) => (
+            <span key={from} className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={t("Redirects to {target}", { target: host })}>
+              <CornerUpRight className="h-3 w-3 shrink-0" />
+              {from}
+            </span>
+          ))}
+        </>
       ),
     },
     {
@@ -202,7 +211,7 @@ export default function Dashboard() {
           query={query}
           isLoading={isLoading}
           searchPlaceholder={t("Search hostname, app or service…")}
-          filter={(row, search) => `${row.id} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
+          filter={(row, search) => `${row.id} ${row.redirects?.join(" ") ?? ""} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
           empty={t("No hostnames yet.")}
           onRowClick={(row) => navigate(`/services/${row.service.id}`)}
           // the rows scroll under a sticky header; the page stays one screen

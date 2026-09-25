@@ -239,6 +239,13 @@ export function HostnamePicker({
       {host ? (
         <p className="break-all text-sm text-muted-foreground">
           → <span className="font-medium text-foreground">https://{host}</span>
+          {/* the check beside the address, not a line under it: nothing below jumps */}
+          {settled === route && checking && (
+            <span className="ml-2 inline-flex items-center gap-1 text-xs">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t("Checking…")}
+            </span>
+          )}
         </p>
       ) : domain && problem && touched ? (
         <p className="text-xs text-destructive">{problem}</p>
@@ -250,7 +257,7 @@ export function HostnamePicker({
         </p>
       )}
 
-      {host && settled === route && checking && (
+      {!showFields && host && settled === route && checking && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           {t("Checking {host}…", { host })}

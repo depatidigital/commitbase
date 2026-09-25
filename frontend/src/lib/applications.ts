@@ -324,7 +324,7 @@ export const startPm2Build = async (id: string, consent: boolean): Promise<strin
 export const addAppDomain = async (
   id: string,
   /** move: take the host over from the app of the same organization that has it */
-  binding: { host: string; path?: string; stripPrefix?: boolean; dnsConsent?: boolean; move?: boolean },
+  binding: { host: string; path?: string; stripPrefix?: boolean; redirectTo?: string; dnsConsent?: boolean; move?: boolean },
 ): Promise<{ host: string; path: string; dns: DnsOutcome; message?: string }> => {
   const response = await apiRequest<{ host: string; path: string; dns: DnsOutcome }>(`/applications/${id}/domains`, {
     method: 'POST',

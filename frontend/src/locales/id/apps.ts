@@ -298,7 +298,6 @@ export default {
     "DNS {domain} tidak dikelola di sini, jadi tidak bisa diubah otomatis. Setelah layanan dibuat, tambahkan record ini di tempat DNS domain dikelola:",
   "{domain} is still on the registrar's DNS (RDASH), not Cloudflare. An owner or admin of the workspace has to move it to Cloudflare before {host} can reach this service.":
     "{domain} masih memakai DNS registrar (RDASH), belum Cloudflare. Owner atau admin workspace perlu memindahkannya ke Cloudflare agar {host} bisa mengakses layanan ini.",
-  "DNS: {host} {target} is added automatically.": "DNS: {host} {target} ditambahkan otomatis.",
   "DNS for {host} will be changed automatically:": "DNS untuk {host} akan diubah otomatis:",
   "{domain} moves to Cloudflare: its current DNS records are copied, then the nameservers at RDASH are switched to Cloudflare. That can take a few hours to spread.":
     "{domain} dipindah ke Cloudflare: record DNS yang ada disalin, lalu nameserver di RDASH diganti ke Cloudflare. Propagasi bisa memakan beberapa jam.",
@@ -810,6 +809,20 @@ export default {
   "Caddy (reverse proxy)": "Caddy (reverse proxy)",
   // routing: host (or host/path) → app (RoutingCard)
   "Add route": "Tambah rute",
+  "Add redirect": "Pengalihan (Redirect)",
+  "Manage hosts & redirects": "Kelola Host & Redirect",
+  "Checking…": "Memeriksa…",
+  "Redirects to {target}": "Dialihkan ke {target}",
+  "Redirect to": "Alihkan ke",
+  "with the same path (301)": "dengan path yang sama (301)",
+  "Hosts": "Host",
+  "open {app}": "membuka {app}",
+  "Redirects": "Pengalihan",
+  "to the host on the right, same path, 301": "ke host di kanan, path sama, 301",
+  "Stop redirecting — open the app": "Hentikan pengalihan — buka aplikasi",
+  "{host} redirects to {target}": "{host} dialihkan ke {target}",
+  "{host} serves {app} again": "{host} kembali membuka {app}",
+  "Visitors are sent on to {target}, with the same path.": "Pengunjung dialihkan ke {target}, dengan path yang sama.",
   "It goes to {app}.": "Diteruskan ke {app}.",
   "Could not add the route": "Gagal menambahkan rute",
   "Could not remove the route": "Gagal menghapus rute",

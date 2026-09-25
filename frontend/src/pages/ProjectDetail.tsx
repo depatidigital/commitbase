@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Cloud, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Cloud, CornerUpRight, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Settings2, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ComposePreview } from "@/components/ComposePreview";
 import { ServerEnv } from "@/components/ServerEnv";
@@ -852,25 +852,37 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
           ) : (
             <>
               <span className="min-w-0">
-                {bindings.map((d) => (
-                  <span key={bindingLabel(d)} className="block truncate">
-                    {isPublicHost(d.host) ? (
-                      <a href={`https://${d.host}${d.path ?? ""}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                        {d.host}
-                        {d.path && <span className="text-muted-foreground">{d.path}</span>}
-                      </a>
-                    ) : (
-                      <>
-                        {d.host}
-                        {d.path && <span className="text-muted-foreground">{d.path}</span>}
-                      </>
-                    )}
-                    {d.redirectTo && <span className="text-muted-foreground"> → {d.redirectTo}</span>}
+                {/* as on the dashboard: each host, then the hosts redirecting to it, smaller and under it */}
+                {bindings.filter((d) => !d.redirectTo).map((d) => (
+                  <span key={bindingLabel(d)} className="block">
+                    <span className="block truncate">
+                      {isPublicHost(d.host) ? (
+                        <a href={`https://${d.host}${d.path ?? ""}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                          {d.host}
+                          {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                        </a>
+                      ) : (
+                        <>
+                          {d.host}
+                          {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                        </>
+                      )}
+                    </span>
+                    {!d.path &&
+                      bindings
+                        .filter((r) => r.redirectTo === d.host)
+                        .map((r) => (
+                          <span key={bindingLabel(r)} className="flex items-center gap-1 truncate text-muted-foreground" title={t("Redirects to {target}", { target: d.host })}>
+                            <CornerUpRight className="h-3 w-3 shrink-0" />
+                            {r.host}
+                            {r.path}
+                          </span>
+                        ))}
                   </span>
                 ))}
               </span>
               <Button variant="ghost" size="icon" className="-my-1 h-6 w-6 shrink-0 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100" title={t("Edit hosts")} aria-label={t("Edit hosts")} disabled={!application} onClick={() => setHostsOpen(true)}>
-                <Pencil className="h-3.5 w-3.5" />
+                <Settings2 className="h-3.5 w-3.5" />
               </Button>
             </>
           )}

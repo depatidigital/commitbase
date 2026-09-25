@@ -28,7 +28,7 @@ const instanceSelect = {
   id: true,
   name: true,
   // every name it answers on, all alike
-  domains: { select: { host: true, path: true, domainId: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
+  domains: { select: { host: true, path: true, redirectTo: true, domainId: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
   type: true,
   status: true,
   runtime: true,

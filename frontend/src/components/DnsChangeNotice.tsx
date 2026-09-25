@@ -32,14 +32,8 @@ export function DnsChangeNotice({ host, domain, inspection }: { host: string; do
     );
   }
 
-  if (!consent) {
-    // a free name in a zone we run: the record is simply added
-    return inspection.dns === "cloudflare" && inspection.target ? (
-      <p className="text-xs text-muted-foreground">
-        {t("DNS: {host} {target} is added automatically.", { host, target })}
-      </p>
-    ) : null;
-  }
+  // a free name in a zone we run: the record is simply added — nothing to say
+  if (!consent) return null;
 
   return (
     <Notice tone="warn">
