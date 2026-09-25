@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Cloud, CornerUpRight, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Settings2, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Cloud, CornerUpRight, Cpu, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Settings2, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ComposePreview } from "@/components/ComposePreview";
 import { ServerEnv } from "@/components/ServerEnv";
@@ -47,7 +47,7 @@ import { ProjectMembersCard } from "@/components/ProjectMembersCard";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProjectDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
-import { ApplicationSettingsForm, Field } from "./ApplicationDetail";
+import { ApplicationSettingsForm, Field, SystemRequirements } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
 import { type Application, type DetectedProject, type StartOptions, bindingLabel, cancelDeployment, deleteApplication, detectProject, failedMigrationOf, getAppDetection, getApplication, hasBeenDeployed, updateApplication, hostList, isPublicHost, repoName, runtimeLabel, startPm2Build } from "@/lib/applications";
 import { appStatus, getApplicationHealth, type Health } from "@/lib/health";
@@ -123,7 +123,7 @@ export default function ProjectDetail() {
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
   // the app's tab (?tab=). Its services have no page of their own anymore: everything is on these tabs
-  const tab = ["env", "build", "deployments", "stack", "logs", "database", "storage", "troubleshoot", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
+  const tab = ["env", "build", "requirements", "deployments", "stack", "logs", "database", "storage", "troubleshoot", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
   // a step into the app: the browser's back comes out again
   if (isLoading) {
@@ -234,6 +234,7 @@ export default function ProjectDetail() {
       <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
+          {apps.some(needsPackages) && <TabsTrigger value="requirements">{t("System Package")}</TabsTrigger>}
           <TabsTrigger value="env">{t("Environment")}</TabsTrigger>
           <TabsTrigger value="build">{t("Build")}</TabsTrigger>
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
@@ -303,6 +304,13 @@ export default function ProjectDetail() {
         <TabsContent value="build" className={apps.length > 1 ? "grid items-start gap-4 xl:grid-cols-2" : "space-y-4"}>
           {apps.map((app) => (
             <ServiceBuildSection key={app.id} appId={app.id} />
+          ))}
+        </TabsContent>
+
+        {/* what each built service needs installed on its server (LibreOffice…), ticked in place */}
+        <TabsContent value="requirements" className={apps.filter(needsPackages).length > 1 ? "grid items-start gap-4 xl:grid-cols-2" : "space-y-4"}>
+          {apps.filter(needsPackages).map((app) => (
+            <RequirementsSection key={app.id} app={app} />
           ))}
         </TabsContent>
 
@@ -758,6 +766,7 @@ function ServiceAlerts({ appId, named }: { appId: string; /** several services: 
           onDeploy={(options) => startDeploy(application.id, options)}
           onEditEnv={() => setSearchParams({ tab: "env" })}
           onEditBuild={() => setSearchParams({ tab: "build" })}
+          onEditPackages={() => setSearchParams({ tab: "requirements" })}
           onShowLog={() => setLogOpen(true)}
         />
       )}
@@ -1262,13 +1271,13 @@ function ServiceBuildSection({ appId }: { appId: string }) {
           if (!open) void queryClient.invalidateQueries({ queryKey: ["application", appId] });
         }}
       >
-        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-auto">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {t("Build Settings")} — {application.name}
             </DialogTitle>
           </DialogHeader>
-          {editing && <Fresh appId={appId}>{(fresh) => <ApplicationSettingsForm application={fresh} detected={detected} />}</Fresh>}
+          {editing && <Fresh appId={appId}>{(fresh) => <ApplicationSettingsForm application={fresh} detected={detected} inTabs />}</Fresh>}
         </DialogContent>
       </Dialog>
     </Card>
@@ -1406,6 +1415,24 @@ function QuickAddService({ projectId, open, onOpenChange }: { projectId: string;
  * each of its services, image, ports, what it depends on. Which one serves the
  * domain is picked in the app's setup and settings.
  */
+/** Built and run by the panel from source: the services a system package can be installed for. */
+const needsPackages = (app: ProjectApp) => !app.runtime && app.type !== "STATIC" && app.type !== "COMPOSE";
+
+function RequirementsSection({ app }: { app: ProjectApp }) {
+  const { data: application } = useApplication(app.id);
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Cpu className="h-4 w-4 text-primary" />
+          {app.name}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>{application ? <SystemRequirements application={application} /> : <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />}</CardContent>
+    </Card>
+  );
+}
+
 function StackSection({ app }: { app: ProjectApp }) {
   const { data: application } = useApplication(app.id);
   return (

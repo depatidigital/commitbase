@@ -53,7 +53,7 @@ import {
   Pencil,
   X
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1518,7 +1518,7 @@ export function AppWorkspace({
           {/* stacked: the same form, in the Deployment card's Edit dialog */}
           {showBuild && stacked && (
             <Dialog open={buildOpen} onOpenChange={setBuildOpen}>
-              <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
+              <DialogContent className="max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>{t("Build Settings")}</DialogTitle>
                 </DialogHeader>
@@ -1688,6 +1688,8 @@ interface ApplicationSettingsFormProps {
   application: Application;
   /** what the code implies — shown as each empty field's default */
   detected?: DetectedProject | null;
+  /** on the project's tabs: system requirements sit on the Build card and the stack on its own tab — not repeated here */
+  inTabs?: boolean;
 }
 
 /** "a, b" -> ["a", "b"]; an empty box means the default, not an empty list. */
@@ -1704,9 +1706,44 @@ const SYSTEM_PACKAGES = [
     name: "LibreOffice",
     // the same test the deploy makes (backend lib/systemPackages): an env var naming it
     mentions: /libre[_\s-]?office|soffice/i,
-    description: t("Convert documents (docx, xlsx, pptx → PDF) with soffice --headless. About 400 MB on the server, the first deploy takes a few minutes longer."),
+    // translated where shown: t() here would run once, at import
+    description: "Convert documents (docx, xlsx, pptx → PDF) with soffice --headless. About 400 MB on the server, the first deploy takes a few minutes longer.",
   },
 ];
+
+/** The system requirements, ticked in place — each tick saved at once. The project's Build card. */
+export function SystemRequirements({ application }: { application: Application }) {
+  const updateApp = useUpdateApplication();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const selected = application.systemPackages ?? [];
+  const toggle = async (key: string, on: boolean) => {
+    try {
+      await updateApp.mutateAsync({ id: application.id, data: { systemPackages: on ? [...selected, key] : selected.filter((k) => k !== key) } });
+      void queryClient.invalidateQueries({ queryKey: ['application', application.id] });
+    } catch {
+      toast({ title: t('Error'), description: t('Failed to update service settings'), variant: 'destructive' });
+    }
+  };
+  return (
+    <div className="space-y-2">
+      {SYSTEM_PACKAGES.map((pkg) => {
+        const on = selected.includes(pkg.key);
+        const from = Object.entries(application.envVars ?? {}).find(([name, value]) => pkg.mentions.test(name) || pkg.mentions.test(String(value)))?.[0];
+        return (
+          <label key={pkg.key} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
+            <Checkbox checked={on} disabled={updateApp.isPending} onCheckedChange={(checked) => void toggle(pkg.key, checked === true)} className="mt-0.5" />
+            <span>
+              <span className="font-medium">{pkg.name}</span>
+              <span className="block text-xs text-muted-foreground">{t(pkg.description)}</span>
+              {from && !on && <span className="mt-1 block text-xs text-primary">{t("Detected from env {key} — installed at deploy even unticked.", { key: from })}</span>}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
 
 const settingsOf = (application: Application) => ({
   composeFiles: (application?.composeFiles || []).join(', '),
@@ -1723,7 +1760,7 @@ const settingsOf = (application: Application) => ({
   port: application?.port?.toString() || '',
 });
 
-export function ApplicationSettingsForm({ application, detected }: ApplicationSettingsFormProps) {
+export function ApplicationSettingsForm({ application, detected, inTabs = false }: ApplicationSettingsFormProps) {
   const [formData, setFormData] = useState(() => settingsOf(application));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -1800,7 +1837,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
   return (
     // header (the dialog's), body that scrolls, footer that stays — the same shell as the env dialog
     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+      <DialogBody className="space-y-6">
       {/* Package manager — the lockfile's unless chosen; pnpm over npm's lockfile runs pnpm import */}
       {buildable && (
         <div className="space-y-2">
@@ -1874,7 +1911,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             </div>
           </div>
 
-          <ComposePreview applicationId={application.id} selected={formData.composeService} />
+          {!inTabs && <ComposePreview applicationId={application.id} selected={formData.composeService} />}
         </>
       )}
 
@@ -1945,9 +1982,9 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
       )}
 
       {/* what the app needs on its server: a record the deploy acts on, not a switch — once installed, every app there has it */}
-      {buildable && (
+      {buildable && !inTabs && (
         <div className="space-y-2">
-          <p className="text-sm font-medium">{t("System requirements")}</p>
+          <p className="text-sm font-medium">{t("System Package")}</p>
           <p className="text-xs text-muted-foreground">{t("Installed on this service's server at deploy, if missing. Shared by the server's services and never removed.")}</p>
           {SYSTEM_PACKAGES.map((pkg) => (
             <label key={pkg.key} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm">
@@ -1960,7 +1997,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
               />
               <span>
                 <span className="font-medium">{pkg.name}</span>
-                <span className="block text-xs text-muted-foreground">{pkg.description}</span>
+                <span className="block text-xs text-muted-foreground">{t(pkg.description)}</span>
                 {(() => {
                   const from = Object.entries(application.envVars ?? {}).find(([name, value]) => pkg.mentions.test(name) || pkg.mentions.test(String(value)))?.[0];
                   return from && !formData.systemPackages.includes(pkg.key) ? (
@@ -1990,24 +2027,6 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
         <p className="text-xs text-muted-foreground">{detectedHint(detected?.startCommand)}</p>
       </div>
 
-      {/* Port */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">
-          {t("Port")}
-          <span className="text-muted-foreground ml-1">{t("(optional)")}</span>
-        </label>
-        <Input
-          type="number"
-          value={formData.port}
-          onChange={(e) => handleInputChange('port', e.target.value)}
-          placeholder="3000"
-          min="1"
-          max="65535"
-        />
-        <p className="text-xs text-muted-foreground">
-          {t("Port number for your service (1-65535)")}
-        </p>
-      </div>
       </>}
 
       {/* Help Section */}
@@ -2031,10 +2050,10 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
           </div>
         </div>
       </div>}
-      </div>
+      </DialogBody>
 
       {/* Action Buttons — the footer: outside what scrolls, so Save stays in view in a dialog */}
-      <div className="mt-4 flex shrink-0 items-center justify-between border-t pt-4">
+      <DialogFooter className="mt-4 items-center justify-between border-t pt-4 sm:justify-between">
         <div className="flex items-center space-x-2">
           <Button
             type="button"
@@ -2070,7 +2089,7 @@ export function ApplicationSettingsForm({ application, detected }: ApplicationSe
             )}
           </Button>
         </div>
-      </div>
+      </DialogFooter>
     </form>
   );
 } 

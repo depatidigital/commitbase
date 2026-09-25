@@ -901,4 +901,8 @@ export default {
   "Fixing HTTPS": "Memperbaiki HTTPS",
   "Takes a few minutes. The outcome is in Logs.": "Butuh beberapa menit. Hasilnya ada di Log.",
   "Could not start": "Gagal memulai",
+  "Installed on this service's server at deploy, if missing. Shared by the server's services and never removed.": "Dipasang di server layanan ini saat deploy, jika belum ada. Dipakai bersama layanan lain di server itu dan tidak pernah dihapus.",
+  "Convert documents (docx, xlsx, pptx → PDF) with soffice --headless. About 400 MB on the server, the first deploy takes a few minutes longer.": "Konversi dokumen (docx, xlsx, pptx → PDF) dengan soffice --headless. Sekitar 400 MB di server, deploy pertama beberapa menit lebih lama.",
+  "Detected from env {key} — installed at deploy even unticked.": "Terdeteksi dari env {key} — tetap dipasang saat deploy walau tidak dicentang.",
+  "None — tick one under System Package if the service calls a program (LibreOffice…)": "Tidak ada — centang di System Package jika layanan memanggil program (LibreOffice…)",
 } satisfies Record<string, string>;

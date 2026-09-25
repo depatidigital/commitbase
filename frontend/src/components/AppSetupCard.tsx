@@ -40,6 +40,8 @@ interface AppSetupCardProps {
   onEditHosts: () => void;
   onEditEnv: () => void;
   onEditBuild: () => void;
+  /** the System Package step — Build's unless it has its own place */
+  onEditPackages?: () => void;
   /** one line a step, in a small box — the project page's app cards */
   compact?: boolean;
   /** compact: the deploy's whole log, in the card's dialog */
@@ -184,7 +186,7 @@ export function DeployFailureFixes({ application, failure, failedMigration, star
  * deploy is where a missing DATABASE_URL or secret would fail, so it waits
  * for the environment — which is edited in its own tab.
  */
-export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, compact, onShowLog }: AppSetupCardProps) {
+export function AppSetupCard({ application, detected, detecting, env, dbCheck, failure, failedMigration, starting, onDeploy, onEditHosts, onEditEnv, onEditBuild, onEditPackages, compact, onShowLog }: AppSetupCardProps) {
   const fixes = <DeployFailureFixes application={application} failure={failure} failedMigration={failedMigration} starting={starting} onDeploy={onDeploy} />;
   // Where it answers comes first: without a host there is nothing to reach, and
   // the env's own addresses (APP_URL, CORS_ORIGIN, VITE_API_URL) are these hosts
@@ -251,7 +253,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
     : enabledSystemPackages(application.systemPackages ?? [], Object.entries(application.envVars ?? {}).map(([key, value]) => ({ key, value })));
   const packagesLine = packages?.length
     ? packages.map((key) => SYSTEM_PACKAGE_NAMES[key] ?? key).join(", ")
-    : t("None — tick one on Build if the service calls a program (LibreOffice…)");
+    : t("None — tick one under System Package if the service calls a program (LibreOffice…)");
   // about the repo's start script — an app with its own start command has taken that over
   const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
 
@@ -290,9 +292,9 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           </div>
         )}
         {packages && (
-          <button type="button" onClick={onEditBuild} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
+          <button type="button" onClick={onEditPackages ?? onEditBuild} className="flex w-full min-w-0 items-center gap-2 text-left hover:text-primary">
             <Mark done />
-            <span className="shrink-0 font-medium">{t("System requirements")}</span>
+            <span className="shrink-0 font-medium">{t("System Package")}</span>
             <span className="min-w-0 truncate text-muted-foreground">{packagesLine}</span>
           </button>
         )}
@@ -407,9 +409,9 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
           {packages && (
             <Step
               done
-              title={t("System requirements")}
+              title={t("System Package")}
               action={
-                <Button type="button" variant="ghost" size="sm" onClick={onEditBuild}>
+                <Button type="button" variant="ghost" size="sm" onClick={onEditPackages ?? onEditBuild}>
                   <Cpu className="h-4 w-4 mr-2" />
                   {t("Edit")}
                 </Button>
