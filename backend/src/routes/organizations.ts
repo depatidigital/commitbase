@@ -16,8 +16,8 @@ const CreateOrgSchema = z.object({
   name: z.string().min(2),
   slug: z
     .string()
-    .min(2)
-    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers and dashes')
+    // what cb-provision-org.sh takes, and short enough for the OS user cb-<slug> (32 max)
+    .regex(/^[a-z0-9][a-z0-9-]{1,27}[a-z0-9]$/, 'slug must be 3–29 lowercase letters, numbers and dashes, not starting or ending with a dash')
     .optional(),
 });
 
@@ -48,8 +48,12 @@ const DatabasePlacementSchema = z.object({
 
 const INVITE_TTL_DAYS = 7;
 
-const slugify = (name: string) =>
-  name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+// 29 max: the org's OS user is cb-<slug>, and useradd refuses names over 32.
+// A name with too few latin letters or digits ("CV. A", "東京") still gets a valid one.
+const slugify = (name: string) => {
+  const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').slice(0, 29).replace(/^-+|-+$/g, '');
+  return slug.length >= 3 ? slug : `ws-${slug || 'org'}`.replace(/-+$/, '');
+};
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -163,7 +167,7 @@ router.post(
       // just takes the next free number — two users may both call theirs "Toko"
       for (let n = 2; await prisma.organization.findUnique({ where: { slug }, select: { id: true } }); n++) {
         if (given) return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
-        slug = `${slugify(name).slice(0, 36)}-${n}`;
+        slug = `${slugify(name).slice(0, 25).replace(/-+$/, '')}-${n}`;
       }
 
       // Where it runs: the same servers as the workspace it was opened from (the
