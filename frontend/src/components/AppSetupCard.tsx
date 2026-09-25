@@ -250,7 +250,7 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
     ? null
     : enabledSystemPackages(application.systemPackages ?? [], Object.entries(application.envVars ?? {}).map(([key, value]) => ({ key, value })));
   const packagesLine = packages?.length
-    ? t("{names} — installed on the server at deploy, if missing", { names: packages.map((key) => SYSTEM_PACKAGE_NAMES[key] ?? key).join(", ") })
+    ? packages.map((key) => SYSTEM_PACKAGE_NAMES[key] ?? key).join(", ")
     : t("None — tick one on Build if the service calls a program (LibreOffice…)");
   // about the repo's start script — an app with its own start command has taken that over
   const buildWarnings = application.startCommand ? [] : detected?.warnings ?? [];
