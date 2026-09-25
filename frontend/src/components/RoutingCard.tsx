@@ -17,13 +17,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HostnamePicker, hostnameProblem, joinHost } from "@/components/HostnamePicker";
 import { HostBadge, HostPointing, hostOk } from "@/components/HostCheck";
 import { useApplicationHostname } from "@/hooks/useApplications";
 import { useToast } from "@/hooks/use-toast";
-import { type AppDomain, type Application, addAppDomain, bindingLabel, removeAppDomain } from "@/lib/applications";
+import { type AppDomain, type Application, addAppDomain, bindingLabel, removeAppDomain, setBindingRedirect } from "@/lib/applications";
 import { getDomainChoices } from "@/lib/domains";
 import { t } from "@/lib/i18n";
+
+/** The redirect picker's "no redirect" — Radix Select takes no empty value. */
+const SERVE = "__serve";
 
 /** A path as someone types it: "" for the whole host, else `/api/*`-like. */
 const PATH = /^\/[A-Za-z0-9._~\-/]*\*?$/;
@@ -108,6 +112,11 @@ export function RoutingCard({
       .filter(([, value]) => String(value).includes(host))
       .map(([key]) => key);
   const last = application.domains.length === 1;
+  // where a route may redirect: the app's whole hosts that serve it, never itself — no chains
+  const redirectTargets = (route: AppDomain) =>
+    [...new Set(routes.filter((d) => !d.path && !d.redirectTo && d.host !== route.host).map((d) => d.host))];
+  // hosts others redirect to: they have to keep serving the app
+  const redirectedTo = new Set(routes.map((d) => d.redirectTo).filter(Boolean));
 
   // a status mark per route: a tick when it answers from here, else what is wrong
   const status = (route: AppDomain) => {
@@ -144,17 +153,47 @@ export function RoutingCard({
                     {route.host}
                     {route.path && <span className="text-muted-foreground">{route.path}</span>}
                   </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                    disabled={!!busy}
-                    title={t("Remove {host}", { host: label })}
-                    aria-label={t("Remove {host}", { host: label })}
-                    onClick={() => setConfirmRemove(route)}
-                  >
-                    {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  </Button>
+                  {/* serve the app, or send visitors to another of its hosts (a 301, path and query kept) */}
+                  <span className="ml-auto flex items-center gap-2">
+                    {(route.redirectTo || (redirectTargets(route).length > 0 && !redirectedTo.has(route.host))) && (
+                      <Select
+                        value={route.redirectTo ?? SERVE}
+                        disabled={!!busy}
+                        onValueChange={(value) => {
+                          const redirectTo = value === SERVE ? null : value;
+                          void change(
+                            route,
+                            () => setBindingRedirect(application.id, route.host, route.path ?? "", redirectTo),
+                            t("Could not change the route"),
+                            redirectTo ? t("{host} redirects to {target}", { host: label, target: redirectTo }) : t("{host} serves {app} again", { host: label, app: application.name }),
+                          );
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-auto max-w-[18rem] gap-1 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SERVE}>{t("Serves the app")}</SelectItem>
+                          {[...new Set([...(route.redirectTo ? [route.redirectTo] : []), ...redirectTargets(route)])].map((target) => (
+                            <SelectItem key={target} value={target} className="font-mono">
+                              → {target}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      disabled={!!busy}
+                      title={t("Remove {host}", { host: label })}
+                      aria-label={t("Remove {host}", { host: label })}
+                      onClick={() => setConfirmRemove(route)}
+                    >
+                      {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </span>
                 </li>
               );
             })}
@@ -314,7 +353,12 @@ export function RoutingCard({
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                 </a>
                 {/* a path whose prefix is dropped says so */}
-                {route.path && route.stripPrefix && (
+                {route.redirectTo && (
+                  <Badge variant="outline" className="font-mono text-[10px]" title={t("Visitors are sent on to {target}, with the same path.", { target: route.redirectTo })}>
+                    → {route.redirectTo}
+                  </Badge>
+                )}
+                {route.path && route.stripPrefix && !route.redirectTo && (
                   <Badge variant="outline" className="font-mono text-[10px]" title={t("The service gets the path without this prefix: /api/users arrives as /users.")}>
                     {route.path} → /
                   </Badge>

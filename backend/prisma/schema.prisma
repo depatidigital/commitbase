@@ -506,6 +506,10 @@ model AppDomain {
   /// The app is handed the path without its prefix (`/api/users` arrives as
   /// `/users`) — Caddy's handle_path. Off: it gets the path as asked (handle).
   stripPrefix   Boolean     @default(false)
+  /// Answer with a 301 to this host (the request's path and query kept) instead
+  /// of serving the app. It is one of the same app's names that serves it, so
+  /// there is no chain. null: serve the app.
+  redirectTo    String?
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   /// The Domain (zone) the name sits under — the ownership boundary, where

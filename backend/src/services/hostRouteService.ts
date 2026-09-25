@@ -19,8 +19,18 @@ export type Serve =
   /** nothing deployed yet: the "ready, waiting for its first deploy" page */
   | { kind: 'placeholder' };
 
-/** An app on a hostname: its path ("" = the rest of the name), whether the prefix is dropped, and its serve. */
-export type Binding = { path: string; stripPrefix: boolean; serve: Serve };
+/**
+ * An app on a hostname: its path ("" = the rest of the name), whether the
+ * prefix is dropped, and its serve — or the host it redirects to instead.
+ */
+export type Binding = { path: string; stripPrefix: boolean; serve: Serve | null; redirectTo?: string | null };
+
+/** A 301 to `host`, the request's path and query kept. Pure. */
+export const redirectHandle = (host: string): any[] => [
+  { handler: 'static_response', status_code: 301, headers: { Location: [`https://${host}{http.request.uri}`] } },
+];
+
+const bindingHandle = (binding: Binding): any[] => (binding.redirectTo ? redirectHandle(binding.redirectTo) : serveHandle(binding.serve!));
 
 /** A stored `serve`, checked — a bad or missing one is null. Pure. */
 export function readServe(raw: unknown): Serve | null {
@@ -86,15 +96,16 @@ export function serveHandle(serve: Serve): any[] {
  */
 export function composeHostHandle(bindings: Binding[]): any[] {
   const sorted = [...bindings].sort(byPrecedence);
-  if (sorted.length === 1 && !sorted[0]!.path) return serveHandle(sorted[0]!.serve);
+  if (sorted.length === 1 && !sorted[0]!.path) return bindingHandle(sorted[0]!);
   return [
     {
       handler: 'subroute',
       routes: sorted.map((binding) => ({
         ...(binding.path && { match: [{ path: [binding.path] }] }),
         handle: [
-          ...(binding.path && binding.stripPrefix ? [{ handler: 'rewrite', strip_path_prefix: pathPrefix(binding.path) }] : []),
-          ...serveHandle(binding.serve),
+          // a redirect keeps the path as asked: the other name serves it whole
+          ...(binding.path && binding.stripPrefix && !binding.redirectTo ? [{ handler: 'rewrite', strip_path_prefix: pathPrefix(binding.path) }] : []),
+          ...bindingHandle(binding),
         ],
         terminal: true,
       })),
@@ -136,7 +147,7 @@ async function recomposeHost(node: SshTarget, host: string, { without }: { witho
   const bound = await prisma.appDomain.findMany({
     // `without`: as if that app were gone already — its delete removes the rows after
     where: { host, ...(without && { applicationId: { not: without } }) },
-    select: { path: true, stripPrefix: true, application: { select: { name: true, serve: true, runtime: true } } },
+    select: { path: true, stripPrefix: true, redirectTo: true, application: { select: { name: true, serve: true, runtime: true } } },
   });
   if (bound.length === 0) {
     await removeCaddySite(node, host);
@@ -144,9 +155,10 @@ async function recomposeHost(node: SshTarget, host: string, { without }: { witho
   }
   // A panel app not deployed yet has nothing to route: its hosts are set up
   // before its first deploy, which routes them (serveApp). Left out until then.
-  const rows = bound.filter((row) => readServe(row.application.serve) || row.application.runtime);
+  // A redirect needs nothing deployed: it is routed from the start.
+  const rows = bound.filter((row) => row.redirectTo || readServe(row.application.serve) || row.application.runtime);
   if (rows.length === 0) return;
-  const unknown = rows.filter((row) => !readServe(row.application.serve));
+  const unknown = rows.filter((row) => !row.redirectTo && !readServe(row.application.serve));
   if (unknown.length) {
     if (rows.length === 1) return;
     throw new HostRouteError(
@@ -156,7 +168,7 @@ async function recomposeHost(node: SshTarget, host: string, { without }: { witho
   await setHostRoute(
     node,
     host,
-    composeHostHandle(rows.map((row) => ({ path: row.path, stripPrefix: row.stripPrefix, serve: readServe(row.application.serve)! }))),
+    composeHostHandle(rows.map((row) => ({ path: row.path, stripPrefix: row.stripPrefix, redirectTo: row.redirectTo, serve: readServe(row.application.serve) }))),
   );
 }
 

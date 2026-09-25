@@ -21,6 +21,7 @@ export const withDomains = {
       host: true,
       path: true,
       stripPrefix: true,
+      redirectTo: true,
       domainId: true,
       parentDomain: { select: { id: true, name: true, expiresAt: true, shared: true } },
     },
@@ -93,7 +94,8 @@ export async function setAppHosts(
 ): Promise<void> {
   // the whole-name bindings only: its paths are managed on their own
   const wanted = hosts.map((h) => (typeof h === 'string' ? h : h.host));
-  await tx.appDomain.deleteMany({ where: { applicationId, path: '', host: { notIn: wanted } } });
+  // a redirect is kept: it is set on its own, not part of the list of names it serves on
+  await tx.appDomain.deleteMany({ where: { applicationId, path: '', redirectTo: null, host: { notIn: wanted } } });
   const have = new Set((await tx.appDomain.findMany({ where: { applicationId, path: '' }, select: { host: true } })).map((d) => d.host));
   const known = hosts.filter((h): h is { host: string; domainId: string | null } => typeof h !== 'string');
   const unknown = await zonesFor(hosts.filter((h): h is string => typeof h === 'string'));
@@ -138,8 +140,9 @@ export async function setAppBindings(
 ): Promise<void> {
   const key = (b: { host: string; path: string }) => `${b.host} ${b.path}`;
   const wanted = new Set(bindings.map(key));
-  const have = await tx.appDomain.findMany({ where: { applicationId }, select: { id: true, host: true, path: true, domainId: true } });
-  const gone = have.filter((b) => !wanted.has(key(b)));
+  const have = await tx.appDomain.findMany({ where: { applicationId }, select: { id: true, host: true, path: true, domainId: true, redirectTo: true } });
+  // the sync sees no app behind a redirect (a static_response): it was set in the panel and stays
+  const gone = have.filter((b) => !wanted.has(key(b)) && !b.redirectTo);
   if (gone.length) await tx.appDomain.deleteMany({ where: { id: { in: gone.map((b) => b.id) } } });
   const kept = new Map(have.filter((b) => wanted.has(key(b))).map((b) => [key(b), b]));
   const fresh = bindings.filter((b) => !kept.has(key(b)));

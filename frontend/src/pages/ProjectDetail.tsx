@@ -865,6 +865,7 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
                         {d.path && <span className="text-muted-foreground">{d.path}</span>}
                       </>
                     )}
+                    {d.redirectTo && <span className="text-muted-foreground"> → {d.redirectTo}</span>}
                   </span>
                 ))}
               </span>

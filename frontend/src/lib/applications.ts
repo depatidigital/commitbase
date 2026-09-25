@@ -26,6 +26,8 @@ export interface AppDomain {
   path?: string;
   /** the app gets the path without its prefix */
   stripPrefix?: boolean;
+  /** answers with a 301 to this host of the same app instead of serving it */
+  redirectTo?: string | null;
   domainId: string | null;
   /** list and detail endpoints: that domain, for its registration expiry */
   parentDomain?: { id: string; name: string; expiresAt?: string | null; shared?: boolean } | null;
@@ -335,6 +337,12 @@ export const addAppDomain = async (
 /** Hand the app its path with or without the prefix (`/api/users` or `/users`). */
 export const setBindingStripPrefix = async (id: string, host: string, path: string, stripPrefix: boolean): Promise<void> => {
   const response = await apiRequest(`/applications/${id}/domains`, { method: 'PATCH', body: JSON.stringify({ host, path, stripPrefix }) });
+  if (!response.success) throw new Error(response.error || t("Could not change the route"));
+};
+
+/** Make a binding redirect to another host of the app (path and query kept), or serve the app again (null). */
+export const setBindingRedirect = async (id: string, host: string, path: string, redirectTo: string | null): Promise<void> => {
+  const response = await apiRequest(`/applications/${id}/domains`, { method: 'PATCH', body: JSON.stringify({ host, path, redirectTo }) });
   if (!response.success) throw new Error(response.error || t("Could not change the route"));
 };
 

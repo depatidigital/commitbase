@@ -1303,6 +1303,23 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
 });
 
 /**
+ * Where a binding may redirect to: another of the same app's whole names that
+ * serves it (not itself a redirect), so a redirect never chains or loops.
+ * null when it may, else why not. Pure.
+ */
+function redirectRefused(domains: Array<{ host: string; path: string; redirectTo: string | null }>, host: string, target: string): string | null {
+  if (target === host) return 'A name cannot redirect to itself';
+  if (!domains.some((d) => d.host === target && d.path === '' && !d.redirectTo)) {
+    return `${target} is not a name this app is served on — add it first, then redirect to it`;
+  }
+  return null;
+}
+
+/** The app's bindings that redirect to `host` — a name they need, so it cannot go or redirect itself. */
+const redirectsTo = (domains: Array<{ host: string; path: string; redirectTo: string | null }>, host: string) =>
+  domains.filter((d) => d.redirectTo === host).map((d) => `${d.host}${d.path}`);
+
+/**
  * Bind an app to one more hostname, or a path under one (`/api/*`). All its
  * bindings are alike. The name's route is composed again with it — beside
  * whatever other apps of the organization answer on that name — and a name
@@ -1323,6 +1340,11 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     if (at === null) return res.status(400).json({ success: false, error: 'A path is like /api/* — or leave it empty for the whole name' } as ApiResponse);
     const stripPrefix = at !== '' && req.body?.stripPrefix === true;
     const label = `${host}${at}`;
+    // answers with a 301 to another of its names instead of serving the app
+    const redirectTo = req.body?.redirectTo ? normalizeHost(req.body.redirectTo) : null;
+    if (req.body?.redirectTo && !redirectTo) return res.status(400).json({ success: false, error: 'Redirect to a hostname, like app.example.com' } as ApiResponse);
+    const redirectWhy = redirectTo && redirectRefused(application.domains, host, redirectTo);
+    if (redirectWhy) return res.status(400).json({ success: false, error: redirectWhy } as ApiResponse);
     // a name and its paths belong to one organization
     const otherOrg = await hostRefused(host, application.organizationId);
     if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
@@ -1363,9 +1385,9 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     }
 
     if (movedFrom) {
-      await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { applicationId: application.id, stripPrefix } });
+      await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { applicationId: application.id, stripPrefix, redirectTo } });
     } else {
-      await prisma.appDomain.create({ data: { host, path: at, stripPrefix, applicationId: application.id, domainId } });
+      await prisma.appDomain.create({ data: { host, path: at, stripPrefix, redirectTo, applicationId: application.id, domainId } });
     }
     // a panel app never deployed: nothing of it to serve yet (an imported one has a runtime and its own
     // route; an uploaded site has files in its bucket without any deployment)
@@ -1374,7 +1396,10 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       !application.staticOrigin &&
       !(await prisma.deployment.count({ where: { applicationId: application.id, status: 'SUCCESS' } }));
     try {
-      if (neverDeployed) {
+      if (redirectTo) {
+        // needs nothing of the app: the name's route composed with the redirect
+        await recomposeHosts(node, [host]);
+      } else if (neverDeployed) {
         // the "ready, waiting for its first deploy" page until then — the deploy routes it for real (serveApp)
         await serveApp(node, application.id, { kind: 'placeholder' });
       } else if (readServe(application.serve)) {
@@ -1409,7 +1434,9 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
     await prisma.log.create({
       data: {
         level: 'INFO',
-        message: movedFrom ? `${label} moved from ${movedFrom.name} to ${application.name}` : `${label} added to ${application.name}`,
+        message: movedFrom
+          ? `${label} moved from ${movedFrom.name} to ${application.name}`
+          : `${label} added to ${application.name}${redirectTo ? `, redirecting to ${redirectTo}` : ''}`,
         userId: req.user!.userId,
         applicationId: application.id,
       },
@@ -1425,24 +1452,44 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
   }
 });
 
-/** Hand the app its path with or without the prefix (`/api/users` or `/users`) — the name's route composed again. */
+/**
+ * Change one binding: hand the app its path with or without the prefix
+ * (`/api/users` or `/users`), or make it redirect to another of the app's names
+ * (`redirectTo`, null to serve the app again). The name's route composed again.
+ */
 router.patch('/:id/domains', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) }, include: withDomains });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     const host = normalizeHost(req.body?.host);
     const at = normalizeBindingPath(req.body?.path);
-    const binding = application.domains.find((d) => d.host === host && d.path === at);
-    if (!binding || !at) return res.status(404).json({ success: false, error: 'Only a path of one of its names can drop its prefix' } as ApiResponse);
-    const stripPrefix = req.body?.stripPrefix === true;
-    await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { stripPrefix } });
+    const binding = at === null ? undefined : application.domains.find((d) => d.host === host && d.path === at);
+    if (!binding || at === null) return res.status(404).json({ success: false, error: `${host}${at ?? ''} is not one of this app's names` } as ApiResponse);
+    const label = `${host}${at}`;
+    const data: { stripPrefix?: boolean; redirectTo?: string | null } = {};
+    if ('stripPrefix' in (req.body ?? {})) {
+      if (!at) return res.status(400).json({ success: false, error: 'Only a path of one of its names can drop its prefix' } as ApiResponse);
+      data.stripPrefix = req.body.stripPrefix === true;
+    }
+    if ('redirectTo' in (req.body ?? {})) {
+      const redirectTo = req.body.redirectTo ? normalizeHost(req.body.redirectTo) : null;
+      if (req.body.redirectTo && !redirectTo) return res.status(400).json({ success: false, error: 'Redirect to a hostname, like app.example.com' } as ApiResponse);
+      if (redirectTo) {
+        const why = redirectRefused(application.domains, host, redirectTo);
+        if (why) return res.status(400).json({ success: false, error: why } as ApiResponse);
+        const needed = at ? [] : redirectsTo(application.domains, host);
+        if (needed.length) return res.status(400).json({ success: false, error: `${needed.join(', ')} redirect to ${host} — change them first` } as ApiResponse);
+      }
+      data.redirectTo = redirectTo;
+    }
+    await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data });
     try {
       await recomposeHosts(await serverForApplication(application.id), [host]);
     } catch (error: any) {
-      await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { stripPrefix: binding.stripPrefix } });
-      return res.status(502).json({ success: false, error: `${host}${at} could not be routed: ${error?.message ?? error}` } as ApiResponse);
+      await prisma.appDomain.update({ where: { host_path: { host, path: at } }, data: { stripPrefix: binding.stripPrefix, redirectTo: binding.redirectTo } });
+      return res.status(502).json({ success: false, error: `${label} could not be routed: ${error?.message ?? error}` } as ApiResponse);
     }
-    return res.json({ success: true, data: { host, path: at, stripPrefix } } as ApiResponse);
+    return res.json({ success: true, data: { host, path: at, stripPrefix: data.stripPrefix ?? binding.stripPrefix, redirectTo: data.redirectTo === undefined ? binding.redirectTo : data.redirectTo } } as ApiResponse);
   } catch (error) {
     console.error('Error changing a binding:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -1468,6 +1515,8 @@ router.delete('/:id/domains/:host', authenticateToken, async (req: Authenticated
     const label = `${host}${at}`;
     const name = application.domains.find((d) => d.host === host && d.path === at);
     if (!name) return res.status(404).json({ success: false, error: `${label} is not one of this app's names` } as ApiResponse);
+    const needed = at ? [] : redirectsTo(application.domains, host);
+    if (needed.length) return res.status(400).json({ success: false, error: `${needed.join(', ')} redirect to ${host} — remove or change them first` } as ApiResponse);
     // its last one may go too — asked first, said on the form: an app with no host is one
     // nobody reaches, a state it already has before its first host is added
 

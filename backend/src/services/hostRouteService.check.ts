@@ -65,4 +65,17 @@ assert.strictEqual(normalizeBindingPath('api'), null);
 assert.strictEqual(normalizeBindingPath('/a/../b'), null);
 assert.strictEqual(normalizeBindingPath('/a b'), null);
 
+// a redirect: the whole name is one 301 carrying the path and query; on a path, only that path, prefix kept
+const proxy = { kind: 'proxy', port: 20001 } as const;
+assert.deepStrictEqual(composeHostHandle([{ path: '', stripPrefix: false, serve: null, redirectTo: 'app.example.com' }]), [
+  { handler: 'static_response', status_code: 301, headers: { Location: ['https://app.example.com{http.request.uri}'] } },
+]);
+const mixed = composeHostHandle([
+  { path: '', stripPrefix: false, serve: proxy },
+  { path: '/old/*', stripPrefix: true, serve: proxy, redirectTo: 'app.example.com' },
+])[0].routes;
+assert.deepStrictEqual(mixed[0].match, [{ path: ['/old/*'] }]);
+assert.deepStrictEqual(mixed[0].handle.map((h: any) => h.handler), ['static_response']);
+assert.deepStrictEqual(mixed[1].handle, serveHandle(proxy));
+
 console.log('hostRouteService: ok');
