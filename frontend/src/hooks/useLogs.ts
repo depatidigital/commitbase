@@ -68,7 +68,7 @@ const MAX_LIVE_LINES = 2000;
  * An app's log (pm2 or its systemd unit), live over SSE: the last `lines`
  * lines, then each new one. The connection is open only while `enabled`. fetch
  * rather than EventSource, which cannot send the Authorization header. A stream
- * the server ends is reopened after 3s; a refused one (too many streams) is not.
+ * the server ends, or refuses for too many streams, is retried after 3s.
  */
 export const useLiveLogs = (applicationId: string, logType: string, lines: number, enabled: boolean) =>
   useLogStream(applicationId ? `/logs/application/${applicationId}/stream?type=${logType}&lines=${lines}` : null, enabled);
@@ -92,6 +92,8 @@ export const useLogStream = (path: string | null, enabled: boolean) => {
         if (!response.ok || !response.body) {
           const body = await response.json().catch(() => null);
           setError(body?.error || t('Failed to fetch logs'));
+          // 429: the server's stream cap, often our own previous stream still closing — try again
+          if (response.status === 429 && !controller.signal.aborted) retry = setTimeout(connect, 3000);
           return;
         }
         // the backlog is replayed on every connect

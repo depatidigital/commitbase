@@ -207,7 +207,7 @@ export function DataTable<T>({
         </div>
         )}
 
-        <div className={sizePicker ? "flex flex-wrap items-center gap-2 sm:justify-end" : "flex w-full min-w-0 items-center gap-2"}>
+        <div className={sizePicker ? "flex flex-wrap items-center gap-2 sm:justify-end" : "flex w-full min-w-0 flex-wrap items-center gap-2"}>
           {toolbar}
           <div className={sizePicker ? "relative w-full sm:w-80" : "relative min-w-40 flex-1"}>
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

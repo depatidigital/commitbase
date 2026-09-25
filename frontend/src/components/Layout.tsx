@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Link } from "react-router-dom";
-import { Settings, LogOut, ChevronDown, Check, Languages } from "lucide-react";
+import { Settings, LogOut, ChevronDown, Check, Languages, LifeBuoy } from "lucide-react";
 
 import { useLogout } from "@/hooks/useAuth";
 import { lang, setLang, t } from "@/lib/i18n";
+import { SUPPORT_URL } from "@/lib/branding";
 // Floating toggle that sits on the sidebar/content divider, above everything.
 function EdgeSidebarTrigger() {
   const { state } = useSidebar();
@@ -131,6 +132,17 @@ export function Layout() {
           <main className="flex flex-1 flex-col min-h-0 overflow-y-auto p-6 [scrollbar-gutter:stable]">
             <Outlet />
           </main>
+          {/* help from any page: bottom-right, under dialogs (z-50) so it never covers their buttons */}
+          <a
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t("Technical support")}
+            aria-label={t("Technical support")}
+            className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+          >
+            <LifeBuoy className="h-6 w-6" />
+          </a>
         </div>
       </div>
     </SidebarProvider>

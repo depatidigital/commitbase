@@ -96,6 +96,7 @@ export default {
   Unknown: "Tidak diketahui",
   "Infrastructure": "Infrastruktur",
   "Usage": "Pemakaian",
+  "Technical support": "Bantuan Teknis",
   "New": "Baru",
   "Language": "Bahasa",
 } satisfies Record<string, string>;

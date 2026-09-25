@@ -854,8 +854,17 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
               <span className="min-w-0">
                 {bindings.map((d) => (
                   <span key={bindingLabel(d)} className="block truncate">
-                    {d.host}
-                    {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                    {isPublicHost(d.host) ? (
+                      <a href={`https://${d.host}${d.path ?? ""}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        {d.host}
+                        {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                      </a>
+                    ) : (
+                      <>
+                        {d.host}
+                        {d.path && <span className="text-muted-foreground">{d.path}</span>}
+                      </>
+                    )}
                   </span>
                 ))}
               </span>

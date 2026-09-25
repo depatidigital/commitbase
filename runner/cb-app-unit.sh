@@ -103,10 +103,14 @@ case "$ACTION" in
   build)
     [ -f "$APP_DIR/build.sh" ] || { echo "cb-app-unit: $APP_DIR/build.sh missing — the backend writes it" >&2; exit 3; }
     # --wait returns the script's exit code; --pipe streams its output to ours.
+    # OOMPolicy=continue: the default (stop) SIGTERMs the whole unit after the
+    # kernel kills one process, so pnpm/npm report a bare "Command failed" and
+    # exit 1. Left alone, the killed process's 137 reaches the backend, which
+    # names the memory limit.
     exec systemd-run --wait --pipe --collect --quiet \
       --unit="cb-build-$SLUG-$APP_ID-$$" --slice=cb-build.slice \
       --uid="$BUILD_USER" --gid="$CB_GROUP" \
-      -p MemoryMax="$BUILD_MEMORY_MAX" -p MemorySwapMax=0       -p OOMScoreAdjust=500 \
+      -p MemoryMax="$BUILD_MEMORY_MAX" -p MemorySwapMax=0 -p OOMScoreAdjust=500 -p OOMPolicy=continue \
       -p CPUWeight="$BUILD_CPU_WEIGHT" -p IOWeight="$BUILD_CPU_WEIGHT" -p Nice=10 \
       -p TimeoutStartSec=0 \
       -p UMask=0002 \

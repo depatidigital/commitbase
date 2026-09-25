@@ -1,4 +1,4 @@
-import { Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
@@ -18,7 +18,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
-import { APP_NAME } from "@/lib/branding";
+import { APP_NAME, SUPPORT_URL } from "@/lib/branding";
 import { t } from "@/lib/i18n";
 import { OrgSwitcher } from "./OrgSwitcher";
 
@@ -162,6 +162,16 @@ export function AppSidebar() {
         )}
       </SidebarContent>
       <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={t("Technical support")}>
+              <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
+                <LifeBuoy />
+                <span>{t("Technical support")}</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         <PlatformStatus collapsed={collapsed} />
       </SidebarFooter>
     </Sidebar>

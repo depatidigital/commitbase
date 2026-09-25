@@ -481,7 +481,7 @@ export function EnvEditor({ rows, onChange, required, locked, hints, renderActio
                 className={onlyFlagged ? "" : "text-amber-600 dark:text-amber-400"}
                 onClick={() => setOnlyFlagged((on) => !on)}
               >
-                <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
+                <AlertTriangle className="mr-2 h-4 w-4" />
                 {t("Needs a look ({count})", { count: flaggedCount })}
               </Button>
             )}

@@ -526,7 +526,7 @@ router.patch('/bulk-assign', authenticateToken, requireRole(['SUPERADMIN']), asy
     if (organizationId) {
       const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
       if (!organization) {
-        return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+        return res.status(404).json({ success: false, error: 'Workspace not found' } as ApiResponse);
       }
     }
 
@@ -782,7 +782,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       if (joining?.organizationId && organizationId !== joining.organizationId) {
         return res.status(403).json({
           success: false,
-          error: "That domain belongs to another organization — pick one of this project's organization",
+          error: "That domain belongs to another workspace — pick one of this app's workspace",
         } as ApiResponse);
       }
     } else {
@@ -791,10 +791,10 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       const active = (await listMemberships(req)).map((m) => m.organizationId);
       organizationId = joining?.organizationId ?? req.body.organizationId ?? (active.length === 1 ? active[0]! : null);
       if (!organizationId) {
-        return res.status(400).json({ success: false, error: 'Pick the organization this app belongs to' } as ApiResponse);
+        return res.status(400).json({ success: false, error: 'Pick the workspace this app belongs to' } as ApiResponse);
       }
       if (!isPlatformAdmin(req) && !orgIds.includes(organizationId)) {
-        return res.status(403).json({ success: false, error: 'You are not a member of that organization' } as ApiResponse);
+        return res.status(403).json({ success: false, error: 'You are not a member of that workspace' } as ApiResponse);
       }
     }
 
@@ -812,23 +812,25 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       return res.status(400).json({ success: false, error: 'Unknown server' } as ApiResponse);
     }
     let serverId = requested ?? org?.defaultServerId ?? null;
-    // A stack needs a container runtime: nobody picked a node and the default
-    // has none (or there is no default) → the first online node that runs one.
-    if (type === 'COMPOSE' && !requested) {
-      const runsContainers = { containerRuntime: { not: 'NONE' } };
-      const fits = serverId && (await prisma.server.findFirst({ where: { id: serverId, ...runsContainers }, select: { id: true } }));
+    // Nobody picked a node and there is no default (or, for a stack, the default
+    // runs no containers) → the online node with the most free disk that fits.
+    if (!requested) {
+      const fitsType = type === 'COMPOSE' ? { containerRuntime: { not: 'NONE' } } : {};
+      const fits = serverId && (await prisma.server.findFirst({ where: { id: serverId, ...fitsType }, select: { id: true } }));
       if (!fits) {
-        const node = await prisma.server.findFirst({
-          where: { ...runsContainers, provisioned: true, status: 'ONLINE' },
-          select: { id: true },
+        const nodes = await prisma.server.findMany({
+          where: { ...fitsType, provisioned: true, status: 'ONLINE' },
+          select: { id: true, disk: true },
         });
-        serverId = node?.id ?? serverId;
+        // disk is { size, used, avail } from the heartbeat; unmeasured counts as 0
+        const avail = (n: (typeof nodes)[number]) => Number((n.disk as { avail?: number } | null)?.avail ?? 0);
+        serverId = nodes.sort((a, b) => avail(b) - avail(a))[0]?.id ?? serverId;
       }
     }
     if (!serverId) {
       return res.status(400).json({
         success: false,
-        error: "No server for this app — pick one, or ask an administrator to set the organization's default server.",
+        error: "No online server to run this app — ask an administrator to set one up, or set the workspace's default server.",
       } as ApiResponse);
     }
 
@@ -1353,7 +1355,7 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       const resolved = await resolveAppHost(req, host, application.organizationId);
       if ('error' in resolved) return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
       if (application.organizationId && resolved.organizationId !== application.organizationId) {
-        return res.status(403).json({ success: false, error: "That domain belongs to another organization — pick one of this app's organization" } as ApiResponse);
+        return res.status(403).json({ success: false, error: "That domain belongs to another workspace — pick one of this app's workspace" } as ApiResponse);
       }
       const taken = await sharedHostTaken(resolved.parent, host, node);
       if (taken) return res.status(409).json({ success: false, error: taken } as ApiResponse);
@@ -1509,7 +1511,7 @@ router.post('/:id/pm2-deploy', authenticateToken, async (req: AuthenticatedReque
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
     const allowed = isPlatformAdmin(req) || (!!application.organizationId && (await canManageOrg(req, application.organizationId)));
     if (!allowed) {
-      return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can build and restart it" } as ApiResponse);
+      return res.status(403).json({ success: false, error: "Only the workspace's owner or an admin can build and restart it" } as ApiResponse);
     }
     if (req.body?.consent !== true) {
       return res.status(400).json({ success: false, error: 'Confirm that the site may err while it builds' } as ApiResponse);
@@ -1624,7 +1626,7 @@ router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: 
       } as ApiResponse);
     }
     if (!application.runtime && !(await canManageProject(req, application.source ?? { organizationId: application.organizationId, createdById: null }))) {
-      return res.status(403).json({ success: false, error: 'Only the creator of the project and the admins of its organization can delete it' } as ApiResponse);
+      return res.status(403).json({ success: false, error: 'Only the creator of the project and the admins of its workspace can delete it' } as ApiResponse);
     }
 
     // Imported apps (runtime set) were set up by hand. Deleting one removes it
@@ -1967,7 +1969,7 @@ router.post('/:id/exec', authenticateToken, async (req: AuthenticatedRequest, re
       return res.status(400).json({ success: false, error: 'This is not a compose app' } as ApiResponse);
     }
     if (!application.organizationId || !(await canManageOrg(req, application.organizationId))) {
-      return res.status(403).json({ success: false, error: 'Only an organization admin can run commands in a stack' } as ApiResponse);
+      return res.status(403).json({ success: false, error: 'Only a workspace admin can run commands in a stack' } as ApiResponse);
     }
 
     const argv = Array.isArray(req.body?.argv) ? req.body.argv.map(String) : null;
