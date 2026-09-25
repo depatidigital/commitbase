@@ -35,7 +35,7 @@ const HEALTH_TIMEOUT_MS = Number(process.env.APP_HEALTH_TIMEOUT_MS || 60000);
 // a stack's first start migrates its database and builds its search index
 // (CKAN: several minutes) before its web service answers at all
 const COMPOSE_HEALTH_TIMEOUT_MS = Number(process.env.COMPOSE_HEALTH_TIMEOUT_MS || 10 * 60_000);
-// Builds are the memory hogs (next build ≈ 1-2 GB). One at a time by default.
+// Builds are the memory hogs (next build ≈ 1-2 GB). One at a time per server by default.
 const BUILD_CONCURRENCY = Math.max(1, Number(process.env.BUILD_CONCURRENCY || 1));
 
 // ponytail: in-process locks. Fine for one backend; a DB row lock if the backend ever runs twice.
@@ -52,16 +52,18 @@ const lockKey = (application: { id: string }) => application.id;
 const throwIfCancelled = (key: string) => {
   if (cancelling.has(key)) throw new CancelledError('Deployment cancelled');
 };
-let running = 0;
-const waiting: Array<() => void> = [];
-async function withBuildSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (running >= BUILD_CONCURRENCY) await new Promise<void>((resolve) => waiting.push(resolve));
-  running += 1;
+// per server: a build takes that node's memory, not another's — servers never wait on each other
+const slots = new Map<string, { running: number; waiting: Array<() => void> }>();
+async function withBuildSlot<T>(serverId: string, fn: () => Promise<T>): Promise<T> {
+  let slot = slots.get(serverId);
+  if (!slot) slots.set(serverId, (slot = { running: 0, waiting: [] }));
+  if (slot.running >= BUILD_CONCURRENCY) await new Promise<void>((resolve) => slot!.waiting.push(resolve));
+  slot.running += 1;
   try {
     return await fn();
   } finally {
-    running -= 1;
-    waiting.shift()?.();
+    slot.running -= 1;
+    slot.waiting.shift()?.();
   }
 }
 
@@ -1109,14 +1111,16 @@ export class DeploymentService {
 
   /**
    * Full deployment process. One deploy per app at a time, and at most
-   * BUILD_CONCURRENCY builds on the box.
+   * BUILD_CONCURRENCY builds on each server.
    */
   async deploy(config: DeploymentConfig): Promise<DeployResult> {
     const id = lockKey(config.application);
     if (deploying.has(id)) return { success: false, error: 'A deployment is already in progress for this application' };
     deploying.add(id);
     try {
-      return await withBuildSlot(() => this.deployInner(config));
+      // no server: deployInner says so; it waits in a queue of its own meanwhile
+      const serverId = await serverForApplication(config.application.id).then((node) => node.id, () => '');
+      return await withBuildSlot(serverId, () => this.deployInner(config));
     } finally {
       deploying.delete(id);
       cancelling.delete(id);
