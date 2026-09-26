@@ -25,8 +25,10 @@ import IntegrationCardPage from "./pages/IntegrationCardPage";
 import { t } from "./lib/i18n";
 import { SearchConsoleSettingsCard } from "./components/SearchConsoleSettingsCard";
 import { GitOAuthSettingsCard } from "./components/GitOAuthSettingsCard";
-import { GIT_GUIDE, GOOGLE_GUIDE, LARIKA_GATEWAY_GUIDE } from "./components/IntegrationSteps";
+import { AI_GATEWAY_GUIDE, GIT_GUIDE, GOOGLE_GUIDE, LARIKA_GATEWAY_GUIDE } from "./components/IntegrationSteps";
 import { LarikaGatewaySettingsCard } from "./components/LarikaGatewaySettingsCard";
+import { AiGatewaySettingsCard, WalletsCard } from "./components/AiGatewaySettingsCard";
+import Ai from "./pages/Ai";
 import WaNodes from "./pages/WaNodes";
 import WaGateway from "./pages/WaGateway";
 import NotFound from "./pages/NotFound";
@@ -267,6 +269,18 @@ const App = () => (
               }
             />
             <Route path="wa-gateway" element={<WaGateway />} />
+            <Route path="ai" element={<Ai />} />
+            <Route
+              path="integrations/ai-gateway"
+              element={
+                <SuperAdminRoute>
+                  <IntegrationCardPage title="AI Gateway" description={t("The AI gateway behind every workspace's AI API, and how its buy prices are sold.")} guide={AI_GATEWAY_GUIDE}>
+                    <AiGatewaySettingsCard />
+                    <WalletsCard />
+                  </IntegrationCardPage>
+                </SuperAdminRoute>
+              }
+            />
             <Route
               path="integrations/google"
               element={

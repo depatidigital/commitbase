@@ -181,3 +181,24 @@ export const LARIKA_GATEWAY_GUIDE: StepGroup[] = [
     ],
   },
 ];
+
+export const AI_GATEWAY_GUIDE: StepGroup[] = [
+  {
+    steps: [
+      <>
+        {t("On the AI gateway's server, copy")} <Code>ADMIN_KEY</Code> {t('from its .env.')}
+      </>,
+      <>
+        {t("Add this panel's server IP to the gateway's")} <Code>ADMIN_IP_ALLOWLIST</Code>
+        {t(', or copy its')} <Code>ADMIN_SECRET_PATH</Code> {t('to use instead.')}
+      </>,
+      t('Paste them here with the rate and markup, and save: the panel checks them with one call to the gateway.'),
+    ],
+  },
+  {
+    steps: [
+      t("Add providers and models, with their buy prices, on the gateway's own dashboard (/dashboard)."),
+      t('Credit a workspace below; it turns the AI API on and creates keys under AI API.'),
+    ],
+  },
+];

@@ -1,4 +1,4 @@
-import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MessageCircle, Smartphone, Tag, type LucideIcon } from "lucide-react";
+import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MessageCircle, Smartphone, Sparkles, Tag, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
@@ -56,7 +56,10 @@ export function AppSidebar() {
     // services the platform offers a workspace's apps, beside hosting them
     {
       label: t("Services"),
-      items: [{ title: "Whatsapp Gateway API", url: "/wa-gateway", icon: MessageCircle }],
+      items: [
+        { title: "Whatsapp Gateway API", url: "/wa-gateway", icon: MessageCircle },
+        { title: t("AI API"), url: "/ai", icon: Sparkles },
+      ],
     },
     {
       label: t("Infrastructure"),
@@ -95,6 +98,7 @@ export function AppSidebar() {
     { title: "Google Search Console", url: "/integrations/google" },
     { title: "GitHub & GitLab", url: "/integrations/git" },
     { title: "Larika Gateway", url: "/integrations/larika-gateway" },
+    { title: "AI Gateway", url: "/integrations/ai-gateway" },
   ];
 
   return (

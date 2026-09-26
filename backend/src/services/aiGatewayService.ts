@@ -125,7 +125,7 @@ export async function billAiUsage(): Promise<string> {
 
     const from = cursor;
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(${BILLING_LOCK})`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BILLING_LOCK})`;
       const stored = await tx.integrationConfig.findUnique({ where: { provider_key: { provider: 'larika_ai', key: 'cursor' } } });
       if ((stored?.value ?? '0') !== from) throw new Error('AI billing: the cursor moved under this run — another run billed this page');
       for (const [ref, e] of entries) {

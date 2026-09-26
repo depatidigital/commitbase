@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CodeExample } from "@/components/CodeExample";
 import { codeExamples, getWaApiCatalog, VERIFY_SNIPPET, type Catalog, type Endpoint } from "@/lib/waApiCatalog";
-import { callWaApi, getWaNumber, getWebhookDeliveries, retryWebhooks, sendTestWebhook, type WaNumber, type WebhookDelivery } from "@/lib/waGateway";
+import { callWaApi, getWaNumber, getWebhookDeliveries, retryWebhooks, type WaNumber, type WebhookDelivery } from "@/lib/waGateway";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 
@@ -416,21 +416,21 @@ const deliveryState = (d: WebhookDelivery) => (d.status === "PENDING" ? (d.attem
 /** The same check an app makes, run from a terminal against its endpoint: a signed test POST. */
 const simulateCurl = (url: string) => `BODY='{"id":"test1","event":"test","instanceId":"…","data":{"message":"Hello"},"ts":0}'
 SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')"
-curl -X POST '${url}' \
-  -H 'content-type: application/json' \
-  -H 'x-larika-event: test' \
-  -H "x-larika-signature: $SIG" \
+curl -X POST '${url}' \\
+  -H 'content-type: application/json' \\
+  -H 'x-larika-event: test' \\
+  -H "x-larika-signature: $SIG" \\
   -d "$BODY"`;
 
 /**
  * The Webhook tab: what a number POSTs to its app (left), and per number its
  * URL, a test event and the last 24 hours of deliveries (right).
  */
-export function WebhooksTab(props: { rows: WaNumber[]; onSettings: (row: WaNumber) => void }) {
+export function WebhooksTab(props: { rows: WaNumber[]; onSettings: (row: WaNumber) => void; onTest: (row: WaNumber) => void }) {
   return <CatalogState>{(catalog) => <WebhooksBody {...props} catalog={catalog} />}</CatalogState>;
 }
 
-function WebhooksBody({ rows, onSettings, catalog }: { rows: WaNumber[]; onSettings: (row: WaNumber) => void; catalog: Catalog }) {
+function WebhooksBody({ rows, onSettings, onTest, catalog }: { rows: WaNumber[]; onSettings: (row: WaNumber) => void; onTest: (row: WaNumber) => void; catalog: Catalog }) {
   const { toast } = useToast();
   const numbers = rows.filter((r) => r.canManage);
   const [picked, setPicked] = useState("");
@@ -438,7 +438,6 @@ function WebhooksBody({ rows, onSettings, catalog }: { rows: WaNumber[]; onSetti
   const [openId, setOpenId] = useState<string | null>(null);
   const deliveries = useQuery({ queryKey: ["wa-webhooks", row?.id], queryFn: () => getWebhookDeliveries(row?.id ?? ""), enabled: !!row, refetchInterval: 5_000 });
   const failed = (title: string) => (e: Error) => toast({ title, description: e.message, variant: "destructive" });
-  const test = useMutation({ mutationFn: () => sendTestWebhook(row?.id ?? ""), onSuccess: () => void deliveries.refetch(), onError: failed(t("Failed to send a test webhook")) });
   const retry = useMutation({
     mutationFn: () => retryWebhooks(row?.id ?? ""),
     onSuccess: (r) => {
@@ -525,9 +524,9 @@ function WebhooksBody({ rows, onSettings, catalog }: { rows: WaNumber[]; onSetti
                   <Settings2 className="mr-2 h-3.5 w-3.5" />
                   {t("Access & webhook")}
                 </Button>
-                <Button size="sm" disabled={!row.webhookUrl || test.isPending} onClick={() => test.mutate()}>
-                  {test.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-2 h-3.5 w-3.5" />}
-                  {t("Send test event")}
+                <Button size="sm" disabled={!row.webhookUrl} onClick={() => onTest(row)}>
+                  <Send className="mr-2 h-3.5 w-3.5" />
+                  {t("Test webhook")}
                 </Button>
                 {waiting > 0 && (
                   <Button variant="outline" size="sm" disabled={retry.isPending} onClick={() => retry.mutate()}>

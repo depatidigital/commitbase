@@ -38,12 +38,14 @@ import {
   getWaKeys,
   getWaNumber,
   getWaNumbers,
+  getWebhookDeliveries,
   getWebhookSecret,
   relinkWaNumber,
   restartWaNumber,
   revokeWaKey,
   rotateWebhookSecret,
   sendTestMessage,
+  sendTestWebhook,
   updateWaNumber,
   type NumberStatus,
   type WaNumber,
@@ -72,7 +74,7 @@ function StatusDot({ status }: { status: NumberStatus | null }) {
 }
 
 /** Which dialog is open, for which number. */
-type Open = { kind: "connect" | "test" | "api" | "access" | "delete"; row: Pick<WaNumber, "id" | "name"> };
+type Open = { kind: "connect" | "test" | "webhook" | "api" | "access" | "delete"; row: Pick<WaNumber, "id" | "name"> };
 
 /**
  * A workspace's WhatsApp numbers on the Larika gateway: link one by QR, then an
@@ -181,6 +183,11 @@ export default function WaGateway() {
             <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("API & keys")} aria-label={t("API & keys")} onClick={() => setOpen({ kind: "api", row })}>
               <KeyRound className="h-3.5 w-3.5" />
             </Button>
+            {row.webhookUrl && (
+              <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("Test webhook")} aria-label={t("Test webhook")} onClick={() => setOpen({ kind: "webhook", row })}>
+                <Webhook className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("Access & webhook")} aria-label={t("Access & webhook")} onClick={() => setOpen({ kind: "access", row })}>
               <Settings2 className="h-3.5 w-3.5" />
             </Button>
@@ -244,7 +251,7 @@ export default function WaGateway() {
           <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} />
         </TabsContent>
         <TabsContent value="webhooks">
-          <WebhooksTab rows={rows} onSettings={(row) => setOpen({ kind: "access", row })} />
+          <WebhooksTab rows={rows} onSettings={(row) => setOpen({ kind: "access", row })} onTest={(row) => setOpen({ kind: "webhook", row })} />
         </TabsContent>
       </Tabs>
 
@@ -317,6 +324,7 @@ export default function WaGateway() {
         />
       )}
       {open?.kind === "access" && <AccessDialog id={open.row.id} onClose={close} />}
+      {open?.kind === "webhook" && <WebhookTestDialog id={open.row.id} onClose={close} onSettings={() => setOpen({ kind: "access", row: open.row })} />}
       {open?.kind === "delete" && <DeleteDialog row={open.row} onClose={close} />}
     </PageLayout>
   );
@@ -349,6 +357,8 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
   // the example number's id, so the calls below paste as is
   const { data: detail } = useNumber(example?.id ?? "", false, !!example);
   const base = `${gatewayUrl}/v1/instances/${detail?.instanceId ?? "{id}"}`;
+  // the number whose webhook the test checks: the example if it has one, else the first that does
+  const hooked = example?.webhookUrl ? example : rows.find((r) => r.canManage && r.webhookUrl);
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -413,10 +423,18 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
         </p>
         <CodeExample examples={[{ label: "Node.js", code: VERIFY_SNIPPET }]} />
         {example?.canManage && (
-          <Button variant="outline" size="sm" onClick={() => onOpen("access", example)}>
-            <Webhook className="mr-2 h-4 w-4" />
-            {t("Access & webhook")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => onOpen("access", hooked ?? example)}>
+              <Settings2 className="mr-2 h-4 w-4" />
+              {t("Access & webhook")}
+            </Button>
+            {hooked && (
+              <Button size="sm" onClick={() => onOpen("webhook", hooked)}>
+                <Webhook className="mr-2 h-4 w-4" />
+                {t("Test webhook")}
+              </Button>
+            )}
+          </div>
         )}
       </Step>
     </div>
@@ -700,6 +718,74 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             {t("Close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Send a `test` event to the number's webhook URL and wait for the outcome: the
+ * gateway delivers and signs it like any event, so "Delivered" means the app
+ * answered 2xx — else its error, and when the gateway tries again.
+ */
+function WebhookTestDialog({ id, onClose, onSettings }: { id: string; onClose: () => void; onSettings: () => void }) {
+  const { data: number } = useNumber(id);
+  const [sentId, setSentId] = useState<string | null>(null);
+  const send = useMutation({ mutationFn: () => sendTestWebhook(id), onSuccess: (r) => setSentId(r.id) });
+  const deliveries = useQuery({
+    queryKey: ["wa-webhooks", id],
+    queryFn: () => getWebhookDeliveries(id),
+    enabled: !!sentId,
+    // until the app has answered 2xx: then it is settled
+    refetchInterval: (q) => (q.state.data?.find((d) => d.id === sentId)?.status === "DONE" ? false : 1_500),
+  });
+  const delivery = deliveries.data?.find((d) => d.id === sentId);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {t("Test webhook")} — {number?.name ?? ""}
+          </DialogTitle>
+          <DialogDescription>{t("Sends a signed test event to the webhook URL, like any other event.")}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {number && !number.webhookUrl ? (
+            <p className="text-sm text-warning">{t("No webhook URL yet: events of this number are not sent anywhere.")}</p>
+          ) : (
+            <code className="block break-all rounded-md bg-muted/60 px-3 py-2 font-mono text-xs">{number?.webhookUrl ?? "…"}</code>
+          )}
+          {send.error ? (
+            <p className="text-sm text-destructive">{(send.error as Error).message}</p>
+          ) : sentId && delivery?.status === "DONE" ? (
+            <p className="flex items-center gap-2 text-sm text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              {t("Delivered: your app answered 2xx.")}
+            </p>
+          ) : sentId && delivery?.lastError ? (
+            <div className="space-y-1 text-sm">
+              <p className="text-destructive">{t("Your app did not take it: {error}", { error: delivery.lastError })}</p>
+              <p className="text-xs text-muted-foreground">{t("The gateway tries again at {time}, in order with the number's other events.", { time: new Date(delivery.nextAt).toLocaleTimeString(locale) })}</p>
+            </div>
+          ) : sentId ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t("Sending to your endpoint…")}
+            </p>
+          ) : null}
+          {delivery && <pre className="max-h-48 overflow-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">{JSON.stringify({ event: delivery.event, data: delivery.payload }, null, 2)}</pre>}
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="ghost" size="sm" onClick={onSettings}>
+            <Settings2 className="mr-2 h-3.5 w-3.5" />
+            {t("Access & webhook")}
+          </Button>
+          <Button disabled={send.isPending || !number?.webhookUrl} onClick={() => send.mutate()}>
+            {send.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+            {sentId ? t("Send again") : t("Send test event")}
           </Button>
         </DialogFooter>
       </DialogContent>

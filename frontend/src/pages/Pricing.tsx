@@ -1,7 +1,7 @@
 import { useState, type ElementType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, AppWindow, Calculator, Cloud, Cpu, Globe, HardDrive, Image, Loader2, MemoryStick, MessageCircle, MessageSquare, Phone, Server, Tag } from "lucide-react";
+import { AlertCircle, AppWindow, Calculator, Sparkles, Cloud, Cpu, Globe, HardDrive, Image, Loader2, MemoryStick, MessageCircle, MessageSquare, Phone, Server, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { PageLayout } from "@/components/PageLayout";
 import { getRates, type Rates } from "@/lib/billing";
 import { locale, t } from "@/lib/i18n";
+import { ModelsTable } from "@/pages/Ai";
 
 const rupiah = (value: number) => new Intl.NumberFormat(locale, { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(Math.round(value));
 /** the meter's month: 730 hours */
@@ -102,6 +103,14 @@ export default function Pricing() {
             </Section>
 
             <Estimator rates={rates} />
+          </div>
+
+          <div className="lg:col-span-2">
+            <Section icon={Sparkles} title={t("AI API")} description={t("One OpenAI-compatible API for many models, charged per token from the workspace balance.")}>
+              <div className="pt-3">
+                <ModelsTable />
+              </div>
+            </Section>
           </div>
         </div>
       )}

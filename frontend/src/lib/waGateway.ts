@@ -140,6 +140,7 @@ export interface WebhookDelivery {
 }
 export const getWebhookDeliveries = async (id: string) =>
   unwrap(await apiRequest<WebhookDelivery[]>(`/wa-numbers/${id}/webhooks`), t('Failed to fetch webhook deliveries'));
-export const sendTestWebhook = async (id: string) => unwrap(await apiRequest(`/wa-numbers/${id}/webhooks/test`, post()), t('Failed to send a test webhook'));
+export const sendTestWebhook = async (id: string) =>
+  unwrap(await apiRequest<{ id: string }>(`/wa-numbers/${id}/webhooks/test`, post()), t('Failed to send a test webhook'));
 export const retryWebhooks = async (id: string) =>
   unwrap(await apiRequest<{ retried: number }>(`/wa-numbers/${id}/webhooks/retry`, post()), t('Failed to retry the webhooks'));
