@@ -46,6 +46,7 @@ import { SourcePanel } from "@/components/SourcePanel";
 import { ProjectMembersCard } from "@/components/ProjectMembersCard";
 import { PageLayout } from "@/components/PageLayout";
 import { RenameAppDialog, RenameProjectDialog } from "@/components/RenameProjectDialog";
+import { ChangeRepositoryDialog } from "@/components/ChangeRepositoryDialog";
 import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { ApplicationSettingsForm, Field, SystemRequirements } from "./ApplicationDetail";
 import { useToast } from "@/hooks/use-toast";
@@ -448,7 +449,10 @@ export default function ProjectDetail() {
             </Field>
             {project.repository && (
               <Field label={t("Repository")}>
-                <span className="break-all font-mono text-xs">{project.repository}</span>
+                <span className="flex items-center gap-1">
+                  <span className="break-all font-mono text-xs">{project.repository}</span>
+                  <ChangeRepositoryDialog project={project} />
+                </span>
               </Field>
             )}
             <Field label={t("Built by")}>{imported ? t("Its server (imported)") : APP_NAME}</Field>

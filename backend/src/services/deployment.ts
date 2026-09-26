@@ -315,6 +315,8 @@ export class DeploymentService {
 
       if (await afs.exists(join(sourcesDir, '.git'))) {
         console.log(`Pulling latest changes for ${repository} on branch ${branch}`);
+        // the project's repository may have moved (POST /sources/:id/repository): origin follows it
+        await gitIn(afs, sourcesDir, ['remote', 'set-url', 'origin', repository]);
         // --depth=1: the checkout is built from, never browsed — no history on disk
         await gitIn(afs, sourcesDir, [...auth.args, 'fetch', '--depth=1', 'origin'], auth.env);
         await gitIn(afs, sourcesDir, ['reset', '--hard', `origin/${branch}`]);

@@ -116,11 +116,17 @@ export const getProject = async (id: string): Promise<Project> => {
 
 export const updateProject = async (
   id: string,
-  data: Partial<{ name: string; repository: string; branch: string; gitAccountId: string | null; organizationId: string | null }>,
+  data: Partial<{ name: string; branch: string; gitAccountId: string | null; organizationId: string | null }>,
 ): Promise<Project> => {
   const response = await apiRequest<Project>(`/sources/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Could not update the app'));
+};
+
+/** Move the app to the repository's new URL — refused unless what is live is in its history. */
+export const changeProjectRepository = async (id: string, repository: string, gitAccountId: string | null): Promise<void> => {
+  const response = await apiRequest(`/sources/${id}/repository`, { method: "POST", body: JSON.stringify({ repository, gitAccountId }) });
+  if (!response.success) throw new Error(response.error || t("Could not change the repository"));
 };
 
 /** Branches, their newest commits, and what is live. */

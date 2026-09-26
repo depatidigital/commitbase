@@ -922,6 +922,27 @@ export function parseLsRemote(output: string): RemoteBranches {
 }
 
 /** Branches of any remote, without cloning. A private repo needs `auth`. */
+/**
+ * Which of `shas` are not in the history of `branch` on `repository` — none
+ * means the repository carries on from them (a move, not a rewrite). A treeless
+ * bare clone: every commit of the branch, no trees or blobs.
+ */
+export async function missingFromHistory(repository: string, branch: string, shas: string[], auth: RemoteAuth = ANONYMOUS): Promise<string[]> {
+  if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('-')) throw new Error('Invalid branch name');
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cb-history-'));
+  try {
+    const clone = remoteGit(auth, ['clone', '--quiet', '--bare', '--filter=tree:0', '--single-branch', '--no-tags', '--branch', branch, repository, tmp]);
+    await execFileAsync('git', clone.argv, { timeout: 300_000, env: clone.env });
+    // rev-list without --objects reads commits only, so nothing is fetched lazily
+    const { stdout } = await execFileAsync('git', ['-C', tmp, 'rev-list', 'HEAD'], { env: GIT_ENV, maxBuffer: 256 * 1024 * 1024 });
+    const history = new Set(stdout.split('\n'));
+    return shas.filter((sha) => !history.has(sha));
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export async function listRemoteBranches(repository: string, auth: RemoteAuth = ANONYMOUS): Promise<RemoteBranches> {
   if (!REPOSITORY_URL.test(repository)) throw new Error('Invalid repository URL');
   const lsRemote = remoteGit(auth, ['ls-remote', '--symref', repository]);

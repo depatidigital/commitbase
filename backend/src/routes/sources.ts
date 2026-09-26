@@ -7,7 +7,7 @@ import { canManageOrg, canManageProject, isPlatformAdmin, projectScope } from '.
 import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
-import { listRemoteBranches, parseLsRemote } from '../lib/projectDetect';
+import { listRemoteBranches, missingFromHistory, parseLsRemote } from '../lib/projectDetect';
 import { isBranchName, setSourceOrganization, sourceBucket, sourceName } from '../lib/sources';
 import { healthFor, isServing } from '../services/heartbeatService';
 import { launchDeploy } from '../services/deployLaunch';
@@ -312,22 +312,22 @@ router.delete('/:id/members/:userId', authenticateToken, async (req: Authenticat
 });
 
 /**
- * Rename, point at another repository or branch, change its clone account, or
- * (platform admin) give it to another organization — its apps go with it. An
- * imported checkout's repository and branch are what is on the server: the
- * sync reads them, nothing here writes them.
+ * Rename, point at another branch, change its clone account, or (platform
+ * admin) give it to another organization — its apps go with it. An imported
+ * checkout's branch is what is on the server: the sync reads it, nothing here
+ * writes it. The repository moves through POST /:id/repository, which checks it.
  */
 router.patch('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const source = await findSource(req, res);
     if (!source) return;
-    const { name, repository, branch, gitAccountId, organizationId } = req.body ?? {};
+    const { name, branch, gitAccountId, organizationId } = req.body ?? {};
 
-    const code = repository !== undefined || branch !== undefined || gitAccountId !== undefined;
+    const code = branch !== undefined || gitAccountId !== undefined;
     if (code && source.path) {
       return res.status(400).json({
         success: false,
-        error: 'The repository and branch of a project imported from its server are what is checked out there',
+        error: 'The branch of a project imported from its server is what is checked out there',
       } as ApiResponse);
     }
     // the clone account may only be one the caller connected themselves —
@@ -351,7 +351,6 @@ router.patch('/:id', authenticateToken, async (req: AuthenticatedRequest, res: R
       data: {
         // '' goes back to the derived name
         ...(name !== undefined && { name: String(name ?? '').trim() || null }),
-        ...(repository !== undefined && { repository: String(repository ?? '').trim() || null }),
         ...(branch !== undefined && { branch: String(branch ?? '').trim() || 'main' }),
         ...(gitAccountId !== undefined && { gitAccountId: gitAccountId || null }),
       },
@@ -362,6 +361,85 @@ router.patch('/:id', authenticateToken, async (req: AuthenticatedRequest, res: R
     return res.json({ success: true, data: present(updated), message: 'Project updated' } as ApiResponse);
   } catch (error) {
     console.error('Error updating project:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Point the project at the repository's new URL — a move (another host, a
+ * renamed or transferred repository), never another history: every commit that
+ * is live must be in the new URL's `branch`, or it refuses. Force-pushed or
+ * rewritten history is refused too, with no override. The clone account moves
+ * with it (the one that can read the new URL). Nothing is deployed:
+ * the next pull or deploy fetches from the new URL. An imported checkout is
+ * checked and re-pointed on its server, with that server's git credentials.
+ */
+router.post('/:id/repository', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const source = await findSource(req, res);
+    if (!source) return;
+    if (!source.repository) {
+      return res.status(400).json({ success: false, error: 'This project is not from a repository' } as ApiResponse);
+    }
+    const repository = String(req.body?.repository ?? '').trim();
+    if (!/^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/.test(repository)) {
+      return res.status(400).json({ success: false, error: 'Enter a git URL (https://, ssh:// or git@)' } as ApiResponse);
+    }
+    // the account that reads it, as the add-app form found it (POST /applications/branches); none = public.
+    // Only one the caller connected themselves, or a source could be pointed at somebody else's token.
+    const gitAccountId = req.body?.gitAccountId ? String(req.body.gitAccountId) : null;
+    if (gitAccountId && !(await prisma.gitAccount.findFirst({ where: { id: gitAccountId, userId: req.user!.userId } }))) {
+      return res.status(403).json({ success: false, error: 'Unknown git account' } as ApiResponse);
+    }
+    if (repository === source.repository) return res.json({ success: true, message: 'The repository is unchanged' } as ApiResponse);
+    const branch = source.branch || 'main';
+    const differs = (missing: string[]) =>
+      res.status(409).json({
+        success: false,
+        error: `${repository} (${branch}) does not contain ${missing.map((sha) => sha.slice(0, 7)).join(', ')}, which is live — it must be the same repository with the same history`,
+      } as ApiResponse);
+
+    if (source.path) {
+      if (!(await maySwitchBranch(req, source))) {
+        return res.status(403).json({ success: false, error: "Only the organization's owner or an admin can change the repository" } as ApiResponse);
+      }
+      if (!source.serverId) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);
+      const server = await prisma.server.findUnique({ where: { id: source.serverId } });
+      if (!server) return res.status(409).json({ success: false, error: 'This project is not linked to a server — sync the apps again' } as ApiResponse);
+      // the fetch writes into .git: as its owner, like a pull
+      const refused = await notOwner(server, source.path);
+      if (refused) return res.status(409).json({ success: false, error: refused } as ApiResponse);
+      const git = (args: string[]) => checkoutGit(server, source.path!, args);
+      try {
+        await git(['fetch', '--no-tags', repository, branch]);
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: `Could not read ${repository}: ${String(error?.stderr || error?.message || error).trim()}`.slice(0, 500) } as ApiResponse);
+      }
+      const head = (await git(['rev-parse', 'HEAD'])).stdout.trim();
+      // exit 1: HEAD is not in what was fetched
+      if (!(await git(['merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD']).then(() => true, () => false))) return differs([head]);
+      await git(['remote', 'set-url', 'origin', repository]);
+    } else {
+      if (!(await canManageProject(req, source))) return res.status(403).json({ success: false, error: 'Insufficient permissions' } as ApiResponse);
+      // every service's live release; never deployed = nothing to keep
+      const live = [...new Set(source.applications.map((app) => app.activeRelease?.commitSha).filter((sha): sha is string => !!sha))];
+      if (live.length) {
+        let missing: string[];
+        try {
+          missing = await missingFromHistory(repository, branch, live, await gitAuthFor(gitAccountId));
+        } catch (error: any) {
+          return res.status(400).json({ success: false, error: `Could not read ${repository}: ${String(error?.stderr || error?.message || error).trim()}`.slice(0, 500) } as ApiResponse);
+        }
+        if (missing.length) return differs(missing);
+      }
+      // the checkout's origin follows at the next sync (syncRepository)
+    }
+
+    // an imported checkout is read with its server's credentials: its account stays as it was
+    await prisma.source.update({ where: { id: source.id }, data: { repository, ...(!source.path && { gitAccountId }) } });
+    return res.json({ success: true, message: 'Repository changed' } as ApiResponse);
+  } catch (error) {
+    console.error('Error changing the repository:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

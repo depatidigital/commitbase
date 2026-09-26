@@ -24,29 +24,19 @@ import {
   Github,
   Gitlab,
   Lock,
-  Search,
   Upload,
   FileCode,
   Server,
   Code2,
   Check,
-  ChevronsUpDown,
   FolderGit2,
   Layers,
 } from "lucide-react";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveOrg } from "@/lib/api";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { SourcePicker } from "@/components/SourcePicker";
+import { RepositoryCombobox } from "@/components/RepositoryCombobox";
 import { getOrganizationsPage } from "@/lib/organizations";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
 import { PageLayout } from "@/components/PageLayout";
@@ -61,7 +51,7 @@ import {
   listRepositoryBranches,
   type UploadEntry,
 } from "@/lib/applications";
-import { getGithubAuthUrl, getGitlabAuthUrl, listGitRepositories, type GitRepositoryListing } from "@/lib/git";
+import { getGithubAuthUrl, getGitlabAuthUrl } from "@/lib/git";
 import { t } from "@/lib/i18n";
 import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { getServers } from "@/lib/servers";
@@ -76,8 +66,6 @@ const slugify = (value?: string | null) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 63);
 
-// what the backend accepts as a repository (projectDetect.ts REPOSITORY_URL)
-const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
 // Radix Select has no empty value: the repository root, in the folder picker
 const ROOT_FOLDER = "__root__";
 
@@ -143,31 +131,6 @@ export default function AddProject() {
     setPickedFiles(entries);
     setExcluded(new Set());
   };
-  const [repoOpen, setRepoOpen] = useState(false);
-  const [repoSearch, setRepoSearch] = useState("");
-  // every repo the connected accounts can see — cmdk searches the list locally
-  const repoListing = useQuery({
-    queryKey: ["git", "repositories"],
-    queryFn: listGitRepositories,
-    enabled: sourceMode === "git",
-    // the backend answers from its own cache; five minutes keeps the picker instant across pages
-    staleTime: 5 * 60_000,
-  });
-  const repoGroups = useMemo(() => {
-    const groups = new Map<string, { key: string; heading: string; repositories: GitRepositoryListing["repositories"] }>();
-    for (const repo of repoListing.data?.repositories ?? []) {
-      const group = groups.get(repo.accountId) ?? {
-        key: repo.accountId,
-        heading: `${repo.provider === "github" ? "GitHub" : "GitLab"} · ${repo.account}`,
-        repositories: [],
-      };
-      group.repositories.push(repo);
-      groups.set(repo.accountId, group);
-    }
-    return [...groups.values()];
-  }, [repoListing.data]);
-  // the chosen repository, when it came from the list — shown by name, not URL
-  const pickedRepo = repoListing.data?.repositories.find((repo) => repo.cloneUrl === formData.repository);
   const [detected, setDetected] = useState<DetectedProject | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState("");
@@ -664,120 +627,12 @@ export default function AddProject() {
                 {sourceMode === "git" && (
                   <>
                     <div className="space-y-1.5">
-                      {/* one field: pick from the connected accounts, or paste any URL into its search */}
-                      <Popover
-                        open={repoOpen}
-                        onOpenChange={(open) => {
-                          setRepoOpen(open);
-                          if (!open) setRepoSearch("");
-                        }}
-                      >
-                        <PopoverTrigger asChild>
-                          <Button
-                            id="repository"
-                            type="button"
-                            variant="outline"
-                            role="combobox"
-                            aria-expanded={repoOpen}
-                            className="h-9 w-full justify-between bg-card px-3 font-normal"
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              {pickedRepo ? (
-                                pickedRepo.provider === "github" ? (
-                                  <Github className="h-4 w-4 shrink-0" />
-                                ) : (
-                                  <Gitlab className="h-4 w-4 shrink-0" />
-                                )
-                              ) : (
-                                <Search className="h-4 w-4 shrink-0 opacity-50" />
-                              )}
-                              <span className={`truncate ${formData.repository ? "" : "text-muted-foreground"}`}>
-                                {pickedRepo?.fullName || formData.repository || t("Select a repository or paste a URL")}
-                              </span>
-                            </span>
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] p-0" align="start">
-                          <Command>
-                            <CommandInput
-                              placeholder={t("Search your repositories, or paste a Git URL…")}
-                              value={repoSearch}
-                              onValueChange={setRepoSearch}
-                            />
-                            <CommandList>
-                              {/* a pasted URL is always offered, whatever the list filter says */}
-                              {REPOSITORY_URL.test(repoSearch.trim()) && (
-                                <CommandGroup>
-                                  <CommandItem
-                                    forceMount
-                                    value={`url:${repoSearch.trim()}`}
-                                    onSelect={() => {
-                                      handleInputChange("repository", repoSearch.trim());
-                                      setRepoOpen(false);
-                                      setRepoSearch("");
-                                    }}
-                                  >
-                                    <GitBranch className="mr-2 h-4 w-4 shrink-0" />
-                                    <span className="truncate">
-                                      {t("Use this URL: {url}", { url: repoSearch.trim() })}
-                                    </span>
-                                  </CommandItem>
-                                </CommandGroup>
-                              )}
-                              {repoListing.isLoading ? (
-                                <p className="p-4 text-sm text-muted-foreground">{t("Loading repositories…")}</p>
-                              ) : (
-                                !REPOSITORY_URL.test(repoSearch.trim()) && (
-                                  <CommandEmpty>
-                                    {repoListing.data?.accounts.length
-                                      ? t("No repositories found — paste the URL instead.")
-                                      : t("No GitHub or GitLab account connected. Connect one below, or paste a public repository URL.")}
-                                  </CommandEmpty>
-                                )
-                              )}
-                              {repoGroups.map(({ key, heading, repositories }) => (
-                                <CommandGroup key={key} heading={heading}>
-                                  {repositories.map((repo) => (
-                                    <CommandItem
-                                      key={`${repo.accountId}:${repo.fullName}`}
-                                      value={`${repo.fullName} ${repo.accountId}`}
-                                      onSelect={() => {
-                                        handleInputChange("repository", repo.cloneUrl);
-                                        setRepoOpen(false);
-                                        setRepoSearch("");
-                                      }}
-                                    >
-                                      <Check
-                                        className={`mr-2 h-4 w-4 shrink-0 ${
-                                          formData.repository === repo.cloneUrl ? "opacity-100" : "opacity-0"
-                                        }`}
-                                      />
-                                      <span className="flex-1 truncate">{repo.fullName}</span>
-                                      {repo.private && <Lock className="ml-2 h-3 w-3 shrink-0 text-muted-foreground" />}
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              ))}
-                            </CommandList>
-                          </Command>
-                          {!!repoListing.data?.errors.length && (
-                            <p className="border-t px-3 py-2 text-xs text-destructive">
-                              {repoListing.data.errors.join(" · ")}
-                            </p>
-                          )}
-                          <div className="flex flex-wrap gap-1 border-t p-2">
-                            <Button type="button" variant="ghost" size="sm" onClick={handleConnectGithub}>
-                              <Github className="h-4 w-4 mr-2" />
-                              {t("Connect GitHub")}
-                            </Button>
-                            <Button type="button" variant="ghost" size="sm" onClick={handleConnectGitlab}>
-                              <Gitlab className="h-4 w-4 mr-2" />
-                              {t("Connect GitLab")}
-                            </Button>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                      <RepositoryCombobox
+                        id="repository"
+                        value={formData.repository}
+                        onChange={(url) => handleInputChange("repository", url)}
+                        onConnect={(provider) => void (provider === "github" ? handleConnectGithub() : handleConnectGitlab())}
+                      />
                       {branchesLoading ? (
                         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
