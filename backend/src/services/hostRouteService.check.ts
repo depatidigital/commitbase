@@ -79,3 +79,11 @@ assert.deepStrictEqual(mixed[0].handle.map((h: any) => h.handler), ['static_resp
 assert.deepStrictEqual(mixed[1].handle, serveHandle(proxy));
 
 console.log('hostRouteService: ok');
+
+// a static release served under a path: its files are at the release root, so the prefix goes
+const site = composeHostHandle([
+  { path: '/dashboard/*', stripPrefix: false, serve: { kind: 'bucket', origin: 'pub-x.r2.dev/sites/a/r1' } },
+  { path: '', stripPrefix: false, serve: { kind: 'proxy', port: 4100 } },
+]);
+assert.deepStrictEqual(site[0].routes[0].handle[0], { handler: 'rewrite', strip_path_prefix: '/dashboard' });
+assert.strictEqual(JSON.stringify(site[0].routes[1]).includes('strip_path_prefix'), false);

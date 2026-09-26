@@ -94,6 +94,14 @@ export function serveHandle(serve: Serve): any[] {
  * Several: a subroute, one entry per path in precedence order; a stripped
  * prefix is rewritten away first (Caddy's handle_path). Pure.
  */
+/**
+ * Whether the path prefix is dropped before the app sees the request. A static
+ * site built here (a bucket release) always: its files sit at the release root,
+ * never under the prefix it is served at — /dashboard/assets/x.js is its
+ * assets/x.js. Everything else, as the binding says. Pure.
+ */
+const stripsPrefix = (binding: Binding) => !binding.redirectTo && (binding.stripPrefix || binding.serve?.kind === 'bucket');
+
 export function composeHostHandle(bindings: Binding[]): any[] {
   const sorted = [...bindings].sort(byPrecedence);
   if (sorted.length === 1 && !sorted[0]!.path) return bindingHandle(sorted[0]!);
@@ -104,7 +112,7 @@ export function composeHostHandle(bindings: Binding[]): any[] {
         ...(binding.path && { match: [{ path: [binding.path] }] }),
         handle: [
           // a redirect keeps the path as asked: the other name serves it whole
-          ...(binding.path && binding.stripPrefix && !binding.redirectTo ? [{ handler: 'rewrite', strip_path_prefix: pathPrefix(binding.path) }] : []),
+          ...(binding.path && stripsPrefix(binding) ? [{ handler: 'rewrite', strip_path_prefix: pathPrefix(binding.path) }] : []),
           ...bindingHandle(binding),
         ],
         terminal: true,
