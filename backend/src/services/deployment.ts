@@ -115,6 +115,24 @@ const q = (v: string) => `'${String(v).replace(/'/g, `'\\''`)}'`;
  * app's build never sees them. A failing step fails the script (set -e holds
  * inside the subshell, and its exit status fails the outer script). Pure.
  */
+/**
+ * An install that insists on the lockfile (`--frozen-lockfile`, `npm ci`), with a
+ * second try that does not: a lockfile left behind by a package.json edit (a
+ * dependency removed, not re-locked) should not fail the deploy. The log says
+ * so, to get the lockfile committed. Any other install as it is. Pure.
+ * ponytail: retries on any failure of the strict install, not only a stale lockfile — one more attempt is harmless.
+ */
+export function lenientInstall(step: string): string {
+  const loose = step.includes('--frozen-lockfile')
+    ? step.replace(/--frozen-lockfile/g, step.includes('pnpm') ? '--no-frozen-lockfile' : '').replace(/ {2,}/g, ' ').trim()
+    : /\bnpm ci\b/.test(step)
+      ? step.replace(/\bnpm ci\b/, 'npm install')
+      : null;
+  if (!loose) return step;
+  const note = 'Install from the lockfile failed. If the lockfile is out of date with package.json, commit the updated one. Installing from package.json instead:';
+  return `${step} || { echo; echo ${q(note)}; echo ${q('$ ' + loose)}; ${loose}; }`;
+}
+
 export function buildBlock(opts: {
   heading: string | null;
   nodeVersion: string | null;
@@ -126,7 +144,7 @@ export function buildBlock(opts: {
   /** Python: the virtualenv the block's commands run in — created by its first install step */
   venv?: string | null;
 }): string[] {
-  const run = (step: string) => ['  echo', `  echo ${q('$ ' + step)}`, `  ${step}`];
+  const run = (step: string, command = step) => ['  echo', `  echo ${q('$ ' + step)}`, `  ${command}`];
   return [
     ...(opts.heading ? ['', `echo ${q(`==> ${opts.heading}`)}`] : []),
     '(',
@@ -145,9 +163,9 @@ export function buildBlock(opts: {
           '  echo "python $(python3 -V 2>&1 || echo missing) at $(command -v python3 || true)"',
         ]
       : []),
-    ...(opts.installs.length > 0 ? [`  cd ${q(opts.installDir)}`, ...opts.installs.flatMap(run)] : []),
+    ...(opts.installs.length > 0 ? [`  cd ${q(opts.installDir)}`, ...opts.installs.flatMap((step) => run(step, lenientInstall(step)))] : []),
     `  cd ${q(opts.workDir)}`,
-    ...opts.steps.flatMap(run),
+    ...opts.steps.flatMap((step) => run(step)),
     ')',
   ];
 }

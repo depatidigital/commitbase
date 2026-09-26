@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildFailureText, buildScript, dotenvLine, guardedPrune, pruneOf } from './deployment';
+import { buildBlock, buildFailureText, buildScript, dotenvLine, guardedPrune, lenientInstall, pruneOf } from './deployment';
 import { parseEnv } from 'util';
 
 // .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
@@ -125,3 +125,16 @@ if (process.platform !== 'win32') {
   assert.ok(out.includes('cache=/tmp/pip-cache'), out);
   console.log('deployment: python virtualenv block OK');
 }
+
+// a lockfile out of date with package.json does not fail the install: a second, unlocked try
+assert.ok(lenientInstall('pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true').includes('|| {'));
+assert.ok(lenientInstall('pnpm install --frozen-lockfile --x').endsWith('pnpm install --no-frozen-lockfile --x; }'));
+assert.ok(lenientInstall('yarn install --frozen-lockfile').endsWith('yarn install; }'));
+assert.ok(lenientInstall('npm ci --no-audit --no-fund').endsWith('npm install --no-audit --no-fund; }'));
+assert.strictEqual(lenientInstall('npm install --no-audit --no-fund'), 'npm install --no-audit --no-fund');
+// and it runs: the strict try fails, the loose one's output follows
+{
+  const out = execFileSync('bash', ['-c', `set -euo pipefail; ${lenientInstall('false --frozen-lockfile').replace('false --no-frozen-lockfile', 'echo loose-ran').replace(/false$/, '')}`], { encoding: 'utf8' });
+  assert.ok(out.includes('loose-ran'), out);
+}
+console.log('lenientInstall: ok');
