@@ -9,6 +9,7 @@ const GOOGLE_PROVIDER = 'google';
 // per-user tokens migrateGitAccounts.ts reads.
 const GITHUB_OAUTH_PROVIDER = 'github_oauth';
 const GITLAB_OAUTH_PROVIDER = 'gitlab_oauth';
+const LARIKA_GATEWAY_PROVIDER = 'larika_gateway';
 
 type Provider =
   | typeof RDASH_PROVIDER
@@ -16,7 +17,8 @@ type Provider =
   | typeof R2_PROVIDER
   | typeof GOOGLE_PROVIDER
   | typeof GITHUB_OAUTH_PROVIDER
-  | typeof GITLAB_OAUTH_PROVIDER;
+  | typeof GITLAB_OAUTH_PROVIDER
+  | typeof LARIKA_GATEWAY_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -164,3 +166,29 @@ export async function getGitOAuthConfig(provider: GitOAuthProvider) {
 
 export const setGitOAuthConfigValue = (provider: GitOAuthProvider, key: GitOAuthKey, value: string) =>
   setIntegrationConfigValue(gitOAuthRow(provider), key, value);
+
+export const LARIKA_GATEWAY_DEFAULT_URL = 'https://gateway.larika.id';
+export type LarikaGatewayKey = 'baseUrl' | 'adminKey' | 'adminPath';
+
+/**
+ * The WhatsApp gateway's management credentials. adminKey (x-admin-key) and
+ * adminPath (x-admin-path: its ADMIN_SECRET_PATH, which stands in for being on
+ * its IP allowlist) are stored secretBox-encrypted. Null until a key is saved.
+ */
+export async function getLarikaGatewayConfig() {
+  const [baseUrl, adminKey, adminPath] = await Promise.all([
+    getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'baseUrl'),
+    getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'adminKey'),
+    getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'adminPath'),
+  ]);
+  if (!adminKey) return null;
+  return {
+    baseUrl: (baseUrl || LARIKA_GATEWAY_DEFAULT_URL).replace(/\/+$/, ''),
+    adminKey: decrypt(adminKey),
+    adminPath: adminPath ? decrypt(adminPath) : null,
+  };
+}
+
+export const setLarikaGatewayValue = (key: LarikaGatewayKey, value: string) => setIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, key, value);
+export const getLarikaGatewayBaseUrl = async () =>
+  ((await getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'baseUrl')) || LARIKA_GATEWAY_DEFAULT_URL).replace(/\/+$/, '');

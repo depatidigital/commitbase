@@ -68,6 +68,7 @@ model Organization {
   domains          Domain[]
   applications     Application[]
   invites          Invite[]
+  waNumbers        WaNumber[]
   databases        Database[]
   databaseAccounts OrgDatabaseAccount[]
   nodes            OrgNode[]
@@ -1036,4 +1037,20 @@ model StorageDay {
 
   @@id([organizationId, day])
   @@map("storage_days")
+}
+
+/// A WhatsApp number on the Larika gateway, owned by a workspace. The gateway
+/// has no tenants — this row is what says whose it is. Its status, QR and API
+/// keys live on the gateway (instanceId), never here.
+model WaNumber {
+  id             String       @id @default(cuid())
+  instanceId     String       @unique
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdById    String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@map("wa_numbers")
 }
