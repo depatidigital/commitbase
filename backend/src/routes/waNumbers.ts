@@ -3,7 +3,7 @@ import { AuthenticatedRequest, authenticateToken } from '../middleware/auth';
 import { ApiResponse } from '../types';
 import { prisma } from '../lib/prisma';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } from '../lib/scope';
-import { gateway, gatewayFailure, gatewayStats } from '../services/larikaGatewayService';
+import { gateway, GatewayError, gatewayFailure, gatewayStats } from '../services/larikaGatewayService';
 import { getLarikaGatewayBaseUrl } from '../services/integrationConfigService';
 
 // A workspace's WhatsApp numbers on the Larika gateway ("Whatsapp Gateway API"):
@@ -171,13 +171,18 @@ router.post('/:id/test', async (req: AuthenticatedRequest, res: Response) => {
     const text = String(req.body?.text ?? '').trim();
     if (!/^\+?[0-9][0-9\s-]{6,20}$/.test(to)) return res.status(400).json({ success: false, error: 'Enter a phone number, like 08123456789' } as ApiResponse);
     if (!text || text.length > 4096) return res.status(400).json({ success: false, error: 'Write a message (up to 4096 characters)' } as ApiResponse);
-    const message = await gateway<{ id: string; status: string; error?: string | null }>(`/v1/instances/${row.instanceId}/messages`, {
+    // the gateway's answer as it gave it — the outbox row — sent or refused: the dialog shows it raw
+    const response = await gateway(`/v1/instances/${row.instanceId}/messages`, {
       method: 'POST',
-      body: { to: to.replace(/[\s-]/g, '').replace(/^\+/, ''), text, ref: 'larika-test', wait: 30 },
+      // no ref: it is the gateway's idempotency key (same ref → the old message, nothing sent), and each click is a new test
+      body: { to: to.replace(/[\s-]/g, '').replace(/^\+/, ''), text, wait: 30 },
       timeoutMs: 45_000,
     });
-    return res.json({ success: true, data: { id: message.id, status: message.status, error: message.error ?? null } } as ApiResponse);
+    return res.json({ success: true, data: { ok: true, response } } as ApiResponse);
   } catch (error) {
+    if (error instanceof GatewayError && error.body) {
+      return res.json({ success: true, data: { ok: false, error: error.message, response: error.body } } as ApiResponse);
+    }
     return fail(res, error);
   }
 });

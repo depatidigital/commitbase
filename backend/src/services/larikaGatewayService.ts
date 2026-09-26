@@ -11,6 +11,8 @@ export class GatewayError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** the gateway's JSON answer, when it gave one */
+    public body: unknown = null,
   ) {
     super(message);
   }
@@ -43,7 +45,7 @@ export async function gateway<T = any>(path: string, init: { method?: string; bo
   }
   if (!response.ok) {
     // the gateway's own words: ip_not_allowed, unauthorized, no_agent_online, agents_full…
-    throw new GatewayError(GATEWAY_ERRORS[data?.error] ?? data?.error ?? `Gateway answered ${response.status}`, response.status);
+    throw new GatewayError(GATEWAY_ERRORS[data?.error] ?? data?.error ?? `Gateway answered ${response.status}`, response.status, data);
   }
   return data as T;
 }

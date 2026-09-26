@@ -437,15 +437,21 @@ function TestDialog({ row, onClose }: { row: Pick<WaNumber, "id" | "name">; onCl
         {send.error ? (
           <p className="text-sm text-destructive">{(send.error as Error).message}</p>
         ) : result ? (
-          ["SENT", "DELIVERED", "READ"].includes(result.status) ? (
-            <p className="flex items-center gap-2 text-sm text-success">
-              <CheckCircle2 className="h-4 w-4" />
-              {t("Sent")}
-            </p>
-          ) : (
-            // still queued after 30 s: pacing or the node is busy — it goes out on its own
-            <p className="text-sm text-muted-foreground">{t("Queued ({status}) — it is sent as soon as the number's turn comes.", { status: result.status })}</p>
-          )
+          <div className="space-y-2">
+            {!result.ok ? (
+              <p className="text-sm text-destructive">{result.error}</p>
+            ) : ["SENT", "DELIVERED", "READ"].includes(String(result.response.status)) ? (
+              <p className="flex items-center gap-2 text-sm text-success">
+                <CheckCircle2 className="h-4 w-4" />
+                {t("Sent")}
+              </p>
+            ) : (
+              // still queued after 30 s: pacing or the node is busy — it goes out on its own
+              <p className="text-sm text-muted-foreground">{t("Queued ({status}) — it is sent as soon as the number's turn comes.", { status: String(result.response.status) })}</p>
+            )}
+            {/* what an app would get back from the same call */}
+            <pre className="max-h-60 overflow-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">{JSON.stringify(result.response, null, 2)}</pre>
+          </div>
         ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={send.isPending}>

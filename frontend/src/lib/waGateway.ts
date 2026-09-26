@@ -118,4 +118,7 @@ export const getWebhookSecret = async (id: string) =>
 export const rotateWebhookSecret = async (id: string) =>
   unwrap(await apiRequest<{ webhookSecret: string }>(`/wa-numbers/${id}/webhook-secret`, post()), t('Failed to rotate the webhook secret'));
 export const sendTestMessage = async (id: string, body: { to: string; text: string }) =>
-  unwrap(await apiRequest<{ id: string; status: string; error: string | null }>(`/wa-numbers/${id}/test`, post(body)), t('Failed to send the test message'));
+  unwrap(
+    await apiRequest<{ ok: boolean; error?: string; response: { status?: string; [key: string]: unknown } }>(`/wa-numbers/${id}/test`, post(body)),
+    t('Failed to send the test message'),
+  );
