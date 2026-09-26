@@ -511,6 +511,20 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
         installCommand: '',
       };
     }
+    // Vite without a package.json here: a monorepo folder built with the root's install
+    if (VITE_CONFIGS.some((name) => files[name] !== undefined)) {
+      const pm = packageManagerOf(files, {}, chosen);
+      return base({
+        type: 'STATIC',
+        framework: 'vite',
+        label: 'Vite',
+        packageManager: pm,
+        installCommand: installCommandOf(pm, files),
+        buildCommand: 'npx --no-install vite build',
+        outputDir: 'dist',
+        nodeVersion,
+      });
+    }
     if (files['index.html'] !== undefined) {
       return base({ type: 'STATIC', framework: 'html', label: 'Static HTML', outputDir: '.' });
     }
@@ -678,7 +692,11 @@ export async function detectProject(
   const own = await readDetectFiles(dir, read);
   if (!root || path.posix.normalize(root) === path.posix.normalize(dir)) return detectFromFiles(own, prismaMigrations, packageManager);
 
-  const { files, installAtRoot } = withRootFiles(own, await readDetectFiles(root, read));
+  const rootFiles = await readDetectFiles(root, read);
+  const { files, installAtRoot: rootLock } = withRootFiles(own, rootFiles);
+  // a Vite folder with no package.json of its own: its dependencies are the root's
+  const hoistedVite = own['package.json'] === undefined && rootFiles['package.json'] !== undefined && VITE_CONFIGS.some((name) => own[name] !== undefined);
+  const installAtRoot = rootLock || hoistedVite;
   const detected = detectFromFiles(files, prismaMigrations, packageManager);
   return {
     ...detected,

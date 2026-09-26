@@ -81,6 +81,11 @@ assert.strictEqual(viteByConfig.framework, 'vite');
 assert.strictEqual(viteByConfig.outputDir, 'dist');
 assert.strictEqual(viteByConfig.buildCommand, 'npx --no-install vite build');
 
+// a Vite folder with no package.json of its own (the root's): still Vite, not Static HTML
+const viteFolder = detectFromFiles({ 'vite.config.ts': '', 'index.html': '', 'package-lock.json': '' });
+assert.strictEqual(viteFolder.framework, 'vite');
+assert.strictEqual(viteFolder.outputDir, 'dist');
+
 const pre = nvmPreamble('20.11', true).join(NL);
 assert.ok(pre.includes("nvm install '20.11'"));
 assert.ok(pre.includes("nvm use '20.11'"));

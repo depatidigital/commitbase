@@ -1226,6 +1226,10 @@ router.put('/:id', authenticateToken, validateRequest(UpdateApplicationSchema), 
     if (packageManager !== undefined && packageManager !== null && packageManager !== '' && !['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
       return res.status(400).json({ success: false, error: 'packageManager must be npm, pnpm, yarn or bun' });
     }
+    const cleanedRoot = rootDirectory === undefined ? null : cleanRootDirectory(rootDirectory);
+    if (cleanedRoot && !ROOT_DIRECTORY_RE.test(cleanedRoot)) {
+      return res.status(400).json({ success: false, error: 'Root directory is a folder in the repository, like apps/web' });
+    }
     if (!id) {
       return res.status(400).json({
         success: false,

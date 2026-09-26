@@ -1932,8 +1932,8 @@ export function ApplicationSettingsForm({ application, detected, inTabs = false 
         </div>
       )}
 
-      {/* Build Command */}
-      {buildable && (
+      {/* Build Command — a static site from a repository is built too (Vite, CRA…) */}
+      {(buildable || isStatic) && (
       <div className="space-y-2">
         <label className="text-sm font-medium">
           {t("Build Command")}

@@ -1200,7 +1200,8 @@ export class DeploymentService {
     if (!(await afs.isDirectory(workDir))) throw new Error(`There is no folder ${application.rootDirectory} in the repository`);
     const detected = await detectProject(workDir, afs.readText, undefined, sourcesDir, application.packageManager);
     const hasPackageJson = await afs.exists(join(workDir, 'package.json'));
-    const install = hasPackageJson ? detected.installCommand : '';
+    // a Vite folder whose package.json is the repository root's installs there
+    const install = hasPackageJson || detected.installAtRoot ? detected.installCommand : '';
     const build = application.buildCommand || detected.buildCommand || '';
 
     await afs.appendFile(buildLogPath, `Detected: ${detected.label}` + NL);

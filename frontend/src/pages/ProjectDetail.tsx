@@ -1224,10 +1224,19 @@ function ServiceBuildSection({ appId }: { appId: string }) {
           {host && !application.name.includes(host) && <span className="truncate font-mono text-xs font-normal text-muted-foreground">{host}</span>}
         </CardTitle>
         {editable && (
-          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-            <Pencil className="mr-2 h-3.5 w-3.5" />
-            {t("Edit build")}
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            {/* re-reads the repository: detection is cached, and a push may have changed what it finds */}
+            {application.repository && (
+              <Button variant="outline" size="sm" onClick={() => void detection.refetch()} disabled={detection.isFetching}>
+                <RefreshCw className={`mr-2 h-3.5 w-3.5 ${detection.isFetching ? "animate-spin" : ""}`} />
+                {t("Detect again")}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              <Pencil className="mr-2 h-3.5 w-3.5" />
+              {t("Edit build")}
+            </Button>
+          </div>
         )}
       </CardHeader>
       <CardContent className="space-y-1.5 text-sm">
@@ -1256,6 +1265,7 @@ function ServiceBuildSection({ appId }: { appId: string }) {
           </>
         ) : (
           <>
+            {detected && <MiniLine label={t("Detected")}>{detected.label}{detected.outputDir && application.type === "STATIC" ? ` → ${detected.outputDir}` : ""}</MiniLine>}
             <MiniLine label={t("Package manager")}>{value(application.packageManager, detected?.packageManager ?? t("Automatic"))}</MiniLine>
             <MiniLine label={t("Install Command")}>{value(application.installCommand, detected?.installCommand)}</MiniLine>
             <MiniLine label={t("Build Command")}>{value(application.buildCommand, detected?.buildCommand)}</MiniLine>
