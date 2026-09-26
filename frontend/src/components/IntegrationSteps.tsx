@@ -156,3 +156,28 @@ export const GIT_GUIDE: StepGroup[] = [
     steps: [t('Users can now connect their GitHub and GitLab accounts from Add service and pick repositories from them.')],
   },
 ];
+
+export const LARIKA_GATEWAY_GUIDE: StepGroup[] = [
+  {
+    steps: [
+      <>
+        {t("On the gateway's server, copy")} <Code>ADMIN_KEY</Code> {t('from its .env.')}
+      </>,
+      <>
+        {t("Add this panel's server IP to the gateway's")} <Code>ADMIN_IP_ALLOWLIST</Code>
+        {t(', or copy its')} <Code>ADMIN_SECRET_PATH</Code> {t('to use instead.')}
+      </>,
+      t('Paste them here and save: the panel checks them with one call to the gateway.'),
+    ],
+  },
+  {
+    steps: [
+      <>
+        {t('Pair the PCs that run WhatsApp under')} <Code>{t('Administration')} → WA Node</Code>.
+      </>,
+      <>
+        {t('Workspaces then add their numbers under')} <Code>Whatsapp Gateway API</Code>.
+      </>,
+    ],
+  },
+];

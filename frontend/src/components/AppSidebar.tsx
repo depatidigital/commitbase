@@ -1,4 +1,4 @@
-import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, type LucideIcon } from "lucide-react";
+import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MessageCircle, Smartphone, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
@@ -53,6 +53,11 @@ export function AppSidebar() {
         { title: t("Apps"), url: "/apps", icon: AppWindow },
       ],
     },
+    // services the platform offers a workspace's apps, beside hosting them
+    {
+      label: t("Services"),
+      items: [{ title: "Whatsapp Gateway API", url: "/wa-gateway", icon: MessageCircle }],
+    },
     {
       label: t("Infrastructure"),
       items: [
@@ -74,6 +79,7 @@ export function AppSidebar() {
       items: [
         { title: t("Servers"), url: "/servers", icon: HardDrive, show: superadmin },
         { title: t("Database Servers"), url: "/database-servers", icon: DatabaseZap, show: superadmin },
+        { title: "WA Node", url: "/wa-nodes", icon: Smartphone, show: superadmin },
         { title: t("Workspaces"), url: "/organizations", icon: Building2, show: admin },
         { title: t("Users"), url: "/users", icon: UserCog, show: admin },
         { title: t("Administration"), url: "/admin", icon: ShieldCheck, show: admin },
@@ -87,6 +93,7 @@ export function AppSidebar() {
     { title: "Cloudflare", url: "/integrations/cloudflare" },
     { title: "Google Search Console", url: "/integrations/google" },
     { title: "GitHub & GitLab", url: "/integrations/git" },
+    { title: "Larika Gateway", url: "/integrations/larika-gateway" },
   ];
 
   return (

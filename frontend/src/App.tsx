@@ -24,7 +24,10 @@ import IntegrationCardPage from "./pages/IntegrationCardPage";
 import { t } from "./lib/i18n";
 import { SearchConsoleSettingsCard } from "./components/SearchConsoleSettingsCard";
 import { GitOAuthSettingsCard } from "./components/GitOAuthSettingsCard";
-import { GIT_GUIDE, GOOGLE_GUIDE } from "./components/IntegrationSteps";
+import { GIT_GUIDE, GOOGLE_GUIDE, LARIKA_GATEWAY_GUIDE } from "./components/IntegrationSteps";
+import { LarikaGatewaySettingsCard } from "./components/LarikaGatewaySettingsCard";
+import WaNodes from "./pages/WaNodes";
+import WaGateway from "./pages/WaGateway";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import Team from "./pages/Team";
@@ -244,6 +247,25 @@ const App = () => (
                 </SuperAdminRoute>
               }
             />
+            <Route
+              path="integrations/larika-gateway"
+              element={
+                <SuperAdminRoute>
+                  <IntegrationCardPage title="Larika Gateway" description={t("The WhatsApp gateway behind WA Node and every workspace's Whatsapp Gateway API.")} guide={LARIKA_GATEWAY_GUIDE}>
+                    <LarikaGatewaySettingsCard />
+                  </IntegrationCardPage>
+                </SuperAdminRoute>
+              }
+            />
+            <Route
+              path="wa-nodes"
+              element={
+                <SuperAdminRoute>
+                  <WaNodes />
+                </SuperAdminRoute>
+              }
+            />
+            <Route path="wa-gateway" element={<WaGateway />} />
             <Route
               path="integrations/google"
               element={
