@@ -66,8 +66,9 @@ import { useApplicationStatus, useStartApplication, useStartExistingApplication,
 import { useApplicationLogs, useLiveLogs, useBuildLogStatus, useCreateTestBuildLog } from "@/hooks/useLogs";
 import { useDeploymentHistory, useReleases } from "@/hooks/useDeployments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, failedMigrationOf, getAppDetection, getStackServices, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
+import { Application, DetectedProject, UpdateApplicationData, UploadEntry, cancelDeployment, detectProject, failedMigrationOf, getAppDetection, getStackServices, getAppFolder, getApplication, hasBeenDeployed, hostList, hostsOf, setApplicationDisabled, runtimeLabel, startPm2Build, type Release, type StartOptions } from "@/lib/applications";
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
+import { AppTypeBadge } from "@/components/AppTypeBadge";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { ComposePreview, ComposeServiceSelect } from "@/components/ComposePreview";
 import { RestartDialog } from "@/components/RestartDialog";
@@ -1758,10 +1759,29 @@ const settingsOf = (application: Application) => ({
   systemPackages: application?.systemPackages ?? [],
   startCommand: application?.startCommand || '',
   port: application?.port?.toString() || '',
+  rootDirectory: application?.rootDirectory || '',
 });
 
-export function ApplicationSettingsForm({ application, detected, inTabs = false }: ApplicationSettingsFormProps) {
+export function ApplicationSettingsForm({ application, detected: detectedAtOpen, inTabs = false }: ApplicationSettingsFormProps) {
   const [formData, setFormData] = useState(() => settingsOf(application));
+  // the folder, read once typing pauses (every read clones the repository) — as Add service does
+  const hasFolder = !!application.repository && !!application.sourceId && !application.runtime;
+  const trimFolder = (value: string) => value.trim().replace(/^\/+|\/+$/g, '');
+  const [askedFolder, setAskedFolder] = useState(() => trimFolder(formData.rootDirectory));
+  useEffect(() => {
+    const timer = setTimeout(() => setAskedFolder(trimFolder(formData.rootDirectory)), 600);
+    return () => clearTimeout(timer);
+  }, [formData.rootDirectory]);
+  const folderChanged = askedFolder !== trimFolder(application.rootDirectory || '');
+  const folderDetection = useQuery({
+    queryKey: ['detect-folder', application.sourceId, askedFolder],
+    queryFn: () => detectProject({ sourceId: application.sourceId!, rootDirectory: askedFolder || undefined }),
+    enabled: hasFolder && folderChanged,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  // placeholders follow the folder being typed, else what the page detected
+  const detected = folderChanged ? folderDetection.data : detectedAtOpen;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const updateApp = useUpdateApplication();
@@ -1799,6 +1819,7 @@ export function ApplicationSettingsForm({ application, detected, inTabs = false 
         port: formData.port ? parseInt(formData.port) : undefined,
         // every type's: where its deploy writes the env
         composeEnvFiles: splitList(formData.composeEnvFiles),
+        ...(hasFolder && { rootDirectory: trimFolder(formData.rootDirectory) }),
         ...(isCompose && {
           composeFiles: splitList(formData.composeFiles),
           composePort: formData.composePort ? parseInt(formData.composePort) : null,
@@ -1838,6 +1859,33 @@ export function ApplicationSettingsForm({ application, detected, inTabs = false 
     // header (the dialog's), body that scrolls, footer that stays — the same shell as the env dialog
     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
       <DialogBody className="space-y-6">
+      {hasFolder && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">{t("Folder in the repository")}</label>
+          <Input value={formData.rootDirectory} onChange={(e) => handleInputChange('rootDirectory', e.target.value)} placeholder="apps/web" className="font-mono" />
+          <p className="text-xs text-muted-foreground">{t("Empty = the repository's root.")}</p>
+          {/* what it is, read from that folder */}
+          <p className="flex min-h-5 items-center gap-1.5 text-sm">
+            {(folderChanged && folderDetection.isFetching) || askedFolder !== trimFolder(formData.rootDirectory) ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                <span className="text-muted-foreground">{t("Reading the folder…")}</span>
+              </>
+            ) : folderChanged && folderDetection.error ? (
+              <span className="text-destructive">{(folderDetection.error as Error).message}</span>
+            ) : detected ? (
+              <>
+                <AppTypeBadge type={detected.type} />
+                <span className="text-muted-foreground">{detected.label}</span>
+                {detected.type !== application.type && (
+                  <span className="text-warning">{t("— not this service's type; add it as a new service instead")}</span>
+                )}
+              </>
+            ) : null}
+          </p>
+        </div>
+      )}
+
       {/* Package manager — the lockfile's unless chosen; pnpm over npm's lockfile runs pnpm import */}
       {buildable && (
         <div className="space-y-2">

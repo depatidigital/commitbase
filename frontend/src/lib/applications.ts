@@ -183,6 +183,8 @@ export interface UpdateApplicationData {
   /** null clears it, undefined leaves it alone. */
   gitAccountId?: string | null;
   branch?: string;
+  /** folder in the repository; '' = its root */
+  rootDirectory?: string;
   /** '' goes back to the lockfile's */
   packageManager?: string;
   /** '' goes back to the detected install */
