@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { isSuperAdmin } from "@/lib/auth";
 import { AlertTriangle, ArrowRight, CheckCircle, ExternalLink, Globe, Loader2, Plus, Settings2, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -388,9 +389,9 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: allChoices = [], isLoading } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
-  // a host keeps the app in its org: shared zones, and that org's own
+  // a host keeps the app in its org: shared zones, and that org's own — a superadmin gets every domain
   const choices = useMemo(
-    () => allChoices.filter((choice) => choice.shared || choice.organizationId === application.organizationId),
+    () => (isSuperAdmin() ? allChoices : allChoices.filter((choice) => choice.shared || choice.organizationId === application.organizationId)),
     [allChoices, application.organizationId],
   );
 
