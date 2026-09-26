@@ -46,7 +46,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     // live status from the gateway; the list still shows when it is down
     const stats = await gatewayStats().catch((error) => error as Error);
     const live = stats instanceof Error ? null : new Map(stats.numbers.map((n) => [n.id, n]));
-    const online = stats instanceof Error ? null : new Map(stats.agents.map((a) => [a.id, a.online]));
+    const nodes = stats instanceof Error ? null : new Map(stats.agents.map((a) => [a.id, a]));
     const data = await Promise.all(
       rows.map(async (row) => {
         const n = live?.get(row.instanceId);
@@ -60,7 +60,10 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
           phone: n?.phone ?? null,
           error: n?.error ?? null,
           sent24h: n?.sent24h ?? 0,
-          nodeOnline: n?.agentId ? (online?.get(n.agentId) ?? false) : false,
+          nodeName: n?.agentId ? (nodes?.get(n.agentId)?.name ?? null) : null,
+          nodeOnline: n?.agentId ? (nodes?.get(n.agentId)?.online ?? false) : false,
+          webhookUrl: n?.webhookUrl ?? null,
+          ipAllowlist: n?.ipAllowlist ?? [],
         };
       }),
     );

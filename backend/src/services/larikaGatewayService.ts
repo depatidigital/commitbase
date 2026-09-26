@@ -60,7 +60,7 @@ const GATEWAY_ERRORS: Record<string, string> = {
 
 /** The gateway's own summary: nodes and numbers with live status. */
 export type GatewayStats = {
-  numbers: Array<{ id: string; name: string; phone: string | null; status: string; qr: string | null; error: string | null; agentId: string | null; sent24h: number; updatedAt: string }>;
+  numbers: Array<{ id: string; name: string; phone: string | null; status: string; qr: string | null; error: string | null; agentId: string | null; webhookUrl: string | null; ipAllowlist: string[]; sent24h: number; updatedAt: string }>;
   agents: Array<{ id: string; name: string; capacity: number; version: string | null; lastSeenAt: string | null; paired: boolean; diskBytes: number | null; permanent: boolean; instances: number; online: boolean }>;
 };
 

@@ -53,7 +53,10 @@ export interface WaNumber {
   phone: string | null;
   error: string | null;
   sent24h: number;
+  nodeName: string | null;
   nodeOnline: boolean;
+  webhookUrl: string | null;
+  ipAllowlist: string[];
 }
 
 export interface WaNumberDetail {
