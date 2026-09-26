@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CodeExample } from "@/components/CodeExample";
 import { codeExamples, getWaApiCatalog, VERIFY_SNIPPET, type Catalog, type Endpoint } from "@/lib/waApiCatalog";
-import { callWaApi, getWaNumber, getWebhookDeliveries, retryWebhooks, type WaNumber, type WebhookDelivery } from "@/lib/waGateway";
+import { callWaApi, getWebhookDeliveries, retryWebhooks, type WaNumber, type WebhookDelivery } from "@/lib/waGateway";
 import { useToast } from "@/hooks/use-toast";
 import { locale, t } from "@/lib/i18n";
 
@@ -20,6 +20,11 @@ const METHOD_COLOR: Record<Endpoint["method"], string> = {
 };
 const CARD = "rounded-lg border bg-card p-4 shadow-sm";
 const json = (value: unknown) => JSON.stringify(value, null, 2);
+/**
+ * A catalog path after its number: /v1/messages → /messages, /v1/number → "". The
+ * gateway's older long form (/v1/instances/{id}/…) too, while a cached catalog has it.
+ */
+const numberSuffix = (path: string) => path.replace(/^\/v1\/(instances\/\{id\}|number)(?=$|\/)/, "").replace(/^\/v1(?=\/)/, "");
 // the playground can't delete or move a number — the Numbers tab does, keeping the panel in step
 const blocked = (e: Endpoint) => e.id === "delete" || e.id === "move";
 
@@ -197,7 +202,6 @@ function PlaygroundBody({
   const numbers = rows.filter((r) => r.canManage);
   const [picked, setNumberId] = useState("");
   const numberId = numbers.some((r) => r.id === picked) ? picked : ((numbers.find((r) => r.status === "ONLINE") ?? numbers[0])?.id ?? "");
-  const { data: number } = useQuery({ queryKey: ["wa-number", numberId], queryFn: () => getWaNumber(numberId), enabled: !!numberId, retry: false });
   const ep = endpoints.find((e) => e.id === endpointId) ?? endpoints[0];
   const [vars, setVars] = useState<Vars>(loadVars);
   const [query, setQuery] = useState<Record<string, string>>({});
@@ -226,7 +230,8 @@ function PlaygroundBody({
   }, [ep]);
 
   const vals = values(vars);
-  const path = ep ? fill(ep.path.replace("/v1/instances/{id}", ""), vals, true) : "";
+  // the part after the number: what the panel's proxy calls (with the admin key, naming the number)
+  const path = ep ? fill(numberSuffix(ep.path), vals, true) : "";
   const filledQuery = Object.fromEntries(Object.entries(query).map(([k, v]) => [k, fill(v, vals)]));
   const qs = new URLSearchParams(Object.entries(filledQuery).filter(([, v]) => v !== "")).toString();
   const filledBody = fill(body, vals);
@@ -236,7 +241,8 @@ function PlaygroundBody({
   } catch (e) {
     bodyError = (e as Error).message;
   }
-  const url = `${gatewayUrl}/v1/instances/${number?.instanceId ?? "{id}"}${path}${qs ? `?${qs}` : ""}`;
+  // what an app calls: its key picks the number, no id in the URL
+  const url = `${gatewayUrl}/v1${path || "/number"}${qs ? `?${qs}` : ""}`;
   // tags this call uses whose variable is still empty
   const used = ep ? [...new Set([...(ep.path + JSON.stringify(query) + body).matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]))].filter((n): n is keyof Vars => n in EMPTY) : [];
   const missing = used.filter((n) => !vals[n]);
@@ -295,7 +301,7 @@ function PlaygroundBody({
           <p className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
             {t("All calls go to")}{" "}
             <code className="font-mono text-foreground">
-              {gatewayUrl || "…"}/v1/instances/{"{id}"}/…
+              {gatewayUrl || "…"}/v1/…
             </code>{" "}
             {t("with the number's API key in")} <code className="font-mono text-foreground">Authorization: Bearer lwg_…</code>.
           </p>

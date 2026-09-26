@@ -354,9 +354,8 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
   const online = rows.find((r) => r.status === "ONLINE");
   const unlinked = rows.find((r) => r.canManage && r.status && r.status !== "ONLINE" && r.status !== "MISSING");
   const example = online ?? rows[0];
-  // the example number's id, so the calls below paste as is
-  const { data: detail } = useNumber(example?.id ?? "", false, !!example);
-  const base = `${gatewayUrl}/v1/instances/${detail?.instanceId ?? "{id}"}`;
+  // the key picks the number: one base URL for every number
+  const base = `${gatewayUrl}/v1`;
   // the number whose webhook the test checks: the example if it has one, else the first that does
   const hooked = example?.webhookUrl ? example : rows.find((r) => r.canManage && r.webhookUrl);
 
@@ -369,7 +368,7 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
         </div>
         {gatewayUrl ? <CopyField value={gatewayUrl} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         <p className="text-xs text-muted-foreground">
-          {t("Every call goes to")} <code className="font-mono">/v1/instances/{"{id}"}/…</code> {t("with the number's own API key.")}{" "}
+          {t("Every call goes to")} <code className="font-mono">/v1/…</code> {t("with the number's own API key: the key picks the number.")}{" "}
           <button type="button" onClick={onApi} className="text-primary underline-offset-2 hover:underline">
             {t("Full API reference")}
           </button>
@@ -665,7 +664,7 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
             <>
               <section className="space-y-2">
                 <Label>{t("Base URL")}</Label>
-                <CopyField value={`${number.gatewayUrl}/v1/instances/${number.instanceId}`} />
+                <CopyField value={`${number.gatewayUrl}/v1`} />
                 <p className="text-xs text-muted-foreground">
                   {t("Send the key as")} <code className="font-mono">x-api-key</code>.{" "}
                   <button type="button" onClick={onApi} className="text-primary underline-offset-2 hover:underline">
@@ -673,7 +672,7 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
                   </button>
                 </p>
                 <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
-                  {`curl -X POST ${number.gatewayUrl}/v1/instances/${number.instanceId}/messages \\
+                  {`curl -X POST ${number.gatewayUrl}/v1/messages \\
   -H "x-api-key: lwg_…" -H "content-type: application/json" \\
   -d '{"to":"08123456789","text":"Halo!"}'`}
                 </pre>

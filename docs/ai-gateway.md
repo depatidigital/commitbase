@@ -4,7 +4,9 @@ Workspaces get an OpenAI-compatible API at **ai.larika.id**. The engine is its
 own service — **larika-ai-gateway**, a separate repo built like
 larika-wa-gateway; its README holds the engine's design and the concerns.
 
-Status: **planned**.
+Status: **built, not deployed.** Wallet, billing loop, spend caps, the workspace
+AI API page, the superadmin page (settings, balances, credit by hand). **Not
+built:** paid top-up (QRIS, PPN) — until then a superadmin credits wallets by hand.
 
 ```
 workspace app ──Bearer lk_…──► larika-ai-gateway ──► providers
@@ -19,38 +21,9 @@ payment fees, payments.
 
 ## Data
 
-```prisma
-/// A workspace's account on the AI gateway. Keys and metered usage live there (accountId).
-model AiAccount {
-  organizationId String   @id
-  accountId      String   @unique
-  /// gateway `spent` covered by what was billed so far — the base of the next cap
-  billedSpent    BigInt   @default(0)   // micro-USD, buy cost
-  createdAt      DateTime @default(now())
-  @@map("ai_accounts")
-}
-
-/// Rupiah balance of a workspace. `balance` caches the sum of its entries,
-/// changed in the same transaction.
-model Wallet {
-  organizationId String @id
-  balance        BigInt @default(0)     // micro-IDR
-  @@map("wallets")
-}
-
-/// Append-only; corrections are new entries.
-model WalletEntry {
-  id             String   @id @default(cuid())
-  organizationId String
-  kind           String   // TOPUP | AI_USAGE | ADJUST | …
-  amount         BigInt   // micro-IDR, signed
-  /// TOPUP: the payment id; AI_USAGE: `<org>:<day>:<model>` — upserted, so re-reading the feed never charges twice
-  ref            String   @unique
-  note           String?
-  createdAt      DateTime @default(now())
-  @@map("wallet_entries")
-}
-```
+`AiAccount` (workspace → gateway account, and `billedSpent`), `Wallet`
+(`balance`, micro-IDR) and `WalletEntry` (append-only, `ref` unique) in
+`backend/prisma/schema.prisma`, migration `20260928000000_ai_gateway`.
 
 Plus in `IntegrationConfig`: the gateway's base URL and admin key (`secretBox`),
 the feed cursor (last billed request id), the **rate** (IDR per USD, market)
@@ -72,13 +45,15 @@ dollar at 18,200.
 
 ## Billing loop
 
-Every minute (the existing cron):
+`billAiUsage()` in `backend/src/services/aiGatewayService.ts`, cron job
+`ai-billing`, every minute (`CRON_AI_BILLING`):
 
 1. `GET /admin/requests?after=<cursor>` — pages until empty.
 2. Charge each request `cost × rate × markup`, added to its entry for the WIB
    day and model (`ref` upsert) — one transaction per page, which also moves
-   the cursor and each account's `billedSpent` to the page's last request. A
-   crash re-reads the page; the upsert keys keep it from counting twice.
+   the cursor and each account's `billedSpent`. The transaction takes an
+   advisory lock and re-checks the cursor, so two runs never bill a page twice;
+   a crash re-reads the page.
 3. For each account it touched, and after every top-up:
    `spendCap = billedSpent + balance ÷ (rate × markup)`
    → `PATCH /admin/accounts/:id {spendCap}`. Balance ≤ 0 → cap = `billedSpent`.
@@ -109,26 +84,28 @@ Changing the rate or markup recomputes every cap.
   Needs Larika to be PKP and a tax invoice per top-up; being PKP is also what
   lets the PPN on the providers' bills be credited (gateway concern 1).
   **Confirm with the tax consultant** before launch.
-- QRIS through a payment gateway; its paid webhook writes a `TOPUP` entry with
+- **To build:** QRIS through a payment gateway; its paid webhook writes a `TOPUP` entry (via
+  `addWalletEntry`) with
   `ref` = the payment id (a repeated webhook credits once) and raises the cap.
   The payment row — credit, PPN, fee, total — stays here for the books.
 
 ## Screens
 
-- **Workspace → AI** (owners/admins): created on first open
-  (`POST /admin/accounts` + `AiAccount`). Balance in rupiah, top-up, keys
-  (DataTable; create in a modal, the key shown once; revoke), usage by day and
-  model from the wallet entries, models with their rupiah prices.
-- **Superadmin**: gateway config, rate and markup; credit a wallet by hand
-  (`ADJUST` with who/why); suspend a workspace's AI (`PATCH … {disabled: true}`).
+- **AI API** (`/ai`, sidebar Services; owners/admins): balance, endpoint and a
+  curl example, turn on (creates the gateway account), keys (create — shown
+  once — and revoke), usage (wallet entries of the month), models with rupiah
+  prices. Routes: `backend/src/routes/ai.ts`.
+- **Integrations → AI Gateway** (`/integrations/ai-gateway`, superadmin): URL,
+  admin key/path, rate, markup (a change re-syncs every cap); workspace
+  balances, credit by hand (`ADJUST`, a note required), suspend/resume.
+  Routes: `backend/src/routes/aiGateway.ts`.
 - **Pricing page**: an AI section — the gateway's models × rate × markup.
 
-All gateway calls go through one service like `larikaGatewayService`
-(`gateway()`, `GatewayError`); a workspace reaches only its own account — the
-mapping is checked here, the gateway trusts the admin key.
+A workspace reaches only its own account — the mapping is checked here, the
+gateway trusts the admin key. `yarn check:ai-money` covers the charge and cap math.
 
 ## Open questions
 
-- Markup value: 1.044 (≈ Rp 19,000 at 18,200)?
+- Markup value: 1.044 (≈ Rp 19,000 at 18,200) is the default until set.
 - Tax consultant: PPN on top-up vs usage; PKP; crediting the providers' PPN.
 - The wallet is general (not AI-only) — WhatsApp and hosting can charge it later.

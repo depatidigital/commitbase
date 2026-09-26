@@ -37,7 +37,7 @@ export default {
   "Quick start": "Mulai cepat",
   "Base URL": "Base URL",
   "Every call goes to": "Setiap panggilan ke",
-  "with the number's own API key.": "dengan API key milik nomor itu.",
+  "with the number's own API key: the key picks the number.": "dengan API key milik nomor itu: key menentukan nomornya.",
   "Full API reference": "Referensi API lengkap",
   "Add a number and link WhatsApp": "Tambah nomor dan tautkan WhatsApp",
   "Name the number and choose which servers may call the API, then scan the QR code on the phone: WhatsApp → Linked devices → Link a device. Its first API key is made with it.":
@@ -175,4 +175,17 @@ export default {
   "The Playground calls the API as this number; the code uses its URL.": "Playground memanggil API sebagai nomor ini; kode memakai URL-nya.",
   "No numbers yet": "Belum ada nomor",
   "Failed to fetch the API catalog": "Gagal mengambil katalog API",
+
+  // Larika Gateway integration page and its setup guide
+  "The WhatsApp gateway behind WA Node and every workspace's Whatsapp Gateway API.":
+    "Gateway WhatsApp di balik WA Node dan Whatsapp Gateway API setiap workspace.",
+  "On the gateway's server, copy": "Di server gateway, salin",
+  "from its .env.": "dari .env-nya.",
+  "Add this panel's server IP to the gateway's": "Tambahkan IP server panel ini ke",
+  ", or copy its": " gateway, atau salin",
+  "to use instead.": "miliknya untuk dipakai sebagai gantinya.",
+  "Paste them here and save: the panel checks them with one call to the gateway.":
+    "Tempel di sini lalu simpan: panel mengeceknya dengan satu panggilan ke gateway.",
+  "Pair the PCs that run WhatsApp under": "Pasangkan PC yang menjalankan WhatsApp di",
+  "Workspaces then add their numbers under": "Setelah itu workspace menambahkan nomornya di",
 } satisfies Record<string, string>;

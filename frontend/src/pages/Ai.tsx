@@ -59,7 +59,7 @@ export default function Ai() {
     { header: t("Last used"), cell: (k) => when(k.lastUsedAt) },
     {
       header: "",
-      className: "w-px",
+      className: "w-16 text-right",
       cell: (k) => (
         <Button variant="ghost" size="sm" onClick={() => setRevoking(k)} aria-label={t("Revoke")}>
           <Trash2 className="h-4 w-4" />
@@ -103,7 +103,7 @@ export default function Ai() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <p className={`text-3xl font-semibold tabular-nums ${balance <= 0 ? "text-destructive" : ""}`}>{rupiah(balance)}</p>
+                <p className={`text-3xl font-semibold tabular-nums ${balance <= 0 ? "text-destructive" : ""}`}>{rupiah(balance, balance < 100)}</p>
                 <p className="text-xs text-muted-foreground">
                   {balance <= 0 ? t("Calls are refused until the balance is topped up.") : t("Each call is charged from it, every minute.")}{" "}
                   {t("To top up, contact support.")}

@@ -185,9 +185,9 @@ export function WalletsCard() {
     { header: t('AI API'), cell: (w) => (w.aiAccountId ? t('On') : '—') },
     {
       header: '',
-      className: 'w-px whitespace-nowrap',
+      className: 'w-48 text-right',
       cell: (w) => (
-        <div className="flex gap-1">
+        <div className="flex justify-end gap-1">
           <Button variant="outline" size="sm" onClick={() => setCrediting({ organizationId: w.organizationId, amount: '', note: '' })}>
             {t('Credit')}
           </Button>

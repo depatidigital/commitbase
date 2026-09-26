@@ -99,4 +99,5 @@ export default {
   "Technical support": "Bantuan Teknis",
   "New": "Baru",
   "Language": "Bahasa",
+  "Update Larika": "Perbarui Larika",
 } satisfies Record<string, string>;
