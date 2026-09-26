@@ -23,7 +23,12 @@ export type Endpoint = {
   /** Changes/removes something real: the Playground asks first. */
   danger?: boolean;
 };
-export type Catalog = { vars: Record<string, string>; endpoints: Endpoint[] };
+export type Catalog = {
+  vars: Record<string, string>;
+  endpoints: Endpoint[];
+  /** events a number POSTs to its webhook URL, and one such POST */
+  webhooks?: { events: { event: string; desc: string }[]; example: unknown };
+};
 
 export const getWaApiCatalog = async () => {
   const res = await apiRequest<Catalog>('/wa-numbers/api-catalog');
@@ -53,3 +58,16 @@ console.log(res.status, await res.json());`,
     },
   ];
 }
+
+/** An app checking a webhook is really from the gateway (Node.js). */
+export const VERIFY_SNIPPET = `import crypto from "node:crypto";
+
+// rawBody: the request body exactly as received, before JSON parsing
+const expected = "sha256=" + crypto.createHmac("sha256", WEBHOOK_SECRET).update(rawBody).digest("hex");
+const got = req.headers["x-larika-signature"] ?? "";
+if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+  return res.status(401).end();
+}
+const { id, event, data } = JSON.parse(rawBody); // e.g. event = "message.incoming"
+// delivery is at-least-once: skip an id you have already handled
+res.status(200).end();`;

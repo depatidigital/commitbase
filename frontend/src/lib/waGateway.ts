@@ -126,3 +126,20 @@ export const sendTestMessage = async (id: string, body: { to: string; text: stri
     await apiRequest<{ ok: boolean; error?: string; response: { status?: string; [key: string]: unknown } }>(`/wa-numbers/${id}/test`, post(body)),
     t('Failed to send the test message'),
   );
+
+export interface WebhookDelivery {
+  id: string;
+  event: string;
+  /** PENDING: waiting / retrying · DONE: the app answered 2xx · FAILED: dropped (the webhook was removed) */
+  status: 'PENDING' | 'DONE' | 'FAILED';
+  attempts: number;
+  lastError: string | null;
+  nextAt: string;
+  createdAt: string;
+  payload: unknown;
+}
+export const getWebhookDeliveries = async (id: string) =>
+  unwrap(await apiRequest<WebhookDelivery[]>(`/wa-numbers/${id}/webhooks`), t('Failed to fetch webhook deliveries'));
+export const sendTestWebhook = async (id: string) => unwrap(await apiRequest(`/wa-numbers/${id}/webhooks/test`, post()), t('Failed to send a test webhook'));
+export const retryWebhooks = async (id: string) =>
+  unwrap(await apiRequest<{ retried: number }>(`/wa-numbers/${id}/webhooks/retry`, post()), t('Failed to retry the webhooks'));

@@ -1,15 +1,16 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Play, Plus } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Loader2, Play, Plus, RotateCw, Send, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CodeExample } from "@/components/CodeExample";
-import { codeExamples, getWaApiCatalog, type Endpoint } from "@/lib/waApiCatalog";
-import { callWaApi, getWaNumber, type WaNumber } from "@/lib/waGateway";
-import { t } from "@/lib/i18n";
+import { codeExamples, getWaApiCatalog, VERIFY_SNIPPET, type Catalog, type Endpoint } from "@/lib/waApiCatalog";
+import { callWaApi, getWaNumber, getWebhookDeliveries, retryWebhooks, sendTestWebhook, type WaNumber, type WebhookDelivery } from "@/lib/waGateway";
+import { useToast } from "@/hooks/use-toast";
+import { locale, t } from "@/lib/i18n";
 
 const METHOD_COLOR: Record<Endpoint["method"], string> = {
   GET: "text-emerald-700 dark:text-emerald-400",
@@ -45,11 +46,11 @@ function Md({ text }: { text: string }) {
 
 const Method = ({ method }: { method: Endpoint["method"] }) => <span className={`w-12 shrink-0 font-mono text-[11px] font-semibold ${METHOD_COLOR[method]}`}>{method}</span>;
 
-function CatalogState({ children }: { children: (endpoints: Endpoint[]) => JSX.Element }) {
+function CatalogState({ children }: { children: (catalog: Catalog) => JSX.Element }) {
   const { data, error, isLoading } = useWaApiCatalog();
   if (isLoading) return <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />;
   if (error || !data) return <p className="text-sm text-destructive">{(error as Error)?.message}</p>;
-  return children(data.endpoints);
+  return children(data);
 }
 
 /** A form field: label, the field, its hint — stacked (the playground column is narrow). */
@@ -175,7 +176,7 @@ type Result = { ok: boolean; status?: number; ms: number; body: string };
  */
 export function ApiPlayground(props: { rows: WaNumber[]; gatewayUrl: string; onAdd?: () => void }) {
   const [endpointId, setEndpointId] = useState("send-text");
-  return <CatalogState>{(endpoints) => <PlaygroundBody {...props} endpointId={endpointId} onEndpoint={setEndpointId} endpoints={endpoints} />}</CatalogState>;
+  return <CatalogState>{(catalog) => <PlaygroundBody {...props} endpointId={endpointId} onEndpoint={setEndpointId} endpoints={catalog.endpoints} />}</CatalogState>;
 }
 
 function PlaygroundBody({
@@ -397,6 +398,189 @@ function PlaygroundBody({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Webhooks: how events reach an app, and whether they did ──
+
+const DELIVERY: Record<string, { label: () => string; dot: string }> = {
+  DONE: { label: () => t("Delivered"), dot: "bg-success" },
+  QUEUED: { label: () => t("Queued"), dot: "bg-muted-foreground" },
+  RETRYING: { label: () => t("Retrying"), dot: "bg-warning" },
+  FAILED: { label: () => t("Dropped"), dot: "bg-destructive" },
+};
+const deliveryState = (d: WebhookDelivery) => (d.status === "PENDING" ? (d.attempts ? "RETRYING" : "QUEUED") : d.status);
+
+/** The same check an app makes, run from a terminal against its endpoint: a signed test POST. */
+const simulateCurl = (url: string) => `BODY='{"id":"test1","event":"test","instanceId":"…","data":{"message":"Hello"},"ts":0}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')"
+curl -X POST '${url}' \
+  -H 'content-type: application/json' \
+  -H 'x-larika-event: test' \
+  -H "x-larika-signature: $SIG" \
+  -d "$BODY"`;
+
+/**
+ * The Webhook tab: what a number POSTs to its app (left), and per number its
+ * URL, a test event and the last 24 hours of deliveries (right).
+ */
+export function WebhooksTab(props: { rows: WaNumber[]; onSettings: (row: WaNumber) => void }) {
+  return <CatalogState>{(catalog) => <WebhooksBody {...props} catalog={catalog} />}</CatalogState>;
+}
+
+function WebhooksBody({ rows, onSettings, catalog }: { rows: WaNumber[]; onSettings: (row: WaNumber) => void; catalog: Catalog }) {
+  const { toast } = useToast();
+  const numbers = rows.filter((r) => r.canManage);
+  const [picked, setPicked] = useState("");
+  const row = numbers.find((r) => r.id === picked) ?? numbers.find((r) => r.webhookUrl) ?? numbers[0];
+  const [openId, setOpenId] = useState<string | null>(null);
+  const deliveries = useQuery({ queryKey: ["wa-webhooks", row?.id], queryFn: () => getWebhookDeliveries(row?.id ?? ""), enabled: !!row, refetchInterval: 5_000 });
+  const failed = (title: string) => (e: Error) => toast({ title, description: e.message, variant: "destructive" });
+  const test = useMutation({ mutationFn: () => sendTestWebhook(row?.id ?? ""), onSuccess: () => void deliveries.refetch(), onError: failed(t("Failed to send a test webhook")) });
+  const retry = useMutation({
+    mutationFn: () => retryWebhooks(row?.id ?? ""),
+    onSuccess: (r) => {
+      toast({ title: t("{count} deliveries retried", { count: r.retried }) });
+      void deliveries.refetch();
+    },
+    onError: failed(t("Failed to retry the webhooks")),
+  });
+  const waiting = deliveries.data?.filter((d) => d.status === "PENDING").length ?? 0;
+
+  return (
+    <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className="min-w-0 space-y-4">
+        <div className={`${CARD} space-y-3 text-sm`}>
+          <h3 className="font-semibold">{t("How webhooks work")}</h3>
+          <p className="text-muted-foreground">
+            <Md
+              text={t(
+                "Every event of the number is `POST`ed to its webhook URL as JSON, signed in `x-larika-signature` = `sha256=` HMAC-SHA256 of the raw body with the webhook secret. Answer any **2xx**; anything else is retried (5 s doubling, up to 1 h) until delivered, in order. Delivery is at-least-once: skip an `id` you have already handled.",
+              )}
+            />
+          </p>
+          {catalog.webhooks && <pre className="max-h-72 overflow-auto rounded-md bg-muted/60 p-3 font-mono text-xs">{json(catalog.webhooks.example)}</pre>}
+        </div>
+
+        {catalog.webhooks && (
+          <div className={`${CARD} space-y-2`}>
+            <h3 className="text-sm font-semibold">{t("Events")}</h3>
+            <table className="w-full text-xs">
+              <tbody>
+                {catalog.webhooks.events.map((e) => (
+                  <tr key={e.event} className="border-b last:border-0 [&>td]:py-1.5 [&>td]:pr-3 [&>td]:align-top">
+                    <td className="font-mono">{e.event}</td>
+                    <td className="text-muted-foreground">
+                      <Md text={e.desc} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className={`${CARD} space-y-2`}>
+          <h3 className="text-sm font-semibold">{t("Check the signature")}</h3>
+          <CodeExample
+            examples={[
+              { label: "cURL", code: simulateCurl(row?.webhookUrl || "https://app.example.com/wa/webhook") },
+              { label: "Node.js", code: VERIFY_SNIPPET },
+            ]}
+          />
+          <p className="text-xs text-muted-foreground">{t("cURL sends a signed test POST to your endpoint from a terminal; Node.js is the check your app runs.")}</p>
+        </div>
+      </div>
+
+      <div className="min-w-0 space-y-4">
+        <div className={`${CARD} space-y-3`}>
+          <Row label={t("WA instance")} hint={numbers.length ? undefined : t("Add a number you manage first; the Playground calls the API as that number.")}>
+            <Select value={row?.id ?? ""} onValueChange={setPicked} disabled={!numbers.length}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("No numbers yet")} />
+              </SelectTrigger>
+              <SelectContent>
+                {numbers.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                    {r.phone ? ` (+${r.phone})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+          {row && (
+            <>
+              <Row label="Webhook URL">
+                {row.webhookUrl ? (
+                  <code className="block break-all rounded-md bg-muted/60 px-3 py-2 font-mono text-xs">{row.webhookUrl}</code>
+                ) : (
+                  <p className="text-sm text-warning">{t("No webhook URL yet: events of this number are not sent anywhere.")}</p>
+                )}
+              </Row>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => onSettings(row)}>
+                  <Settings2 className="mr-2 h-3.5 w-3.5" />
+                  {t("Access & webhook")}
+                </Button>
+                <Button size="sm" disabled={!row.webhookUrl || test.isPending} onClick={() => test.mutate()}>
+                  {test.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-2 h-3.5 w-3.5" />}
+                  {t("Send test event")}
+                </Button>
+                {waiting > 0 && (
+                  <Button variant="outline" size="sm" disabled={retry.isPending} onClick={() => retry.mutate()}>
+                    <RotateCw className="mr-2 h-3.5 w-3.5" />
+                    {t("Retry now ({count})", { count: waiting })}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {row && (
+          <div className={`${CARD} space-y-2`}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">{t("Deliveries")}</h3>
+              <span className="text-xs text-muted-foreground">{t("Last 24 hours · refreshes by itself")}</span>
+            </div>
+            {deliveries.isLoading ? (
+              <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
+            ) : deliveries.error ? (
+              <p className="text-sm text-destructive">{(deliveries.error as Error).message}</p>
+            ) : !deliveries.data?.length ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">{t("No deliveries yet.")}</p>
+            ) : (
+              <div className="divide-y rounded-md border">
+                {deliveries.data.map((d) => {
+                  const state = DELIVERY[deliveryState(d)] ?? DELIVERY.QUEUED;
+                  return (
+                    <div key={d.id}>
+                      <button type="button" className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40" onClick={() => setOpenId(openId === d.id ? null : d.id)}>
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${state.dot}`} title={state.label()} />
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs">{d.event}</span>
+                        <span className="text-xs text-muted-foreground">{state.label()}</span>
+                        <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">{new Date(d.createdAt).toLocaleTimeString(locale)}</span>
+                      </button>
+                      {openId === d.id && (
+                        <div className="space-y-2 border-t bg-muted/20 px-3 py-2 text-xs">
+                          <p className="text-muted-foreground">
+                            {t("{count} attempts", { count: d.attempts })}
+                            {d.lastError && <span className="text-destructive"> · {d.lastError}</span>}
+                            {d.status === "PENDING" && d.attempts > 0 && ` · ${t("next try {time}", { time: new Date(d.nextAt).toLocaleTimeString(locale) })}`}
+                          </p>
+                          <pre className="max-h-64 overflow-auto rounded-md bg-muted/60 p-2 font-mono">{json(d.payload)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -75,6 +75,9 @@ model Organization {
   sources          Source[]
   usage            UsageHour[]
   storageDays      StorageDay[]
+  aiAccount        AiAccount?
+  wallet           Wallet?
+  walletEntries    WalletEntry[]
 
   @@index([defaultServerId])
   @@map("organizations")
@@ -1053,4 +1056,52 @@ model WaNumber {
 
   @@index([organizationId])
   @@map("wa_numbers")
+}
+
+/// A workspace's account on the AI gateway (larika-ai-gateway). The gateway has no
+/// tenants and knows buy prices only: its keys and metered usage live there
+/// (accountId); what it is sold for, and to whom, is ours.
+model AiAccount {
+  organizationId String       @id
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  accountId      String       @unique
+  /// the gateway's `spent` covered by what we billed so far — micro-USD, buy cost.
+  /// The next spend cap is this plus what the balance buys.
+  billedSpent    BigInt       @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@map("ai_accounts")
+}
+
+/// A workspace's rupiah balance. `balance` is the sum of its entries, kept in the
+/// same transaction that writes one. AI charges it now; WhatsApp and hosting can later.
+model Wallet {
+  organizationId String       @id
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// micro-IDR: an AI call can cost a fraction of a rupiah
+  balance        BigInt       @default(0)
+  updatedAt      DateTime     @updatedAt
+
+  @@map("wallets")
+}
+
+/// Money in or out of a wallet. Append-only — a correction is a new entry.
+model WalletEntry {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// TOPUP | ADJUST | AI_USAGE
+  kind           String
+  /// micro-IDR, signed
+  amount         BigInt
+  /// what makes it once-only: TOPUP the payment id, ADJUST its own id,
+  /// AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry a day per model, added to as calls are billed
+  ref            String       @unique
+  note           String?
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, createdAt])
+  @@map("wallet_entries")
 }

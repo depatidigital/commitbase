@@ -57,6 +57,8 @@ import cloudflareRoutes from './routes/cloudflare';
 import googleRoutes from './routes/google';
 import larikaGatewayRoutes from './routes/larikaGateway';
 import waNumbersRoutes from './routes/waNumbers';
+import aiGatewayRoutes from './routes/aiGateway';
+import aiRoutes from './routes/ai';
 import gitOAuthRoutes from './routes/gitOAuth';
 import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
@@ -152,6 +154,9 @@ app.use('/api/git-oauth', authenticateToken, requireRole(['SUPERADMIN']), gitOAu
 app.use('/api/larika-gateway', authenticateToken, requireRole(['SUPERADMIN']), larikaGatewayRoutes);
 // a workspace's WhatsApp numbers on that gateway: scoped per org in the router
 app.use('/api/wa-numbers', waNumbersRoutes);
+app.use('/api/ai-gateway', authenticateToken, requireRole(['SUPERADMIN']), aiGatewayRoutes);
+// a workspace's AI API and wallet: scoped per org in the router
+app.use('/api/ai', aiRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
 app.use('/api/system', authenticateToken, requireRole(['SUPERADMIN']), systemRoutes);
 app.use('/api/organizations', organizationsRoutes);

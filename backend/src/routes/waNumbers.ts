@@ -346,4 +346,32 @@ router.post('/:id/webhook-secret', async (req: AuthenticatedRequest, res: Respon
   }
 });
 
+/**
+ * Webhook deliveries: the recent ones (payloads carry message text — owners and
+ * admins only), a test event, and retrying the waiting ones now.
+ */
+router.get('/:id/webhooks', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const row = await numberFor(req, req.params.id, true);
+    if (!row) return res.status(404).json({ success: false, error: 'Number not found' } as ApiResponse);
+    const data = await gateway(`/admin/instances/${row.instanceId}/webhooks?limit=50`);
+    return res.json({ success: true, data } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+for (const action of ['test', 'retry'] as const) {
+  router.post(`/:id/webhooks/${action}`, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const row = await numberFor(req, req.params.id, true);
+      if (!row) return res.status(404).json({ success: false, error: 'Number not found' } as ApiResponse);
+      const data = await gateway(`/admin/instances/${row.instanceId}/webhooks/${action}`, { method: 'POST' });
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      return fail(res, error);
+    }
+  });
+}
+
 export default router;

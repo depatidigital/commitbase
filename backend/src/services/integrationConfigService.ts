@@ -10,6 +10,7 @@ const GOOGLE_PROVIDER = 'google';
 const GITHUB_OAUTH_PROVIDER = 'github_oauth';
 const GITLAB_OAUTH_PROVIDER = 'gitlab_oauth';
 const LARIKA_GATEWAY_PROVIDER = 'larika_gateway';
+const LARIKA_AI_PROVIDER = 'larika_ai';
 
 type Provider =
   | typeof RDASH_PROVIDER
@@ -18,7 +19,8 @@ type Provider =
   | typeof GOOGLE_PROVIDER
   | typeof GITHUB_OAUTH_PROVIDER
   | typeof GITLAB_OAUTH_PROVIDER
-  | typeof LARIKA_GATEWAY_PROVIDER;
+  | typeof LARIKA_GATEWAY_PROVIDER
+  | typeof LARIKA_AI_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -192,3 +194,23 @@ export async function getLarikaGatewayConfig() {
 export const setLarikaGatewayValue = (key: LarikaGatewayKey, value: string) => setIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, key, value);
 export const getLarikaGatewayBaseUrl = async () =>
   ((await getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'baseUrl')) || LARIKA_GATEWAY_DEFAULT_URL).replace(/\/+$/, '');
+
+export const LARIKA_AI_DEFAULT_URL = 'https://ai.larika.id';
+/** rate: IDR per USD (market). markup: one factor over buy price × rate, every model. cursor: last billed gateway request id. */
+export type LarikaAiKey = 'baseUrl' | 'adminKey' | 'adminPath' | 'rate' | 'markup' | 'cursor';
+export const setLarikaAiValue = (key: LarikaAiKey, value: string) => setIntegrationConfigValue(LARIKA_AI_PROVIDER, key, value);
+export const getLarikaAiValue = (key: LarikaAiKey) => getIntegrationConfigValue(LARIKA_AI_PROVIDER, key);
+
+/**
+ * The AI gateway's management credentials (secretBox-encrypted, as the WhatsApp
+ * gateway's) and how its buy prices are sold. Null until a key is saved.
+ */
+export async function getLarikaAiConfig() {
+  const [baseUrl, adminKey, adminPath] = await Promise.all([getLarikaAiValue('baseUrl'), getLarikaAiValue('adminKey'), getLarikaAiValue('adminPath')]);
+  if (!adminKey) return null;
+  return {
+    baseUrl: (baseUrl || LARIKA_AI_DEFAULT_URL).replace(/\/+$/, ''),
+    adminKey: decrypt(adminKey),
+    adminPath: adminPath ? decrypt(adminPath) : null,
+  };
+}

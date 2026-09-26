@@ -18,9 +18,17 @@ export class GatewayError extends Error {
   }
 }
 
-export async function gateway<T = any>(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+export type GatewayInit = { method?: string; body?: unknown; timeoutMs?: number };
+type GatewayConfig = { baseUrl: string; adminKey: string; adminPath: string | null };
+
+export async function gateway<T = any>(path: string, init: GatewayInit = {}): Promise<T> {
   const config = await getLarikaGatewayConfig();
   if (!config) throw new GatewayError('The Larika Gateway integration is not set up', 503);
+  return callGateway<T>(config, path, init);
+}
+
+/** A management call to a Larika gateway — this WhatsApp one, or the AI one (aiGatewayService). */
+export async function callGateway<T = any>(config: GatewayConfig, path: string, init: GatewayInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${config.baseUrl}${path}`, {
@@ -58,6 +66,9 @@ const GATEWAY_ERRORS: Record<string, string> = {
   instance_not_found: 'The number is not on the gateway any more',
   agent_not_found: 'The node is not on the gateway any more',
   agent_offline: 'The WA node running this number is offline',
+  account_not_found: 'The AI account is not on the gateway any more',
+  key_not_found: 'The key is not on the gateway any more',
+  no_webhook_url: 'Set a webhook URL on the number first',
 };
 
 /** The gateway's own summary: nodes and numbers with live status. */

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { BookOpen, CheckCircle2, Code2, ExternalLink, KeyRound, List, Loader2, MessageCircle, Plus, QrCode, RefreshCw, RotateCcw, Send, Settings2, Trash2, Webhook, Zap } from "lucide-react";
+import { BookOpen, CheckCircle2, Code2, KeyRound, List, Loader2, MessageCircle, Plus, QrCode, RefreshCw, RotateCcw, Send, Settings2, Trash2, Webhook, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,9 +24,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
-import { ApiPlayground } from "@/components/WaApi";
+import { ApiPlayground, WebhooksTab } from "@/components/WaApi";
 import { CodeExample } from "@/components/CodeExample";
-import { codeExamples } from "@/lib/waApiCatalog";
+import { codeExamples, VERIFY_SNIPPET } from "@/lib/waApiCatalog";
 import { getActiveOrg } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { getOrganizations } from "@/lib/organizations";
@@ -220,9 +220,13 @@ export default function WaGateway() {
             <Code2 className="mr-2 h-4 w-4" />
             API
           </TabsTrigger>
+          <TabsTrigger value="webhooks">
+            <Webhook className="mr-2 h-4 w-4" />
+            Webhook
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="start">
-          <QuickStart rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} onOpen={(kind, row) => setOpen({ kind, row })} />
+          <QuickStart rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} onOpen={(kind, row) => setOpen({ kind, row })} onApi={() => setTab("api")} />
         </TabsContent>
         <TabsContent value="numbers">
           <DataTable
@@ -238,6 +242,9 @@ export default function WaGateway() {
         </TabsContent>
         <TabsContent value="api">
           <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} />
+        </TabsContent>
+        <TabsContent value="webhooks">
+          <WebhooksTab rows={rows} onSettings={(row) => setOpen({ kind: "access", row })} />
         </TabsContent>
       </Tabs>
 
@@ -299,6 +306,10 @@ export default function WaGateway() {
         <ApiDialog
           id={open.row.id}
           firstKey={firstKey?.id === open.row.id ? firstKey.apiKey : null}
+          onApi={() => {
+            close();
+            setTab("api");
+          }}
           onClose={() => {
             if (firstKey?.id === open.row.id) setFirstKey(null);
             close();
@@ -311,17 +322,6 @@ export default function WaGateway() {
   );
 }
 
-const VERIFY_SNIPPET = `import crypto from "node:crypto";
-
-// rawBody: the request body exactly as received, before JSON parsing
-const expected = "sha256=" + crypto.createHmac("sha256", WEBHOOK_SECRET).update(rawBody).digest("hex");
-const got = req.headers["x-larika-signature"] ?? "";
-if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
-  return res.status(401).end();
-}
-const { id, event, data } = JSON.parse(rawBody); // e.g. event = "message.incoming"
-// delivery is at-least-once: skip an id you have already handled
-res.status(200).end();`;
 
 function Step({ n, done, title, children }: { n: number; done?: boolean; title: string; children: ReactNode }) {
   return (
@@ -342,7 +342,7 @@ function Step({ n, done, title, children }: { n: number; done?: boolean; title: 
  * From nothing to a working integration, each step ticked off from the real
  * numbers. Examples use the workspace's first number, so they paste as is.
  */
-function QuickStart({ rows, gatewayUrl, onAdd, onOpen }: { rows: WaNumber[]; gatewayUrl: string; onAdd: () => void; onOpen: (kind: Open["kind"], row: WaNumber) => void }) {
+function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber[]; gatewayUrl: string; onAdd: () => void; onOpen: (kind: Open["kind"], row: WaNumber) => void; onApi: () => void }) {
   const online = rows.find((r) => r.status === "ONLINE");
   const unlinked = rows.find((r) => r.canManage && r.status && r.status !== "ONLINE" && r.status !== "MISSING");
   const example = online ?? rows[0];
@@ -360,12 +360,9 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen }: { rows: WaNumber[]; gat
         {gatewayUrl ? <CopyField value={gatewayUrl} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         <p className="text-xs text-muted-foreground">
           {t("Every call goes to")} <code className="font-mono">/v1/instances/{"{id}"}/…</code> {t("with the number's own API key.")}{" "}
-          {gatewayUrl && (
-            <a href={`${gatewayUrl}/docs`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline">
-              {t("Full API reference")}
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
+          <button type="button" onClick={onApi} className="text-primary underline-offset-2 hover:underline">
+            {t("Full API reference")}
+          </button>
         </p>
       </div>
 
@@ -618,7 +615,7 @@ function TestDialog({ row, onClose }: { row: Pick<WaNumber, "id" | "name">; onCl
 }
 
 /** How an app calls it: base URL, an example, and the keys. */
-function ApiDialog({ id, firstKey, onClose }: { id: string; firstKey: string | null; onClose: () => void }) {
+function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: string | null; onClose: () => void; onApi: () => void }) {
   const { toast } = useToast();
   const [shownKey, setShownKey] = useState<string | null>(firstKey);
   const { data: number, error, isLoading } = useNumber(id);
@@ -653,9 +650,9 @@ function ApiDialog({ id, firstKey, onClose }: { id: string; firstKey: string | n
                 <CopyField value={`${number.gatewayUrl}/v1/instances/${number.instanceId}`} />
                 <p className="text-xs text-muted-foreground">
                   {t("Send the key as")} <code className="font-mono">x-api-key</code>.{" "}
-                  <a href={`${number.gatewayUrl}/docs`} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
+                  <button type="button" onClick={onApi} className="text-primary underline-offset-2 hover:underline">
                     {t("API reference")}
-                  </a>
+                  </button>
                 </p>
                 <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
                   {`curl -X POST ${number.gatewayUrl}/v1/instances/${number.instanceId}/messages \\

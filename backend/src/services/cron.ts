@@ -11,6 +11,7 @@ import { provisionQueuedOrgs } from './orgProvisionService';
 import { setupQueuedServers } from './serverSetupService';
 import { measureAllAppDisks } from './appDiskService';
 import { backfillStorageDays, meterUsage } from './usageMeterService';
+import { billAiUsage } from './aiGatewayService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -131,6 +132,14 @@ const jobs: Job[] = [
     // Same shape: kicked in-process, swept for what a restart cut short.
     schedule: process.env.CRON_SERVER_SETUP || '* * * * *',
     run: setupQueuedServers,
+  },
+  {
+    name: 'ai-billing',
+    // Every minute: what the AI gateway metered is charged to the wallets, and each
+    // workspace's spend cap follows its balance. The gap a cap can overshoot is one
+    // minute of calls, so this stays frequent.
+    schedule: process.env.CRON_AI_BILLING || '* * * * *',
+    run: billAiUsage,
   },
   {
     name: 'usage-meter',
