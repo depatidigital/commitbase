@@ -488,8 +488,9 @@ export function buildRoute(names: string | string[], target: Target): any {
               match: [{ expression: `{http.request.orig_uri.path}.matches('^/[^.]*$')` }],
               handle: [{ handler: 'rewrite', uri: `${folder}/index.html` }, toBucket],
             },
-            // anything else: the bucket's answer, as it was
-            { handle: [{ handler: 'copy_response' }] },
+            // anything else: the bucket's answer, as it was — never cached: without a
+            // Cache-Control Cloudflare keeps the 404 for hours, past the deploy that adds the file
+            { handle: [{ handler: 'headers', response: { set: { 'Cache-Control': ['no-store'] } } }, { handler: 'copy_response' }] },
           ],
         },
       ],
