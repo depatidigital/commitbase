@@ -20,6 +20,7 @@ import { getCaddyConfig } from './services/caddyService';
 import { backfillSources } from './lib/sources';
 import { backfillAppDomains } from './lib/appDomains';
 import { recoverPm2Deploys } from './services/pm2DeployService';
+import { resumeQueuedDeploys, watchDrain } from './services/deployLaunch';
 
 config();
 
@@ -211,6 +212,12 @@ async function onListening() {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  // an upgrade (larika-upgrade.sh) waits for running deploys through this
+  watchDrain();
+  // deploys still queued when the panel stopped: started again, not lost
+  resumeQueuedDeploys()
+    .then((resumed) => resumed && console.log(`▶️ ${resumed} queued deploy(s) started again`))
+    .catch((err) => console.error('Could not resume queued deploys:', err));
   
   // Start application status watcher
   await appStatusWatcher.startWatching();

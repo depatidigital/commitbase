@@ -1,4 +1,4 @@
-import { AppStatus, Application } from '@prisma/client';
+import { AppStatus, Application, Deployment } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { readEnv } from '../lib/appEnv';
 import { DeploymentService } from './deployment';
@@ -6,8 +6,14 @@ import { ensureAppHostname } from './appDnsService';
 import { measureAppDisk } from './appDiskService';
 import { provisionInBackground } from './sslProvisionService';
 import { serverForApplication } from '../lib/servers';
+import { draining, DRAINED_FILE } from '../lib/drain';
+import { pm2Busy } from './pm2DeployService';
+import { existsSync } from 'fs';
+import { rm, writeFile } from 'fs/promises';
 
 const deploymentService = new DeploymentService();
+
+type LaunchOptions = { resolveMigration?: string; resolveAs?: 'rolled-back' | 'applied'; resetDatabase?: boolean; skipPreDeploy?: boolean; acceptDataLoss?: boolean };
 
 /**
  * Start a deploy of `application` in the background, and return its row. null
@@ -19,25 +25,11 @@ export async function launchDeploy(
   application: Application,
   userId: string,
   /** resolveMigration: a Prisma migration recorded as failed, cleared before this deploy's migrations */
-  {
-    resolveMigration,
-    resolveAs,
-    resetDatabase,
-    skipPreDeploy,
-    acceptDataLoss,
-  }: { resolveMigration?: string; resolveAs?: 'rolled-back' | 'applied'; resetDatabase?: boolean; skipPreDeploy?: boolean; acceptDataLoss?: boolean } = {},
+  options: LaunchOptions = {},
 ): Promise<{ deploymentId: string } | null> {
-  // the app keeps its own status, from what it was before
-  const group = await deploymentService.groupOf(application);
-  const scoped = group;
-  const before = new Map(scoped.map((app) => [app.id, app.status]));
-  const setStatus = (status: (was: AppStatus) => AppStatus, extra: { lastDeployment?: Date } = {}) =>
-    Promise.all(
-      [...before].map(([appId, was]) => prisma.application.update({ where: { id: appId }, data: { status: status(was), ...extra } })),
-    );
-
   // A running app can be redeployed — the new release builds beside it and
   // takes over only once it answers. Two deploys at once is the thing to stop.
+  const group = await deploymentService.groupOf(application);
   if (
     group.some((app) => app.status === 'DEPLOYING' || app.status === 'BUILDING') ||
     deploymentService.isDeploying(application)
@@ -45,15 +37,100 @@ export async function launchDeploy(
     return null;
   }
 
-  // Create deployment record
+  // Create deployment record — with its options, so a restart can start it again
   const deployment = await prisma.deployment.create({
     data: {
       status: 'PENDING',
       applicationId: application.id,
       sourceId: application.sourceId,
       userId: userId,
+      options,
     },
   });
+  if (draining()) {
+    // queued for after the upgrade: "deploying" meanwhile, so a second click is refused
+    await Promise.all(group.map((app) => prisma.application.update({ where: { id: app.id }, data: { status: 'DEPLOYING' } })));
+    await prisma.deployment.update({ where: { id: deployment.id }, data: { deployLogs: QUEUED_NOTE } });
+    return { deploymentId: deployment.id };
+  }
+  // awaits DNS only; the build goes on in the background
+  await run(application, group, deployment, userId, options);
+  return { deploymentId: deployment.id };
+}
+
+/**
+ * Deploys queued (PENDING) when the panel stopped — a restart, a crash, an
+ * upgrade: started again, oldest first, as they were asked for. Panel-managed
+ * apps only; an imported app's build is recoverPm2Deploys'. Called at startup.
+ */
+export async function resumeQueuedDeploys(): Promise<number> {
+  const queued = await prisma.deployment.findMany({
+    where: { status: 'PENDING', application: { runtime: null } },
+    include: { application: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  let started = 0;
+  for (const row of queued) {
+    // still waiting in this process (a drain given up): it starts on its own
+    if (deploymentService.isDeploying(row.application)) continue;
+    started += 1;
+    const group = await deploymentService.groupOf(row.application);
+    // what each app was before it queued: the status says DEPLOYING now, so from what is live
+    await Promise.all(
+      group.map((app) =>
+        prisma.application.update({ where: { id: app.id }, data: { status: app.activeReleaseId ? 'RUNNING' : 'STOPPED' } }),
+      ),
+    );
+    const fresh = await deploymentService.groupOf(row.application);
+    await prisma.deployment.update({
+      where: { id: row.id },
+      data: { deployLogs: `${row.deployLogs ?? ''}Queued while the panel restarted or updated — started again.\n` },
+    });
+    await run(row.application, fresh, row, row.userId, (row.options ?? {}) as LaunchOptions);
+  }
+  return started;
+}
+
+const QUEUED_NOTE = 'Queued — Larika is updating. It starts once the update is done.\n';
+
+/**
+ * Follow the upgrade drain (lib/drain.ts): once nothing is deploying, say so
+ * with DRAINED_FILE for larika-upgrade.sh; when the drain is lifted without a
+ * restart (the script gave up waiting), start what queued meanwhile.
+ */
+export function watchDrain(): void {
+  let was = false;
+  setInterval(() => {
+    const now = draining();
+    if (now && deploymentService.busy() === 0 && pm2Busy() === 0 && !existsSync(DRAINED_FILE)) {
+      writeFile(DRAINED_FILE, `${new Date().toISOString()}\n`).catch((err) => console.error('Could not write the drain file:', err));
+    }
+    if (!now && was) {
+      void rm(DRAINED_FILE, { force: true }).catch(() => {});
+      resumeQueuedDeploys().catch((err) => console.error('Could not resume queued deploys:', err));
+    }
+    was = now;
+  }, 2000).unref();
+}
+
+/**
+ * The deploy behind a PENDING row: DNS awaited, then the build, switch, and the
+ * row and statuses after it in the background.
+ */
+async function run(
+  application: Application,
+  group: Application[],
+  deployment: Deployment,
+  userId: string,
+  { resolveMigration, resolveAs, resetDatabase, skipPreDeploy, acceptDataLoss }: LaunchOptions,
+): Promise<void> {
+  // the app keeps its own status, from what it was before
+  const scoped = group;
+  const before = new Map(scoped.map((app) => [app.id, app.status]));
+  const setStatus = (status: (was: AppStatus) => AppStatus, extra: { lastDeployment?: Date } = {}) =>
+    Promise.all(
+      [...before].map(([appId, was]) => prisma.application.update({ where: { id: appId }, data: { status: status(was), ...extra } })),
+    );
 
   // Update application status
   await setStatus(() => 'DEPLOYING');
@@ -92,6 +169,11 @@ export async function launchDeploy(
     ...(skipPreDeploy && { skipPreDeploy }),
     ...(acceptDataLoss && { acceptDataLoss }),
   }).then(async (result) => {
+    // queued by an upgrade drain before it built: the row stays PENDING, the app "deploying"
+    if (result.queued) {
+      await prisma.deployment.update({ where: { id: deployment.id }, data: { deployLogs: QUEUED_NOTE } });
+      return;
+    }
     // cancelled: the service already wrote CANCELLED and why; and whatever
     // ran before still runs — back to that, or stopped if nothing did
     if (result.cancelled) {
@@ -145,6 +227,4 @@ export async function launchDeploy(
     // thrown before anything was switched: what ran before still runs
     await setStatus((was) => (was === 'RUNNING' ? 'RUNNING' : 'ERROR'));
   });
-
-  return { deploymentId: deployment.id };
 }

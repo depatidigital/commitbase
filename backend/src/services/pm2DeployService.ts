@@ -1,3 +1,4 @@
+import { draining } from '../lib/drain';
 import path from 'path';
 import type { AppStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
@@ -85,6 +86,8 @@ export async function notOwner(server: SshTarget, dir: string): Promise<string |
 
 // one at a time per folder: two builds writing one output is two broken builds
 const running = new Set<string>();
+/** Builds in flight — an upgrade drain waits for 0. */
+export const pm2Busy = () => running.size;
 
 export class Pm2DeployError extends Error {}
 
@@ -98,6 +101,8 @@ export async function startPm2Deploy(applicationId: string, userId: string): Pro
 
 /** The same, with the run to wait on — true when every step went through. */
 export async function startPm2DeployTracked(applicationId: string, userId: string): Promise<{ deploymentId: string; done: Promise<boolean> }> {
+  // it runs over SSH from this process, which the upgrade restarts
+  if (draining()) throw new Pm2DeployError('Larika is updating — build again in a few minutes');
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
     select: {
@@ -234,11 +239,15 @@ async function run(
 /**
  * A build the panel was running when it stopped: nothing follows it any more.
  * Its row says so and the app leaves "deploying" — pm2 still runs whatever it
- * ran. Called at startup; only imported apps, whose builds are these.
+ * ran. Called at startup. A queued (PENDING) deploy of a panel-managed app is
+ * not one of these: resumeQueuedDeploys starts it again.
  */
 export async function recoverPm2Deploys(): Promise<number> {
   const stale = await prisma.deployment.findMany({
-    where: { status: { in: ['PENDING', 'BUILDING', 'DEPLOYING'] } },
+    // a panel-managed app's PENDING row is only queued: resumeQueuedDeploys starts it again
+    where: {
+      OR: [{ status: { in: ['BUILDING', 'DEPLOYING'] } }, { status: 'PENDING', application: { runtime: { not: null } } }],
+    },
     select: { id: true, applicationId: true, deployLogs: true, application: { select: { runtime: true, activeReleaseId: true } } },
   });
   for (const row of stale) {

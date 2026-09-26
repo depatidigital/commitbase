@@ -678,14 +678,43 @@ equivalent to every tenant's repo credentials — encrypt the backups at rest.
 
 ## 13. Upgrades
 
-**Run as:** `root`, which then drops to `larika` for the build (the block does this itself).
+**Run as:** `root`. `larika-upgrade.sh` builds as `larika` itself.
 
 ```bash
-sudo -u larika -H bash -c '
-  cd /opt/larika/app && git pull &&
-  cd backend && npm ci && npx prisma generate && npx prisma db push && npm run build &&
-  cd ../frontend && npm ci && npm run build'
-systemctl restart larika
+sudo bash /opt/larika/repo/larika-upgrade.sh             # newest main
+sudo bash /opt/larika/repo/larika-upgrade.sh --rollback  # back to the release before
+```
+
+It builds the new version in `/opt/larika/releases/<sha>` while the panel keeps
+serving, applies the schema (`prisma db push` **without** `--accept-data-loss`
+— a destructive change stops the upgrade before anything switched), then
+drains: new deploys queue, running ones finish (up to `--timeout 30` minutes;
+`--force` skips the wait). Only then does it switch `current`, restart and
+check `/health` — if the new release does not answer, the previous one is put
+back. Deploys queued meanwhile start once the new backend is up.
+
+Schema changes must be additive: the old code runs against the new schema
+until the restart, and a rollback does not undo them.
+
+**The first run** moves the old layout: `/opt/larika/app` becomes `repo/` (the
+git clone), the built tree becomes `releases/initial`, the env files move to
+`shared/backend.env` and `shared/frontend.env`, and `/opt/larika/app` is left
+as a link to `current` — `larika.service` and the Caddy site keep their paths.
+The script is not on the box before that, so take it from git once:
+
+```bash
+sudo -u larika -H git -C /opt/larika/app fetch origin main
+sudo -u larika -H git -C /opt/larika/app show origin/main:larika-upgrade.sh > /root/larika-upgrade.sh
+sudo bash /root/larika-upgrade.sh
+```
+
+Recommended in the panel's Caddy site, so requests wait through the few
+seconds of restart instead of getting a 502:
+
+```
+reverse_proxy 127.0.0.1:3001 {
+    lb_try_duration 30s
+}
 ```
 
 The runner scripts ship with the panel and are sent to the node on every call,

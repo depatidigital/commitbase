@@ -1,3 +1,4 @@
+import { draining } from '../lib/drain';
 import * as path from 'path';
 import { Application, Deployment, Release } from '@prisma/client';
 import { prisma } from '../lib/prisma';
@@ -246,6 +247,8 @@ export interface DeployResult {
   rolledBack?: boolean;
   /** Stopped on request before it went live — whatever served before still does. */
   cancelled?: boolean;
+  /** Not started: the panel is draining for an upgrade. The row stays PENDING for resumeQueuedDeploys. */
+  queued?: boolean;
 }
 
 export interface StartResult {
@@ -1106,6 +1109,11 @@ export class DeploymentService {
     return this.getApplicationLogsFromFiles(applicationId, 'out', lines);
   }
 
+  /** Deploys in flight or waiting for a build slot, on every server — 0 is what an upgrade drain waits for. */
+  busy(): number {
+    return deploying.size;
+  }
+
   /** True while a deploy of this application is in flight. */
   isDeploying(application: { id: string }): boolean {
     return deploying.has(lockKey(application));
@@ -1122,7 +1130,8 @@ export class DeploymentService {
     try {
       // no server: deployInner says so; it waits in a queue of its own meanwhile
       const serverId = await serverForApplication(config.application.id).then((node) => node.id, () => '');
-      return await withBuildSlot(serverId, () => this.deployInner(config));
+      // a deploy that waited for its slot through the start of an upgrade drain stays queued
+      return await withBuildSlot(serverId, () => (draining() ? Promise.resolve({ success: false, queued: true }) : this.deployInner(config)));
     } finally {
       deploying.delete(id);
       cancelling.delete(id);

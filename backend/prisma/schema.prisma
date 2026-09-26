@@ -607,6 +607,9 @@ model Deployment {
 
   // Environment
   envVars Json? // Override env vars for this deployment
+  /// launchDeploy's options (skipPreDeploy, resolveMigration, …): a PENDING row
+  /// is started again with them after a panel restart (resumeQueuedDeploys)
+  options Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
