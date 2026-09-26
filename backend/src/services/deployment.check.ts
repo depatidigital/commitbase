@@ -134,7 +134,9 @@ assert.ok(lenientInstall('npm ci --no-audit --no-fund').endsWith('npm install --
 assert.strictEqual(lenientInstall('npm install --no-audit --no-fund'), 'npm install --no-audit --no-fund');
 // and it runs: the strict try fails, the loose one's output follows
 {
-  const out = execFileSync('bash', ['-c', `set -euo pipefail; ${lenientInstall('false --frozen-lockfile').replace('false --no-frozen-lockfile', 'echo loose-ran').replace(/false$/, '')}`], { encoding: 'utf8' });
+  // a pnpm that refuses the frozen install and takes the unfrozen one
+  const fakePnpm = 'pnpm() { case "$*" in *--no-frozen-lockfile*) echo loose-ran ;; *) return 1 ;; esac; }';
+  const out = execFileSync('bash', ['-c', `set -euo pipefail; ${fakePnpm}; ${lenientInstall('pnpm install --frozen-lockfile')}`], { encoding: 'utf8' });
   assert.ok(out.includes('loose-ran'), out);
 }
 console.log('lenientInstall: ok');
