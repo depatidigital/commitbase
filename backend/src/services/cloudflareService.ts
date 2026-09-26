@@ -738,3 +738,61 @@ export async function getDefaultDnsTarget(): Promise<{ type: 'A' | 'CNAME'; cont
 
   return { type: isIPv4(target) ? 'A' : 'CNAME', content: target };
 }
+
+/**
+ * The zone a hostname belongs to, looked up label by label: gateway.larika.id
+ * tries gateway.larika.id, then larika.id. Null when the account has none.
+ */
+async function zoneOfHost(host: string): Promise<string | null> {
+  const labels = host.toLowerCase().split('.');
+  for (let i = 0; i < labels.length - 1; i++) {
+    const zone = await findCloudflareZone(labels.slice(i).join('.'));
+    if (zone) return zone.id;
+  }
+  return null;
+}
+
+/**
+ * Drop Cloudflare's cached copies of what a site serves — a whole hostname, or
+ * `host/path/` for a site bound under a path — so a new release (and a file a
+ * previous one lacked, whose 404 Cloudflare kept) shows at once. Purge by
+ * hostname and prefix is on every plan. Best effort: false when it could not.
+ */
+export async function purgeCloudflareCache(targets: Array<{ host: string; path?: string | null }>): Promise<boolean> {
+  const shared = await getCloudflareFetchConfig();
+  if (!shared || targets.length === 0) return false;
+  const { fetchFn, config } = shared;
+
+  const byZone = new Map<string, { hosts: string[]; prefixes: string[] }>();
+  for (const { host, path } of targets) {
+    const zoneId = await zoneOfHost(host);
+    if (!zoneId) continue;
+    const entry = byZone.get(zoneId) ?? { hosts: [], prefixes: [] };
+    const prefix = String(path ?? '').replace(/\*+$/, '').replace(/\/+$/, '');
+    if (prefix) entry.prefixes.push(`${host}${prefix}/`);
+    else entry.hosts.push(host);
+    byZone.set(zoneId, entry);
+  }
+
+  let ok = byZone.size > 0;
+  for (const [zoneId, { hosts, prefixes }] of byZone) {
+    // one kind per request: Cloudflare takes hosts or prefixes, not both at once
+    for (const body of [hosts.length && { hosts }, prefixes.length && { prefixes }].filter(Boolean)) {
+      try {
+        const response = await fetchFn(`${config.apiBase}/zones/${encodeURIComponent(zoneId)}/purge_cache`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${config.apiToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          ok = false;
+          console.warn(`Cloudflare purge ${JSON.stringify(body)}: ${response.status} ${await response.text().catch(() => '')}`);
+        }
+      } catch (error: any) {
+        ok = false;
+        console.warn(`Cloudflare purge ${JSON.stringify(body)}: ${error?.message || error}`);
+      }
+    }
+  }
+  return ok;
+}

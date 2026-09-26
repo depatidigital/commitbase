@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import type { SshTarget } from '../lib/runner';
 import { buildRoute, removeCaddySite, setHostRoute, type ServeTuning, type Target } from './caddyService';
+import { purgeCloudflareCache } from './cloudflareService';
 
 /**
  * One Caddy route per hostname, composed from every app bound to it
@@ -193,6 +194,9 @@ export async function serveApp(node: SshTarget, applicationId: string, serve: Se
  */
 export async function serveStatic(node: SshTarget, applicationId: string, origin: string | null | undefined): Promise<void> {
   await serveApp(node, applicationId, origin ? { kind: 'bucket', origin } : { kind: 'placeholder' });
+  // what Cloudflare cached of the old release (its 404s too) goes: in the background, a failed purge fails nothing
+  const bound = await prisma.appDomain.findMany({ where: { applicationId, redirectTo: null }, select: { host: true, path: true } });
+  void purgeCloudflareCache(bound).catch((error) => console.warn(`purge ${applicationId}: ${error?.message || error}`));
 }
 
 /** Hostnames no app but `applicationId` is bound to — the ones whose DNS record may go with it. */
