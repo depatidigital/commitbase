@@ -317,7 +317,7 @@ function PlaygroundBody({
             >
               <div className="flex gap-2">
                 <Select value={numberId} onValueChange={setNumberId} disabled={!numbers.length}>
-                  <SelectTrigger>
+                  <SelectTrigger className="min-w-0 flex-1">
                     <SelectValue placeholder={t("No numbers yet")} />
                   </SelectTrigger>
                   <SelectContent>
