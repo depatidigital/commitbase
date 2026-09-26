@@ -686,14 +686,14 @@ sudo bash /opt/larika/repo/larika-upgrade.sh --rollback  # back to the release b
 ```
 
 It builds the new version in `/opt/larika/releases/<sha>` while the panel keeps
-serving, applies the schema (`prisma db push` **without** `--accept-data-loss`
-— a destructive change stops the upgrade before anything switched), then
+serving, applies the migrations (`prisma migrate deploy` — one that fails stops
+the upgrade before anything switched), then
 drains: new deploys queue, running ones finish (up to `--timeout 30` minutes;
 `--force` skips the wait). Only then does it switch `current`, restart and
 check `/health` — if the new release does not answer, the previous one is put
 back. Deploys queued meanwhile start once the new backend is up.
 
-Schema changes must be additive: the old code runs against the new schema
+Migrations must be additive: the old code runs against the new schema
 until the restart, and a rollback does not undo them.
 
 **The first run** moves the old layout: `/opt/larika/app` becomes `repo/` (the

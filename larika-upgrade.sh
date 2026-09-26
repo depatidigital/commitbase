@@ -20,10 +20,9 @@
 #
 # Steps:
 #   1. fetch and build the new release beside the live one; the panel keeps serving
-#   2. prisma db push WITHOUT --accept-data-loss: a destructive schema change
-#      stops the upgrade here, before anything switched. Schema changes must be
-#      additive — the old code runs against the new schema until the restart,
-#      and a rollback does not undo them.
+#   2. prisma migrate deploy: a migration that fails stops the upgrade here,
+#      before anything switched. Migrations must be additive — the old code runs
+#      against the new schema until the restart, and a rollback does not undo them.
 #   3. drain (backend/src/lib/drain.ts): new deploys queue as PENDING, running
 #      ones finish; queued ones start again after the restart
 #   4. switch current, restart, health check; failing, back to the previous release
@@ -158,9 +157,9 @@ if [ ! -f "$REL/.built" ]; then
   touch "$REL/.built"
 fi
 
-say "Schema (no data loss allowed)"
-as_owner bash -c 'cd "$1/backend" && npx prisma db push --skip-generate' _ "$BASE/$REL" \
-  || die "prisma db push refused — the schema change would lose data. Nothing switched; ${LIVE#releases/} keeps serving"
+say "Migrations"
+as_owner bash -c 'cd "$1/backend" && npx prisma migrate deploy' _ "$BASE/$REL" \
+  || die "prisma migrate deploy failed. Nothing switched; ${LIVE#releases/} keeps serving"
 
 # ------------------------------------------------------------ switch
 drain
