@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle2, KeyRound, Loader2, MessageCircle, Plus, QrCode, RefreshCw, RotateCcw, Send, Settings2, Trash2 } from "lucide-react";
+import { BookOpen, CheckCircle2, Code2, ExternalLink, KeyRound, List, Loader2, MessageCircle, Plus, QrCode, RefreshCw, RotateCcw, Send, Settings2, Trash2, Webhook, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -23,6 +24,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
+import { ApiPlayground } from "@/components/WaApi";
+import { CodeExample } from "@/components/CodeExample";
+import { codeExamples } from "@/lib/waApiCatalog";
 import { getActiveOrg } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { getOrganizations } from "@/lib/organizations";
@@ -30,6 +34,7 @@ import {
   createWaKey,
   createWaNumber,
   deleteWaNumber,
+  getWaGatewayUrl,
   getWaKeys,
   getWaNumber,
   getWaNumbers,
@@ -82,6 +87,8 @@ export default function WaGateway() {
   const [open, setOpen] = useState<Open | null>(null);
   // the key made with a new number, shown once in its API dialog
   const [firstKey, setFirstKey] = useState<{ id: string; apiKey: string } | null>(null);
+  const [tab, setTab] = useState<string | null>(null);
+  const { data: gatewayUrl = "" } = useQuery({ queryKey: ["wa-gateway-url"], queryFn: getWaGatewayUrl, staleTime: Infinity });
 
   const { data, isFetching } = useQuery({ queryKey: LIST_KEY, queryFn: getWaNumbers, refetchInterval: 30_000 });
   const rows = data?.rows ?? [];
@@ -89,6 +96,7 @@ export default function WaGateway() {
   // who may add: platform admins, or owners/admins of a workspace
   const manageable = orgs.filter((org) => isAdmin() || org.myRole === "OWNER" || org.myRole === "ADMIN");
   const showWorkspace = isAdmin() || new Set(rows.map((r) => r.organization.id)).size > 1;
+  const startAdding = () => setAdding({ name: "", organizationId: getActiveOrg() ?? "", ipAllowlist: "*", webhookUrl: "" });
   const close = () => {
     setOpen(null);
     void queryClient.invalidateQueries({ queryKey: LIST_KEY });
@@ -190,22 +198,48 @@ export default function WaGateway() {
       title="Whatsapp Gateway API"
       description={t("Link a WhatsApp number by QR, then send and receive messages from your apps with its API key.")}
       actions={
-        <Button onClick={() => setAdding({ name: "", organizationId: getActiveOrg() ?? "", ipAllowlist: "*", webhookUrl: "" })}>
+        <Button onClick={startAdding}>
           <Plus className="mr-2 h-4 w-4" /> {t("Add number")}
         </Button>
       }
     >
       {data?.gatewayError && <p className="text-sm text-destructive">{t("The gateway did not answer: {error}", { error: data.gatewayError })}</p>}
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(row) => row.id}
-        query={query}
-        filter={(row, search) => `${row.name} ${row.phone ?? ""} ${row.organization.name}`.toLowerCase().includes(search.toLowerCase())}
-        isLoading={isFetching && !rows.length}
-        searchPlaceholder={t("Search numbers…")}
-        empty={t("No WhatsApp numbers yet.")}
-      />
+      {/* a workspace with no numbers yet lands on the guide */}
+      <Tabs value={tab ?? (data && !rows.length ? "start" : "numbers")} onValueChange={setTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="start">
+            <BookOpen className="mr-2 h-4 w-4" />
+            {t("Quick start")}
+          </TabsTrigger>
+          <TabsTrigger value="numbers">
+            <List className="mr-2 h-4 w-4" />
+            {t("Numbers")}
+            {rows.length > 0 && ` (${rows.length})`}
+          </TabsTrigger>
+          <TabsTrigger value="api">
+            <Code2 className="mr-2 h-4 w-4" />
+            API
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="start">
+          <QuickStart rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} onOpen={(kind, row) => setOpen({ kind, row })} />
+        </TabsContent>
+        <TabsContent value="numbers">
+          <DataTable
+            columns={columns}
+            rows={rows}
+            rowKey={(row) => row.id}
+            query={query}
+            filter={(row, search) => `${row.name} ${row.phone ?? ""} ${row.organization.name}`.toLowerCase().includes(search.toLowerCase())}
+            isLoading={isFetching && !rows.length}
+            searchPlaceholder={t("Search numbers…")}
+            empty={t("No WhatsApp numbers yet.")}
+          />
+        </TabsContent>
+        <TabsContent value="api">
+          <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!adding} onOpenChange={(o) => !o && setAdding(null)}>
         <DialogContent>
@@ -277,6 +311,121 @@ export default function WaGateway() {
   );
 }
 
+const VERIFY_SNIPPET = `import crypto from "node:crypto";
+
+// rawBody: the request body exactly as received, before JSON parsing
+const expected = "sha256=" + crypto.createHmac("sha256", WEBHOOK_SECRET).update(rawBody).digest("hex");
+const got = req.headers["x-larika-signature"] ?? "";
+if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+  return res.status(401).end();
+}
+const { id, event, data } = JSON.parse(rawBody); // e.g. event = "message.incoming"
+// delivery is at-least-once: skip an id you have already handled
+res.status(200).end();`;
+
+function Step({ n, done, title, children }: { n: number; done?: boolean; title: string; children: ReactNode }) {
+  return (
+    <section className="flex gap-4 rounded-lg border bg-card p-4 shadow-sm sm:p-5">
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${done ? "bg-success/15 text-success" : "bg-primary/10 text-primary"}`}>
+        {done ? <CheckCircle2 className="h-4 w-4" /> : n}
+      </span>
+      <div className="min-w-0 flex-1 space-y-3">
+        <h3 className="font-medium leading-7">{title}</h3>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+
+/**
+ * From nothing to a working integration, each step ticked off from the real
+ * numbers. Examples use the workspace's first number, so they paste as is.
+ */
+function QuickStart({ rows, gatewayUrl, onAdd, onOpen }: { rows: WaNumber[]; gatewayUrl: string; onAdd: () => void; onOpen: (kind: Open["kind"], row: WaNumber) => void }) {
+  const online = rows.find((r) => r.status === "ONLINE");
+  const unlinked = rows.find((r) => r.canManage && r.status && r.status !== "ONLINE" && r.status !== "MISSING");
+  const example = online ?? rows[0];
+  // the example number's id, so the calls below paste as is
+  const { data: detail } = useNumber(example?.id ?? "", false, !!example);
+  const base = `${gatewayUrl}/v1/instances/${detail?.instanceId ?? "{id}"}`;
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
+        <div className="flex items-center gap-2 text-sm font-medium text-primary">
+          <Zap className="h-4 w-4" />
+          {t("Base URL")}
+        </div>
+        {gatewayUrl ? <CopyField value={gatewayUrl} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        <p className="text-xs text-muted-foreground">
+          {t("Every call goes to")} <code className="font-mono">/v1/instances/{"{id}"}/…</code> {t("with the number's own API key.")}{" "}
+          {gatewayUrl && (
+            <a href={`${gatewayUrl}/docs`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline">
+              {t("Full API reference")}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </p>
+      </div>
+
+      <Step n={1} done={!!online} title={t("Add a number and link WhatsApp")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Name the number and choose which servers may call the API, then scan the QR code on the phone: WhatsApp → Linked devices → Link a device. Its first API key is made with it.")}
+        </p>
+        {!online &&
+          (unlinked ? (
+            <Button size="sm" onClick={() => onOpen("connect", unlinked)}>
+              <QrCode className="mr-2 h-4 w-4" />
+              {t("Scan QR")} — {unlinked.name}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t("Add number")}
+            </Button>
+          ))}
+      </Step>
+
+      <Step n={2} title={t("Get an API key")}>
+        <p className="text-sm text-muted-foreground">{t("A key is shown once, when it is made. Send it with every request; either header works:")}</p>
+        <CodeExample examples={[{ label: "Headers", code: "Authorization: Bearer lwg_…\n# or\nx-api-key: lwg_…" }]} />
+        {example?.canManage && (
+          <Button variant="outline" size="sm" onClick={() => onOpen("api", example)}>
+            <KeyRound className="mr-2 h-4 w-4" />
+            {t("API & keys")}
+          </Button>
+        )}
+      </Step>
+
+      <Step n={3} title={t("Send your first message")}>
+        <p className="text-sm text-muted-foreground">{t("Write numbers the way people type them (0812…, +62 812…). Messages are queued and sent at a safe pace.")}</p>
+        <CodeExample examples={codeExamples("POST", `${base}/messages`, JSON.stringify({ to: "08123456789", text: "Halo!" }, null, 2))} />
+        {online?.canManage && (
+          <Button variant="outline" size="sm" onClick={() => onOpen("test", online)}>
+            <Send className="mr-2 h-4 w-4" />
+            {t("Send a test message")}
+          </Button>
+        )}
+      </Step>
+
+      <Step n={4} done={rows.some((r) => r.webhookUrl)} title={t("Receive messages with a webhook")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Set a webhook URL on the number. Incoming messages, receipts and status changes are POSTed there as JSON, signed with the webhook secret in")}{" "}
+          <code className="font-mono text-xs">x-larika-signature</code>.
+        </p>
+        <CodeExample examples={[{ label: "Node.js", code: VERIFY_SNIPPET }]} />
+        {example?.canManage && (
+          <Button variant="outline" size="sm" onClick={() => onOpen("access", example)}>
+            <Webhook className="mr-2 h-4 w-4" />
+            {t("Access & webhook")}
+          </Button>
+        )}
+      </Step>
+    </div>
+  );
+}
+
 function IpAllowlistField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <div className="space-y-1">
@@ -299,10 +448,11 @@ function WebhookField({ value, onChange }: { value: string; onChange: (value: st
   );
 }
 
-const useNumber = (id: string, fast = false) =>
+const useNumber = (id: string, fast = false, enabled = true) =>
   useQuery({
     queryKey: ["wa-number", id],
     queryFn: () => getWaNumber(id),
+    enabled,
     // linking: the QR changes every ~20 s and the scan flips it ONLINE — poll fast until then
     refetchInterval: fast ? (q) => (q.state.data?.status === "ONLINE" ? false : 2_000) : false,
     retry: false,

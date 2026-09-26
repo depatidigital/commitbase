@@ -108,6 +108,30 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 /** One number as the gateway has it now: status, QR (raw string, rendered by the page), usage. */
+// the gateway's base URL, which apps call; before /:id so it is not read as an id
+router.get('/gateway-url', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    return res.json({ success: true, data: { gatewayUrl: await getLarikaGatewayBaseUrl() } } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+// the gateway's Client API catalog (its /docs/catalog.json, public): the API tab and Playground render it
+let catalog: { at: number; data: unknown } | null = null;
+router.get('/api-catalog', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!catalog || Date.now() - catalog.at > 10 * 60_000) {
+      const response = await fetch(`${await getLarikaGatewayBaseUrl()}/docs/catalog.json`, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) throw new GatewayError(`Gateway answered ${response.status}`, 502);
+      catalog = { at: Date.now(), data: await response.json() };
+    }
+    return res.json({ success: true, data: catalog.data } as ApiResponse);
+  } catch (error) {
+    return fail(res, error instanceof GatewayError ? error : new GatewayError(`Gateway unreachable: ${(error as Error).message}`, 502));
+  }
+});
+
 router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const row = await numberFor(req, req.params.id);
@@ -182,6 +206,52 @@ router.post('/:id/test', async (req: AuthenticatedRequest, res: Response) => {
   } catch (error) {
     if (error instanceof GatewayError && error.body) {
       return res.json({ success: true, data: { ok: false, error: error.message, response: error.body } } as ApiResponse);
+    }
+    return fail(res, error);
+  }
+});
+
+// what the admin key may change on PATCH /v1/instances/:id — the same pacing fields an app's key may
+const PACING_FIELDS = ['dailyCap', 'jitterMinMs', 'jitterMaxMs', 'groupGapMinSec', 'groupGapMaxSec', 'groupCreateCap', 'groupAddCap', 'groupJoinCap'];
+
+/**
+ * The Playground: one Client API call for this number, made with the admin key so
+ * no API key has to be pasted. Owners and admins only, like holding a key. Deleting
+ * or moving the number stays with the panel's own buttons, which keep its row in step.
+ */
+router.post('/:id/api', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const row = await numberFor(req, req.params.id, true);
+    if (!row) return res.status(404).json({ success: false, error: 'Number not found' } as ApiResponse);
+    const method = String(req.body?.method ?? '').toUpperCase();
+    const path = String(req.body?.path ?? '');
+    if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) return res.status(400).json({ success: false, error: 'Unknown method' } as ApiResponse);
+    // a path under the number only: segments of URL-safe characters, never ".."
+    if (!/^(\/[\w@.%:-]+)*$/.test(path) || path.split('/').some((s) => s === '..' || s === '.')) {
+      return res.status(400).json({ success: false, error: 'Invalid path' } as ApiResponse);
+    }
+    if ((method === 'DELETE' && path === '') || path === '/move') {
+      return res.status(400).json({ success: false, error: 'Delete or move the number from the Numbers tab' } as ApiResponse);
+    }
+    let body = req.body?.body;
+    if (method === 'PATCH' && path === '' && body && typeof body === 'object') {
+      body = Object.fromEntries(Object.entries(body).filter(([key]) => PACING_FIELDS.includes(key)));
+    }
+    const query = new URLSearchParams(
+      Object.entries((req.body?.query ?? {}) as Record<string, unknown>)
+        .map(([key, value]) => [key, String(value ?? '')] as [string, string])
+        .filter(([, value]) => value !== ''),
+    ).toString();
+    const response = await gateway(`/v1/instances/${row.instanceId}${path}${query ? `?${query}` : ''}`, {
+      method,
+      ...(method !== 'GET' && body !== undefined && { body }),
+      timeoutMs: 75_000, // send may wait up to 60 s
+    });
+    return res.json({ success: true, data: { ok: true, response } } as ApiResponse);
+  } catch (error) {
+    // the gateway's refusal, as an app would get it
+    if (error instanceof GatewayError && error.body) {
+      return res.json({ success: true, data: { ok: false, status: error.status, response: error.body } } as ApiResponse);
     }
     return fail(res, error);
   }

@@ -103,6 +103,8 @@ export const getWaNumbers = async () => {
 };
 export const createWaNumber = async (body: { name: string; organizationId?: string; ipAllowlist: string; webhookUrl?: string }) =>
   unwrap(await apiRequest<{ id: string; apiKey: string | null }>('/wa-numbers', post(body)), t('Failed to add the number'));
+export const getWaGatewayUrl = async () =>
+  unwrap(await apiRequest<{ gatewayUrl: string }>('/wa-numbers/gateway-url'), t('Failed to fetch the gateway URL')).gatewayUrl;
 export const getWaNumber = async (id: string) => unwrap(await apiRequest<WaNumberDetail>(`/wa-numbers/${id}`), t('Failed to fetch the number'));
 export const updateWaNumber = async (id: string, body: { name?: string; ipAllowlist?: string; webhookUrl?: string }) =>
   unwrap(await apiRequest(`/wa-numbers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }), t('Failed to save the number'));
@@ -117,6 +119,8 @@ export const getWebhookSecret = async (id: string) =>
   unwrap(await apiRequest<{ webhookSecret: string }>(`/wa-numbers/${id}/webhook-secret`), t('Failed to fetch the webhook secret'));
 export const rotateWebhookSecret = async (id: string) =>
   unwrap(await apiRequest<{ webhookSecret: string }>(`/wa-numbers/${id}/webhook-secret`, post()), t('Failed to rotate the webhook secret'));
+export const callWaApi = async (id: string, body: { method: string; path: string; query?: Record<string, string>; body?: unknown }) =>
+  unwrap(await apiRequest<{ ok: boolean; status?: number; response: unknown }>(`/wa-numbers/${id}/api`, post(body)), t('Failed to call the API'));
 export const sendTestMessage = async (id: string, body: { to: string; text: string }) =>
   unwrap(
     await apiRequest<{ ok: boolean; error?: string; response: { status?: string; [key: string]: unknown } }>(`/wa-numbers/${id}/test`, post(body)),
