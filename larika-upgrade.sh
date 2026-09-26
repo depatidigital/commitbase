@@ -66,7 +66,9 @@ link_env() {
 # ------------------------------------------------------------ first run: layout
 if [ -d app ] && [ ! -L app ]; then
   say "First run: moving $BASE/app to releases/ + current"
-  install -d -o "$OWNER" -g "$OWNER" -m 0750 shared releases
+  install -d -o "$OWNER" -g "$OWNER" -m 0750 shared
+  # 0751/0755: Caddy (another user) serves frontend/dist from here; the secrets are in shared/
+  install -d -o "$OWNER" -g "$OWNER" -m 0751 releases
   [ -f shared/backend.env ] || cp -p app/backend/.env shared/backend.env
   if [ -f app/frontend/.env ] && [ ! -f shared/frontend.env ]; then cp -p app/frontend/.env shared/frontend.env; fi
   # the tree that runs now, built as it is, is the first release — the rollback target
@@ -145,7 +147,7 @@ if [ "$REL" = "$LIVE" ]; then say "Already on ${SHA:0:7}"; exit 0; fi
 if [ ! -f "$REL/.built" ]; then
   say "Building ${SHA:0:7} in $BASE/$REL — the panel keeps serving"
   rm -rf "$REL"
-  install -d -o "$OWNER" -g "$OWNER" -m 0750 "$REL"
+  install -d -o "$OWNER" -g "$OWNER" -m 0755 "$REL"
   as_owner bash -c 'git -C "$1" archive "$2" | tar -x -C "$3"' _ "$BASE/repo" "$SHA" "$BASE/$REL"
   link_env "$REL"
   # one && chain: set -e does not stop inside one, so a failed backend would go on to the frontend
