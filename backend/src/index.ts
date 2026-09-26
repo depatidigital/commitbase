@@ -58,6 +58,7 @@ import googleRoutes from './routes/google';
 import gitOAuthRoutes from './routes/gitOAuth';
 import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
+import systemRoutes from './routes/system';
 import organizationsRoutes from './routes/organizations';
 import serversRoutes from './routes/servers';
 import databaseServersRoutes from './routes/databaseServers';
@@ -147,6 +148,7 @@ app.use('/api/cloudflare', authenticateToken, requireRole(['SUPERADMIN']), cloud
 app.use('/api/google', authenticateToken, requireRole(['SUPERADMIN']), googleRoutes);
 app.use('/api/git-oauth', authenticateToken, requireRole(['SUPERADMIN']), gitOAuthRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
+app.use('/api/system', authenticateToken, requireRole(['SUPERADMIN']), systemRoutes);
 app.use('/api/organizations', organizationsRoutes);
 app.use('/api/servers', serversRoutes);
 app.use('/api/database-servers', databaseServersRoutes);

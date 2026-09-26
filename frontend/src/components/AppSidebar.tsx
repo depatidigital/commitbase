@@ -1,4 +1,4 @@
-import { Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, type LucideIcon } from "lucide-react";
+import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
@@ -77,6 +77,7 @@ export function AppSidebar() {
         { title: t("Workspaces"), url: "/organizations", icon: Building2, show: admin },
         { title: t("Users"), url: "/users", icon: UserCog, show: admin },
         { title: t("Administration"), url: "/admin", icon: ShieldCheck, show: admin },
+        { title: t("Update Larika"), url: "/system/update", icon: ArrowUpCircle, show: superadmin },
       ],
     },
   ];
