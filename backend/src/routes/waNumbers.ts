@@ -158,6 +158,30 @@ router.patch('/:id', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
+/**
+ * A test message from the panel: sent the way an app would, waiting up to 30 s
+ * for the outcome so the dialog can say sent or why not. Owners and admins only
+ * — it is their number messaging someone.
+ */
+router.post('/:id/test', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const row = await numberFor(req, req.params.id, true);
+    if (!row) return res.status(404).json({ success: false, error: 'Number not found' } as ApiResponse);
+    const to = String(req.body?.to ?? '').trim();
+    const text = String(req.body?.text ?? '').trim();
+    if (!/^\+?[0-9][0-9\s-]{6,20}$/.test(to)) return res.status(400).json({ success: false, error: 'Enter a phone number, like 08123456789' } as ApiResponse);
+    if (!text || text.length > 4096) return res.status(400).json({ success: false, error: 'Write a message (up to 4096 characters)' } as ApiResponse);
+    const message = await gateway<{ id: string; status: string; error?: string | null }>(`/v1/instances/${row.instanceId}/messages`, {
+      method: 'POST',
+      body: { to: to.replace(/[\s-]/g, '').replace(/^\+/, ''), text, ref: 'larika-test', wait: 30 },
+      timeoutMs: 45_000,
+    });
+    return res.json({ success: true, data: { id: message.id, status: message.status, error: message.error ?? null } } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
 /** relink: log the phone out for a new QR; restart: stop and start it on its node. */
 for (const action of ['relink', 'restart'] as const) {
   router.post(`/:id/${action}`, async (req: AuthenticatedRequest, res: Response) => {
