@@ -1312,6 +1312,17 @@ export class DeploymentService {
     if (!distDir) {
       throw new Error(`Static build directory not found (looked for ${distCandidates.join(', ')})`);
     }
+    // Source published as a site: an index.html loading /src/main.tsx is a Vite
+    // (or similar) app whose build did not run or whose output folder is the repo.
+    // Browsers cannot run TypeScript/JSX, so fail here instead of a blank page.
+    const indexHtml = String(await afs.readFile(join(distDir, 'index.html')).catch(() => ''));
+    const sourceScript = indexHtml.match(/<script[^>]*\bsrc=["']([^"']+\.(?:tsx|ts|jsx|mts))["']/i);
+    if (sourceScript) {
+      throw new Error(
+        `index.html in the published folder loads ${sourceScript[1]}, which is source code, not a built file. ` +
+          `Set the build command (e.g. "npm run build") and the output directory (e.g. "dist").`,
+      );
+    }
     // a build's output is a leftover too — not a repo published as-is, whose "output" is its files
     if (steps.length > 0 && distDir !== workDir) leftovers.push(distDir);
 

@@ -75,6 +75,12 @@ assert.strictEqual(html.type, 'STATIC');
 
 assert.strictEqual(detectFromFiles({ 'package.json': '{not json' }).framework, 'node');
 
+// vite hoisted to a workspace root, no build script: the config alone makes it a Vite site
+const viteByConfig = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { react: '19' } }), 'vite.config.ts': '', 'index.html': '' });
+assert.strictEqual(viteByConfig.framework, 'vite');
+assert.strictEqual(viteByConfig.outputDir, 'dist');
+assert.strictEqual(viteByConfig.buildCommand, 'npx --no-install vite build');
+
 const pre = nvmPreamble('20.11', true).join(NL);
 assert.ok(pre.includes("nvm install '20.11'"));
 assert.ok(pre.includes("nvm use '20.11'"));

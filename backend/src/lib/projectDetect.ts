@@ -89,6 +89,9 @@ export const PY_ENTRIES = ['app.py', 'main.py', 'server.py', 'wsgi.py', 'asgi.py
 /** What makes a folder a Python project. */
 const PY_MARKERS = ['requirements.txt', 'pyproject.toml', 'manage.py', ...PY_ENTRIES] as const;
 
+// a Vite app whose `vite` is hoisted to a workspace root has no vite dep of its own
+const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mjs', 'vite.config.mts', 'vite.config.cjs'] as const;
+
 /** The files worth reading. Detection needs nothing else. */
 export const DETECT_FILES = [
   ...EXAMPLE_ENV_FILES,
@@ -105,6 +108,7 @@ export const DETECT_FILES = [
   'next.config.js',
   'next.config.mjs',
   'next.config.ts',
+  ...VITE_CONFIGS,
   'requirements.txt',
   'pyproject.toml',
   'manage.py',
@@ -520,6 +524,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
     pkg = {};
   }
   const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  if (VITE_CONFIGS.some((name) => files[name] !== undefined)) deps.vite ??= '*';
   const scripts = pkg.scripts || {};
   const pm = packageManagerOf(files, pkg, chosen);
   const installCommand = installCommandOf(pm, files);
@@ -564,7 +569,8 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
       type: 'STATIC',
       framework: sb.framework,
       label: sb.label,
-      buildCommand: scripts.build ? buildOf(pm, scripts.build) : null,
+      // no build script: Vite still builds with its own CLI (node_modules/.bin is not on PATH, npx finds it)
+      buildCommand: scripts.build ? buildOf(pm, scripts.build) : sb.framework === 'vite' ? 'npx --no-install vite build' : null,
       outputDir: sb.out,
     });
   }
