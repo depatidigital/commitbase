@@ -3,9 +3,14 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { backfillStorageDays, currentRate, heldBetween, priceOf, RATES, WIB_MS, wibDayStart, type Use } from '../services/usageMeterService';
+import { backfillStorageDays, currentRate, heldBetween, priceOf, RATES, WA_RATES, WIB_MS, wibDayStart, type Use } from '../services/usageMeterService';
 
 const router: Router = Router();
+
+/** The price list: the Pricing page reads it, so it never disagrees with the meter. */
+router.get('/rates', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
+  return res.json({ success: true, data: { apps: RATES, wa: WA_RATES } } as ApiResponse);
+});
 
 /**
  * A workspace's metered use in one month and what it costs — pay for what you

@@ -9,6 +9,7 @@ import Application from "./pages/Application";
 import Projects from "./pages/Projects";
 import Dashboard from "./pages/Dashboard";
 import Billing from "./pages/Billing";
+import Pricing from "./pages/Pricing";
 import ComingSoon from "./pages/ComingSoon";
 import { Mail } from "lucide-react";
 import ProjectDetail from "./pages/ProjectDetail";
@@ -287,6 +288,7 @@ const App = () => (
               }
             />
             <Route path="usage" element={<Billing />} />
+            <Route path="pricing" element={<Pricing />} />
             <Route path="billing" element={<Navigate to="/usage" replace />} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />

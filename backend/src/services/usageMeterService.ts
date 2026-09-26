@@ -45,6 +45,20 @@ export const RATES = {
   currency: 'IDR',
 } as const;
 
+/**
+ * WhatsApp Gateway API, per number: a day it was linked, texts past the free
+ * ones a day, and media; a customer's own WA node by the month. Not metered
+ * yet — the Pricing page shows them.
+ */
+export const WA_RATES = {
+  linkedDay: 400,
+  freeTextsPerDay: 200,
+  textAfterFree: 5,
+  media: 5,
+  ownNodeMonth: 5000,
+  currency: 'IDR',
+} as const;
+
 /** Stored in R2, not on a node: a static site's files. */
 export const inObjectStorage = (app: { type: string; staticBucket: string | null }) => app.type === 'STATIC' && !!app.staticBucket;
 

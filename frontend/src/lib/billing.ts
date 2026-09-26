@@ -22,3 +22,15 @@ export const getUsage = async (month?: string): Promise<Usage> => {
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Could not read the usage'));
 };
+
+/** The price list (Pricing page): apps metered by the hour and GB, WhatsApp numbers by the day and message. */
+export interface Rates {
+  apps: { cpuCoreHour: number; memGbHour: number; storageGbMonth: number; objectGbMonth: number; currency: string };
+  wa: { linkedDay: number; freeTextsPerDay: number; textAfterFree: number; media: number; ownNodeMonth: number; currency: string };
+}
+
+export const getRates = async (): Promise<Rates> => {
+  const response = await apiRequest<Rates>('/billing/rates');
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not read the prices'));
+};

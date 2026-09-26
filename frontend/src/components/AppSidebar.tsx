@@ -1,4 +1,4 @@
-import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MessageCircle, Smartphone, type LucideIcon } from "lucide-react";
+import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MessageCircle, Smartphone, Tag, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
@@ -71,6 +71,7 @@ export function AppSidebar() {
       items: [
         { title: t("Team"), url: "/team", icon: Users, show: !admin },
         { title: t("Usage"), url: "/usage", icon: Wallet, show: !admin },
+        { title: t("Pricing"), url: "/pricing", icon: Tag },
       ],
     },
     // ponytail: the admin side as it was, restyled only — to be narrowed to organizations, users and billing
