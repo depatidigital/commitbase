@@ -11,6 +11,7 @@ const GITHUB_OAUTH_PROVIDER = 'github_oauth';
 const GITLAB_OAUTH_PROVIDER = 'gitlab_oauth';
 const LARIKA_GATEWAY_PROVIDER = 'larika_gateway';
 const LARIKA_AI_PROVIDER = 'larika_ai';
+const ARUSNIAGA_PROVIDER = 'arusniaga';
 
 type Provider =
   | typeof RDASH_PROVIDER
@@ -20,7 +21,8 @@ type Provider =
   | typeof GITHUB_OAUTH_PROVIDER
   | typeof GITLAB_OAUTH_PROVIDER
   | typeof LARIKA_GATEWAY_PROVIDER
-  | typeof LARIKA_AI_PROVIDER;
+  | typeof LARIKA_AI_PROVIDER
+  | typeof ARUSNIAGA_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -216,4 +218,16 @@ export async function getLarikaAiConfig() {
     adminKey: decrypt(adminKey),
     adminPath: adminPath ? decrypt(adminPath) : null,
   };
+}
+
+export const ARUSNIAGA_DEFAULT_URL = 'https://erp.depatidigital.com';
+export type ArusniagaKey = 'baseUrl' | 'apiKey';
+export const setArusniagaValue = (key: ArusniagaKey, value: string) => setIntegrationConfigValue(ARUSNIAGA_PROVIDER, key, value);
+export const getArusniagaValue = (key: ArusniagaKey) => getIntegrationConfigValue(ARUSNIAGA_PROVIDER, key);
+
+/** ArusNiaga (the invoicing ERP): its public API's key, secretBox-encrypted. Null until a key is saved. */
+export async function getArusniagaConfig() {
+  const [baseUrl, apiKey] = await Promise.all([getArusniagaValue('baseUrl'), getArusniagaValue('apiKey')]);
+  if (!apiKey) return null;
+  return { baseUrl: (baseUrl || ARUSNIAGA_DEFAULT_URL).replace(/\/+$/, ''), apiKey: decrypt(apiKey) };
 }

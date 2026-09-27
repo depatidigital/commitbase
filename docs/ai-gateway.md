@@ -103,10 +103,13 @@ Changing the rate or markup recomputes every cap.
   Needs Larika to be PKP and a tax invoice per top-up; being PKP is also what
   lets the PPN on the providers' bills be credited (gateway concern 1).
   **Confirm with the tax consultant** before launch.
-- **To build:** QRIS through a payment gateway; its paid webhook writes a `TOPUP` entry (via
-  `addWalletEntry`) with
-  `ref` = the payment id (a repeated webhook credits once) and raises the cap.
-  The payment row — credit, PPN, fee, total — stays here for the books.
+- **To build — bank transfer with a unique code, through ArusNiaga** (no payment
+  gateway, no per-transaction fee): ArusNiaga issues the invoice, recognises the
+  transfer by its exact amount and sends `invoice.paid`; Larika's webhook writes a
+  `TOPUP` entry (`addWalletEntry`, `ref: topup:<id>` — a repeated webhook credits once)
+  and the cap follows. Task list, both sides:
+  `arusniaga/docs/plans/bank-transfer-unique-code.md`. QRIS through a gateway can be
+  added later as the instant, paid option.
 
 ## Screens
 

@@ -88,6 +88,7 @@ model Organization {
   storageDays      StorageDay[]
   aiAccount        AiAccount?
   wallet           Wallet?
+  topUps           TopUp[]
   walletEntries    WalletEntry[]
 
   @@index([defaultServerId])
@@ -1093,9 +1094,38 @@ model Wallet {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   /// micro-IDR: an AI call can cost a fraction of a rupiah
   balance        BigInt       @default(0)
+  /// the workspace as a customer (contact) in ArusNiaga, where its top-up invoices are issued
+  arusniagaContactId String?
   updatedAt      DateTime     @updatedAt
 
   @@map("wallets")
+}
+
+/// A top-up: an invoice issued in ArusNiaga (erp.depatidigital.com). When it is paid there,
+/// the wallet is credited once (a TOPUP entry, ref `topup:<id>`).
+model TopUp {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// micro-IDR the wallet gets when paid
+  amount         BigInt
+  /// PENDING | PAID | CANCELLED | EXPIRED
+  status         String       @default("PENDING")
+  /// the invoice in ArusNiaga
+  invoiceId      String?      @unique
+  invoiceRef     String?
+  invoiceUrl     String?
+  /// what the invoice asks for, rupiah (the amount, plus tax or a unique code once ArusNiaga adds them)
+  invoiceTotal   Float?
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  paidAt         DateTime?
+  /// last time its invoice was asked about
+  checkedAt      DateTime?
+
+  @@index([status])
+  @@index([organizationId, createdAt])
+  @@map("top_ups")
 }
 
 /// Money in or out of a wallet. Append-only — a correction is a new entry.
