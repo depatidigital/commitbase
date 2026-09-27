@@ -6,7 +6,7 @@ import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } 
 import { gateway, GatewayError, gatewayFailure, gatewayStats } from '../services/larikaGatewayService';
 import { getLarikaGatewayBaseUrl } from '../services/integrationConfigService';
 
-// A workspace's WhatsApp numbers on the Larika gateway ("Whatsapp Gateway API"):
+// A workspace's WhatsApp numbers on the Larika gateway ("WA Gateway API"):
 // any member sees them; owners and admins add, link, delete and hold the API keys.
 const router: Router = Router();
 router.use(authenticateToken);

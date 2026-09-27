@@ -176,7 +176,7 @@ export const LARIKA_GATEWAY_GUIDE: StepGroup[] = [
         {t('Pair the PCs that run WhatsApp under')} <Code>{t('Administration')} → WA Node</Code>.
       </>,
       <>
-        {t('Workspaces then add their numbers under')} <Code>Whatsapp Gateway API</Code>.
+        {t('Workspaces then add their numbers under')} <Code>WA Gateway API</Code>.
       </>,
     ],
   },

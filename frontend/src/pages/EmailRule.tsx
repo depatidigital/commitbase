@@ -590,7 +590,7 @@ export default function EmailRule() {
                 <div className="space-y-2">
                   <Label>{t("WhatsApp (optional)")}</Label>
                   {saved.waNumbers.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">{t("Add a number under Whatsapp Gateway API to be notified on WhatsApp.")}</p>
+                    <p className="text-xs text-muted-foreground">{t("Add a number under WA Gateway API to be notified on WhatsApp.")}</p>
                   ) : (
                     <>
                       <Select value={form.waNumberId ?? NONE} onValueChange={(v) => set({ waNumberId: v === NONE ? null : v })}>

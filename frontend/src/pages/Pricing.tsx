@@ -91,7 +91,7 @@ export default function Pricing() {
           </div>
 
           <div className="space-y-4">
-            <Section icon={MessageCircle} title="Whatsapp Gateway API" description={t("Per number: the days it is linked and what it sends. Receiving is free.")}>
+            <Section icon={MessageCircle} title="WA Gateway API" description={t("Per number: the days it is linked and what it sends. Receiving is free.")}>
               <PriceRow icon={Phone} label={t("Linked number")} note={t("Only the days it is linked")} price={`${rupiah(rates.wa.linkedDay)} / ${t("day")}`} sub={`≈ ${rupiah(rates.wa.linkedDay * WA_DAYS)} / ${t("month")}`} />
               <PriceRow icon={MessageSquare} label={t("Text messages")} note={t("First {count} per number per day", { count: rates.wa.freeTextsPerDay })} price={t("Free")} sub={t("then {price} each", { price: rupiah(rates.wa.textAfterFree) })} />
               <PriceRow icon={Image} label={t("Media messages")} note={t("Images, video, audio, documents")} price={`${rupiah(rates.wa.media)} / ${t("message")}`} />
@@ -163,7 +163,7 @@ function Estimator({ rates }: { rates: Rates }) {
             <span className="tabular-nums">{rupiah(apps)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Whatsapp Gateway API</span>
+            <span className="text-muted-foreground">WA Gateway API</span>
             <span className="tabular-nums">{rupiah(wa)}</span>
           </div>
           <div className="flex justify-between border-t pt-1 font-semibold">

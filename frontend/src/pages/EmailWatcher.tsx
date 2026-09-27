@@ -477,12 +477,12 @@ function QuickStart({ rows, onAdd, onRules }: { rows: Mailbox[]; onAdd: () => vo
 
       <Step n={4} title={t("Or get it on WhatsApp")}>
         <p className="text-sm text-muted-foreground">
-          {t("With a number on Whatsapp Gateway API, a rule can message you for each match — like “Masuk Rp {amount} dari {source}” — using the fields it read.")}
+          {t("With a number on WA Gateway API, a rule can message you for each match — like “Masuk Rp {amount} dari {source}” — using the fields it read.")}
         </p>
         <Button variant="outline" size="sm" asChild>
           <a href="/wa-gateway">
             <MessageCircle className="mr-2 h-4 w-4" />
-            Whatsapp Gateway API
+            WA Gateway API
           </a>
         </Button>
       </Step>

@@ -257,7 +257,7 @@ const App = () => (
               path="integrations/larika-gateway"
               element={
                 <SuperAdminRoute>
-                  <IntegrationCardPage title="Larika Gateway" description={t("The WhatsApp gateway behind WA Node and every workspace's Whatsapp Gateway API.")} guide={LARIKA_GATEWAY_GUIDE}>
+                  <IntegrationCardPage title="Larika Gateway" description={t("The WhatsApp gateway behind WA Node and every workspace's WA Gateway API.")} guide={LARIKA_GATEWAY_GUIDE}>
                     <LarikaGatewaySettingsCard />
                   </IntegrationCardPage>
                 </SuperAdminRoute>
