@@ -3,7 +3,7 @@ import { AuthenticatedRequest, authenticateToken } from '../middleware/auth';
 import { ApiResponse } from '../types';
 import { prisma } from '../lib/prisma';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { gatewayFailure } from '../services/larikaGatewayService';
+import { GatewayError, gatewayFailure } from '../services/larikaGatewayService';
 import { aiAccountOf, aiGateway, aiPricing, buyableWith, chargeFor, factorOf, sellPerMillion } from '../services/aiGatewayService';
 import { billingUserOf } from '../services/walletService';
 import { getLarikaAiConfig } from '../services/integrationConfigService';
@@ -53,7 +53,6 @@ async function keyCapOf(limit: unknown): Promise<bigint | null | undefined | fal
   if (limit === null || limit === '') return null;
   const rupiah = Number(limit);
   if (!Number.isInteger(rupiah) || rupiah < 1_000 || rupiah > 1_000_000_000) return false;
-  // at the dearer markup: the limit holds whether the key's calls are routed or not
   return buyableWith(BigInt(rupiah) * 1_000_000n, factorOf(await aiPricing()));
 }
 
@@ -238,6 +237,67 @@ router.delete('/keys/:keyId', async (req: AuthenticatedRequest, res: Response) =
     if (!keyId) return;
     await aiGateway(`/admin/keys/${keyId}`, { method: 'DELETE' });
     return res.json({ success: true } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+// the gateway's Client API catalog (its /docs/catalog.json, public): the API tab renders it
+let catalog: { at: number; data: unknown } | null = null;
+router.get('/api-catalog', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const config = await getLarikaAiConfig();
+    if (!config) throw new GatewayError('The AI gateway integration is not set up', 503);
+    if (!catalog || Date.now() - catalog.at > 10 * 60_000) {
+      const response = await fetch(`${config.baseUrl}/docs/catalog.json`, { signal: AbortSignal.timeout(10_000) }).catch((error) => {
+        throw new GatewayError(`Gateway unreachable: ${error.message}`, 502);
+      });
+      if (!response.ok) throw new GatewayError(`Gateway answered ${response.status}`, 502);
+      catalog = { at: Date.now(), data: await response.json() };
+    }
+    return res.json({ success: true, data: catalog.data } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+/** What the playground may call: the Client API's JSON endpoints (image edits are multipart — code only). */
+const PLAYGROUND_PATHS = /^\/v1\/(models|chat\/completions|images\/generations|embeddings)$/;
+
+/**
+ * The API tab's playground: one Client API call with the caller's own key, sent from
+ * here because the gateway has no CORS. The answer is passed back as it came — a
+ * stream as its text — and billed to the key like any other call.
+ */
+router.post('/playground', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const organizationId = await orgFor(req, res);
+    if (!organizationId) return;
+    const config = await getLarikaAiConfig();
+    if (!config) throw new GatewayError('The AI gateway integration is not set up', 503);
+    const { method, path, body, key } = req.body as { method?: string; path?: string; body?: unknown; key?: string };
+    if (method !== 'GET' && method !== 'POST') return res.status(400).json({ success: false, error: 'GET or POST' } as ApiResponse);
+    if (!path || !PLAYGROUND_PATHS.test(path)) return res.status(400).json({ success: false, error: 'The playground does not call that path' } as ApiResponse);
+    if (!key?.trim()) return res.status(400).json({ success: false, error: 'Paste an API key' } as ApiResponse);
+    let response: globalThis.Response;
+    try {
+      response = await fetch(`${config.baseUrl}${path}`, {
+        method,
+        headers: { authorization: `Bearer ${key.trim()}`, ...(method === 'POST' && { 'content-type': 'application/json' }) },
+        ...(method === 'POST' && { body: JSON.stringify(body ?? {}) }),
+        signal: AbortSignal.timeout(180_000),
+      });
+    } catch (error) {
+      throw new GatewayError(`Gateway unreachable: ${(error as Error).message}`, 502);
+    }
+    const text = await response.text();
+    let data: unknown = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* a stream, or plain text */
+    }
+    return res.json({ success: true, data: { ok: response.ok, status: response.status, model: response.headers.get('x-larika-model'), response: data } } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }

@@ -31,7 +31,7 @@ const blocked = (e: Endpoint) => e.id === "delete" || e.id === "move";
 const useWaApiCatalog = () => useQuery({ queryKey: ["wa-api-catalog"], queryFn: getWaApiCatalog, staleTime: 10 * 60_000 });
 
 /** `code` and **bold** in the catalog's descriptions. */
-function Md({ text }: { text: string }) {
+export function Md({ text }: { text: string }) {
   return (
     <>
       {text.split(/(`[^`]+`|\*\*[^*]+\*\*)/).map((part, i) =>
@@ -59,7 +59,7 @@ function CatalogState({ children }: { children: (catalog: Catalog) => JSX.Elemen
 }
 
 /** A form field: label, the field, its hint — stacked (the playground column is narrow). */
-function Row({ id, label, hint, error, children }: { id?: string; label: ReactNode; hint?: string; error?: boolean; children: ReactNode }) {
+export function Row({ id, label, hint, error, children }: { id?: string; label: ReactNode; hint?: string; error?: boolean; children: ReactNode }) {
   return (
     <div className="space-y-1">
       <Label htmlFor={id} className="break-all">
@@ -74,7 +74,7 @@ function Row({ id, label, hint, error, children }: { id?: string; label: ReactNo
 }
 
 /** Right column, top: what the picked call does and takes. */
-function EndpointDoc({ e }: { e: Endpoint }) {
+export function EndpointDoc({ e }: { e: Endpoint }) {
   return (
     <div className="space-y-3">
       <h3 className="font-semibold">{e.title}</h3>
@@ -111,7 +111,7 @@ function EndpointDoc({ e }: { e: Endpoint }) {
 }
 
 /** Left column: every Client API call, grouped; picking one shows it on the right. */
-function CatalogList({ endpoints, selected, onSelect }: { endpoints: Endpoint[]; selected: Endpoint; onSelect: (id: string) => void }) {
+export function CatalogList({ endpoints, selected, onSelect }: { endpoints: Endpoint[]; selected: Endpoint; onSelect: (id: string) => void }) {
   return (
     <div className="space-y-4">
       {[...new Set(endpoints.map((e) => e.group))].map((group) => (

@@ -5,7 +5,7 @@ import { t } from '@/lib/i18n';
 // the API tab and Playground render it, so a new gateway call shows up here without a panel release.
 // `{id}` = the number; `{{phone}}`, `{{chat}}`, `{{group}}`, `{{sendId}}`, `{{waMessageId}}` = Playground variables.
 
-export type Param = { name: string; in: 'path' | 'query' | 'body'; type: string; required?: boolean; desc: string };
+export type Param = { name: string; in: 'path' | 'query' | 'body' | 'form'; type: string; required?: boolean; desc: string };
 export type Endpoint = {
   id: string;
   group: string;

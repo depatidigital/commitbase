@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, BookOpen, Boxes, Gauge, KeyRound, List, Loader2, Plus, Power, Sparkles, Trash2, Wallet, Zap } from "lucide-react";
+import { AlertCircle, BookOpen, Boxes, Code2, Gauge, KeyRound, List, Loader2, Plus, Power, Sparkles, Trash2, Wallet, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,8 @@ import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
 import { CodeExample } from "@/components/CodeExample";
 import { Step } from "@/components/QuickStartStep";
+import { AiPlayground } from "@/components/AiApi";
+import { aiCodeExamples, useAiApiCatalog, withVars } from "@/lib/aiApiCatalog";
 import { useToast } from "@/hooks/use-toast";
 import { createAiKey, enableAi, fromMicro, getAi, getAiModels, revokeAiKey, rupiah, setAiKeyLimit, type AiKey, type AiModelPrice, type AiOverview, type KeyPeriod } from "@/lib/ai";
 import { getWalletEntries } from "@/lib/billing";
@@ -149,6 +151,10 @@ export default function Ai() {
                 {t("Keys")}
                 {data.keys.length > 0 && ` (${data.keys.length})`}
               </TabsTrigger>
+              <TabsTrigger value="api">
+                <Code2 className="mr-2 h-4 w-4" />
+                API
+              </TabsTrigger>
               <TabsTrigger value="usage">
                 <List className="mr-2 h-4 w-4" />
                 {t("Usage")}
@@ -159,7 +165,7 @@ export default function Ai() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="start">
-              <QuickStart data={data} enable={enable} onCreate={startCreating} onModels={() => setTab("models")} />
+              <QuickStart data={data} enable={enable} onCreate={startCreating} onModels={() => setTab("models")} onApi={() => setTab("api")} />
             </TabsContent>
             <TabsContent value="keys">
               {data.hasAccount ? (
@@ -175,6 +181,9 @@ export default function Ai() {
               ) : (
                 <TurnOn enable={enable} />
               )}
+            </TabsContent>
+            <TabsContent value="api">
+              <AiPlayground baseUrl={data.baseUrl ?? ""} onCreateKey={data.hasAccount ? startCreating : undefined} />
             </TabsContent>
             <TabsContent value="usage">
               <UsageTab />
@@ -402,13 +411,13 @@ function TurnOn({ enable }: { enable: Enable }) {
  * From nothing to a first answer, each step ticked off from the workspace's own
  * state. Examples use the first model on the list, so they paste as is.
  */
-function QuickStart({ data, enable, onCreate, onModels }: { data: AiOverview; enable: Enable; onCreate: () => void; onModels: () => void }) {
-  const { data: models = [] } = useQuery({ queryKey: ["ai-models"], queryFn: getAiModels, staleTime: 10 * 60_000 });
-  const model = models[0]?.id ?? "MODEL";
+function QuickStart({ data, enable, onCreate, onModels, onApi }: { data: AiOverview; enable: Enable; onCreate: () => void; onModels: () => void; onApi: () => void }) {
+  const { data: catalog } = useAiApiCatalog();
+  const chat = catalog?.endpoints.find((e) => e.id === "chat");
   const baseUrl = data.baseUrl ?? "";
+  const origin = baseUrl.replace(/\/v1\/?$/, "");
   const balance = fromMicro(data.balance);
   const hasKey = data.keys.length > 0;
-  const message = '[{"role":"user","content":"Halo!"}]';
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
@@ -417,7 +426,12 @@ function QuickStart({ data, enable, onCreate, onModels }: { data: AiOverview; en
           {t("Base URL")}
         </div>
         {baseUrl && <CopyField value={baseUrl} />}
-        <p className="text-xs text-muted-foreground">{t("Use it as the base URL of any OpenAI SDK, with a key from here as the API key.")}</p>
+        <p className="text-xs text-muted-foreground">
+          {t("Use it as the base URL of any OpenAI SDK, with a key from here as the API key.")}{" "}
+          <button type="button" onClick={onApi} className="text-primary underline-offset-2 hover:underline">
+            {t("Full API reference")}
+          </button>
+        </p>
       </div>
 
       <Step n={1} done={data.hasAccount && balance > 0} title={t("Turn on AI and have a balance")}>
@@ -449,39 +463,11 @@ function QuickStart({ data, enable, onCreate, onModels }: { data: AiOverview; en
 
       <Step n={3} title={t("Make your first call")}>
         <p className="text-sm text-muted-foreground">{t("It is the OpenAI API: any OpenAI SDK works with the base URL above and a key from here.")}</p>
-        <CodeExample
-          examples={[
-            {
-              label: "cURL",
-              lang: "bash",
-              code: `curl ${baseUrl}/chat/completions \\
-  -H "Authorization: Bearer lk_…" -H "content-type: application/json" \\
-  -d '{"model":"${model}","messages":${message}}'`,
-            },
-            {
-              label: "Node.js",
-              lang: "js",
-              code: `import OpenAI from "openai";
-
-const ai = new OpenAI({ baseURL: "${baseUrl}", apiKey: process.env.LARIKA_AI_KEY });
-const res = await ai.chat.completions.create({
-  model: "${model}",
-  messages: ${message},
-});
-console.log(res.choices[0].message.content);`,
-            },
-            {
-              label: "Python",
-              lang: "python",
-              code: `from openai import OpenAI
-import os
-
-ai = OpenAI(base_url="${baseUrl}", api_key=os.environ["LARIKA_AI_KEY"])
-res = ai.chat.completions.create(model="${model}", messages=${message})
-print(res.choices[0].message.content)`,
-            },
-          ]}
-        />
+        {chat ? <CodeExample examples={aiCodeExamples(origin, chat, withVars(JSON.stringify(chat.body, null, 2), catalog!.vars))} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        <Button variant="outline" size="sm" onClick={onApi}>
+          <Code2 className="mr-2 h-4 w-4" />
+          {t("Try it in the playground")}
+        </Button>
       </Step>
 
       <Step n={4} title={t("Pick a model")}>
