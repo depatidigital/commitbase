@@ -5,7 +5,7 @@ own service — **larika-ai-gateway**, a separate repo built like
 larika-wa-gateway; its README holds the engine's design and the concerns.
 
 Status: **built, not deployed.** Wallet, billing loop, spend caps, the workspace
-AI API page, the superadmin page (settings, balances, credit by hand). **Not
+AI page, the superadmin page (settings, balances, credit by hand). **Not
 built:** paid top-up (QRIS, PPN) — until then a superadmin credits wallets by hand.
 
 ```
@@ -107,7 +107,7 @@ Changing the rate or markup recomputes every cap.
 
 ## Screens
 
-- **AI API** (`/ai`, sidebar Services; owners/admins): balance, endpoint and a
+- **AI** (`/ai`, sidebar Services; owners/admins): balance, endpoint and a
   curl example, turn on (creates the gateway account), keys (create — shown
   once — and revoke), usage (wallet entries of the month), models with rupiah
   prices. Routes: `backend/src/routes/ai.ts`.

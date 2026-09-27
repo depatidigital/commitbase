@@ -46,7 +46,7 @@ export const RATES = {
 } as const;
 
 /**
- * WA Gateway API, per number: a day it was linked, texts past the free
+ * WA Gateway, per number: a day it was linked, texts past the free
  * ones a day, and media; a customer's own WA node by the month. Not metered
  * yet — the Pricing page shows them.
  */

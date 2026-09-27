@@ -1,4 +1,4 @@
-// WA Gateway API page (numbers, quick start, dialogs) and lib/waGateway.ts fallbacks.
+// WA Gateway page (numbers, quick start, dialogs) and lib/waGateway.ts fallbacks.
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   // statuses
@@ -168,8 +168,8 @@ export default {
   "Failed to fetch the API catalog": "Gagal mengambil katalog API",
 
   // Larika Gateway integration page and its setup guide
-  "The WhatsApp gateway behind WA Node and every workspace's WA Gateway API.":
-    "Gateway WhatsApp di balik WA Node dan WA Gateway API setiap workspace.",
+  "The WhatsApp gateway behind WA Node and every workspace's WA Gateway.":
+    "Gateway WhatsApp di balik WA Node dan WA Gateway setiap workspace.",
   "On the gateway's server, copy": "Di server gateway, salin",
   "from its .env.": "dari .env-nya.",
   "Add this panel's server IP to the gateway's": "Tambahkan IP server panel ini ke",

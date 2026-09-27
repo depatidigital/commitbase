@@ -203,7 +203,7 @@ export default function WaGateway() {
   return (
     <PageLayout
       icon={MessageCircle}
-      title="WA Gateway API"
+      title="WA Gateway"
       description={t("Link a WhatsApp number by QR, then send and receive messages from your apps with its API key.")}
       actions={
         <Button onClick={startAdding}>

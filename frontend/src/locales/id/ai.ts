@@ -1,8 +1,8 @@
-// AI API page, the AI Gateway integration page (settings, workspace balances) and lib/ai.ts fallbacks.
+// AI page, the AI Gateway integration page (settings, workspace balances) and lib/ai.ts fallbacks.
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   // page
-  "AI API": "AI API",
+  "AI": "AI",
 
   // quick start
   "Have a balance": "Punya saldo",
@@ -18,7 +18,7 @@ export default {
   "Send any model from the list as `model`.": "Kirim model apa pun dari daftar sebagai `model`.",
   "One OpenAI-compatible API for many models, paid per token from the workspace balance.":
     "Satu API yang kompatibel dengan OpenAI untuk banyak model, dibayar per token dari saldo workspace.",
-  "The AI API is not available on this platform yet.": "AI API belum tersedia di platform ini.",
+  "The AI is not available on this platform yet.": "AI belum tersedia di platform ini.",
   "The AI gateway did not answer: {error}": "AI gateway tidak menjawab: {error}",
 
   // balance
@@ -26,7 +26,7 @@ export default {
   "Calls are refused until the balance is topped up.": "Panggilan ditolak sampai saldo diisi ulang.",
   "Each call is charged from it, every minute.": "Setiap panggilan dipotong dari saldo ini, tiap menit.",
   "To top up, contact support.": "Untuk isi ulang, hubungi support.",
-  "The AI API of this workspace is suspended.": "AI API workspace ini ditangguhkan.",
+  "The AI of this workspace is suspended.": "AI workspace ini ditangguhkan.",
 
   // endpoint
   Endpoint: "Endpoint",
@@ -36,7 +36,7 @@ export default {
   // turning on
   "Turn it on to create API keys. Nothing is charged until a key is used.":
     "Aktifkan untuk membuat API key. Tidak ada biaya sampai sebuah key dipakai.",
-  "Turn on the AI API": "Aktifkan AI API",
+  "Turn on AI": "Aktifkan AI",
 
   // keys
   Keys: "Key",
@@ -78,8 +78,8 @@ export default {
   "No models yet.": "Belum ada model.",
 
   // AI Gateway integration page (superadmin)
-  "The AI gateway behind every workspace's AI API, and how its buy prices are sold.":
-    "AI gateway di balik AI API setiap workspace, dan cara harga belinya dijual.",
+  "The AI gateway behind every workspace's AI, and how its buy prices are sold.":
+    "AI gateway di balik AI setiap workspace, dan cara harga belinya dijual.",
   "AI gateway settings saved": "Pengaturan AI gateway disimpan",
   "Saved, but the gateway refused the call": "Tersimpan, tetapi gateway menolak panggilannya",
   "Providers & models": "Penyedia & model",
@@ -110,8 +110,8 @@ export default {
   Note: "Catatan",
   "e.g. Top-up by bank transfer, 27 Sep": "mis. Isi ulang lewat transfer bank, 27 Sep",
   "Balance updated": "Saldo diperbarui",
-  "AI API suspended": "AI API ditangguhkan",
-  "AI API resumed": "AI API dilanjutkan",
+  "AI suspended": "AI ditangguhkan",
+  "AI resumed": "AI dilanjutkan",
 
   // setup guide
   "On the AI gateway's server, copy": "Di server AI gateway, salin",
@@ -119,17 +119,17 @@ export default {
     "Tempel di sini bersama kurs dan markup, lalu simpan: panel mengeceknya dengan satu panggilan ke gateway.",
   "Add providers and models, with their buy prices, on the gateway's own dashboard (/dashboard).":
     "Tambahkan penyedia dan model, beserta harga belinya, di dasbor gateway itu sendiri (/dashboard).",
-  "Credit a workspace below; it turns the AI API on and creates keys under AI API.":
-    "Tambah saldo sebuah workspace di bawah; workspace itu lalu mengaktifkan AI API dan membuat key di menu AI API.",
+  "Credit a workspace below; it turns AI on and creates keys under AI.":
+    "Tambah saldo sebuah workspace di bawah; workspace itu lalu mengaktifkan AI dan membuat key di menu AI.",
 
   // lib/ai.ts fallbacks
-  "Failed to fetch the AI API": "Gagal memuat AI API",
-  "Failed to turn the AI API on": "Gagal mengaktifkan AI API",
+  "Failed to fetch AI": "Gagal memuat AI",
+  "Failed to turn AI on": "Gagal mengaktifkan AI",
   "Failed to fetch the AI models": "Gagal memuat model AI",
   "Failed to fetch the balance history": "Gagal memuat riwayat saldo",
   "Failed to fetch the AI gateway settings": "Gagal memuat pengaturan AI gateway",
   "Failed to save the AI gateway settings": "Gagal menyimpan pengaturan AI gateway",
   "Failed to fetch the wallets": "Gagal memuat saldo",
   "Failed to credit the wallet": "Gagal menambah saldo",
-  "Failed to change the AI API": "Gagal mengubah AI API",
+  "Failed to change AI": "Gagal mengubah AI",
 } satisfies Record<string, string>;

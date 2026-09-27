@@ -1,4 +1,4 @@
-// Pricing page: apps, domains, WhatsApp, AI API, and the monthly estimator.
+// Pricing page: apps, domains, WhatsApp, AI, and the monthly estimator.
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   Pricing: "Harga",
@@ -40,7 +40,7 @@ export default {
   "Runs on WhatsApp linked devices, not the official Business API: a number WhatsApp bans is not refunded. Daily sending limits stay on to protect your numbers.":
     "Berjalan di perangkat tertaut WhatsApp, bukan Business API resmi: nomor yang diblokir WhatsApp tidak dikembalikan dananya. Batas kirim harian tetap aktif untuk melindungi nomor Anda.",
 
-  // AI API
+  // AI
   "One OpenAI-compatible API for many models, charged per token from the workspace balance.":
     "Satu API yang kompatibel dengan OpenAI untuk banyak model, ditagih per token dari saldo workspace.",
 

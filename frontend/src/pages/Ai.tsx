@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, BookOpen, Boxes, Gauge, KeyRound, List, Loader2, Plus, Sparkles, Trash2, Wallet } from "lucide-react";
+import { AlertCircle, BookOpen, Boxes, Gauge, KeyRound, List, Loader2, Plus, Power, Sparkles, Trash2, Wallet, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,7 +23,7 @@ const KEY = ["ai"];
 const when = (at: string | null) => (at ? new Date(at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" }) : "—");
 
 /**
- * A workspace's AI API: one OpenAI-compatible endpoint for many models, charged
+ * A workspace's AI: one OpenAI-compatible endpoint for many models, charged
  * to the workspace's rupiah balance per token. Owners and admins only.
  */
 export default function Ai() {
@@ -40,7 +39,7 @@ export default function Ai() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: KEY });
   const failed = (title: string) => (e: Error) => toast({ title, description: e.message, variant: "destructive" });
-  const enable = useMutation({ mutationFn: enableAi, onSuccess: refresh, onError: failed(t("Failed to turn the AI API on")) });
+  const enable = useMutation({ mutationFn: enableAi, onSuccess: refresh, onError: failed(t("Failed to turn AI on")) });
   const create = useMutation({
     mutationFn: createAiKey,
     onSuccess: (k) => {
@@ -107,20 +106,22 @@ export default function Ai() {
     },
   ];
 
-  const balance = data ? fromMicro(data.balance) : 0;
   const startCreating = () => setCreating({ name: "", rpm: "60", limit: "", period: "MONTH" });
 
   return (
     <PageLayout
       icon={Sparkles}
-      title={t("AI API")}
+      title={t("AI")}
       description={t("One OpenAI-compatible API for many models, paid per token from the workspace balance.")}
       actions={
-        data?.hasAccount && (
+        data?.configured &&
+        (data.hasAccount ? (
           <Button onClick={startCreating}>
             <Plus className="mr-2 h-4 w-4" /> {t("New key")}
           </Button>
-        )
+        ) : (
+          <TurnOnButton enable={enable} />
+        ))
       }
     >
       {isLoading ? (
@@ -131,83 +132,37 @@ export default function Ai() {
           {(error as Error)?.message}
         </p>
       ) : !data.configured ? (
-        <p className="text-sm text-muted-foreground">{t("The AI API is not available on this platform yet.")}</p>
+        <p className="text-sm text-muted-foreground">{t("The AI is not available on this platform yet.")}</p>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Wallet className="h-4 w-4 text-primary" />
-                  {t("Balance")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className={`text-3xl font-semibold tabular-nums ${balance <= 0 ? "text-destructive" : ""}`}>{rupiah(balance, balance < 100)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {balance <= 0 ? t("Calls are refused until the balance is topped up.") : t("Each call is charged from it, every minute.")}{" "}
-                  <a href="/usage" className="text-primary hover:underline">{t("Top up on the Usage page.")}</a>
-                </p>
-                {data.payer && <p className="text-xs text-muted-foreground">{t("Paid from {name}'s balance, shared by the workspaces they pay for.", { name: data.payer.name || data.payer.email })}</p>}
-                {data.suspended && <p className="text-sm text-destructive">{t("The AI API of this workspace is suspended.")}</p>}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{t("Endpoint")}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {data.baseUrl && <CopyField value={data.baseUrl} />}
-                <p className="text-xs text-muted-foreground">
-                  {t("Use it as the base URL of any OpenAI SDK, with a key from here as the API key.")}
-                </p>
-                <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
-                  {`curl ${data.baseUrl}/chat/completions \\
-  -H "Authorization: Bearer lk_…" -H "content-type: application/json" \\
-  -d '{"model":"deepseek-flash","messages":[{"role":"user","content":"Halo!"}]}'`}
-                </pre>
-              </CardContent>
-            </Card>
-          </div>
-
           {data.gatewayError && <p className="text-sm text-destructive">{t("The AI gateway did not answer: {error}", { error: data.gatewayError })}</p>}
-
-          {!data.hasAccount ? (
-            <Card>
-              <CardContent className="flex flex-col items-start gap-3 pt-6">
-                <p className="text-sm text-muted-foreground">{t("Turn it on to create API keys. Nothing is charged until a key is used.")}</p>
-                <Button onClick={() => enable.mutate()} disabled={enable.isPending}>
-                  {enable.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {t("Turn on the AI API")}
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            // a workspace with no keys yet lands on the guide
-            <Tabs value={tab ?? (data.keys.length ? "keys" : "start")} onValueChange={setTab} className="space-y-4">
-              <TabsList>
-                <TabsTrigger value="start">
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  {t("Quick start")}
-                </TabsTrigger>
-                <TabsTrigger value="keys">
-                  <KeyRound className="mr-2 h-4 w-4" />
-                  {t("Keys")}
-                  {data.keys.length > 0 && ` (${data.keys.length})`}
-                </TabsTrigger>
-                <TabsTrigger value="usage">
-                  <List className="mr-2 h-4 w-4" />
-                  {t("Usage")}
-                </TabsTrigger>
-                <TabsTrigger value="models">
-                  <Boxes className="mr-2 h-4 w-4" />
-                  {t("Models")}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="start">
-                <QuickStart baseUrl={data.baseUrl ?? ""} balance={balance} hasKey={data.keys.length > 0} onCreate={startCreating} onModels={() => setTab("models")} />
-              </TabsContent>
-              <TabsContent value="keys">
+          {data.suspended && <p className="text-sm text-destructive">{t("The AI of this workspace is suspended.")}</p>}
+          {/* a workspace with no keys yet lands on the guide */}
+          <Tabs value={tab ?? (data.keys.length ? "keys" : "start")} onValueChange={setTab} className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="start">
+                <BookOpen className="mr-2 h-4 w-4" />
+                {t("Quick start")}
+              </TabsTrigger>
+              <TabsTrigger value="keys">
+                <KeyRound className="mr-2 h-4 w-4" />
+                {t("Keys")}
+                {data.keys.length > 0 && ` (${data.keys.length})`}
+              </TabsTrigger>
+              <TabsTrigger value="usage">
+                <List className="mr-2 h-4 w-4" />
+                {t("Usage")}
+              </TabsTrigger>
+              <TabsTrigger value="models">
+                <Boxes className="mr-2 h-4 w-4" />
+                {t("Models")}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="start">
+              <QuickStart data={data} enable={enable} onCreate={startCreating} onModels={() => setTab("models")} />
+            </TabsContent>
+            <TabsContent value="keys">
+              {data.hasAccount ? (
                 <DataTable
                   columns={keyColumns}
                   rows={data.keys}
@@ -217,15 +172,17 @@ export default function Ai() {
                   searchPlaceholder={t("Search keys…")}
                   empty={t("No keys yet. Create one for each app that calls the API.")}
                 />
-              </TabsContent>
-              <TabsContent value="usage">
-                <UsageTab />
-              </TabsContent>
-              <TabsContent value="models">
-                <ModelsTable />
-              </TabsContent>
-            </Tabs>
-          )}
+              ) : (
+                <TurnOn enable={enable} />
+              )}
+            </TabsContent>
+            <TabsContent value="usage">
+              <UsageTab />
+            </TabsContent>
+            <TabsContent value="models">
+              <ModelsTable />
+            </TabsContent>
+          </Tabs>
         </>
       )}
 
@@ -421,40 +378,85 @@ function PeriodSelect({ value, onChange }: { value: KeyPeriod; onChange: (period
   );
 }
 
-/** From an empty balance to a first answer, each step ticked off from the workspace's own state. */
-function QuickStart({ baseUrl, balance, hasKey, onCreate, onModels }: { baseUrl: string; balance: number; hasKey: boolean; onCreate: () => void; onModels: () => void }) {
+type Enable = { mutate: () => void; isPending: boolean };
+
+function TurnOnButton({ enable, size }: { enable: Enable; size?: "sm" }) {
+  return (
+    <Button size={size} onClick={() => enable.mutate()} disabled={enable.isPending}>
+      {enable.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Power className="mr-2 h-4 w-4" />}
+      {t("Turn on AI")}
+    </Button>
+  );
+}
+
+function TurnOn({ enable }: { enable: Enable }) {
+  return (
+    <div className="flex flex-col items-start gap-3 rounded-lg border p-6">
+      <p className="text-sm text-muted-foreground">{t("Turn it on to create API keys. Nothing is charged until a key is used.")}</p>
+      <TurnOnButton enable={enable} size="sm" />
+    </div>
+  );
+}
+
+/**
+ * From nothing to a first answer, each step ticked off from the workspace's own
+ * state. Examples use the first model on the list, so they paste as is.
+ */
+function QuickStart({ data, enable, onCreate, onModels }: { data: AiOverview; enable: Enable; onCreate: () => void; onModels: () => void }) {
+  const { data: models = [] } = useQuery({ queryKey: ["ai-models"], queryFn: getAiModels, staleTime: 10 * 60_000 });
+  const model = models[0]?.id ?? "MODEL";
+  const baseUrl = data.baseUrl ?? "";
+  const balance = fromMicro(data.balance);
+  const hasKey = data.keys.length > 0;
   const message = '[{"role":"user","content":"Halo!"}]';
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <Step n={1} done={balance > 0} title={t("Have a balance")}>
-        <p className="text-sm text-muted-foreground">{t("Calls are paid per token from the balance, charged every minute. The welcome credit covers the first tries.")}</p>
-        <Button variant="outline" size="sm" asChild>
-          <a href="/usage">
-            <Wallet className="mr-2 h-4 w-4" />
-            {t("Top up on the Usage page.")}
-          </a>
-        </Button>
+      <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
+        <div className="flex items-center gap-2 text-sm font-medium text-primary">
+          <Zap className="h-4 w-4" />
+          {t("Base URL")}
+        </div>
+        {baseUrl && <CopyField value={baseUrl} />}
+        <p className="text-xs text-muted-foreground">{t("Use it as the base URL of any OpenAI SDK, with a key from here as the API key.")}</p>
+      </div>
+
+      <Step n={1} done={data.hasAccount && balance > 0} title={t("Turn on AI and have a balance")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Balance")}: <span className={`font-medium tabular-nums ${balance <= 0 ? "text-destructive" : "text-foreground"}`}>{rupiah(balance, balance < 100)}</span>.{" "}
+          {balance <= 0 ? t("Calls are refused until the balance is topped up.") : t("Calls are paid per token from the balance, charged every minute.")}
+        </p>
+        {data.payer && <p className="text-xs text-muted-foreground">{t("Paid from {name}'s balance, shared by the workspaces they pay for.", { name: data.payer.name || data.payer.email })}</p>}
+        <div className="flex flex-wrap gap-2">
+          {!data.hasAccount && <TurnOnButton enable={enable} size="sm" />}
+          <Button variant="outline" size="sm" asChild>
+            <a href="/usage">
+              <Wallet className="mr-2 h-4 w-4" />
+              {t("Top up on the Usage page.")}
+            </a>
+          </Button>
+        </div>
       </Step>
 
       <Step n={2} done={hasKey} title={t("Create an API key")}>
         <p className="text-sm text-muted-foreground">{t("One key per app, so one can be revoked without stopping the others. A spending limit per day or month keeps a leaked key or a runaway loop from draining the balance. The key is shown once.")}</p>
-        <Button size="sm" onClick={onCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t("New key")}
-        </Button>
+        {data.hasAccount && (
+          <Button size="sm" onClick={onCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t("New key")}
+          </Button>
+        )}
       </Step>
 
       <Step n={3} title={t("Make your first call")}>
-        <p className="text-sm text-muted-foreground">{t("It is the OpenAI API: any OpenAI SDK works with the base URL below and a key from here.")}</p>
-        {baseUrl && <CopyField value={baseUrl} />}
+        <p className="text-sm text-muted-foreground">{t("It is the OpenAI API: any OpenAI SDK works with the base URL above and a key from here.")}</p>
         <CodeExample
           examples={[
             {
               label: "cURL",
               lang: "bash",
-              code: `curl ${baseUrl}/chat/completions \
-  -H "Authorization: Bearer lk_…" -H "content-type: application/json" \
-  -d '{"model":"deepseek-flash","messages":${message}}'`,
+              code: `curl ${baseUrl}/chat/completions \\
+  -H "Authorization: Bearer lk_…" -H "content-type: application/json" \\
+  -d '{"model":"${model}","messages":${message}}'`,
             },
             {
               label: "Node.js",
@@ -463,7 +465,7 @@ function QuickStart({ baseUrl, balance, hasKey, onCreate, onModels }: { baseUrl:
 
 const ai = new OpenAI({ baseURL: "${baseUrl}", apiKey: process.env.LARIKA_AI_KEY });
 const res = await ai.chat.completions.create({
-  model: "deepseek-flash",
+  model: "${model}",
   messages: ${message},
 });
 console.log(res.choices[0].message.content);`,
@@ -475,7 +477,7 @@ console.log(res.choices[0].message.content);`,
 import os
 
 ai = OpenAI(base_url="${baseUrl}", api_key=os.environ["LARIKA_AI_KEY"])
-res = ai.chat.completions.create(model="deepseek-flash", messages=${message})
+res = ai.chat.completions.create(model="${model}", messages=${message})
 print(res.choices[0].message.content)`,
             },
           ]}
@@ -483,9 +485,7 @@ print(res.choices[0].message.content)`,
       </Step>
 
       <Step n={4} title={t("Pick a model")}>
-        <p className="text-sm text-muted-foreground">
-          {t("Send any model from the list as `model`.")}
-        </p>
+        <p className="text-sm text-muted-foreground">{t("Send any model from the list as `model`.")}</p>
         <Button variant="outline" size="sm" onClick={onModels}>
           <Boxes className="mr-2 h-4 w-4" />
           {t("Models")}

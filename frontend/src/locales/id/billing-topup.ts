@@ -84,7 +84,7 @@ export default {
   "Could not read the prices": "Gagal memuat harga",
   "Could not read the balance": "Gagal memuat saldo",
 
-  // AI API: key spending limits, whose balance
+  // AI: key spending limits, whose balance
   "Paid from {name}'s balance, shared by the workspaces they pay for.": "Dibayar dari saldo {name}, dipakai bersama oleh workspace yang dia bayar.",
   "Failed to change the limit": "Gagal mengubah batas",
   "Spent / limit": "Terpakai / batas",

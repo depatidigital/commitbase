@@ -57,9 +57,9 @@ export function AppSidebar() {
     {
       label: t("Services"),
       items: [
-        { title: "WA Gateway API", url: "/wa-gateway", icon: MessageCircle },
+        { title: "WA Gateway", url: "/wa-gateway", icon: MessageCircle },
         { title: t("Email Watcher"), url: "/email-watcher", icon: MailSearch },
-        { title: t("AI API"), url: "/ai", icon: Sparkles },
+        { title: t("AI"), url: "/ai", icon: Sparkles },
       ],
     },
     {

@@ -37,8 +37,8 @@ export default {
     "Isi webhook URL pada rule. Setiap email yang cocok dikirim (POST) ke sana sebagai JSON dalam hitungan detik, dengan webhook key rule itu di",
   "Failed sends are retried for about 9 hours.": "Pengiriman yang gagal dicoba ulang selama sekitar 9 jam.",
   "Or get it on WhatsApp": "Atau terima di WhatsApp",
-  "With a number on WA Gateway API, a rule can message you for each match — like “Masuk Rp {amount} dari {source}” — using the fields it read.":
-    "Dengan nomor di WA Gateway API, rule bisa mengirim pesan untuk setiap email yang cocok — seperti “Masuk Rp {amount} dari {source}” — memakai field yang dibacanya.",
+  "With a number on WA Gateway, a rule can message you for each match — like “Masuk Rp {amount} dari {source}” — using the fields it read.":
+    "Dengan nomor di WA Gateway, rule bisa mengirim pesan untuk setiap email yang cocok — seperti “Masuk Rp {amount} dari {source}” — memakai field yang dibacanya.",
 
   // list page
   "Reads incoming emails, like bank notifications, and sends their data to your app or WhatsApp.":
@@ -96,8 +96,8 @@ export default {
   "Webhook key — sent in x-larika-webhook-key; check it in your app:":
     "Webhook key — dikirim di x-larika-webhook-key; cek di aplikasi Anda:",
   "WhatsApp (optional)": "WhatsApp (opsional)",
-  "Add a number under WA Gateway API to be notified on WhatsApp.":
-    "Tambahkan nomor di WA Gateway API untuk menerima notifikasi WhatsApp.",
+  "Add a number under WA Gateway to be notified on WhatsApp.":
+    "Tambahkan nomor di WA Gateway untuk menerima notifikasi WhatsApp.",
   "Send from": "Kirim dari",
   "No WhatsApp": "Tanpa WhatsApp",
   "Send from {name}": "Kirim dari {name}",

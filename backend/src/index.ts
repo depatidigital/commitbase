@@ -161,7 +161,7 @@ app.use('/api/wa-numbers', waNumbersRoutes);
 app.use('/api/email-watcher', emailWatcherRoutes);
 app.use('/api/ai-gateway', authenticateToken, requireRole(['SUPERADMIN']), aiGatewayRoutes);
 app.use('/api/arusniaga', authenticateToken, requireRole(['SUPERADMIN']), arusniagaRoutes);
-// a workspace's AI API and wallet: scoped per org in the router
+// a workspace's AI and wallet: scoped per org in the router
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
 app.use('/api/system', authenticateToken, requireRole(['SUPERADMIN']), systemRoutes);

@@ -9,7 +9,7 @@ import { billingUserOf } from '../services/walletService';
 import { getLarikaAiConfig } from '../services/integrationConfigService';
 import { WIB_MS } from '../services/usageMeterService';
 
-// A workspace's AI API ("AI API" in the sidebar): an account on the AI gateway,
+// A workspace's AI ("AI" in the sidebar): an account on the AI gateway,
 // its keys, and the rupiah wallet it is charged to. Owners and admins only — the
 // keys spend the workspace's money. Money leaves as strings: micro-IDR is BigInt.
 const router: Router = Router();
@@ -17,7 +17,7 @@ router.use(authenticateToken);
 
 const fail = (res: Response, error: unknown) => {
   const { status, body } = gatewayFailure(error);
-  if (status === 500) console.error('AI API request failed:', error);
+  if (status === 500) console.error('AI request failed:', error);
   return res.status(status).json(body);
 };
 
@@ -89,7 +89,7 @@ async function orgFor(req: AuthenticatedRequest, res: Response): Promise<string 
     return null;
   }
   if (!(await canManageOrg(req, organizationId))) {
-    res.status(403).json({ success: false, error: 'Only the workspace owners and admins manage its AI API' } as ApiResponse);
+    res.status(403).json({ success: false, error: 'Only the workspace owners and admins manage its AI' } as ApiResponse);
     return null;
   }
   return organizationId;
@@ -129,7 +129,7 @@ async function aiOf(organizationId: string) {
   return { payer, row, keyIds: mapped.map((k) => k.keyId) };
 }
 
-/** The workspace's AI API: the gateway URL, the balance that pays for it, its keys. */
+/** The workspace's AI: the gateway URL, the balance that pays for it, its keys. */
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
@@ -162,7 +162,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/** Turn the AI API on: the payer's gateway account (one for every workspace they pay for), capped at what their balance buys. */
+/** Turn AI on: the payer's gateway account (one for every workspace they pay for), capped at what their balance buys. */
 router.post('/account', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
@@ -182,7 +182,7 @@ router.post('/keys', async (req: AuthenticatedRequest, res: Response) => {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
     const { row } = await aiOf(organizationId);
-    if (!row) return res.status(409).json({ success: false, error: 'Turn the AI API on first' } as ApiResponse);
+    if (!row) return res.status(409).json({ success: false, error: 'Turn AI on first' } as ApiResponse);
     const name = String(req.body?.name ?? '').trim();
     if (!name || name.length > 80) return res.status(400).json({ success: false, error: 'Name the key (up to 80 characters)' } as ApiResponse);
     const rpm = req.body?.rpm === undefined ? undefined : Number(req.body.rpm);

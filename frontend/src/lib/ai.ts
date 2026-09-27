@@ -1,7 +1,7 @@
 import apiRequest from './api';
 import { locale, t } from './i18n';
 
-/** A workspace's AI API (OpenAI-compatible, on the AI gateway) and the rupiah wallet it is charged to. */
+/** A workspace's AI (OpenAI-compatible, on the AI gateway) and the rupiah wallet it is charged to. */
 
 const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback: string): T => {
   if (res.success) return res.data as T;
@@ -57,8 +57,8 @@ export interface AiModelPrice {
   tiers: Array<{ upTo: number | null; input: number; cacheRead: number; cacheWrite: number; output: number }>;
 }
 
-export const getAi = async () => unwrap(await apiRequest<AiOverview>('/ai'), t('Failed to fetch the AI API'));
-export const enableAi = async () => unwrap(await apiRequest('/ai/account', post()), t('Failed to turn the AI API on'));
+export const getAi = async () => unwrap(await apiRequest<AiOverview>('/ai'), t('Failed to fetch AI'));
+export const enableAi = async () => unwrap(await apiRequest('/ai/account', post()), t('Failed to turn AI on'));
 /** limit: whole rupiah per period; null lifts it */
 export const setAiKeyLimit = async (id: string, limit: number | null, period: KeyPeriod) =>
   unwrap(await apiRequest(`/ai/keys/${id}`, { method: 'PATCH', body: JSON.stringify({ limit, period }) }), t('Failed to change the limit'));
@@ -99,4 +99,4 @@ export const getWallets = async () => unwrap(await apiRequest<WalletRow[]>('/ai-
 export const creditWallet = async (body: { userId: string; amount: number; note: string }) =>
   unwrap(await apiRequest('/ai-gateway/credit', post(body)), t('Failed to credit the wallet'));
 export const setAiSuspended = async (userId: string, disabled: boolean) =>
-  unwrap(await apiRequest(`/ai-gateway/accounts/${userId}`, { method: 'PATCH', body: JSON.stringify({ disabled }) }), t('Failed to change the AI API'));
+  unwrap(await apiRequest(`/ai-gateway/accounts/${userId}`, { method: 'PATCH', body: JSON.stringify({ disabled }) }), t('Failed to change AI'));

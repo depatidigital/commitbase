@@ -125,7 +125,7 @@ router.post('/credit', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/** Suspend a payer's AI API (every key of every workspace they pay for refused), or resume it. */
+/** Suspend a payer's AI (every key of every workspace they pay for refused), or resume it. */
 router.patch('/accounts/:userId', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const row = await prisma.aiAccount.findUnique({ where: { userId: String(req.params.userId) } });

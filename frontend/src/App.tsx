@@ -257,7 +257,7 @@ const App = () => (
               path="integrations/larika-gateway"
               element={
                 <SuperAdminRoute>
-                  <IntegrationCardPage title="Larika Gateway" description={t("The WhatsApp gateway behind WA Node and every workspace's WA Gateway API.")} guide={LARIKA_GATEWAY_GUIDE}>
+                  <IntegrationCardPage title="Larika Gateway" description={t("The WhatsApp gateway behind WA Node and every workspace's WA Gateway.")} guide={LARIKA_GATEWAY_GUIDE}>
                     <LarikaGatewaySettingsCard />
                   </IntegrationCardPage>
                 </SuperAdminRoute>
@@ -292,7 +292,7 @@ const App = () => (
               path="integrations/ai-gateway"
               element={
                 <SuperAdminRoute>
-                  <IntegrationCardPage title="AI Gateway" description={t("The AI gateway behind every workspace's AI API, and how its buy prices are sold.")} guide={AI_GATEWAY_GUIDE}>
+                  <IntegrationCardPage title="AI Gateway" description={t("The AI gateway behind every workspace's AI, and how its buy prices are sold.")} guide={AI_GATEWAY_GUIDE}>
                     <AiGatewaySettingsCard />
                     <WalletsCard />
                   </IntegrationCardPage>

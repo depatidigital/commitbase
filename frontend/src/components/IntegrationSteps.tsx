@@ -176,7 +176,7 @@ export const LARIKA_GATEWAY_GUIDE: StepGroup[] = [
         {t('Pair the PCs that run WhatsApp under')} <Code>{t('Administration')} → WA Node</Code>.
       </>,
       <>
-        {t('Workspaces then add their numbers under')} <Code>WA Gateway API</Code>.
+        {t('Workspaces then add their numbers under')} <Code>WA Gateway</Code>.
       </>,
     ],
   },
@@ -198,7 +198,7 @@ export const AI_GATEWAY_GUIDE: StepGroup[] = [
   {
     steps: [
       t("Add providers and models, with their buy prices, on the gateway's own dashboard (/dashboard)."),
-      t('Credit a workspace below; it turns the AI API on and creates keys under AI API.'),
+      t('Credit a workspace below; it turns AI on and creates keys under AI.'),
     ],
   },
 ];

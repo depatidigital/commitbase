@@ -162,7 +162,7 @@ export function AiGatewaySettingsCard() {
   );
 }
 
-/** Every user's balance — the one their workspaces share; correct one by hand (ADJUST, may be negative); suspend their AI API. Gifts: the Users page. */
+/** Every user's balance — the one their workspaces share; correct one by hand (ADJUST, may be negative); suspend their AI. Gifts: the Users page. */
 export function WalletsCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -182,8 +182,8 @@ export function WalletsCard() {
   });
   const suspend = useMutation({
     mutationFn: ({ id, disabled }: { id: string; disabled: boolean }) => setAiSuspended(id, disabled),
-    onSuccess: (_r, v) => toast({ title: v.disabled ? t('AI API suspended') : t('AI API resumed') }),
-    onError: (error: Error) => toast({ title: t('Failed to change the AI API'), description: error.message, variant: 'destructive' }),
+    onSuccess: (_r, v) => toast({ title: v.disabled ? t('AI suspended') : t('AI resumed') }),
+    onError: (error: Error) => toast({ title: t('Failed to change AI'), description: error.message, variant: 'destructive' }),
   });
 
   const columns: Column<WalletRow>[] = [
@@ -197,7 +197,7 @@ export function WalletsCard() {
       ),
     },
     { header: t('Balance'), className: 'text-right', cell: (w) => <span className={`tabular-nums ${fromMicro(w.balance) <= 0 ? 'text-destructive' : ''}`}>{rupiah(fromMicro(w.balance))}</span> },
-    { header: t('AI API'), cell: (w) => (w.aiAccountId ? t('On') : '—') },
+    { header: t('AI'), cell: (w) => (w.aiAccountId ? t('On') : '—') },
     {
       header: '',
       className: 'w-48 text-right',
