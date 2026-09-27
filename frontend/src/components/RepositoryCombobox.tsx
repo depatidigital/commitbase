@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, GitBranch, Github, Gitlab, Lock, Search } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, ChevronsUpDown, GitBranch, Github, Gitlab, Loader2, Lock, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -27,10 +27,22 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
   // every repo the connected accounts can see — cmdk searches the list locally
   const listing = useQuery({
     queryKey: ["git", "repositories"],
-    queryFn: listGitRepositories,
+    queryFn: () => listGitRepositories(),
     // the backend answers from its own cache; five minutes keeps the picker instant across pages
     staleTime: 5 * 60_000,
   });
+  const queryClient = useQueryClient();
+  const [reloading, setReloading] = useState(false);
+  const reload = async () => {
+    setReloading(true);
+    try {
+      queryClient.setQueryData(["git", "repositories"], await listGitRepositories(true));
+    } catch {
+      /* the last listing stays */
+    } finally {
+      setReloading(false);
+    }
+  };
   const groups = useMemo(() => {
     const groups = new Map<string, { key: string; heading: string; repositories: GitRepositoryListing["repositories"] }>();
     for (const repo of listing.data?.repositories ?? []) {
@@ -127,18 +139,26 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
           </CommandList>
         </Command>
         {!!listing.data?.errors.length && <p className="border-t px-3 py-2 text-xs text-destructive">{listing.data.errors.join(" · ")}</p>}
-        {onConnect && (
-          <div className="flex flex-wrap gap-1 border-t p-2">
-            <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("github")}>
-              <Github className="h-4 w-4 mr-2" />
-              {t("Connect GitHub")}
+        <div className="flex flex-wrap gap-1 border-t p-2">
+          {onConnect && (
+            <>
+              <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("github")}>
+                <Github className="h-4 w-4 mr-2" />
+                {t("Connect GitHub")}
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("gitlab")}>
+                <Gitlab className="h-4 w-4 mr-2" />
+                {t("Connect GitLab")}
+              </Button>
+            </>
+          )}
+          {!!listing.data?.accounts.length && (
+            <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => void reload()} disabled={reloading}>
+              {reloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              {t("Reload")}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("gitlab")}>
-              <Gitlab className="h-4 w-4 mr-2" />
-              {t("Connect GitLab")}
-            </Button>
-          </div>
-        )}
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   );

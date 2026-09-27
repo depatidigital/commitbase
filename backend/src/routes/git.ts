@@ -803,12 +803,12 @@ async function listRepositories(userId: string): Promise<RepositoryListing> {
 /**
  * Every repository the caller's connected GitHub and GitLab accounts can see,
  * for the add-app picker. One account failing (a revoked token) leaves the
- * others listed and is reported in `errors`.
+ * others listed and is reported in `errors`. `?fresh=1` (the picker's Reload) lists anew now.
  */
 router.get('/repositories', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
-    const cached = listingCache.get(userId);
+    const cached = req.query.fresh ? undefined : listingCache.get(userId);
     // ponytail: stale-while-revalidate in memory; per-process, fine for one panel
     if (cached) {
       if (Date.now() - cached.at > LISTING_FRESH_MS && !cached.refreshing) {

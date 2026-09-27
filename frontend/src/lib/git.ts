@@ -70,8 +70,9 @@ export type GitRepositoryListing = {
 };
 
 /** Repositories across every connected GitHub and GitLab account, for the add-app picker. */
-export const listGitRepositories = async (): Promise<GitRepositoryListing> => {
-  const response = await apiRequest<GitRepositoryListing>('/git/repositories');
+/** fresh: skip the backend's cached listing (a repository made a moment ago) */
+export const listGitRepositories = async (fresh = false): Promise<GitRepositoryListing> => {
+  const response = await apiRequest<GitRepositoryListing>(`/git/repositories${fresh ? '?fresh=1' : ''}`);
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Failed to list repositories'));
 };
