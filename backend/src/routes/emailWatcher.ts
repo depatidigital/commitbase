@@ -7,6 +7,7 @@ import { canEncrypt, decrypt, encrypt } from '../lib/secretBox';
 import { paging, paginated } from '../lib/paging';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } from '../lib/scope';
 import { filterOf, picksEmails, validConditions, validFields } from '../lib/emailRules';
+import { generateFields, generationsLeft, type Label, takeGeneration } from '../services/emailExtractService';
 import { payerIdOf } from '../services/walletService';
 import {
   assertPublicHost,
@@ -262,6 +263,40 @@ router.post('/mailboxes/:id/preview', async (req: AuthenticatedRequest, res: Res
     const limit = Math.min(100, Math.max(5, Math.round(Number(req.body?.limit) || 30)));
     return res.json({ success: true, data: await previewRule(box.id, settings, rule, { days, limit }) } as ApiResponse);
   } catch (error) {
+    return fail(res, error);
+  }
+});
+
+/**
+ * Extract with AI: sample texts (one part of each email) and the values the user marked
+ * in them, named; back come the fields that read them, checked against the samples.
+ * Free, a few a day per workspace — each is a model call.
+ */
+router.post('/mailboxes/:id/extract-ai', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const box = await mailboxFor(req, req.params.id);
+    if (!box) return bad(res, 'Mailbox not found', 404);
+    const source = req.body?.source === 'subject' || req.body?.source === 'from' ? req.body.source : 'body';
+    const samples: string[] = Array.isArray(req.body?.samples) ? req.body.samples.slice(0, 5).map((t: unknown) => String(t ?? '').slice(0, 5_000)) : [];
+    const labels: Label[] = (Array.isArray(req.body?.labels) ? req.body.labels : []).slice(0, 30).map((l: any) => ({
+      name: String(l?.name ?? '').trim(),
+      type: l?.type === 'amount' ? 'amount' : 'text',
+      sample: Number(l?.sample),
+      value: String(l?.value ?? '').trim().slice(0, 300),
+    }));
+    if (!samples.length) return bad(res, 'Add a sample email');
+    if (!labels.length) return bad(res, 'Mark a value in a sample and name it');
+    for (const l of labels) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,39}$/.test(l.name)) return bad(res, `Label "${l.name}": letters, digits and _ only`);
+      if (!Number.isInteger(l.sample) || l.sample < 0 || l.sample >= samples.length || !l.value || !samples[l.sample]!.includes(l.value)) {
+        return bad(res, `Label "${l.name}": mark a value that is in its sample`);
+      }
+    }
+    if (!takeGeneration(box.organizationId)) return bad(res, 'The daily limit for Extract with AI is used up. Try again tomorrow, or write the pattern by hand.', 429);
+    const result = await generateFields(source, samples, labels);
+    return res.json({ success: true, data: { ...result, left: generationsLeft(box.organizationId) } } as ApiResponse);
+  } catch (error) {
+    if (error instanceof Error && /OPENAI_API_KEY|The AI did not answer/.test(error.message)) return bad(res, error.message, 503);
     return fail(res, error);
   }
 });

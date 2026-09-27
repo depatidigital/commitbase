@@ -8,13 +8,12 @@ import * as vm from 'vm';
  */
 
 export type FieldType = 'text' | 'amount';
-/** Where a field reads: all = the subject line then the body (the default); or one of them, or the sender line. */
-export type FieldSource = 'all' | 'subject' | 'body' | 'from';
+/** Where a field reads — one part, never a mix, so what it reads and what is marked stay unambiguous. */
+export type FieldSource = 'subject' | 'body' | 'from';
 export type Field = { name: string; pattern: string; type: FieldType; source?: FieldSource };
 
 /** The text a field's pattern runs on. */
-export const sourceText = (m: Message, source: FieldSource = 'all') =>
-  source === 'subject' ? m.subject : source === 'body' ? m.text : source === 'from' ? m.from : `${m.subject}\n${m.text}`;
+export const sourceText = (m: Message, source: FieldSource = 'body') => (source === 'subject' ? m.subject : source === 'from' ? m.from : m.text);
 export type Message = { from: string; subject: string; text: string };
 
 /** What a condition looks at, and how. `in`/`not_in`: a comma-separated list, any of which may appear. */
@@ -195,7 +194,7 @@ export function validFields(input: unknown): Field[] | string {
       return `Field "${name}": the pattern is not a valid regular expression`;
     }
     if (fields.some((x) => x.name === name)) return `Field "${name}" is listed twice`;
-    const source: FieldSource = ['subject', 'body', 'from'].includes(f?.source) ? f.source : 'all';
+    const source: FieldSource = f?.source === 'subject' || f?.source === 'from' ? f.source : 'body';
     fields.push({ name, pattern, type: f?.type === 'amount' ? 'amount' : 'text', source });
   }
   return fields;

@@ -1221,7 +1221,7 @@ model EmailRule {
   conditions      Json         @default("[]")
   /// only messages whose From domain passed DKIM/DMARC at the receiving server (Authentication-Results)
   onlyVerified    Boolean      @default(true)
-  /// [{ name, pattern, type: "text" | "amount" }] — pattern is a regex, the value its first group
+  /// [{ name, pattern, type: "text" | "amount", source: "subject" | "body" | "from" }] — pattern is a regex, the value its first group
   fields          Json         @default("[]")
   webhookUrl      String?
   /// sent as x-larika-webhook-key with each webhook; the app checks it

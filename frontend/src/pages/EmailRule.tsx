@@ -154,7 +154,7 @@ const TEMPLATES: Template[] = [
   },
 ];
 const CUSTOM = "custom";
-const SOURCE_LABEL: Record<FieldSource, string> = { all: "Subject + body", subject: "Subject", body: "Body", from: "Sender" };
+const SOURCE_LABEL: Record<FieldSource, string> = { body: "Body", subject: "Subject", from: "Sender" };
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const unescapeRegex = (pattern: string) => pattern.replace(/\\(.)/g, "$1");
 /** A template's pattern around its word: "dari" → dari\s+(\S+). */
@@ -437,7 +437,7 @@ export default function EmailRule() {
                     <p className="text-xs text-muted-foreground">{t("Nothing extracted yet. Start from a template:")}</p>
                     <div className="flex flex-wrap justify-center gap-1.5">
                       {TEMPLATES.slice(0, 4).map((tpl) => (
-                        <Button key={tpl.id} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => set({ fields: [{ name: tpl.name, pattern: tpl.pattern, type: tpl.type }] })}>
+                        <Button key={tpl.id} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => set({ fields: [{ name: tpl.name, pattern: tpl.pattern, type: tpl.type, source: "body" }] })}>
                           <Plus className="mr-1 h-3 w-3" /> {t(tpl.label)}
                         </Button>
                       ))}
@@ -479,9 +479,10 @@ export default function EmailRule() {
                         </Button>
                       </div>
                       {badName && <p className="text-xs text-destructive">{t("Letters, digits and _ only, like amount or source")}</p>}
+                      {/* where it reads, and the word its template looks after */}
                       <div className="flex items-center gap-1.5">
-                        <Select value={f.source ?? "all"} onValueChange={(source) => setField(i, { source: source as FieldSource })}>
-                          <SelectTrigger className="h-8 w-auto gap-1 px-2 text-xs" aria-label={t("Read from")}>
+                        <Select value={f.source ?? "body"} onValueChange={(source) => setField(i, { source: source as FieldSource })}>
+                          <SelectTrigger className="h-8 w-28 shrink-0 gap-1 px-2 text-xs" aria-label={t("Read from")}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -490,25 +491,6 @@ export default function EmailRule() {
                                 {t(SOURCE_LABEL[source])}
                               </SelectItem>
                             ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={at.id}
-                          onValueChange={(id) => {
-                            const next = TEMPLATES.find((x) => x.id === id);
-                            if (next) setField(i, { pattern: next.pattern, type: next.type, name: f.name || next.name });
-                          }}
-                        >
-                          <SelectTrigger className="h-8 w-auto min-w-0 gap-1 px-2 text-xs" aria-label={t("Template")}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {TEMPLATES.map((x) => (
-                              <SelectItem key={x.id} value={x.id}>
-                                {t(x.label)}
-                              </SelectItem>
-                            ))}
-                            <SelectItem value={CUSTOM}>{t("Custom")}</SelectItem>
                           </SelectContent>
                         </Select>
                         {tpl?.word && (
@@ -522,13 +504,35 @@ export default function EmailRule() {
                           />
                         )}
                       </div>
-                      <Input aria-label={t("Pattern (regex)")} className="h-8 font-mono text-xs" placeholder="Rp\s*([\d.,]+)" value={f.pattern} onChange={(e) => setField(i, { pattern: e.target.value })} />
+                      {/* the template beside the pattern it writes */}
+                      <div className="flex items-center gap-1.5">
+                        <Select
+                          value={at.id}
+                          onValueChange={(id) => {
+                            const next = TEMPLATES.find((x) => x.id === id);
+                            if (next) setField(i, { pattern: next.pattern, type: next.type, name: f.name || next.name });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-44 shrink-0 gap-1 px-2 text-xs" aria-label={t("Template")}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TEMPLATES.map((x) => (
+                              <SelectItem key={x.id} value={x.id}>
+                                {t(x.label)}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value={CUSTOM}>{t("Custom")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input aria-label={t("Pattern (regex)")} className="h-8 min-w-0 flex-1 font-mono text-xs" placeholder="Rp\s*([\d.,]+)" value={f.pattern} onChange={(e) => setField(i, { pattern: e.target.value })} />
+                      </div>
                       {badPattern && <p className="text-xs text-destructive">{t("Not a valid regular expression")}</p>}
                     </div>
                   );
                 })}
                 {fields.length > 0 && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => set({ fields: [...fields, { name: "", pattern: "", type: "text" }] })}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => set({ fields: [...fields, { name: "", pattern: "", type: "text", source: "body" }] })}>
                     <Plus className="mr-2 h-4 w-4" /> {t("Add field")}
                   </Button>
                 )}
@@ -789,11 +793,11 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
         field: -1,
       });
     fields.forEach((f, field) => {
-      const source = f.source ?? "all";
+      const source = f.source ?? "body";
       if (source === "from") return;
       // the part it reads, and where that part starts in the text shown (subject line, then body)
-      const part = source === "subject" ? row.subject : source === "body" ? row.text : text;
-      const offset = source === "body" ? row.subject.length + 1 : 0;
+      const part = source === "subject" ? row.subject : row.text;
+      const offset = source === "subject" ? 0 : row.subject.length + 1;
       try {
         // "d": match indices (ES2022), not in this project's TS lib yet
         const m = new RegExp(f.pattern, "id").exec(part) as
@@ -813,7 +817,7 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
       if (!kept.some((k) => m.start < k.end && k.start < m.end)) kept.push(m);
     }
     return kept.sort((a, b) => a.start - b.start);
-  }, [text, fields, filters.conditions, row.subject, row.text]);
+  }, [fields, filters.conditions, row.subject, row.text]);
 
   const parts: ReactNode[] = [];
   let at = 0;

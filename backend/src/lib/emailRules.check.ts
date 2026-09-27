@@ -59,8 +59,8 @@ assert.equal(typeof validConditions([c('subject', 'contains', ' ')]), 'string');
 assert.deepEqual(validConditions([c('subject', 'in', ' dana ')]), [c('subject', 'in', 'dana')]);
 
 const fields = validFields([
-  { name: 'amount', pattern: 'Rp\\s*([\\d.,]+)', type: 'amount' },
-  { name: 'source', pattern: 'dari (\\S+) telah berhasil' },
+  { name: 'amount', pattern: 'Rp\\s*([\\d.,]+)', type: 'amount', source: 'subject' },
+  { name: 'source', pattern: 'dari (\\S+) telah berhasil', source: 'subject' },
 ]);
 assert.ok(Array.isArray(fields));
 assert.deepEqual(extractFields(fields, bni), { amount: 150000, source: 'DANA' });
@@ -70,13 +70,14 @@ const reference = { name: 'ref', pattern: 'Referensi: (\\S+)', type: 'text' as c
 assert.deepEqual(extractFields([{ ...reference, source: 'body' }], bni), { ref: 'F1260PIQ9P' });
 assert.deepEqual(extractFields([{ ...reference, source: 'subject' }], bni), { ref: null });
 assert.deepEqual(extractFields([{ name: 'bank', pattern: '@([\\w.]+)>', type: 'text', source: 'from' }], bni), { bank: 'bni.co.id' });
-assert.deepEqual((validFields([{ name: 'x', pattern: 'a', source: 'nowhere' }]) as Field[])[0]!.source, 'all');
+assert.deepEqual((validFields([{ name: 'x', pattern: 'a', source: 'nowhere' }]) as Field[])[0]!.source, 'body');
+assert.deepEqual((validFields([{ name: 'x', pattern: 'a', source: 'all' }]) as Field[])[0]!.source, 'body');
 assert.equal(typeof validFields([{ name: 'x', pattern: '(' }]), 'string');
 assert.equal(typeof validFields([{ name: 'bad name', pattern: 'a' }]), 'string');
 
 // a catastrophic pattern times out instead of hanging the process
 const started = Date.now();
-assert.deepEqual(extractFields([{ name: 'x', pattern: '(a+)+$', type: 'text' }], { from: '', subject: `${'a'.repeat(40)}!`, text: '' }), { x: null });
+assert.deepEqual(extractFields([{ name: 'x', pattern: '(a+)+$', type: 'text' }], { from: '', subject: '', text: `${'a'.repeat(40)}!` }), { x: null });
 assert.ok(Date.now() - started < 2_000);
 
 assert.equal(renderTemplate('Masuk Rp {amount} dari {source} {nope}', { amount: 150000, source: 'DANA' }), 'Masuk Rp 150000 dari DANA {nope}');

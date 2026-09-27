@@ -44,8 +44,8 @@ const PRESETS: Array<{ label: string; rule: Partial<RuleInput> }> = [
         { field: "subject", op: "contains", value: "Transaksi Sebesar" },
       ],
       fields: [
-        { name: "amount", pattern: "Rp\\s*([\\d.,]+)", type: "amount" },
-        { name: "source", pattern: "dari (\\S+) telah berhasil", type: "text" },
+        { name: "amount", pattern: "Rp\\s*([\\d.,]+)", type: "amount", source: "subject" },
+        { name: "source", pattern: "dari (\\S+) telah berhasil", type: "text", source: "subject" },
       ],
       waTemplate: "Masuk Rp {amount} dari {source}",
     },

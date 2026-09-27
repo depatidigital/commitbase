@@ -191,7 +191,6 @@ export default {
   "Off: a forged email that copies the bank's address is sent on too. Keep it on for payments.":
     "Mati: email palsu yang meniru alamat bank ikut diteruskan. Biarkan aktif untuk pembayaran.",
   "Read from": "Baca dari",
-  "Subject + body": "Subjek + isi",
   "Add a filter to narrow them.": "Tambah filter untuk menyaring.",
 
   // events

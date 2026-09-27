@@ -38,8 +38,8 @@ export interface Mailbox {
 }
 
 export type FieldType = 'text' | 'amount';
-/** Where a field reads: all = the subject line then the body (the default). */
-export type FieldSource = 'all' | 'subject' | 'body' | 'from';
+/** Where a field reads — one part, never a mix. The body by default. */
+export type FieldSource = 'subject' | 'body' | 'from';
 export interface RuleField {
   name: string;
   pattern: string;
@@ -158,3 +158,23 @@ export const getEvents = async (params: { page: number; limit: number; search: s
   );
 
 export const replayEvent = async (id: string) => unwrap(await apiRequest<MailEvent>(`/email-watcher/events/${id}/replay`, send('POST')), t('Failed to send the event again'));
+
+/** A value the user marked in a sample and named, for Extract with AI. */
+export interface ExtractLabel {
+  name: string;
+  type: FieldType;
+  sample: number;
+  value: string;
+}
+
+export interface ExtractResult {
+  fields: RuleField[];
+  checks: Array<{ name: string; sample: number; expected: string; got: string | number | null; ok: boolean }>;
+  /** what the fields read out of each sample */
+  values: Array<Record<string, string | number | null>>;
+  /** generations left today */
+  left: number;
+}
+
+export const extractWithAi = async (mailboxId: string, body: { source: FieldSource; samples: string[]; labels: ExtractLabel[] }) =>
+  unwrap(await apiRequest<ExtractResult>(`/email-watcher/mailboxes/${mailboxId}/extract-ai`, send('POST', body)), t('Failed to extract with AI'));
