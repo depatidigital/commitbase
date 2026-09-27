@@ -1,35 +1,26 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, FolderOpen, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, FolderOpen, Loader2, RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ReuploadDialog } from "@/components/ReuploadDialog";
 import { UploadTree } from "@/components/UploadTree";
-import { useToast } from "@/hooks/use-toast";
-import { deleteSiteFiles, getSiteFiles } from "@/lib/applications";
-import { t } from "@/lib/i18n";
+import { useApplication } from "@/hooks/useApplications";
+import { getSiteFiles } from "@/lib/applications";
+import { locale, t } from "@/lib/i18n";
+import { formatBytes } from "@/lib/utils";
 
 /**
  * What a static site is actually serving: the bucket's files as a tree, each
- * openable, and ticked ones deletable. Deliberately not a file manager — a
- * site is redeployed whole (Upload files again); this is for checking the
- * result and pulling the odd wrong file.
+ * openable — read only. Changing them is an upload: "Upload files" opens the
+ * same drop zone as creating the app. `bare`: no card of its own — a section
+ * of the card it sits in.
  */
-export function SiteFilesCard({ appId }: { appId: string }) {
+export function SiteFilesCard({ appId, bare = false }: { appId: string; bare?: boolean }) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-  // the tree tracks unticked paths; here nothing starts ticked
-  const [unticked, setUnticked] = useState<Set<string> | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  // the upload dialog needs the whole app; read once it is asked for
+  const { data: application } = useApplication(uploading ? appId : "");
 
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["site-files", appId],
@@ -37,30 +28,17 @@ export function SiteFilesCard({ appId }: { appId: string }) {
   });
 
   const items = useMemo(() => (data?.files ?? []).map((f) => ({ path: f.key, size: f.size })), [data]);
-  const allPaths = useMemo(() => new Set(items.map((i) => i.path)), [items]);
-  const excluded = unticked ?? allPaths;
-  const selected = items.filter((i) => !excluded.has(i.path)).map((i) => i.path);
   const totalSize = items.reduce((sum, i) => sum + i.size, 0);
 
-  const remove = useMutation({
-    mutationFn: (keys: string[]) => deleteSiteFiles(appId, keys),
-    onSuccess: (deleted) => {
-      toast({ title: t("Files deleted"), description: t("{count} files removed from the site.", { count: deleted }) });
-      setUnticked(null);
-    },
-    onError: (e: Error) => toast({ variant: "destructive", title: t("Error"), description: e.message }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["site-files", appId] }),
-  });
-
   return (
-    <Card className="bg-gradient-card border-border/50">
+    <Card className={bare ? "rounded-none border-0 bg-transparent shadow-none" : "bg-gradient-card border-border/50"}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="flex items-center space-x-2">
           <FolderOpen className="h-5 w-5 text-primary" />
           <span>{t("Site files")}</span>
           {data && (
             <span className="text-sm font-normal text-muted-foreground">
-              {t("{count} files", { count: items.length })} · {(totalSize / (1024 * 1024)).toFixed(1)} MB
+              {t("{count} files", { count: items.length })} · {formatBytes(totalSize, locale)}
             </span>
           )}
         </CardTitle>
@@ -68,15 +46,9 @@ export function SiteFilesCard({ appId }: { appId: string }) {
           <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} aria-label={t("Refresh")}>
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            disabled={selected.length === 0 || remove.isPending}
-            onClick={() => setConfirming(true)}
-          >
-            {remove.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-            {t("Delete ({count})", { count: selected.length })}
+          <Button variant="outline" size="sm" onClick={() => setUploading(true)}>
+            {uploading && !application ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+            {t("Upload files")}
           </Button>
         </div>
       </CardHeader>
@@ -93,9 +65,7 @@ export function SiteFilesCard({ appId }: { appId: string }) {
         ) : (
           <UploadTree
             entries={items}
-            excluded={excluded}
-            onExcludedChange={setUnticked}
-            strikeUnchecked={false}
+            readOnly
             fileAction={(path) =>
               data?.origin ? (
                 <a
@@ -113,25 +83,17 @@ export function SiteFilesCard({ appId }: { appId: string }) {
         )}
       </CardContent>
 
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("Delete {count} files from the site?", { count: selected.length })}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("They stop being served right away. Earlier releases keep their copies — switch back to one in Deployments to bring them back.")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => remove.mutate(selected)}
-            >
-              {t("Delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {application && (
+        <ReuploadDialog
+          application={application}
+          title={t("Upload files")}
+          open={uploading}
+          onOpenChange={(open) => {
+            setUploading(open);
+            if (!open) void queryClient.invalidateQueries({ queryKey: ["site-files", appId] });
+          }}
+        />
+      )}
     </Card>
   );
 }

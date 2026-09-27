@@ -131,7 +131,8 @@ export function ReuploadDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent className="max-w-2xl">
+      {/* header and footer stay put; only the body scrolls */}
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -140,80 +141,81 @@ export function ReuploadDialog({
               : t("The service is rebuilt from the new files.")}
           </DialogDescription>
         </DialogHeader>
+        <div className="-mx-6 min-h-0 flex-1 space-y-4 overflow-y-auto px-6">
+          <SourcePicker picked={picked} excluded={excluded} onPick={pick} onExcludedChange={setExcluded} />
 
-        <SourcePicker picked={picked} excluded={excluded} onPick={pick} onExcludedChange={setExcluded} />
-
-        {check && (!check.hasIndex || check.looksLikeSource) && (
-          <div className="flex gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div className="space-y-2">
-              <p>
-                {check.looksLikeSource
-                  ? t("This looks like the app's source (package.json, src/), not its build output. Build it first and upload the output folder.")
-                  : t("There is no index.html at the top level — visitors opening the site get a 404.")}
-              </p>
-              {check.buildDir && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => pick(toUploadEntries(picked.filter((e) => e.path.startsWith(`${check.buildDir}/`))))}
-                >
-                  {t("Upload only {dir}/", { dir: check.buildDir })}
-                </Button>
-              )}
-              {blocked && (
-                <p className="text-xs text-muted-foreground">
-                  {t("To upload without an index.html anyway, turn off “Replace the whole site”.")}
+          {check && (!check.hasIndex || check.looksLikeSource) && (
+            <div className="flex gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <div className="space-y-2">
+                <p>
+                  {check.looksLikeSource
+                    ? t("This looks like the app's source (package.json, src/), not its build output. Build it first and upload the output folder.")
+                    : t("There is no index.html at the top level — visitors opening the site get a 404.")}
                 </p>
-              )}
+                {check.buildDir && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => pick(toUploadEntries(picked.filter((e) => e.path.startsWith(`${check.buildDir}/`))))}
+                  >
+                    {t("Upload only {dir}/", { dir: check.buildDir })}
+                  </Button>
+                )}
+                {blocked && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("To upload without an index.html anyway, turn off “Replace the whole site”.")}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {isStatic && (
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              checked={replace}
-              onCheckedChange={(checked) => setReplace(checked === true)}
-              className="mt-0.5"
-            />
-            <span>
-              <span className="font-medium">{t("Replace the whole site")}</span>
-              <span className="block text-xs text-muted-foreground">
-                {replace
-                  ? t("The new version has only these files. The current version is kept, so you can switch back to it.")
-                  : t("Only adds and overwrites — the rest of the current version is carried over.")}
+          {isStatic && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={replace}
+                onCheckedChange={(checked) => setReplace(checked === true)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">{t("Replace the whole site")}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {replace
+                    ? t("The new version has only these files. The current version is kept, so you can switch back to it.")
+                    : t("Only adds and overwrites — the rest of the current version is carried over.")}
+                </span>
               </span>
-            </span>
-          </label>
-        )}
+            </label>
+          )}
 
-        {summary && (
-          <p className="text-sm">
-            <span className="text-success">{t("{count} new", { count: summary.added })}</span>
-            {" · "}
-            {t("{count} overwritten", { count: summary.overwritten })}
-            {" · "}
-            <span className={summary.removed ? "text-destructive" : undefined}>
-              {t("{count} removed", { count: summary.removed })}
-            </span>
-          </p>
-        )}
-
-        {busy && (
-          <div className="space-y-1">
-            <Progress value={progress * 100} className="h-2" />
-            <p className="text-xs text-muted-foreground">
-              {progress < 1
-                ? t("Uploading… {percent}%", { percent: Math.floor(progress * 100) })
-                : isStatic
-                  ? t("Publishing to the site…")
-                  : t("Saving the files…")}
+          {summary && (
+            <p className="text-sm">
+              <span className="text-success">{t("{count} new", { count: summary.added })}</span>
+              {" · "}
+              {t("{count} overwritten", { count: summary.overwritten })}
+              {" · "}
+              <span className={summary.removed ? "text-destructive" : undefined}>
+                {t("{count} removed", { count: summary.removed })}
+              </span>
             </p>
-          </div>
-        )}
+          )}
 
+          {busy && (
+            <div className="space-y-1">
+              <Progress value={progress * 100} className="h-2" />
+              <p className="text-xs text-muted-foreground">
+                {progress < 1
+                  ? t("Uploading… {percent}%", { percent: Math.floor(progress * 100) })
+                  : isStatic
+                    ? t("Publishing to the site…")
+                    : t("Saving the files…")}
+              </p>
+            </div>
+          )}
+
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             {t("Cancel")}

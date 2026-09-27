@@ -77,6 +77,8 @@ export function RoutingCard({
   const setEditOpen = onEditOpenChange ?? setOwnOpen;
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<AppDomain | null>(null);
+  const [addingRedirect, setAddingRedirect] = useState(false);
+  const [addingHost, setAddingHost] = useState(false);
 
   // by host, the whole host after its paths — the order Caddy tries them in
   const routes = [...application.domains].sort(
@@ -177,14 +179,35 @@ export function RoutingCard({
                 );
               })}
             </ul>
+            {/* none yet: the input, right there. Some: it opens from "+ Add another domain", like a redirect's */}
+            {serving.length === 0 || addingHost ? (
+              <AddRouteForm
+                application={application}
+                // the first host has nothing to go back to
+                onCancel={serving.length > 0 ? () => setAddingHost(false) : undefined}
+                onAdded={async () => {
+                  setAddingHost(false);
+                  await refresh();
+                }}
+              />
+            ) : (
+              <Button type="button" variant="link" size="sm" className="h-auto px-0 text-muted-foreground hover:text-foreground" onClick={() => setAddingHost(true)}>
+                <Plus className="mr-1 h-4 w-4" />
+                {t("Add another domain")}
+              </Button>
+            )}
           </section>
 
-          {redirects.length > 0 && (
-            <section className="space-y-1.5">
+          <Separator />
+
+          {/* redirects: listed once there are some; their own input opens from the link below */}
+          <section className="space-y-1.5">
+            {redirects.length > 0 && (
               <p className="text-sm font-medium">
                 {t("Redirects")} <span className="font-normal text-muted-foreground">({t("to the host on the right, same path, 301")})</span>
               </p>
-              <ul className="divide-y divide-border/60 rounded-md border border-border/60">
+            )}
+              <ul className="divide-y divide-border/60 rounded-md border border-border/60 empty:hidden">
                 {redirects.map((route) => {
                   const label = bindingLabel(route);
                   return (
@@ -201,11 +224,32 @@ export function RoutingCard({
                   );
                 })}
               </ul>
-            </section>
-          )}
-
-          <Separator />
-          <AddRouteForm application={application} onAdded={refresh} />
+            {addingRedirect ? (
+              <AddRouteForm
+                redirect
+                application={application}
+                onCancel={() => setAddingRedirect(false)}
+                onAdded={async () => {
+                  setAddingRedirect(false);
+                  await refresh();
+                }}
+              />
+            ) : (
+              // a redirect sends visitors on to a host that opens the app — none yet, nothing to send them to
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto px-0 text-muted-foreground hover:text-foreground"
+                disabled={!serving.some((d) => !d.path)}
+                title={serving.some((d) => !d.path) ? undefined : t("Add a host first — a redirect sends visitors to one.")}
+                onClick={() => setAddingRedirect(true)}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                {t("Add a redirect")}
+              </Button>
+            )}
+          </section>
         </DialogContent>
       </Dialog>
 
@@ -385,7 +429,19 @@ export function RoutingCard({
 }
 
 /** Adding a route, in the Edit dialog: a host, or a path under one. */
-function AddRouteForm({ application, onAdded }: { application: Application; onAdded: () => Promise<void> }) {
+/** `redirect`: the new route sends its visitors on to one of the app's hosts, instead of opening the app. */
+function AddRouteForm({
+  application,
+  onAdded,
+  redirect = false,
+  onCancel,
+}: {
+  application: Application;
+  onAdded: () => Promise<void>;
+  redirect?: boolean;
+  /** opened on demand: closes it again */
+  onCancel?: () => void;
+}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: allChoices = [], isLoading, error: choicesError } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
@@ -405,9 +461,9 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   const [dnsConsent, setDnsConsent] = useState(false);
   const [move, setMove] = useState(false);
   const [adding, setAdding] = useState(false);
-  // what the new route does: serve the app, or send visitors to one of its hosts that does
-  const [redirectTo, setRedirectTo] = useState(SERVE);
   const targets = [...new Set(application.domains.filter((d) => !d.path && !d.redirectTo).map((d) => d.host))];
+  // what the new route does: serve the app, or send visitors to one of its hosts that does
+  const [redirectTo, setRedirectTo] = useState(redirect ? targets[0] ?? SERVE : SERVE);
   const picked = choices.find((choice) => choice.name === domain);
   const useRoot = root && !!picked && !picked.shared;
   const host = joinHost(subdomain, domain, useRoot);
@@ -456,31 +512,6 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   if (choicesError) return <p className="text-sm text-destructive">{t("Could not load domains: {error}", { error: (choicesError as Error).message })}</p>;
   return (
     <div className="space-y-2">
-      {/* a route opens the app; a redirect sends its visitors on to one of the hosts that does */}
-      {targets.length > 0 ? (
-        <div className="inline-flex rounded-md border border-border/60 p-0.5 text-sm" role="tablist">
-          {[
-            { redirect: false, label: t("Add route") },
-            { redirect: true, label: t("Add redirect") },
-          ].map((tab) => {
-            const active = (redirectTo !== SERVE) === tab.redirect;
-            return (
-              <button
-                key={tab.label}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`rounded px-3 py-1 font-medium transition-colors ${active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setRedirectTo(tab.redirect ? (redirectTo !== SERVE ? redirectTo : targets[0]!) : SERVE)}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="text-sm font-medium">{t("Add route")}</p>
-      )}
       {/* one line: subdomain . domain, an optional path under it, Add */}
       <HostnamePicker
         bare
@@ -538,6 +569,11 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
               {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
               {t("Add")}
             </Button>
+            {onCancel && (
+              <Button type="button" variant="ghost" className="shrink-0" onClick={onCancel} disabled={adding}>
+                {t("Cancel")}
+              </Button>
+            )}
           </>
         }
       />

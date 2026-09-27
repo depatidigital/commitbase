@@ -249,7 +249,12 @@ export function HostnamePicker({
         </p>
       ) : domain && problem && touched ? (
         <p className="text-xs text-destructive">{problem}</p>
-      ) : null}
+      ) : (
+        // not a whole address yet: its shape stays in view, so the line never comes and goes
+        <p className="break-all text-sm text-muted-foreground">
+          → https://{useRoot ? domain || "…" : `${subdomain || "…"}.${domain || "…"}`}
+        </p>
+      )}
       </>)}
       {picked?.shared && host && (
         <p className="text-xs text-muted-foreground">

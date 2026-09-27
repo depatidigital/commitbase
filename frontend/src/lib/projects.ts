@@ -15,7 +15,7 @@ export interface ProjectApp {
   id: string;
   name: string;
   /** its hostnames, all alike */
-  domains: Array<{ host: string; path?: string; domainId: string | null }>;
+  domains: Array<{ host: string; path?: string; domainId: string | null; /** a redirect: visitors go on to this host */ redirectTo?: string | null }>;
   type: string;
   status: string;
   runtime: string | null;

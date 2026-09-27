@@ -70,6 +70,8 @@ type Props = {
   /** no checkboxes: each file and folder has a remove button instead — for a
    *  pick where everything listed goes up */
   onRemove?: (paths: string[]) => void;
+  /** a listing only: no checkboxes, no remove */
+  readOnly?: boolean;
   /** strike unticked rows through — right for "left out of the upload", not for a selection */
   strikeUnchecked?: boolean;
   /** extra control at the end of a file row, e.g. an open link */
@@ -82,7 +84,7 @@ type Props = {
  * hold thousands of files. Used for picking what to upload and for selecting
  * site files to delete.
  */
-export function UploadTree({ entries, excluded = new Set(), onExcludedChange, strikeUnchecked = true, fileAction, onRemove }: Props) {
+export function UploadTree({ entries, excluded = new Set(), onExcludedChange, strikeUnchecked = true, fileAction, onRemove, readOnly = false }: Props) {
   const tree = useMemo(() => buildTree(entries), [entries]);
   // the root ("/", path "") starts open: what was picked shows at once, under it
   const [open, setOpen] = useState<Set<string>>(new Set([""]));
@@ -128,7 +130,7 @@ export function UploadTree({ entries, excluded = new Set(), onExcludedChange, st
           ) : (
             <span className="w-4 shrink-0" />
           )}
-          {!onRemove && (
+          {!onRemove && !readOnly && (
             <Checkbox
               checked={state}
               onCheckedChange={() => toggle(node, state !== true)}

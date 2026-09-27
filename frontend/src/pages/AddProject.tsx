@@ -35,6 +35,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getActiveOrg } from "@/lib/api";
 import { useCreateApplication } from "@/hooks/useApplications";
 import { SourcePicker } from "@/components/SourcePicker";
+import { Stepper } from "@/components/Stepper";
 import { RepositoryCombobox } from "@/components/RepositoryCombobox";
 import { getOrganizationsPage } from "@/lib/organizations";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
@@ -424,8 +425,9 @@ export default function AddProject() {
     }
     setBusy("");
 
-    // the project's page takes it from here: each app's hosts and env, then the first deploy
-    navigate(`/apps/${projectId || createdId}`);
+    // a new app: its name and each service's host first, on their own screen; then
+    // the app's page takes it from there (env, then the first deploy)
+    navigate(projectId ? `/apps/${projectId}` : `/apps/${createdId}/setup`);
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -540,6 +542,8 @@ export default function AddProject() {
       }
     >
       <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl space-y-8">
+        {/* a new app is two screens: this one, then its name and hosts */}
+        {!projectId && <Stepper steps={[t("Upload & pick the source"), t("Finish")]} current={0} />}
         {/* an app of an existing project: its code is known, only the folder is asked */}
         {projectId && (
           <Card className="bg-gradient-card border-border/50 shadow-elegant">

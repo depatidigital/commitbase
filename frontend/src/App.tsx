@@ -15,6 +15,7 @@ import { Mail } from "lucide-react";
 import ProjectDetail from "./pages/ProjectDetail";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import AddProject from "./pages/AddProject";
+import ProjectSetup from "./pages/ProjectSetup";
 import Database from "./pages/Database";
 import Domains from "./pages/Domains";
 import DomainRegister from "./pages/DomainRegister";
@@ -138,6 +139,7 @@ const App = () => (
             <Route path="apps" element={<Projects />} />
             <Route path="apps/new" element={<AddProject />} />
             <Route path="apps/:id" element={<ProjectDetail />} />
+            <Route path="apps/:id/setup" element={<ProjectSetup />} />
             <Route path="apps/:id/services/new" element={<AddProject />} />
             <Route path="services" element={<Application />} />
             <Route path="services/:id" element={<ApplicationDetail />} />

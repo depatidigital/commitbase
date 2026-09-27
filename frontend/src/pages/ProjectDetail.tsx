@@ -3,7 +3,7 @@ import { useDeploymentHistory } from "@/hooks/useDeployments";
 import { DeployProgress } from "@/components/DeployProgress";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Cloud, CornerUpRight, Cpu, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Settings2, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ChevronDown, Cloud, CornerUpRight, Cpu, ExternalLink, FolderOpen, Globe, Layers, GitBranch, Hammer, HardDrive, Info, KeyRound, Loader2, MoreVertical, Pencil, Play, Settings2, Plus, RefreshCw, Rocket, Square, Terminal, Trash2, Upload } from "lucide-react";
 import { RoutingCard } from "@/components/RoutingCard";
 import { ComposePreview } from "@/components/ComposePreview";
 import { ServerEnv } from "@/components/ServerEnv";
@@ -144,6 +144,13 @@ export default function ProjectDetail() {
     return appStatus(app.status, healthById[app.id] as Health | undefined, app.disabled);
   };
   const imported = project.kind === "IMPORTED";
+  // where visitors open it: every service's whole hosts, not redirects or paths under one
+  const sites = [...new Set(apps.flatMap((app) => app.domains.filter((d) => !d.path && !d.redirectTo).map((d) => d.host)))];
+  // uploaded static files only: nothing is built and there is no env — those tabs say nothing
+  const filesOnly = !project.repository && apps.length > 0 && apps.every((app) => app.type === "STATIC");
+  const shown = filesOnly && ["env", "build"].includes(tab) ? "apps" : tab;
+  // one uploaded static site: its row and its files as one card
+  const single = filesOnly && apps.length === 1;
   // a deploy in flight: a service building, or the newest deployment still queued or running
   // (queued, no service has changed its status yet)
   const deploying =
@@ -225,6 +232,36 @@ export default function ProjectDetail() {
                 {t("Redeploy")}
               </Button>
             )}
+            {/* one host: straight there; several: pick one */}
+            {sites.length === 1 ? (
+              <Button className="bg-gradient-primary" asChild>
+                <a href={`https://${sites[0]}`} target="_blank" rel="noreferrer">
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  {t("Visit site")}
+                </a>
+              </Button>
+            ) : (
+              sites.length > 1 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button className="bg-gradient-primary">
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      {t("Visit site")}
+                      <ChevronDown className="ml-2 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {sites.map((host) => (
+                      <DropdownMenuItem key={host} asChild>
+                        <a href={`https://${host}`} target="_blank" rel="noreferrer" className="font-mono text-xs">
+                          {host}
+                        </a>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            )}
             <Button variant="ghost" size="icon" onClick={() => setShowDetails(true)} aria-label={t("Advanced details")} title={t("Advanced details")}>
               <Info className="h-4 w-4" />
             </Button>
@@ -232,12 +269,12 @@ export default function ProjectDetail() {
       }
     >
       {/* the same tabs for an app of one service as of many */}
-      <Tabs value={tab} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
+      <Tabs value={shown} onValueChange={(next) => go(next)} className="min-w-0 space-y-6">
         <TabsList>
           <TabsTrigger value="apps">{t("Services")}</TabsTrigger>
           {apps.some(needsPackages) && <TabsTrigger value="requirements">{t("System Package")}</TabsTrigger>}
-          <TabsTrigger value="env">{t("Environment")}</TabsTrigger>
-          <TabsTrigger value="build">{t("Build")}</TabsTrigger>
+          {!filesOnly && <TabsTrigger value="env">{t("Environment")}</TabsTrigger>}
+          {!filesOnly && <TabsTrigger value="build">{t("Build")}</TabsTrigger>}
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           {apps.some((app) => app.type === "COMPOSE") && <TabsTrigger value="stack">{t("Stack")}</TabsTrigger>}
           <TabsTrigger value="database">{t("Database")}</TabsTrigger>
@@ -260,24 +297,33 @@ export default function ProjectDetail() {
             <div className="overflow-hidden rounded-lg border bg-card">
               {/* fixed widths: the host gets the room, the short columns only what they need */}
               <Table className="table-fixed">
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[20%] text-xs uppercase tracking-wide">{t("Service")}</TableHead>
-                    <TableHead className="text-xs uppercase tracking-wide">{t("Host")}</TableHead>
-                    <TableHead className="w-44 text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
-                    <TableHead className="w-32 text-xs uppercase tracking-wide">{t("Type")}</TableHead>
-                    <TableHead className="w-36 text-xs uppercase tracking-wide">{t("Folder")}</TableHead>
-                    <TableHead className="w-32">
-                      <span className="sr-only">{t("Actions")}</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
+                {/* one uploaded site: one card — its row, then its files; no column headings for a single row */}
+                {!single && (
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[20%] text-xs uppercase tracking-wide">{t("Service")}</TableHead>
+                      <TableHead className="text-xs uppercase tracking-wide">{t("Host")}</TableHead>
+                      <TableHead className="w-44 text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
+                      <TableHead className="w-32 text-xs uppercase tracking-wide">{t("Type")}</TableHead>
+                      {/* a folder of the repository — an upload has none */}
+                      {project.repository && <TableHead className="w-36 text-xs uppercase tracking-wide">{t("Folder")}</TableHead>}
+                      <TableHead className="w-32">
+                        <span className="sr-only">{t("Actions")}</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                )}
                 <TableBody>
                   {apps.map((app) => (
-                    <ServiceRow key={app.id} app={app} status={statusOf(app.id)} only={apps.length === 1} />
+                    <ServiceRow key={app.id} app={app} status={statusOf(app.id)} only={apps.length === 1} withFolder={!!project.repository} />
                   ))}
                 </TableBody>
               </Table>
+              {single && (
+                <div className="border-t">
+                  <SiteFilesCard bare appId={apps[0].id} />
+                </div>
+              )}
               {/* one more service from this app's repository — a folder, the rest detected */}
               {!imported && project.repository && (
                 <div className="border-t px-2 py-1.5">
@@ -290,6 +336,9 @@ export default function ProjectDetail() {
               )}
             </div>
           )}
+          {/* an upload: its files are what there is — a static site's, as served */}
+          {!project.repository && !single &&
+            apps.filter((app) => app.type === "STATIC").map((app) => <SiteFilesCard key={app.id} appId={app.id} />)}
         </TabsContent>
 
         {/* every service's env on one tab, one section each — no need to open a service for it */}
@@ -793,7 +842,19 @@ function ServiceAlerts({ appId, named }: { appId: string; /** several services: 
  * answers, its last deploy, start/stop, and a menu for the rest (its files,
  * its console, deleting it). Services have no page of their own.
  */
-function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: string; tone: string }; /** the app's one service: deleting it deletes the app */ only: boolean }) {
+function ServiceRow({
+  app,
+  status,
+  only,
+  withFolder,
+}: {
+  app: ProjectApp;
+  status: { text: string; tone: string };
+  /** the app's one service: deleting it deletes the app */
+  only: boolean;
+  /** from a repository: the folder column */
+  withFolder: boolean;
+}) {
   const { data: application } = useApplication(app.id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -924,12 +985,14 @@ function ServiceRow({ app, status, only }: { app: ProjectApp; status: { text: st
         </span>
       </TableCell>
       {/* its folder in the repository (monorepos); none = the root */}
-      <TableCell className="font-mono text-xs text-muted-foreground">
-        <span className="flex min-w-0 items-center gap-1" title={app.rootDirectory || undefined}>
-          <FolderOpen className="h-3 w-3 shrink-0" />
-          <span className="truncate">{app.rootDirectory || "/"}</span>
-        </span>
-      </TableCell>
+      {withFolder && (
+        <TableCell className="font-mono text-xs text-muted-foreground">
+          <span className="flex min-w-0 items-center gap-1" title={app.rootDirectory || undefined}>
+            <FolderOpen className="h-3 w-3 shrink-0" />
+            <span className="truncate">{app.rootDirectory || "/"}</span>
+          </span>
+        </TableCell>
+      )}
       <TableCell>
         <span className="flex items-center justify-end gap-1">
           {/* mid-deploy the process is the deploy's: not stopped or started by hand meanwhile */}
