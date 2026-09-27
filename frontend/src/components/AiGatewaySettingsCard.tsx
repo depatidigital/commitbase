@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Pause, Play, Plus } from 'lucide-react';
+import { ExternalLink, Loader2, Pause, Play, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -74,6 +74,14 @@ export function AiGatewaySettingsCard() {
             >
               {t('Edit')}
             </Button>
+            {status?.baseUrl && (
+              <Button size="sm" variant="outline" className="ml-2" asChild>
+                {/* providers, their keys and models' buy prices are set there */}
+                <a href={`${status.baseUrl}/dashboard/`} target="_blank" rel="noreferrer">
+                  {t('Providers & models')} <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                </a>
+              </Button>
+            )}
           </>
         )}
       </CardContent>

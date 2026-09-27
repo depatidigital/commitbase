@@ -68,6 +68,7 @@ export default {
     "AI gateway di balik AI API setiap workspace, dan cara harga belinya dijual.",
   "AI gateway settings saved": "Pengaturan AI gateway disimpan",
   "Saved, but the gateway refused the call": "Tersimpan, tetapi gateway menolak panggilannya",
+  "Providers & models": "Penyedia & model",
   "Admin key": "Admin key",
   "Admin path": "Admin path",
   Set: "Terisi",

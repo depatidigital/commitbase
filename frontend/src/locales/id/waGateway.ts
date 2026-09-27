@@ -36,8 +36,6 @@ export default {
   // quick start
   "Quick start": "Mulai cepat",
   "Base URL": "Base URL",
-  "Every call goes to": "Setiap panggilan ke",
-  "with the number's own API key: the key picks the number.": "dengan API key milik nomor itu: key menentukan nomornya.",
   "Full API reference": "Referensi API lengkap",
   "Add a number and link WhatsApp": "Tambah nomor dan tautkan WhatsApp",
   "Name the number and choose which servers may call the API, then scan the QR code on the phone: WhatsApp → Linked devices → Link a device. Its first API key is made with it.":
@@ -118,8 +116,6 @@ export default {
   "Failed to call the API": "Gagal memanggil API",
 
   // API reference, Playground
-  "All calls go to": "Semua panggilan ke",
-  "with the number's API key in": "dengan API key nomor di",
   "Delete or move the number from the Numbers tab.": "Hapus atau pindahkan nomor dari tab Nomor.",
   "Add a number you manage first; the Playground calls the API as that number.":
     "Tambahkan dulu nomor yang Anda kelola; Playground memanggil API sebagai nomor itu.",
@@ -128,15 +124,12 @@ export default {
   "Send request": "Kirim request",
   "This changes the real number.": "Ini mengubah nomor yang sebenarnya.",
   "Request URL": "URL request",
-  "The code uses your app's API key (API & keys on the number); the Playground itself needs none.":
-    "Kode memakai API key aplikasi Anda (API & key pada nomor); Playground sendiri tidak perlu key.",
   "Example response": "Contoh respons",
   "Target number: 0812…, +62 812… or 62812…": "Nomor tujuan: 0812…, +62 812… atau 62812…",
   "Chat JID or a plain number. Empty = the phone's chat": "JID chat atau nomor biasa. Kosong = chat nomor tujuan",
   "Group JID (Groups → List groups)": "JID grup (Groups → List groups)",
   "The id of a message you sent (fills itself after Send)": "Id pesan yang Anda kirim (terisi sendiri setelah Send)",
   "WhatsApp's message id (fills itself from Chat messages)": "Id pesan WhatsApp (terisi sendiri dari Chat messages)",
-  "Variables are shared by every call and remembered in this browser.": "Variabel dipakai bersama semua panggilan dan diingat di browser ini.",
   "Really send?": "Yakin kirim?",
   "Fill {vars} first.": "Isi {vars} dulu.",
   Code: "Kode",
@@ -155,8 +148,6 @@ export default {
     "Setiap event nomor di-`POST` ke webhook URL-nya sebagai JSON, ditandatangani di `x-larika-signature` = `sha256=` HMAC-SHA256 dari body mentah dengan webhook secret. Jawab dengan **2xx** apa pun; selain itu dicoba ulang (5 detik, berlipat, maks. 1 jam) sampai terkirim, berurutan. Pengiriman at-least-once: lewati `id` yang sudah pernah Anda proses.",
   Events: "Event",
   "Check the signature": "Cek tanda tangan",
-  "cURL sends a signed test POST to your endpoint from a terminal; Node.js is the check your app runs.":
-    "cURL mengirim POST tes bertanda tangan ke endpoint Anda dari terminal; Node.js adalah pengecekan yang dijalankan aplikasi Anda.",
   "No webhook URL yet: events of this number are not sent anywhere.": "Belum ada webhook URL: event nomor ini tidak dikirim ke mana pun.",
   "Send test event": "Kirim event tes",
   "Retry now ({count})": "Coba ulang sekarang ({count})",
@@ -172,7 +163,6 @@ export default {
   "The gateway tries again at {time}, in order with the number's other events.": "Gateway mencoba lagi pukul {time}, berurutan dengan event lain nomor ini.",
   "Sending to your endpoint…": "Mengirim ke endpoint Anda…",
   "Send again": "Kirim lagi",
-  "The Playground calls the API as this number; the code uses its URL.": "Playground memanggil API sebagai nomor ini; kode memakai URL-nya.",
   "No numbers yet": "Belum ada nomor",
   "Failed to fetch the API catalog": "Gagal mengambil katalog API",
 

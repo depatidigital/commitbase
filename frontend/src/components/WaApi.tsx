@@ -298,13 +298,6 @@ function PlaygroundBody({
       {/* explanation left; the same call as code, and tried for real, right */}
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
         <div className="min-w-0 space-y-4">
-          <p className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            {t("All calls go to")}{" "}
-            <code className="font-mono text-foreground">
-              {gatewayUrl || "…"}/v1/…
-            </code>{" "}
-            {t("with the number's API key in")} <code className="font-mono text-foreground">Authorization: Bearer lwg_…</code>.
-          </p>
           <div className={CARD}>
             <EndpointDoc e={ep} />
           </div>
@@ -320,7 +313,7 @@ function PlaygroundBody({
           <div className={`${CARD} space-y-2`}>
             <Row
               label={t("WA instance")}
-              hint={numbers.length ? t("The Playground calls the API as this number; the code uses its URL.") : t("Add a number you manage first; the Playground calls the API as that number.")}
+              hint={numbers.length ? undefined : t("Add a number you manage first; the Playground calls the API as that number.")}
             >
               <div className="flex gap-2">
                 <Select value={numberId} onValueChange={setNumberId} disabled={!numbers.length}>
@@ -353,7 +346,6 @@ function PlaygroundBody({
           <div className={`${CARD} space-y-3`}>
             <Label>{t("Code")}</Label>
             {!bodyError && <CodeExample examples={codeExamples(ep.method, url, filledBody.trim())} />}
-            <p className="text-xs text-muted-foreground">{t("The code uses your app's API key (API & keys on the number); the Playground itself needs none.")}</p>
           </div>
           <div className={`${CARD} space-y-4`}>
             {blocked(ep) && <p className="text-sm text-warning">{t("Delete or move the number from the Numbers tab.")}</p>}
@@ -369,7 +361,6 @@ function PlaygroundBody({
                     <Input id={`var-${n}`} className="bg-background font-mono text-sm" placeholder={VAR_FIELDS[n].placeholder} value={vars[n]} onChange={(e) => setVar(n, e.target.value)} />
                   </Row>
                 ))}
-                <p className="text-xs text-muted-foreground">{t("Variables are shared by every call and remembered in this browser.")}</p>
               </div>
             )}
             {ep.body !== undefined && (
@@ -495,7 +486,6 @@ function WebhooksBody({ rows, onSettings, onTest, catalog }: { rows: WaNumber[];
               { label: "Node.js", code: VERIFY_SNIPPET },
             ]}
           />
-          <p className="text-xs text-muted-foreground">{t("cURL sends a signed test POST to your endpoint from a terminal; Node.js is the check your app runs.")}</p>
         </div>
       </div>
 

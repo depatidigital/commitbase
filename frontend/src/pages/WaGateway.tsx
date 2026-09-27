@@ -366,9 +366,8 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
           <Zap className="h-4 w-4" />
           {t("Base URL")}
         </div>
-        {gatewayUrl ? <CopyField value={gatewayUrl} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-        <p className="text-xs text-muted-foreground">
-          {t("Every call goes to")} <code className="font-mono">/v1/…</code> {t("with the number's own API key: the key picks the number.")}{" "}
+        {gatewayUrl ? <CopyField value={base} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        <p className="text-xs">
           <button type="button" onClick={onApi} className="text-primary underline-offset-2 hover:underline">
             {t("Full API reference")}
           </button>
