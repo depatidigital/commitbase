@@ -161,7 +161,16 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
             ))}
           </CommandList>
         </Command>
-        {!!listing.data?.errors.length && <p className="shrink-0 border-t px-3 py-2 text-xs text-destructive">{listing.data.errors.join(" · ")}</p>}
+        {/* short, in the user's language; the full reason on hover */}
+        {!!listing.data?.errors.length && (
+          <div className="shrink-0 space-y-0.5 border-t px-3 py-2 text-xs text-destructive">
+            {listing.data.errors.map(({ account, expired, message }) => (
+              <p key={account} title={message} className="truncate">
+                {expired ? t("{account}: access expired — reconnect", { account }) : t("{account}: could not be read", { account })}
+              </p>
+            ))}
+          </div>
+        )}
         {onConnect && (
           <div className="flex shrink-0 flex-wrap gap-1 border-t p-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("github")}>

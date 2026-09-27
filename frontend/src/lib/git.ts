@@ -66,7 +66,8 @@ export type GitRepositoryListing = {
     private: boolean;
   }>;
   /** accounts whose listing failed (a revoked token), the rest still listed */
-  errors: string[];
+  /** an account that could not be listed: expired = reconnecting it fixes it */
+  errors: { account: string; expired: boolean; message: string }[];
 };
 
 /** Repositories across every connected GitHub and GitLab account, for the add-app picker. */

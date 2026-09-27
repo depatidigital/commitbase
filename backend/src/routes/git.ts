@@ -778,7 +778,12 @@ async function gitlabRepositories(account: ListedAccount): Promise<ListedReposit
 }
 
 /** The last listing per user: answered at once, refreshed behind it when older than a minute. */
-type RepositoryListing = { accounts: { id: string; provider: string; username: string }[]; repositories: ListedRepository[]; errors: string[] };
+type RepositoryListing = {
+  accounts: { id: string; provider: string; username: string }[];
+  repositories: ListedRepository[];
+  /** an account that could not be listed: expired = reconnecting it fixes it */
+  errors: { account: string; expired: boolean; message: string }[];
+};
 const listingCache = new Map<string, { at: number; data: RepositoryListing; refreshing: Promise<RepositoryListing> | null }>();
 const LISTING_FRESH_MS = 60_000;
 
@@ -795,7 +800,9 @@ async function listRepositories(userId: string): Promise<RepositoryListing> {
     accounts: accounts.map(({ id, provider, username }) => ({ id, provider, username })),
     repositories: results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
     errors: results.flatMap((result, i) =>
-      result.status === 'rejected' ? [`${accounts[i]!.provider}/${accounts[i]!.username}: ${result.reason?.message ?? 'failed'}`] : [],
+      result.status === 'rejected'
+        ? [{ account: `${accounts[i]!.provider}/${accounts[i]!.username}`, expired: result.reason?.code === 'TOKEN_EXPIRED', message: result.reason?.message ?? 'failed' }]
+        : [],
     ),
   };
 }

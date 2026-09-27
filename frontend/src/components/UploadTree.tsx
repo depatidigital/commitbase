@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, File as FileIcon, Folder } from "lucide-react";
+import { ChevronRight, File as FileIcon, Folder, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { t } from "@/lib/i18n";
 
@@ -64,8 +64,11 @@ const formatSize = (bytes: number) =>
 type Props = {
   entries: TreeItem[];
   /** unticked paths */
-  excluded: Set<string>;
-  onExcludedChange: (excluded: Set<string>) => void;
+  excluded?: Set<string>;
+  onExcludedChange?: (excluded: Set<string>) => void;
+  /** no checkboxes: each file and folder has a remove button instead — for a
+   *  pick where everything listed goes up */
+  onRemove?: (paths: string[]) => void;
   /** strike unticked rows through — right for "left out of the upload", not for a selection */
   strikeUnchecked?: boolean;
   /** extra control at the end of a file row, e.g. an open link */
@@ -74,13 +77,14 @@ type Props = {
 
 /**
  * Files as a tree, each file and folder with a checkbox (a folder's covers all
- * below it). Folders render their children only once opened — a project can
+ * below it), under a root "/" that covers them all. Folders render their children only once opened — a project can
  * hold thousands of files. Used for picking what to upload and for selecting
  * site files to delete.
  */
-export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecked = true, fileAction }: Props) {
+export function UploadTree({ entries, excluded = new Set(), onExcludedChange, strikeUnchecked = true, fileAction, onRemove }: Props) {
   const tree = useMemo(() => buildTree(entries), [entries]);
-  const [open, setOpen] = useState<Set<string>>(new Set());
+  // the root ("/", path "") starts open: what was picked shows at once, under it
+  const [open, setOpen] = useState<Set<string>>(new Set([""]));
 
   const toggle = (node: Node, include: boolean) => {
     const next = new Set(excluded);
@@ -88,7 +92,7 @@ export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecke
       if (include) next.delete(path);
       else next.add(path);
     }
-    onExcludedChange(next);
+    onExcludedChange?.(next);
   };
 
   const render = (node: Node, depth: number) => {
@@ -123,11 +127,13 @@ export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecke
           ) : (
             <span className="w-4 shrink-0" />
           )}
-          <Checkbox
-            checked={state}
-            onCheckedChange={() => toggle(node, state !== true)}
-            aria-label={node.path}
-          />
+          {!onRemove && (
+            <Checkbox
+              checked={state}
+              onCheckedChange={() => toggle(node, state !== true)}
+              aria-label={node.path}
+            />
+          )}
           {folder ? (
             <Folder className="h-4 w-4 shrink-0 text-primary" />
           ) : (
@@ -138,7 +144,7 @@ export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecke
               strikeUnchecked && state === false ? "text-muted-foreground line-through" : ""
             }`}
           >
-            {node.name}
+            {node.name || "/"}
           </span>
           <span className="shrink-0 text-xs text-muted-foreground">
             {folder
@@ -146,6 +152,18 @@ export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecke
               : formatSize(node.size)}
           </span>
           {!folder && fileAction?.(node.path)}
+          {/* the root's is the pick's own Cancel */}
+          {onRemove && node.path !== "" && (
+            <button
+              type="button"
+              title={t("Remove")}
+              aria-label={t("Remove {name}", { name: node.path })}
+              onClick={() => onRemove(node.files)}
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
         {folder && isOpen && sorted(node).map((child) => render(child, depth + 1))}
       </div>
@@ -154,7 +172,7 @@ export function UploadTree({ entries, excluded, onExcludedChange, strikeUnchecke
 
   return (
     <div className="max-h-80 overflow-auto rounded-md border border-border/60 py-1">
-      {sorted(tree).map((child) => render(child, 0))}
+      {render(tree, 0)}
     </div>
   );
 }

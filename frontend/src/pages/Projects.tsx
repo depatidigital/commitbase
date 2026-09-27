@@ -386,7 +386,7 @@ export default function Projects() {
           <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
             <Link to="/apps/new">
               <Plus className="mr-2 h-4 w-4" />
-              {t("Add app or website")}
+              {t("Add")}
             </Link>
           </Button>
         </div>

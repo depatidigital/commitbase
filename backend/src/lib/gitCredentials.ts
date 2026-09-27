@@ -94,7 +94,8 @@ export async function freshAccessToken(account: Account): Promise<string> {
 
   const data: any = await response.json().catch(() => ({}));
   if (!response.ok || !data.access_token) {
-    throw new Error('GitLab token has expired and could not be refreshed — reconnect the account');
+    // code: the repository picker says "reconnect" in the user's language
+    throw Object.assign(new Error('GitLab token has expired and could not be refreshed — reconnect the account'), { code: 'TOKEN_EXPIRED' });
   }
 
   const accessToken = String(data.access_token);
