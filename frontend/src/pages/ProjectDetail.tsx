@@ -13,7 +13,7 @@ import { useApplication, useCreateApplication, useRestartApplication, useStartAp
 import { AppSetupCard, DeployFailureFixes } from "@/components/AppSetupCard";
 import { useDeployConfirm } from "@/components/DeployConfirmDialog";
 import { envWarnings, parseDatabaseUrl, requiredKeys } from "@/lib/env";
-import { testDatabaseUrl } from "@/lib/databases";
+import { getProjectDatabases, testDatabaseUrl } from "@/lib/databases";
 import { stripAnsi } from "@/lib/ansi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -123,6 +123,13 @@ export default function ProjectDetail() {
     },
     onError: (error: Error) => toast({ variant: "destructive", title: t("Could not start the deployment"), description: error.message }),
   });
+  // its databases — the same query the Database tab reads; none, and the tab says nothing
+  const { data: databases } = useQuery({
+    queryKey: ["databases", "project", id],
+    queryFn: () => getProjectDatabases(id!),
+    enabled: !!id,
+  });
+  const hasDatabase = (databases?.length ?? 0) > 0;
   // the app's tab (?tab=). Its services have no page of their own anymore: everything is on these tabs
   const tab = ["env", "build", "requirements", "deployments", "stack", "logs", "database", "storage", "troubleshoot", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "apps";
   const go = (next: string) => setSearchParams(next === "apps" ? {} : { tab: next }, { replace: true });
@@ -148,7 +155,7 @@ export default function ProjectDetail() {
   const sites = [...new Set(apps.flatMap((app) => app.domains.filter((d) => !d.path && !d.redirectTo).map((d) => d.host)))];
   // uploaded static files only: nothing is built and there is no env — those tabs say nothing
   const filesOnly = !project.repository && apps.length > 0 && apps.every((app) => app.type === "STATIC");
-  const shown = filesOnly && ["env", "build"].includes(tab) ? "apps" : tab;
+  const shown = (filesOnly && ["env", "build"].includes(tab)) || (tab === "database" && !hasDatabase) ? "apps" : tab;
   // one uploaded static site: its row and its files as one card
   const single = filesOnly && apps.length === 1;
   // a deploy in flight: a service building, or the newest deployment still queued or running
@@ -206,7 +213,7 @@ export default function ProjectDetail() {
       title={
         <span className="flex items-center gap-2">
           {project.name}
-          <RenameProjectDialog project={project} />
+          <RenameProjectDialog project={project} onlyServiceId={apps.length === 1 ? apps[0].id : undefined} />
         </span>
       }
       // what it is built from; where it runs is in the advanced details (ⓘ)
@@ -277,7 +284,7 @@ export default function ProjectDetail() {
           {!filesOnly && <TabsTrigger value="build">{t("Build")}</TabsTrigger>}
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           {apps.some((app) => app.type === "COMPOSE") && <TabsTrigger value="stack">{t("Stack")}</TabsTrigger>}
-          <TabsTrigger value="database">{t("Database")}</TabsTrigger>
+          {hasDatabase && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
           {hasStorage && <TabsTrigger value="storage">{t("Storage")}</TabsTrigger>}
           <TabsTrigger value="logs">{t("Logs")}</TabsTrigger>
           <TabsTrigger value="troubleshoot">{t("Troubleshoot")}</TabsTrigger>
@@ -301,7 +308,7 @@ export default function ProjectDetail() {
                 {!single && (
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead className="w-[20%] text-xs uppercase tracking-wide">{t("Service")}</TableHead>
+                      <TableHead className="w-[20%] text-xs uppercase tracking-wide">{apps.length === 1 ? t("Status") : t("Service")}</TableHead>
                       <TableHead className="text-xs uppercase tracking-wide">{t("Host")}</TableHead>
                       <TableHead className="w-44 text-xs uppercase tracking-wide">{t("Last deploy")}</TableHead>
                       <TableHead className="w-32 text-xs uppercase tracking-wide">{t("Type")}</TableHead>
@@ -902,11 +909,18 @@ function ServiceRow({
       <TableCell>
         <span className="flex min-w-0 items-center gap-2">
           <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status.tone]}`} title={status.text} />
-          <span className="truncate font-medium">{app.name}</span>
-          {/* rename in place: shown on row hover (and focus) */}
-          <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-            <RenameAppDialog app={app} />
-          </span>
+          {/* the app's one service has the app's name — the title says it, and renames it */}
+          {only ? (
+            <span className="truncate text-sm text-muted-foreground">{status.text}</span>
+          ) : (
+            <>
+              <span className="truncate font-medium">{app.name}</span>
+              {/* rename in place: shown on row hover (and focus) */}
+              <span className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <RenameAppDialog app={app} />
+              </span>
+            </>
+          )}
           {deploying && (
             <span className="flex shrink-0 items-center gap-1 text-xs text-warning">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -1027,10 +1041,12 @@ function ServiceRow({
                 {t("Redeploy")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setRenameOpen(true)}>
-                <Pencil className="mr-2 h-4 w-4" />
-                {t("Rename service")}
-              </DropdownMenuItem>
+              {!only && (
+                <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  {t("Rename service")}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setHostsOpen(true)}>
                 <Globe className="mr-2 h-4 w-4" />
                 {t("Edit hosts")}

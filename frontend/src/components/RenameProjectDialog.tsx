@@ -82,8 +82,13 @@ function RenameDialog({ value, title, description, rename, done, ...controlled }
 /**
  * A pencil that renames a project. Emptied, the name goes back to the one it
  * gets on its own (its folder, its repository, its first hostname).
+ * `onlyServiceId`: the app has that one service — one name, so it is renamed too.
  */
-export function RenameProjectDialog({ project, ...controlled }: { project: Pick<Project, "id" | "name" | "customName"> } & Controlled) {
+export function RenameProjectDialog({
+  project,
+  onlyServiceId,
+  ...controlled
+}: { project: Pick<Project, "id" | "name" | "customName">; onlyServiceId?: string } & Controlled) {
   const queryClient = useQueryClient();
   return (
     <RenameDialog
@@ -94,6 +99,10 @@ export function RenameProjectDialog({ project, ...controlled }: { project: Pick<
       done={t("App renamed")}
       rename={async (name) => {
         await updateProject(project.id, { name });
+        if (onlyServiceId && name) {
+          await updateApplication(onlyServiceId, { name });
+          void queryClient.invalidateQueries({ queryKey: ["application", onlyServiceId] });
+        }
         void queryClient.invalidateQueries({ queryKey: ["project", project.id] });
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
       }}
