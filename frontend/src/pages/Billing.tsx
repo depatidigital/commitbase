@@ -233,11 +233,20 @@ function WalletCard() {
             {t("Balance")}
           </p>
           <p className={`text-3xl font-semibold tabular-nums ${balance < 0 ? "text-destructive" : ""}`}>{rupiahFine(balance, Math.abs(balance) < 100)}</p>
+          {/* one balance per payer, shared by every workspace they pay for */}
+          {(!data.isPayer || data.sharedBy > 1) && (
+            <p className="text-xs text-muted-foreground">
+              {data.isPayer
+                ? t("Your balance, shared by the {n} workspaces you pay for.", { n: data.sharedBy })
+                : t("{name}'s balance, shared by the {n} workspaces they pay for.", { name: data.billingUser?.name || data.billingUser?.email || "—", n: data.sharedBy })}
+            </p>
+          )}
           <TopUpButton />
         </div>
         <div className="text-sm">
           <p className="text-muted-foreground">{t("At the current pace")}</p>
           <p className="font-medium">{t("{amount} a day", { amount: rupiah(perDay) })}</p>
+          {data.sharedBy > 1 && <p className="text-xs text-muted-foreground">{t("This workspace: {amount} a day", { amount: rupiah(fromMicro(data.workspacePerDay)) })}</p>}
           {!data.hostingBilledFrom ? (
             <p className="mt-1 text-xs text-muted-foreground">{t("Hosting is not charged yet: only AI use comes off the balance.")}</p>
           ) : data.suspendedAt ? (
@@ -268,7 +277,7 @@ function WalletCard() {
           ) : (
             <p className="font-medium">{data.billingUser ? data.billingUser.name || data.billingUser.email : "—"}</p>
           )}
-          <p className="text-xs text-muted-foreground">{t("An owner of the workspace. Balance warnings are mailed to them.")}</p>
+          <p className="text-xs text-muted-foreground">{t("An owner of the workspace: their balance pays for it, and balance warnings are mailed to them.")}</p>
         </div>
       </CardContent>
     </Card>
@@ -286,6 +295,8 @@ export function WalletStatement({ month, only }: { month?: string; only?: string
   const columns: Column<WalletEntry>[] = [
     { header: t("Updated"), cell: (e) => when(e.updatedAt) },
     { header: t("Type"), cell: (e) => t(KIND[e.kind] ?? e.kind) },
+    // the whole wallet (its payer): which workspace each line was spent on
+    ...(data?.whole ? [{ header: t("Workspace"), cell: (e: WalletEntry) => e.organization?.name ?? <span className="text-muted-foreground">—</span> }] : []),
     { header: t("Description"), cell: (e) => <span className="text-muted-foreground">{e.note ?? "—"}</span> },
     {
       header: t("Amount"),

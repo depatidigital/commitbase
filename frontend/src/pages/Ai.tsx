@@ -144,6 +144,7 @@ export default function Ai() {
                   {balance <= 0 ? t("Calls are refused until the balance is topped up.") : t("Each call is charged from it, every minute.")}{" "}
                   <a href="/usage" className="text-primary hover:underline">{t("Top up on the Usage page.")}</a>
                 </p>
+                {data.payer && <p className="text-xs text-muted-foreground">{t("Paid from {name}'s balance, shared by the workspaces they pay for.", { name: data.payer.name || data.payer.email })}</p>}
                 {data.suspended && <p className="text-sm text-destructive">{t("The AI API of this workspace is suspended.")}</p>}
                 <OptimaSaved optima={data.optima} />
               </CardContent>

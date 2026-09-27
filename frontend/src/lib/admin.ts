@@ -69,6 +69,8 @@ export interface AdminUser {
   isActive: boolean;
   createdAt: string;
   memberships: { role: OrgRole; organization: OrgSummary }[];
+  /** the wallet they pay their workspaces from, micro-IDR */
+  balance: string;
 }
 
 export const PLATFORM_ROLE_LABEL: Record<AdminUser['role'], string> = {
@@ -99,6 +101,10 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
   if (res.success) return res.data as T;
   throw new Error(res.error || fallback);
 };
+
+/** Gift credit (rupiah, whole) to a user's wallet — platform admins. Returns the new balance, micro-IDR. */
+export const giftCredit = async (userId: string, amount: number, note: string) =>
+  unwrap(await apiRequest<{ balance: string }>(`/admin/users/${userId}/gift`, { method: 'POST', body: JSON.stringify({ amount, note }) }), t('Could not gift the credit'));
 
 export const getUsers = async (params: ListParams): Promise<Paginated<AdminUser>> =>
   unwrap(

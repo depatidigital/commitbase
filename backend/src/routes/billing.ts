@@ -4,7 +4,7 @@ import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { currentRate, priceOf, RATES, usageByDay, WA_RATES, WIB_MS } from '../services/usageMeterService';
-import { billingUserOf, daysOf, hostingBillingFrom, negativeLimit, perDayOf } from '../services/walletService';
+import { billingUserOf, daysOf, hostingBillingFrom, negativeLimit, paidWorkspaces, perDayOf, perDayOfUser } from '../services/walletService';
 import { ArusniagaError, createTopUp, TOPUP_MAX, TOPUP_MIN, topUpView } from '../services/arusniagaService';
 import { getArusniagaConfig } from '../services/integrationConfigService';
 
@@ -94,28 +94,40 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
 });
 
 /**
- * The workspace's wallet: its balance, what it costs a day now and how long the
- * balance lasts, the negative limit its apps stop at, whether they are stopped,
- * and who pays — with the owners it could be.
+ * The wallet that pays this workspace — its payer's, shared by every workspace they pay
+ * for: the balance, what they all cost a day now and how long it lasts, the negative
+ * limit the apps stop at, whether this workspace's are stopped, and who pays — with the
+ * owners it could be.
  */
 router.get('/wallet', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
-    const [org, owners, payer, perDay] = await Promise.all([
-      prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { suspendedAt: true, wallet: { select: { balance: true } } } }),
+    const [org, owners, payer, workspacePerDay] = await Promise.all([
+      prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { suspendedAt: true } }),
       prisma.membership.findMany({ where: { organizationId, role: 'OWNER' }, orderBy: { createdAt: 'asc' }, select: { user: { select: { id: true, name: true, email: true } } } }),
       billingUserOf(organizationId),
       perDayOf(organizationId),
     ]);
-    const balance = org.wallet?.balance ?? 0n;
+    const workspaces = payer ? await paidWorkspaces(payer.id) : [organizationId];
+    const [wallet, perDay] = await Promise.all([
+      payer ? prisma.wallet.findUnique({ where: { userId: payer.id }, select: { balance: true } }) : null,
+      payer ? perDayOfUser(payer.id, workspaces) : workspacePerDay,
+    ]);
+    const balance = wallet?.balance ?? 0n;
     const limit = negativeLimit(perDay);
     return res.json({
       success: true,
       data: {
         organizationId,
         balance: String(balance),
+        /** everything the payer pays for, a day now; this workspace's share */
         perDay: String(perDay),
+        workspacePerDay: String(workspacePerDay),
+        /** how many workspaces share this balance */
+        sharedBy: workspaces.length,
+        /** the viewer is the payer: the whole wallet is theirs to see */
+        isPayer: payer?.id === req.user!.userId,
         /** days until zero, and until the apps stop; null when nothing is spent */
         daysLeft: balance > 0n ? daysOf(balance, perDay) : 0,
         daysUntilStop: daysOf(balance + limit, perDay),
@@ -133,18 +145,24 @@ router.get('/wallet', authenticateToken, async (req: AuthenticatedRequest, res: 
   }
 });
 
-/** The wallet's entries in one month (WIB): top-ups, welcome credit, hosting and AI by the day. Newest first. */
+/**
+ * The wallet's entries in one month (WIB), newest first. The payer (and a platform admin)
+ * sees the whole wallet — top-ups, gifts, every workspace's use, each named; anyone else
+ * managing this workspace sees what was spent on it.
+ */
 router.get('/entries', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
     const { month, start, end } = monthOf(req);
+    const payer = await billingUserOf(organizationId);
+    const whole = !!payer && (payer.id === req.user!.userId || isPlatformAdmin(req));
     const rows = await prisma.walletEntry.findMany({
-      where: { organizationId, createdAt: { gte: start, lt: end } },
+      where: { ...(whole ? { userId: payer!.id } : { organizationId }), createdAt: { gte: start, lt: end } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, kind: true, amount: true, note: true, createdAt: true, updatedAt: true },
+      select: { id: true, kind: true, amount: true, note: true, createdAt: true, updatedAt: true, organization: { select: { id: true, name: true } } },
     });
-    return res.json({ success: true, data: { month, entries: rows.map((e) => ({ ...e, amount: String(e.amount) })) } } as ApiResponse);
+    return res.json({ success: true, data: { month, whole, entries: rows.map((e) => ({ ...e, amount: String(e.amount) })) } } as ApiResponse);
   } catch (error) {
     console.error('Error reading wallet entries:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
@@ -153,13 +171,14 @@ router.get('/entries', authenticateToken, async (req: AuthenticatedRequest, res:
 
 // ── Top-ups: an invoice in ArusNiaga, credited when it is paid there (arusniagaService) ──
 
-/** The workspace's top-ups, newest first, and whether top-ups are open at all. */
+/** The top-ups of the wallet that pays this workspace, newest first, and whether top-ups are open at all. */
 router.get('/topups', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
+    const payer = await billingUserOf(organizationId);
     const [rows, config] = await Promise.all([
-      prisma.topUp.findMany({ where: { organizationId, invoiceId: { not: null } }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      payer ? prisma.topUp.findMany({ where: { userId: payer.id, invoiceId: { not: null } }, orderBy: { createdAt: 'desc' }, take: 20 }) : [],
       getArusniagaConfig(),
     ]);
     return res.json({ success: true, data: { enabled: !!config, min: TOPUP_MIN, max: TOPUP_MAX, topUps: rows.map(topUpView) } } as ApiResponse);
@@ -169,7 +188,7 @@ router.get('/topups', authenticateToken, async (req: AuthenticatedRequest, res: 
   }
 });
 
-/** A top-up of `amount` rupiah: its invoice, to pay on ArusNiaga's invoice page. Owners and admins. */
+/** A top-up of `amount` rupiah into the wallet that pays this workspace: its invoice, to pay on ArusNiaga's invoice page. Owners and admins. */
 router.post('/topups', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
@@ -178,7 +197,9 @@ router.post('/topups', authenticateToken, async (req: AuthenticatedRequest, res:
     if (!Number.isInteger(amount) || amount < TOPUP_MIN || amount > TOPUP_MAX) {
       return res.status(400).json({ success: false, error: `Top up between Rp ${TOPUP_MIN.toLocaleString('id-ID')} and Rp ${TOPUP_MAX.toLocaleString('id-ID')}` } as ApiResponse);
     }
-    const topUp = await createTopUp(organizationId, amount, req.user!.userId);
+    const payer = await billingUserOf(organizationId);
+    if (!payer) return res.status(409).json({ success: false, error: 'This workspace has no owner to pay for it' } as ApiResponse);
+    const topUp = await createTopUp(payer.id, organizationId, amount, req.user!.userId);
     return res.json({ success: true, data: topUpView(topUp) } as ApiResponse);
   } catch (error) {
     if (error instanceof ArusniagaError) {

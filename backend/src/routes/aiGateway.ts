@@ -76,15 +76,22 @@ router.put('/config', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/** Every wallet, with its workspace and whether it has an AI account. */
+/** Every wallet — one per user who pays — and whether they have an AI account. */
 router.get('/wallets', async (_req, res: Response) => {
   try {
-    const orgs = await prisma.organization.findMany({
+    const users = await prisma.user.findMany({
       where: { OR: [{ wallet: { isNot: null } }, { aiAccount: { isNot: null } }] },
-      select: { id: true, name: true, wallet: { select: { balance: true, updatedAt: true } }, aiAccount: { select: { accountId: true } } },
-      orderBy: { name: 'asc' },
+      select: { id: true, name: true, email: true, wallet: { select: { balance: true, updatedAt: true } }, aiAccount: { select: { accountId: true } } },
+      orderBy: { email: 'asc' },
     });
-    const data = orgs.map((o) => ({ organizationId: o.id, name: o.name, balance: String(o.wallet?.balance ?? 0n), updatedAt: o.wallet?.updatedAt ?? null, aiAccountId: o.aiAccount?.accountId ?? null }));
+    const data = users.map((u) => ({
+      userId: u.id,
+      name: u.name || u.email,
+      email: u.email,
+      balance: String(u.wallet?.balance ?? 0n),
+      updatedAt: u.wallet?.updatedAt ?? null,
+      aiAccountId: u.aiAccount?.accountId ?? null,
+    }));
     return res.json({ success: true, data } as ApiResponse);
   } catch (error) {
     console.error('Error listing wallets:', error);
@@ -93,23 +100,23 @@ router.get('/wallets', async (_req, res: Response) => {
 });
 
 /**
- * Credit (or, negative, debit) a workspace by hand — the beta's top-up, and
- * corrections. Rupiah in; an ADJUST entry with who and why; the cap follows.
+ * Credit (or, negative, debit) a user's wallet by hand — corrections. Rupiah in; an
+ * ADJUST entry with who and why; the cap follows.
  */
 router.post('/credit', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const organizationId = String(req.body?.organizationId ?? '');
+    const userId = String(req.body?.userId ?? '');
     const amount = Number(req.body?.amount);
     const note = String(req.body?.note ?? '').trim();
-    if (!(await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } }))) {
-      return res.status(400).json({ success: false, error: 'Pick a workspace' } as ApiResponse);
+    if (!(await prisma.user.findUnique({ where: { id: userId }, select: { id: true } }))) {
+      return res.status(400).json({ success: false, error: 'Pick a user' } as ApiResponse);
     }
     if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000_000) {
       return res.status(400).json({ success: false, error: 'The amount is rupiah, not zero (negative takes money back)' } as ApiResponse);
     }
-    if (!note) return res.status(400).json({ success: false, error: 'Say why: it is on the workspace statement' } as ApiResponse);
+    if (!note) return res.status(400).json({ success: false, error: 'Say why: it is on their statement' } as ApiResponse);
     await addWalletEntry({
-      organizationId,
+      userId,
       kind: 'ADJUST',
       amount: BigInt(Math.round(amount)) * 1_000_000n,
       ref: `adjust:${randomUUID()}`,
@@ -123,11 +130,11 @@ router.post('/credit', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/** Suspend a workspace's AI API (every key refused), or resume it. */
-router.patch('/accounts/:organizationId', async (req: AuthenticatedRequest, res: Response) => {
+/** Suspend a payer's AI API (every key of every workspace they pay for refused), or resume it. */
+router.patch('/accounts/:userId', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const row = await prisma.aiAccount.findUnique({ where: { organizationId: String(req.params.organizationId) } });
-    if (!row) return res.status(404).json({ success: false, error: 'This workspace has no AI account' } as ApiResponse);
+    const row = await prisma.aiAccount.findUnique({ where: { userId: String(req.params.userId) } });
+    if (!row) return res.status(404).json({ success: false, error: 'This user has no AI account' } as ApiResponse);
     await aiGateway(`/admin/accounts/${row.accountId}`, { method: 'PATCH', body: { disabled: !!req.body?.disabled } });
     return res.json({ success: true } as ApiResponse);
   } catch (error) {

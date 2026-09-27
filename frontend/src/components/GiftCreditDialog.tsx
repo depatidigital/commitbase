@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { giftCredit } from "@/lib/organizations";
+import { giftCredit } from "@/lib/admin";
 import { fromMicro, rupiah } from "@/lib/ai";
 import { t } from "@/lib/i18n";
 
@@ -14,8 +14,8 @@ const PRESETS = [25_000, 50_000, 100_000, 250_000, 500_000];
 const MIN = 1_000;
 const MAX = 10_000_000;
 
-/** A platform admin gives a workspace credit: a "Gift" on its statement, with who gave it. */
-export function GiftCreditDialog({ organizationId, name, onClose }: { organizationId: string; name: string; onClose: () => void }) {
+/** A platform admin gives a user credit — the balance all the workspaces they pay for share: a "Gift" on their statement, with who gave it. */
+export function GiftCreditDialog({ userId, name, onClose }: { userId: string; name: string; onClose: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState(String(PRESETS[1]));
@@ -24,9 +24,9 @@ export function GiftCreditDialog({ organizationId, name, onClose }: { organizati
   const valid = Number.isInteger(value) && value >= MIN && value <= MAX;
 
   const gift = useMutation({
-    mutationFn: () => giftCredit(organizationId, value, note),
+    mutationFn: () => giftCredit(userId, value, note),
     onSuccess: (r) => {
-      void queryClient.invalidateQueries({ queryKey: ["organizations", organizationId] });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       void queryClient.invalidateQueries({ queryKey: ["billing"] });
       toast({ title: t("Credit gifted"), description: t("{name} now has {balance}.", { name, balance: rupiah(fromMicro(r.balance)) }) });
       onClose();
@@ -39,7 +39,7 @@ export function GiftCreditDialog({ organizationId, name, onClose }: { organizati
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("Gift credit to {name}", { name })}</DialogTitle>
-          <DialogDescription>{t("Added to its balance at once, shown on its statement as a gift. It cannot be taken back here.")}</DialogDescription>
+          <DialogDescription>{t("Added to their balance at once — shared by every workspace they pay for — and shown on their statement as a gift. It cannot be taken back here.")}</DialogDescription>
         </DialogHeader>
         <form
           id="gift-credit"
@@ -64,7 +64,7 @@ export function GiftCreditDialog({ organizationId, name, onClose }: { organizati
           <div className="space-y-1">
             <Label htmlFor="gift-note">{t("Note")}</Label>
             <Input id="gift-note" maxLength={200} placeholder={t("e.g. Beta tester, sorry for the downtime")} value={note} onChange={(e) => setNote(e.target.value)} />
-            <p className="text-xs text-muted-foreground">{t("Shown on the workspace's statement.")}</p>
+            <p className="text-xs text-muted-foreground">{t("Shown on their statement.")}</p>
           </div>
         </form>
         <DialogFooter>

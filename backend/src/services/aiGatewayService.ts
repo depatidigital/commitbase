@@ -73,18 +73,42 @@ export const sellPerMillion = (usdPerMillion: number, p: AiPricing) => usdPerMil
 // ── Spend cap ──
 
 /**
- * Tell the gateway how far the workspace may go: what was billed so far plus what
- * the balance buys. One statement reads both, so a billing run in between cannot
- * pair an old balance with a new billed total.
+ * Tell the gateway how far a payer's account — every workspace they pay for — may go:
+ * what was billed so far plus what their balance buys. One statement reads both, so a
+ * billing run in between cannot pair an old balance with a new billed total.
  */
-export async function syncAiCap(organizationId: string) {
+export async function syncAiCap(userId: string) {
   const [row] = await prisma.$queryRaw<Array<{ accountId: string; billedSpent: bigint; balance: bigint }>>`
     SELECT a."accountId", a."billedSpent", coalesce(w.balance, 0)::bigint AS balance
-    FROM ai_accounts a LEFT JOIN wallets w ON w."organizationId" = a."organizationId"
-    WHERE a."organizationId" = ${organizationId}`;
+    FROM ai_accounts a LEFT JOIN wallets w ON w."userId" = a."userId"
+    WHERE a."userId" = ${userId}`;
   if (!row) return;
   const cap = row.billedSpent + buyableWith(row.balance, capFactorOf(await aiPricing()));
   await aiGateway(`/admin/accounts/${row.accountId}`, { method: 'PATCH', body: { spendCap: cap.toString() } });
+}
+
+/** The payer's gateway account — opened, capped at what their balance buys, on first use. */
+export async function aiAccountOf(userId: string) {
+  const had = await prisma.aiAccount.findUnique({ where: { userId } });
+  if (had) return had;
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
+  const account = await aiGateway<{ id: string }>('/admin/accounts', { method: 'POST', body: { name: user.email } });
+  const row = await prisma.aiAccount.create({ data: { userId, accountId: account.id } });
+  await syncAiCap(userId);
+  return row;
+}
+
+/**
+ * A workspace changed payer: its keys move to the new payer's account, so what they
+ * spend from now on comes off the new payer's cap. What they spent before stays where it
+ * was billed.
+ */
+export async function moveWorkspaceKeys(organizationId: string, toUserId: string) {
+  const keys = await prisma.aiKey.findMany({ where: { organizationId }, select: { keyId: true } });
+  if (!keys.length) return 0;
+  const account = await aiAccountOf(toUserId);
+  for (const { keyId } of keys) await aiGateway(`/admin/keys/${keyId}`, { method: 'PATCH', body: { accountId: account.accountId } });
+  return keys.length;
 }
 
 // ── Billing ──
@@ -92,6 +116,7 @@ export async function syncAiCap(organizationId: string) {
 type FeedRequest = {
   id: string;
   accountId: string;
+  keyId: string;
   model: string;
   cost: string;
   via: string | null;
@@ -107,15 +132,17 @@ const BILLING_LOCK = 7_431_001;
 /**
  * Charge what the gateway metered since the last run: its request feed, read from
  * our cursor, priced `buy × rate × markup` (larika-optima's turns by chargeRouted), added
- * to one wallet entry per workspace, WIB day and model. Each page is one transaction that also moves the cursor, so a
- * crash re-reads the page and nothing is charged twice. Then each workspace billed
- * gets its new spend cap.
+ * to the payer's wallet — one entry per workspace (the key's), WIB day and model. Each
+ * page is one transaction that also moves the cursor, so a crash re-reads the page and
+ * nothing is charged twice. Then each payer billed gets their new spend cap.
  */
 export async function billAiUsage(): Promise<string> {
   if (!(await getLarikaAiConfig())) return 'skipped — the AI gateway is not set up';
   const pricing = await aiPricing();
   const factor = factorOf(pricing);
-  const owners = new Map((await prisma.aiAccount.findMany({ select: { organizationId: true, accountId: true } })).map((a) => [a.accountId, a.organizationId]));
+  // whose wallet (the account's payer) and which workspace (the key's)
+  const owners = new Map((await prisma.aiAccount.findMany({ select: { userId: true, accountId: true } })).map((a) => [a.accountId, a.userId]));
+  const workspaces = new Map((await prisma.aiKey.findMany({ select: { keyId: true, organizationId: true } })).map((k) => [k.keyId, k.organizationId]));
   let cursor = (await getLarikaAiValue('cursor')) ?? '0';
   const touched = new Set<string>();
   let billed = 0;
@@ -124,23 +151,26 @@ export async function billAiUsage(): Promise<string> {
     const page = await aiGateway<{ requests: FeedRequest[]; next: string }>(`/admin/requests?after=${cursor}&limit=${PAGE}`);
     if (!page.requests.length) break;
 
-    const entries = new Map<string, { organizationId: string; amount: bigint; note: string }>();
+    const entries = new Map<string, { userId: string; organizationId: string | null; amount: bigint; note: string }>();
     const spent = new Map<string, bigint>();
     for (const r of page.requests) {
-      // an account made on the gateway's own dashboard belongs to no workspace
-      const organizationId = owners.get(r.accountId);
+      // an account made on the gateway's own dashboard belongs to no one here
+      const userId = owners.get(r.accountId);
+      const organizationId = workspaces.get(r.keyId) ?? null;
       const cost = BigInt(r.cost);
-      if (!organizationId || cost === 0n) continue;
-      spent.set(organizationId, (spent.get(organizationId) ?? 0n) + cost);
+      if (!userId || cost === 0n) continue;
+      spent.set(userId, (spent.get(userId) ?? 0n) + cost);
       billed++;
       // larika-optima's classifier call: bought, not charged on its own — the turn it
       // routed carries it (chargeRouted), so a turn that saved nothing pays nothing for it
       if (r.model.endsWith(':router')) continue;
       const day = new Date(new Date(r.createdAt).getTime() + WIB_MS).toISOString().slice(0, 10);
       // the models larika-optima picked: on lines of their own (`:optima`), so "you saved" can add them up
-      const ref = `ai:${organizationId}:${day}:${r.model}${r.via ? ':optima' : ''}`;
+      // one line a day per workspace, model and payer — a workspace that changes payer
+      // mid-day starts a line of the new payer's instead of adding to the old one's
+      const ref = `ai:${organizationId ?? 'none'}:${day}:${r.model}:${userId}${r.via ? ':optima' : ''}`;
       const label = r.via ? `${r.model} via ${r.via}` : r.model;
-      const entry = entries.get(ref) ?? { organizationId, amount: 0n, note: `AI · ${label} · ${day}` };
+      const entry = entries.get(ref) ?? { userId, organizationId, amount: 0n, note: `AI · ${label} · ${day}` };
       entry.amount += r.via
         ? chargeRouted(cost, BigInt(r.routingCost ?? 0), r.baselineCost === null ? null : BigInt(r.baselineCost), pricing)
         : chargeFor(cost, factor);
@@ -155,17 +185,17 @@ export async function billAiUsage(): Promise<string> {
       for (const [ref, e] of entries) {
         await tx.walletEntry.upsert({
           where: { ref },
-          create: { ref, organizationId: e.organizationId, kind: 'AI_USAGE', amount: -e.amount, note: e.note },
+          create: { ref, userId: e.userId, organizationId: e.organizationId, kind: 'AI_USAGE', amount: -e.amount, note: e.note },
           update: { amount: { decrement: e.amount } },
         });
         await tx.wallet.upsert({
-          where: { organizationId: e.organizationId },
-          create: { organizationId: e.organizationId, balance: -e.amount },
+          where: { userId: e.userId },
+          create: { userId: e.userId, balance: -e.amount },
           update: { balance: { decrement: e.amount } },
         });
       }
-      for (const [organizationId, cost] of spent) {
-        await tx.aiAccount.update({ where: { organizationId }, data: { billedSpent: { increment: cost } } });
+      for (const [userId, cost] of spent) {
+        await tx.aiAccount.update({ where: { userId }, data: { billedSpent: { increment: cost } } });
       }
       await tx.integrationConfig.upsert({
         where: { provider_key: { provider: 'larika_ai', key: 'cursor' } },
@@ -174,20 +204,20 @@ export async function billAiUsage(): Promise<string> {
       });
     });
     cursor = String(page.next);
-    for (const organizationId of spent.keys()) touched.add(organizationId);
+    for (const userId of spent.keys()) touched.add(userId);
     if (page.requests.length < PAGE) break;
   }
 
-  for (const organizationId of touched) {
-    await syncAiCap(organizationId).catch((error) => console.error(`AI spend cap sync failed (${organizationId}):`, error));
+  for (const userId of touched) {
+    await syncAiCap(userId).catch((error) => console.error(`AI spend cap sync failed (${userId}):`, error));
   }
-  return `${billed} request(s) billed across ${touched.size} workspace(s)`;
+  return `${billed} request(s) billed across ${touched.size} wallet(s)`;
 }
 
-/** Every workspace's cap again — after the rate or markup changes. */
+/** Every payer's cap again — after the rate or markup changes. */
 export async function syncAllAiCaps() {
-  const accounts = await prisma.aiAccount.findMany({ select: { organizationId: true } });
+  const accounts = await prisma.aiAccount.findMany({ select: { userId: true } });
   let failed = 0;
-  for (const { organizationId } of accounts) await syncAiCap(organizationId).catch(() => failed++);
+  for (const { userId } of accounts) await syncAiCap(userId).catch(() => failed++);
   return { total: accounts.length, failed };
 }

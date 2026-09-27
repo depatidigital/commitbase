@@ -4,7 +4,8 @@ import { ApiResponse } from '../types';
 import { prisma } from '../lib/prisma';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { gatewayFailure } from '../services/larikaGatewayService';
-import { aiGateway, aiPricing, buyableWith, capFactorOf, chargeFor, factorOf, sellPerMillion, syncAiCap } from '../services/aiGatewayService';
+import { aiAccountOf, aiGateway, aiPricing, buyableWith, capFactorOf, chargeFor, factorOf, sellPerMillion } from '../services/aiGatewayService';
+import { billingUserOf } from '../services/walletService';
 import { getLarikaAiConfig } from '../services/integrationConfigService';
 import { WIB_MS } from '../services/usageMeterService';
 
@@ -116,52 +117,67 @@ router.get('/models', async (_req: AuthenticatedRequest, res: Response) => {
 });
 
 /**
- * larika-optima this month (WIB): what its calls were charged (their `:optima` wallet
- * lines, routing included) against what the same tokens would have cost on the cheapest
- * top-tier model at the normal markup — "you saved". The baseline is priced at today's
- * rate, so it is approximate across a rate change.
+ * larika-optima this month (WIB), for one workspace: what its calls were charged (its
+ * `:optima` wallet lines, routing included) against what the same tokens would have cost
+ * on the cheapest top-tier model at the normal markup — "you saved". The baseline is
+ * priced at today's rate, so it is approximate across a rate change.
  */
-async function optimaThisMonth(organizationId: string, accountId: string, factor: bigint) {
+async function optimaThisMonth(organizationId: string, accountId: string, keyIds: string[], factor: bigint) {
+  if (!keyIds.length) return null;
   const month = new Date(Date.now() + WIB_MS).toISOString().slice(0, 7);
   const [year, mon] = month.split('-').map(Number) as [number, number];
   const from = new Date(Date.UTC(year, mon - 1, 1) - WIB_MS);
   const to = new Date(Date.UTC(year, mon, 1) - WIB_MS);
   const [lines, usage] = await Promise.all([
     prisma.walletEntry.findMany({ where: { organizationId, ref: { startsWith: `ai:${organizationId}:${month}`, endsWith: ':optima' } }, select: { amount: true } }),
-    aiGateway<Array<{ baselineCost: string }>>(`/admin/accounts/${accountId}/usage?from=${from.toISOString()}&to=${to.toISOString()}&by=model`),
+    aiGateway<Array<{ baselineCost: string }>>(`/admin/accounts/${accountId}/usage?from=${from.toISOString()}&to=${to.toISOString()}&by=model&keys=${keyIds.join(',')}`),
   ]);
   const paid = lines.reduce((n, e) => n - e.amount, 0n);
   const baseline = chargeFor(usage.reduce((n, u) => n + BigInt(u.baselineCost ?? 0), 0n), factor);
   return { paid: String(paid), baseline: String(baseline) };
 }
 
-/** The workspace's AI API: the gateway URL, its balance, its account and keys. */
+/**
+ * Where a workspace's AI stands: its payer (whose wallet and gateway account it uses),
+ * that account, and the ids of this workspace's keys in it.
+ */
+async function aiOf(organizationId: string) {
+  const payer = await billingUserOf(organizationId);
+  const [row, mapped] = await Promise.all([
+    payer ? prisma.aiAccount.findUnique({ where: { userId: payer.id } }) : null,
+    prisma.aiKey.findMany({ where: { organizationId }, select: { keyId: true } }),
+  ]);
+  return { payer, row, keyIds: mapped.map((k) => k.keyId) };
+}
+
+/** The workspace's AI API: the gateway URL, the balance that pays for it, its keys. */
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
     const config = await getLarikaAiConfig();
-    const [row, wallet] = await Promise.all([
-      prisma.aiAccount.findUnique({ where: { organizationId } }),
-      prisma.wallet.findUnique({ where: { organizationId } }),
-    ]);
+    const { payer, row, keyIds } = await aiOf(organizationId);
+    const wallet = payer ? await prisma.wallet.findUnique({ where: { userId: payer.id } }) : null;
     let account: GatewayAccount | null = null;
     let gatewayError: string | null = null;
     if (config && row) account = await aiGateway<GatewayAccount>(`/admin/accounts/${row.accountId}`).catch((error) => ((gatewayError = error.message), null));
     const pricing = await aiPricing();
     const factor = factorOf(pricing);
+    const mine = new Set(keyIds);
     return res.json({
       success: true,
       data: {
-        optima: row && config ? await optimaThisMonth(organizationId, row.accountId, factor).catch(() => null) : null,
+        optima: row && config ? await optimaThisMonth(organizationId, row.accountId, keyIds, factor).catch(() => null) : null,
         optimaSurcharge: pricing.optimaMarkup / pricing.markup - 1,
         configured: !!config,
         baseUrl: config ? `${config.baseUrl}/v1` : null,
         organizationId,
         balance: String(wallet?.balance ?? 0n),
+        payer: payer ? { name: payer.name, email: payer.email } : null,
         hasAccount: !!row,
         suspended: !!account?.disabledAt,
-        keys: account?.keys.filter((k) => !k.revokedAt).map((k) => keyView(k, factor)) ?? [],
+        // the payer's account holds every workspace's keys: only this one's are shown
+        keys: account?.keys.filter((k) => !k.revokedAt && mine.has(k.id)).map((k) => keyView(k, factor)) ?? [],
         gatewayError,
       },
     } as ApiResponse);
@@ -170,33 +186,26 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/** Turn the AI API on: an account on the gateway, capped at what the balance buys. */
+/** Turn the AI API on: the payer's gateway account (one for every workspace they pay for), capped at what their balance buys. */
 router.post('/account', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
-    if (!(await prisma.aiAccount.findUnique({ where: { organizationId } }))) {
-      const org = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { name: true, slug: true } });
-      const account = await aiGateway<{ id: string }>('/admin/accounts', { method: 'POST', body: { name: `${org.name} (${org.slug})` } });
-      await prisma.aiAccount.create({ data: { organizationId, accountId: account.id } });
-    }
-    await syncAiCap(organizationId);
+    const payer = await billingUserOf(organizationId);
+    if (!payer) return res.status(409).json({ success: false, error: 'This workspace has no owner to pay for it' } as ApiResponse);
+    await aiAccountOf(payer.id);
     return res.json({ success: true } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
 });
 
-async function accountOf(organizationId: string) {
-  return prisma.aiAccount.findUnique({ where: { organizationId } });
-}
-
-/** A new key — its plaintext is in this answer only. */
+/** A new key — its plaintext is in this answer only. In the payer's account, recorded as this workspace's. */
 router.post('/keys', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const organizationId = await orgFor(req, res);
     if (!organizationId) return;
-    const row = await accountOf(organizationId);
+    const { row } = await aiOf(organizationId);
     if (!row) return res.status(409).json({ success: false, error: 'Turn the AI API on first' } as ApiResponse);
     const name = String(req.body?.name ?? '').trim();
     if (!name || name.length > 80) return res.status(400).json({ success: false, error: 'Name the key (up to 80 characters)' } as ApiResponse);
@@ -208,43 +217,50 @@ router.post('/keys', async (req: AuthenticatedRequest, res: Response) => {
     const spendCap = await keyCapOf(req.body?.limit);
     if (spendCap === false) return res.status(400).json({ success: false, error: 'The limit is whole rupiah, from Rp 1,000 — or none' } as ApiResponse);
     const capPeriod = capPeriodOf(req.body?.period);
-    const key = await aiGateway(`/admin/accounts/${row.accountId}/keys`, {
+    const key = await aiGateway<{ id: string }>(`/admin/accounts/${row.accountId}/keys`, {
       method: 'POST',
       body: { name, ...(rpm && { rpm }), ...(spendCap && { spendCap: spendCap.toString() }), ...(capPeriod && { capPeriod }) },
     });
+    await prisma.aiKey.create({ data: { keyId: key.id, organizationId } });
     return res.json({ success: true, data: key } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
 });
 
+/** This workspace's key, or a 404 answered — the gateway trusts the admin key, so whose key it is is checked here. */
+async function ownKey(req: AuthenticatedRequest, res: Response) {
+  const organizationId = await orgFor(req, res);
+  if (!organizationId) return null;
+  const keyId = String(req.params.keyId);
+  if (!(await prisma.aiKey.findFirst({ where: { keyId, organizationId } }))) {
+    res.status(404).json({ success: false, error: 'Key not found' } as ApiResponse);
+    return null;
+  }
+  return keyId;
+}
+
 /** Set or lift a key's spending limit, per day or month (WIB) — so one key (a leaked one, a runaway loop) cannot drain the balance. */
 router.patch('/keys/:keyId', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const organizationId = await orgFor(req, res);
-    if (!organizationId) return;
-    const row = await accountOf(organizationId);
-    const account = row && (await aiGateway<GatewayAccount>(`/admin/accounts/${row.accountId}`));
-    if (!account?.keys.some((k) => k.id === req.params.keyId)) return res.status(404).json({ success: false, error: 'Key not found' } as ApiResponse);
+    const keyId = await ownKey(req, res);
+    if (!keyId) return;
     const spendCap = await keyCapOf(req.body?.limit ?? null);
     if (spendCap === false) return res.status(400).json({ success: false, error: 'The limit is whole rupiah, from Rp 1,000 — or none' } as ApiResponse);
     const capPeriod = capPeriodOf(req.body?.period);
-    await aiGateway(`/admin/keys/${req.params.keyId}`, { method: 'PATCH', body: { spendCap: spendCap === null ? null : spendCap!.toString(), ...(capPeriod && { capPeriod }) } });
+    await aiGateway(`/admin/keys/${keyId}`, { method: 'PATCH', body: { spendCap: spendCap === null ? null : spendCap!.toString(), ...(capPeriod && { capPeriod }) } });
     return res.json({ success: true } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
 });
 
+/** Revoke — the key stays recorded as this workspace's, so its last calls still bill here. */
 router.delete('/keys/:keyId', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const organizationId = await orgFor(req, res);
-    if (!organizationId) return;
-    const row = await accountOf(organizationId);
-    // the gateway trusts the admin key: that the key is this workspace's is checked here
-    const account = row && (await aiGateway<GatewayAccount>(`/admin/accounts/${row.accountId}`));
-    if (!account?.keys.some((k) => k.id === req.params.keyId)) return res.status(404).json({ success: false, error: 'Key not found' } as ApiResponse);
-    await aiGateway(`/admin/keys/${req.params.keyId}`, { method: 'DELETE' });
+    const keyId = await ownKey(req, res);
+    if (!keyId) return;
+    await aiGateway(`/admin/keys/${keyId}`, { method: 'DELETE' });
     return res.json({ success: true } as ApiResponse);
   } catch (error) {
     return fail(res, error);

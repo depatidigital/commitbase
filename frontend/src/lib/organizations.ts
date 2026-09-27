@@ -9,8 +9,6 @@ export interface Organization {
   slug: string;
   createdAt: string;
   myRole: OrgRole | null;
-  /** micro-IDR — platform admins only */
-  balance?: string;
   /** Where new apps of this org go unless one is picked. Not a placement — apps carry their own server. */
   defaultServer: { id: string; name: string; status: string } | null;
   /** Where this tenant's databases are created, per engine. null until placed. */
@@ -78,10 +76,6 @@ export const getOrganizationsPage = async (params: ListParams): Promise<Paginate
 
 export const getOrganization = async (id: string): Promise<Organization> =>
   unwrap(await apiRequest<Organization>(`/organizations/${id}`), t('Failed to fetch workspace'));
-
-/** Gift credit (rupiah, whole) — platform admins. Returns the new balance, micro-IDR. */
-export const giftCredit = async (id: string, amount: number, note: string) =>
-  unwrap(await apiRequest<{ balance: string }>(`/organizations/${id}/gift`, { method: 'POST', body: JSON.stringify({ amount, note }) }), t('Could not gift the credit'));
 
 // no account with that email? the backend issues an invite instead of failing
 export type AddMemberResult = Member | { invited: true; invite: CreatedInvite };

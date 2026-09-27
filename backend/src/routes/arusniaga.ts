@@ -58,11 +58,11 @@ router.get('/topups', async (req, res: Response) => {
     const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
     const rows = await prisma.topUp.findMany({
       where: { invoiceId: { not: null }, ...(status && { status }) },
-      include: { organization: { select: { name: true } } },
+      include: { user: { select: { name: true, email: true } } },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return res.json({ success: true, data: rows.map((t) => ({ ...topUpView(t), organizationName: t.organization.name })) } as ApiResponse);
+    return res.json({ success: true, data: rows.map((t) => ({ ...topUpView(t), userName: t.user.name || t.user.email })) } as ApiResponse);
   } catch (error) {
     console.error('Error listing top-ups:', error);
     return res.status(500).json({ success: false, error: 'Failed to list top-ups' } as ApiResponse);

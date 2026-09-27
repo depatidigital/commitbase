@@ -9,7 +9,8 @@ import { canManageOrg, getMemberships, getOrgIds, getOrgRole, isPlatformAdmin } 
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
 import { queueOrgNode, orgNodesInclude } from '../services/orgProvisionService';
-import { addWalletEntry, billingUserOf, GIFT_MAX, GIFT_MIN, grantWelcomeCredit, MICRO } from '../services/walletService';
+import { billingUserOf, grantWelcomeCredit, guardWallet } from '../services/walletService';
+import { moveWorkspaceKeys, syncAiCap } from '../services/aiGatewayService';
 
 const router: Router = Router();
 
@@ -204,8 +205,8 @@ router.post(
         },
         select: { id: true },
       });
-      // a user's first workspace starts with credit, so it can deploy at once
-      await grantWelcomeCredit(created.id, req.user!.userId).catch((error) => console.error('Welcome credit failed:', error));
+      // a new user's wallet starts with credit, so their first workspace can deploy at once
+      await grantWelcomeCredit(req.user!.userId).catch((error) => console.error('Welcome credit failed:', error));
 
       // Nothing to provision yet: an org is provisioned on a node when its
       // first app lands there (or when a default server is set).
@@ -351,47 +352,10 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 
     const memberships = await getMemberships(req);
     const myRole = memberships.find((m) => m.organizationId === id)?.role ?? null;
-    // platform admins see the balance here, to gift credit (micro-IDR, a string: BigInt)
-    const balance = isPlatformAdmin(req)
-      ? String((await prisma.wallet.findUnique({ where: { organizationId: id }, select: { balance: true } }))?.balance ?? 0n)
-      : undefined;
 
-    return res.json({ success: true, data: { ...organization, myRole, balance } } as ApiResponse);
+    return res.json({ success: true, data: { ...organization, myRole } } as ApiResponse);
   } catch (error) {
     console.error('Error fetching organization:', error);
-    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
-  }
-});
-
-/**
- * Gift credit to a workspace — platform admins (ADMIN, SUPERADMIN): a GIFT entry on its
- * statement with the admin who gave it, and its caps and stopped apps follow. Rupiah,
- * whole, GIFT_MIN to GIFT_MAX; corrections (and taking back) are the superadmin's ADJUST.
- */
-router.post('/:id/gift', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    if (!isPlatformAdmin(req)) return forbidden(res);
-    const id = req.params.id as string;
-    const amount = Number(req.body?.amount);
-    const note = String(req.body?.note ?? '').trim().slice(0, 200);
-    if (!Number.isInteger(amount) || amount < GIFT_MIN || amount > GIFT_MAX) {
-      return res.status(400).json({ success: false, error: `A gift is from Rp ${GIFT_MIN.toLocaleString('id-ID')} to Rp ${GIFT_MAX.toLocaleString('id-ID')}` } as ApiResponse);
-    }
-    if (!(await prisma.organization.findUnique({ where: { id }, select: { id: true } }))) {
-      return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
-    }
-    await addWalletEntry({
-      organizationId: id,
-      kind: 'GIFT',
-      amount: BigInt(amount) * MICRO,
-      ref: `gift:${crypto.randomUUID()}`,
-      note: note ? `Gift · ${note}` : 'Gift',
-      createdById: req.user!.userId,
-    });
-    const balance = (await prisma.wallet.findUnique({ where: { organizationId: id }, select: { balance: true } }))?.balance ?? 0n;
-    return res.json({ success: true, data: { balance: String(balance) } } as ApiResponse);
-  } catch (error) {
-    console.error('Error gifting credit:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
@@ -559,7 +523,18 @@ router.put(
       if (target?.role !== 'OWNER') {
         return res.status(400).json({ success: false, error: 'Who pays must be an owner of the workspace' } as ApiResponse);
       }
+      const before = await billingUserOf(id);
       await prisma.organization.update({ where: { id }, data: { billingUserId: userId } });
+      if (before?.id !== userId) {
+        // from now on the new payer's wallet pays: its AI keys spend off their cap, and
+        // both wallets are looked at again (stopped apps may start, or stop)
+        await moveWorkspaceKeys(id, userId).catch((error) => console.error('Moving AI keys to the new payer failed:', error));
+        for (const who of [before?.id, userId]) {
+          if (!who) continue;
+          await syncAiCap(who).catch(() => {});
+          await guardWallet(who).catch((error) => console.error('Balance guard failed:', error));
+        }
+      }
       return res.json({ success: true, data: await billingUserOf(id), message: 'Billing owner changed' } as ApiResponse);
     } catch (error) {
       console.error('Error changing the billing owner:', error);

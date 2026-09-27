@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Loader2, Pause, Play, Plus } from 'lucide-react';
+import { ExternalLink, Loader2, Pause, Play } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Column, DataTable, useTableQuery } from '@/components/DataTable';
-import { OrganizationCombobox } from '@/components/OrganizationCombobox';
 import { useToast } from '@/hooks/use-toast';
 import { creditWallet, fromMicro, getAiGatewayConfig, getWallets, rupiah, saveAiGatewayConfig, setAiSuspended, type AiGatewayConfig, type WalletRow } from '@/lib/ai';
 import { t } from '@/lib/i18n';
@@ -172,13 +171,13 @@ export function AiGatewaySettingsCard() {
   );
 }
 
-/** Every workspace's balance; credit one by hand (the beta's top-up, and corrections); suspend its AI API. */
+/** Every user's balance — the one their workspaces share; correct one by hand (ADJUST, may be negative); suspend their AI API. Gifts: the Users page. */
 export function WalletsCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const query = useTableQuery(10);
   const { data = [], isFetching } = useQuery({ queryKey: ['wallets'], queryFn: getWallets });
-  const [crediting, setCrediting] = useState<{ organizationId: string | null; amount: string; note: string } | null>(null);
+  const [crediting, setCrediting] = useState<{ row: WalletRow; amount: string; note: string } | null>(null);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['wallets'] });
 
   const credit = useMutation({
@@ -197,7 +196,15 @@ export function WalletsCard() {
   });
 
   const columns: Column<WalletRow>[] = [
-    { header: t('Workspace'), cell: (w) => <span className="font-medium">{w.name}</span> },
+    {
+      header: t('User'),
+      cell: (w) => (
+        <>
+          <div className="font-medium">{w.name}</div>
+          <div className="text-xs text-muted-foreground">{w.email}</div>
+        </>
+      ),
+    },
     { header: t('Balance'), className: 'text-right', cell: (w) => <span className={`tabular-nums ${fromMicro(w.balance) <= 0 ? 'text-destructive' : ''}`}>{rupiah(fromMicro(w.balance))}</span> },
     { header: t('AI API'), cell: (w) => (w.aiAccountId ? t('On') : '—') },
     {
@@ -205,15 +212,15 @@ export function WalletsCard() {
       className: 'w-48 text-right',
       cell: (w) => (
         <div className="flex justify-end gap-1">
-          <Button variant="outline" size="sm" onClick={() => setCrediting({ organizationId: w.organizationId, amount: '', note: '' })}>
-            {t('Credit')}
+          <Button variant="outline" size="sm" onClick={() => setCrediting({ row: w, amount: '', note: '' })}>
+            {t('Adjust')}
           </Button>
           {w.aiAccountId && (
             <>
-              <Button variant="ghost" size="sm" aria-label={t('Suspend')} title={t('Suspend')} onClick={() => suspend.mutate({ id: w.organizationId, disabled: true })}>
+              <Button variant="ghost" size="sm" aria-label={t('Suspend')} title={t('Suspend')} onClick={() => suspend.mutate({ id: w.userId, disabled: true })}>
                 <Pause className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="sm" aria-label={t('Resume')} title={t('Resume')} onClick={() => suspend.mutate({ id: w.organizationId, disabled: false })}>
+              <Button variant="ghost" size="sm" aria-label={t('Resume')} title={t('Resume')} onClick={() => suspend.mutate({ id: w.userId, disabled: false })}>
                 <Play className="h-4 w-4" />
               </Button>
             </>
@@ -226,31 +233,26 @@ export function WalletsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{t('Workspace balances')}</CardTitle>
+        <CardTitle className="text-base">{t('Balances')}</CardTitle>
       </CardHeader>
       <CardContent>
         <DataTable
           columns={columns}
           rows={data}
-          rowKey={(w) => w.organizationId}
+          rowKey={(w) => w.userId}
           query={query}
-          filter={(w, search) => w.name.toLowerCase().includes(search.toLowerCase())}
+          filter={(w, search) => `${w.name} ${w.email}`.toLowerCase().includes(search.toLowerCase())}
           isLoading={isFetching && !data.length}
-          searchPlaceholder={t('Search workspaces…')}
+          searchPlaceholder={t('Search users…')}
           empty={t('No balances yet.')}
-          toolbar={
-            <Button size="sm" onClick={() => setCrediting({ organizationId: null, amount: '', note: '' })}>
-              <Plus className="mr-2 h-4 w-4" /> {t('Credit a workspace')}
-            </Button>
-          }
         />
       </CardContent>
 
       <Dialog open={!!crediting} onOpenChange={(o) => !o && setCrediting(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('Credit a workspace')}</DialogTitle>
-            <DialogDescription>{t('Rupiah added to its balance (negative takes it back). The note shows on its statement.')}</DialogDescription>
+            <DialogTitle>{t('Adjust the balance of {name}', { name: crediting?.row.name ?? '' })}</DialogTitle>
+            <DialogDescription>{t('A correction in rupiah (negative takes it back). The note shows on their statement. To give credit, use Gift on the Users page.')}</DialogDescription>
           </DialogHeader>
           {crediting && (
             <form
@@ -258,20 +260,16 @@ export function WalletsCard() {
               className="space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (crediting.organizationId) credit.mutate({ organizationId: crediting.organizationId, amount: Number(crediting.amount), note: crediting.note });
+                credit.mutate({ userId: crediting.row.userId, amount: Number(crediting.amount), note: crediting.note });
               }}
             >
-              <div className="space-y-1">
-                <Label>{t('Workspace')}</Label>
-                <OrganizationCombobox value={crediting.organizationId} onChange={(organizationId) => setCrediting({ ...crediting, organizationId })} />
-              </div>
               <div className="space-y-1">
                 <Label htmlFor="credit-amount">{t('Amount (Rp)')}</Label>
                 <Input id="credit-amount" type="number" required step="1" value={crediting.amount} onChange={(e) => setCrediting({ ...crediting, amount: e.target.value })} />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="credit-note">{t('Note')}</Label>
-                <Input id="credit-note" required maxLength={200} placeholder={t('e.g. Top-up by bank transfer, 27 Sep')} value={crediting.note} onChange={(e) => setCrediting({ ...crediting, note: e.target.value })} />
+                <Input id="credit-note" required maxLength={200} value={crediting.note} onChange={(e) => setCrediting({ ...crediting, note: e.target.value })} />
               </div>
             </form>
           )}
@@ -279,7 +277,7 @@ export function WalletsCard() {
             <Button variant="outline" onClick={() => setCrediting(null)} disabled={credit.isPending}>
               {t('Cancel')}
             </Button>
-            <Button type="submit" form="credit-wallet" disabled={credit.isPending || !crediting?.organizationId}>
+            <Button type="submit" form="credit-wallet" disabled={credit.isPending}>
               {credit.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {t('Save')}
             </Button>

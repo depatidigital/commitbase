@@ -6,6 +6,8 @@ import { ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { paging, paginated, contains } from '../lib/paging';
+import { randomUUID } from 'node:crypto';
+import { addWalletEntry, GIFT_MAX, GIFT_MIN, MICRO } from '../services/walletService';
 import {
   queueOrgNode,
   queueOrgEverywhere,
@@ -56,7 +58,7 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
     const [users, total] = await Promise.all([
       prisma.user.findMany({
         where,
-        select: userSelect,
+        select: { ...userSelect, wallet: { select: { balance: true } } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -64,9 +66,43 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
       prisma.user.count({ where }),
     ]);
 
-    return res.json(paginated(users, total, page, limit) as ApiResponse);
+    // the balance each pays their workspaces from (micro-IDR, a string: BigInt)
+    const rows = users.map(({ wallet, ...u }) => ({ ...u, balance: String(wallet?.balance ?? 0n) }));
+    return res.json(paginated(rows, total, page, limit) as ApiResponse);
   } catch (error) {
     console.error('Error listing users:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Gift credit to a user — into the wallet every workspace they pay for shares. A GIFT
+ * entry on their statement with the admin who gave it; caps and stopped apps follow.
+ * Rupiah, whole, GIFT_MIN to GIFT_MAX; corrections (and taking back) are the superadmin's ADJUST.
+ */
+router.post('/users/:id/gift', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = String(req.params.id);
+    const amount = Number(req.body?.amount);
+    const note = String(req.body?.note ?? '').trim().slice(0, 200);
+    if (!Number.isInteger(amount) || amount < GIFT_MIN || amount > GIFT_MAX) {
+      return res.status(400).json({ success: false, error: `A gift is from Rp ${GIFT_MIN.toLocaleString('id-ID')} to Rp ${GIFT_MAX.toLocaleString('id-ID')}` } as ApiResponse);
+    }
+    if (!(await prisma.user.findUnique({ where: { id: userId }, select: { id: true } }))) {
+      return res.status(404).json({ success: false, error: 'User not found' } as ApiResponse);
+    }
+    await addWalletEntry({
+      userId,
+      kind: 'GIFT',
+      amount: BigInt(amount) * MICRO,
+      ref: `gift:${randomUUID()}`,
+      note: note ? `Gift · ${note}` : 'Gift',
+      createdById: req.user!.userId,
+    });
+    const balance = (await prisma.wallet.findUnique({ where: { userId }, select: { balance: true } }))?.balance ?? 0n;
+    return res.json({ success: true, data: { balance: String(balance) } } as ApiResponse);
+  } catch (error) {
+    console.error('Error gifting credit:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

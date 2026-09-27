@@ -16,7 +16,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Users as UsersIcon } from "lucide-react";
+import { Gift, Loader2, Plus, Users as UsersIcon } from "lucide-react";
+import { GiftCreditDialog } from "@/components/GiftCreditDialog";
+import { fromMicro, rupiah } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
 import { createUser, getUsers, updateUser, AdminUser, ORG_ROLE_LABEL, PLATFORM_ROLE_LABEL } from "@/lib/admin";
 import { t } from "@/lib/i18n";
@@ -68,6 +70,8 @@ export default function Users() {
     onError,
   });
 
+  const [gifting, setGifting] = useState<AdminUser | null>(null);
+
   const columns: Column<AdminUser>[] = [
     {
       header: t("User"),
@@ -107,6 +111,21 @@ export default function Users() {
             </Badge>
           ))
         ),
+    },
+    {
+      header: t("Balance"),
+      className: "w-40 text-right",
+      cell: (u) => {
+        const balance = fromMicro(u.balance);
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <span className={`tabular-nums ${balance < 0 ? "text-destructive" : ""}`}>{rupiah(balance)}</span>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={t("Gift credit")} title={t("Gift credit")} onClick={() => setGifting(u)}>
+              <Gift className="h-4 w-4" />
+            </Button>
+          </div>
+        );
+      },
     },
     {
       header: t("Active"),
@@ -208,6 +227,7 @@ export default function Users() {
         searchPlaceholder={t("Search email or name…")}
         empty={t("No users found.")}
       />
+      {gifting && <GiftCreditDialog userId={gifting.id} name={gifting.name || gifting.email} onClose={() => setGifting(null)} />}
     </PageLayout>
   );
 }

@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { getArusniagaConfig } from './integrationConfigService';
-import { addWalletEntry, billingUserOf, MICRO } from './walletService';
+import { addWalletEntry, MICRO } from './walletService';
 import { WIB_MS } from './usageMeterService';
 
 /**
@@ -55,21 +55,18 @@ export const TOPUP_MAX = 100_000_000;
 /** A top-up not paid in this long stops being checked (ArusNiaga still has the invoice). */
 const TOPUP_CHECK_DAYS = 14;
 
-/** The workspace as an ArusNiaga customer: created on its first top-up, remembered on its wallet. */
-async function contactFor(organizationId: string) {
-  const wallet = await prisma.wallet.findUnique({ where: { organizationId }, select: { arusniagaContactId: true } });
+/** The user as an ArusNiaga customer: created on their first top-up, remembered on their wallet. */
+async function contactFor(userId: string) {
+  const wallet = await prisma.wallet.findUnique({ where: { userId }, select: { arusniagaContactId: true } });
   if (wallet?.arusniagaContactId) return wallet.arusniagaContactId;
-  const [org, payer] = await Promise.all([
-    prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { name: true } }),
-    billingUserOf(organizationId),
-  ]);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true } });
   const contact = await arusniaga<{ id: string }>('/api/public/contacts', {
     method: 'POST',
-    body: { name: org.name, email: payer?.email ?? undefined, isClient: true },
+    body: { name: user.name || user.email, email: user.email, isClient: true },
   });
   await prisma.wallet.upsert({
-    where: { organizationId },
-    create: { organizationId, arusniagaContactId: contact.id },
+    where: { userId },
+    create: { userId, arusniagaContactId: contact.id },
     update: { arusniagaContactId: contact.id },
   });
   return contact.id;
@@ -78,13 +75,14 @@ async function contactFor(organizationId: string) {
 type Invoice = { id: string; reference: string | null; status: string; grandTotal: number; remainingAmount: number; invoiceUrl: string | null };
 
 /**
- * A top-up of `rupiah`: the TopUp row, then its invoice in ArusNiaga (the row's id as the
- * idempotency key, so a retry cannot issue two). Returns the row with the invoice's page.
+ * A top-up of `rupiah` into `userId`'s wallet (made from `organizationId`, if any): the
+ * TopUp row, then its invoice in ArusNiaga (the row's id as the idempotency key, so a
+ * retry cannot issue two). Returns the row with the invoice's page.
  */
-export async function createTopUp(organizationId: string, rupiah: number, createdById: string) {
-  const topUp = await prisma.topUp.create({ data: { organizationId, amount: BigInt(rupiah) * MICRO, createdById } });
+export async function createTopUp(userId: string, organizationId: string | null, rupiah: number, createdById: string) {
+  const topUp = await prisma.topUp.create({ data: { userId, organizationId, amount: BigInt(rupiah) * MICRO, createdById } });
   try {
-    const contactId = await contactFor(organizationId);
+    const contactId = await contactFor(userId);
     const today = new Date(Date.now() + WIB_MS).toISOString().slice(0, 10);
     const due = new Date(Date.now() + WIB_MS + 86_400_000).toISOString().slice(0, 10);
     const invoice = await arusniaga<Invoice>('/api/public/sales-invoices', {
@@ -113,9 +111,9 @@ export async function createTopUp(organizationId: string, rupiah: number, create
 }
 
 /** A top-up's invoice paid in full: credit the wallet (once — the entry's ref), mark it paid. */
-async function settleTopUp(topUp: { id: string; organizationId: string; amount: bigint; invoiceRef: string | null }) {
+async function settleTopUp(topUp: { id: string; userId: string; amount: bigint; invoiceRef: string | null }) {
   await addWalletEntry({
-    organizationId: topUp.organizationId,
+    userId: topUp.userId,
     kind: 'TOPUP',
     amount: topUp.amount,
     ref: `topup:${topUp.id}`,
@@ -156,8 +154,9 @@ export async function checkTopUps(): Promise<string> {
 }
 
 /** A top-up as the panel shows it: money as strings (BigInt). */
-export const topUpView = (t: { id: string; organizationId: string; amount: bigint; status: string; invoiceRef: string | null; invoiceUrl: string | null; invoiceTotal: number | null; createdAt: Date; paidAt: Date | null }) => ({
+export const topUpView = (t: { id: string; userId: string; organizationId: string | null; amount: bigint; status: string; invoiceRef: string | null; invoiceUrl: string | null; invoiceTotal: number | null; createdAt: Date; paidAt: Date | null }) => ({
   id: t.id,
+  userId: t.userId,
   organizationId: t.organizationId,
   amount: String(t.amount),
   status: t.status,

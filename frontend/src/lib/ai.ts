@@ -38,8 +38,10 @@ export interface AiOverview {
   /** what apps call: …/v1 */
   baseUrl: string | null;
   organizationId: string;
-  /** micro-IDR */
+  /** micro-IDR: the payer's balance, shared by every workspace they pay for */
   balance: string;
+  /** who pays this workspace */
+  payer: { name: string | null; email: string } | null;
   hasAccount: boolean;
   suspended: boolean;
   keys: AiKey[];
@@ -87,8 +89,9 @@ export interface AiGatewayConfig {
 }
 
 export interface WalletRow {
-  organizationId: string;
+  userId: string;
   name: string;
+  email: string;
   /** micro-IDR */
   balance: string;
   updatedAt: string | null;
@@ -99,7 +102,7 @@ export const getAiGatewayConfig = async () => unwrap(await apiRequest<AiGatewayC
 export const saveAiGatewayConfig = async (body: { baseUrl?: string; adminKey?: string; adminPath?: string; rate?: number; markup?: number; optimaMarkup?: number }) =>
   unwrap(await apiRequest<AiGatewayConfig>('/ai-gateway/config', { method: 'PUT', body: JSON.stringify(body) }), t('Failed to save the AI gateway settings'));
 export const getWallets = async () => unwrap(await apiRequest<WalletRow[]>('/ai-gateway/wallets'), t('Failed to fetch the wallets'));
-export const creditWallet = async (body: { organizationId: string; amount: number; note: string }) =>
+export const creditWallet = async (body: { userId: string; amount: number; note: string }) =>
   unwrap(await apiRequest('/ai-gateway/credit', post(body)), t('Failed to credit the wallet'));
-export const setAiSuspended = async (organizationId: string, disabled: boolean) =>
-  unwrap(await apiRequest(`/ai-gateway/accounts/${organizationId}`, { method: 'PATCH', body: JSON.stringify({ disabled }) }), t('Failed to change the AI API'));
+export const setAiSuspended = async (userId: string, disabled: boolean) =>
+  unwrap(await apiRequest(`/ai-gateway/accounts/${userId}`, { method: 'PATCH', body: JSON.stringify({ disabled }) }), t('Failed to change the AI API'));

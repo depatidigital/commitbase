@@ -39,8 +39,14 @@ export const getRates = async (): Promise<Rates> => {
 export interface Wallet {
   organizationId: string;
   balance: string;
-  /** what it costs a day now */
+  /** what everything its payer pays for costs a day now */
   perDay: string;
+  /** this workspace's share of it */
+  workspacePerDay: string;
+  /** how many workspaces share this balance */
+  sharedBy: number;
+  /** the viewer is the one who pays */
+  isPayer: boolean;
   /** until zero, and until the apps stop; null when nothing is spent */
   daysLeft: number | null;
   daysUntilStop: number | null;
@@ -75,10 +81,12 @@ export interface WalletEntry {
   note: string | null;
   createdAt: string;
   updatedAt: string;
+  /** the workspace it was spent on; null for money in */
+  organization?: { id: string; name: string } | null;
 }
 
 export const getWalletEntries = async (month?: string) => {
-  const response = await apiRequest<{ month: string; entries: WalletEntry[] }>(`/billing/entries${month ? `?month=${encodeURIComponent(month)}` : ''}`);
+  const response = await apiRequest<{ month: string; whole?: boolean; entries: WalletEntry[] }>(`/billing/entries${month ? `?month=${encodeURIComponent(month)}` : ''}`);
   if (response.success && response.data) return response.data;
   throw new Error(response.error || t('Failed to fetch the balance history'));
 };

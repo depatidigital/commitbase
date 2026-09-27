@@ -59,4 +59,59 @@ export default {
   "Credit gifted": "Saldo diberikan",
   "{name} now has {balance}.": "{name} sekarang punya {balance}.",
   "Could not gift the credit": "Gagal memberi saldo",
+
+  // Usage page: the wallet (one per payer, shared by their workspaces)
+  CPU: "CPU",
+  Statement: "Riwayat saldo",
+  "Services imported from a server (pm2 of another user) are not metered.": "Layanan yang diimpor dari server (pm2 milik user lain) tidak diukur.",
+  "{n} days": "{n} hari",
+  "Could not change who pays": "Gagal mengganti pembayar",
+  "Your balance, shared by the {n} workspaces you pay for.": "Saldo Anda, dipakai bersama oleh {n} workspace yang Anda bayar.",
+  "{name}'s balance, shared by the {n} workspaces they pay for.": "Saldo {name}, dipakai bersama oleh {n} workspace yang dia bayar.",
+  "At the current pace": "Dengan pemakaian saat ini",
+  "{amount} a day": "{amount} per hari",
+  "This workspace: {amount} a day": "Workspace ini: {amount} per hari",
+  "Hosting is not charged yet: only AI use comes off the balance.": "Hosting belum ditagih: hanya pemakaian AI yang memotong saldo.",
+  "The balance is used up and the apps are stopped. Nothing was deleted: top up and they start again.":
+    "Saldo habis dan aplikasi dihentikan. Tidak ada yang dihapus: isi ulang dan aplikasi berjalan lagi.",
+  "Below zero: the apps stop in about {days}, at {limit}.": "Di bawah nol: aplikasi berhenti dalam sekitar {days}, pada {limit}.",
+  "Lasts about {days}. After that it may go down to {limit} before the apps stop.":
+    "Cukup untuk sekitar {days}. Setelah itu boleh turun sampai {limit} sebelum aplikasi berhenti.",
+  "Billed to": "Ditagihkan ke",
+  "An owner of the workspace: their balance pays for it, and balance warnings are mailed to them.":
+    "Pemilik workspace: saldonya yang membayar, dan peringatan saldo dikirim ke emailnya.",
+  "Could not read the usage": "Gagal memuat pemakaian",
+  "Could not read the prices": "Gagal memuat harga",
+  "Could not read the balance": "Gagal memuat saldo",
+
+  // AI API: key spending limits, whose balance
+  "Paid from {name}'s balance, shared by the workspaces they pay for.": "Dibayar dari saldo {name}, dipakai bersama oleh workspace yang dia bayar.",
+  "Failed to change the limit": "Gagal mengubah batas",
+  "Spent / limit": "Terpakai / batas",
+  "no limit": "tanpa batas",
+  "Spending limit": "Batas belanja",
+  "Spending limit (Rp, optional)": "Batas belanja (Rp, opsional)",
+  "No limit": "Tanpa batas",
+  "The key is refused once it has spent this much in a day or month (WIB), so a leaked key or a runaway loop cannot drain the balance.":
+    "Key ditolak setelah memakai sebanyak ini dalam sehari atau sebulan (WIB), supaya key yang bocor atau loop yang lepas kendali tidak menghabiskan saldo.",
+  "Spending limit for {name}": "Batas belanja untuk {name}",
+  "Spent this period: {amount}. The key is refused once it reaches the limit, until the next day or month (WIB); empty means no limit.":
+    "Terpakai periode ini: {amount}. Key ditolak setelah mencapai batas, sampai hari atau bulan berikutnya (WIB); kosong berarti tanpa batas.",
+  "Limit (Rp)": "Batas (Rp)",
+  "/ day": "/ hari",
+  "/ month": "/ bulan",
+  Per: "Per",
+  "per day": "per hari",
+  "per month": "per bulan",
+
+  // gifts (Users page) and balances (superadmin)
+  "Added to their balance at once — shared by every workspace they pay for — and shown on their statement as a gift. It cannot be taken back here.":
+    "Langsung masuk ke saldonya — dipakai bersama oleh semua workspace yang dia bayar — dan tampil di riwayatnya sebagai hadiah. Tidak bisa ditarik kembali dari sini.",
+  "Shown on their statement.": "Tampil di riwayat saldonya.",
+  Adjust: "Koreksi",
+  Balances: "Saldo",
+  "Search users…": "Cari user…",
+  "Adjust the balance of {name}": "Koreksi saldo {name}",
+  "A correction in rupiah (negative takes it back). The note shows on their statement. To give credit, use Gift on the Users page.":
+    "Koreksi dalam rupiah (negatif menariknya kembali). Catatan tampil di riwayat saldonya. Untuk memberi saldo, pakai Beri saldo di halaman Users.",
 } satisfies Record<string, string>;

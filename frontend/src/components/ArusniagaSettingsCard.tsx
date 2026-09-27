@@ -135,9 +135,9 @@ export function TopUpsCard() {
     onError: (error: Error) => toast({ title: t('The check failed'), description: error.message, variant: 'destructive' }),
   });
 
-  const columns: Column<TopUp & { organizationName: string }>[] = [
+  const columns: Column<TopUp & { userName: string }>[] = [
     { header: t('Created'), cell: (x) => topUpDate(x.createdAt) },
-    { header: t('Workspace'), cell: (x) => <span className="font-medium">{x.organizationName}</span> },
+    { header: t('User'), cell: (x) => <span className="font-medium">{x.userName}</span> },
     { header: t('Invoice'), cell: (x) => (x.invoiceUrl ? <a href={x.invoiceUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">{x.invoiceRef ?? t('Open')}</a> : x.invoiceRef ?? '—') },
     { header: t('Amount'), className: 'text-right', cell: (x) => <span className="tabular-nums">{rupiah(fromMicro(x.amount))}</span> },
     { header: t('Status'), cell: (x) => <span className={x.status === 'PAID' ? 'text-success' : x.status === 'PENDING' ? '' : 'text-muted-foreground'}>{topUpStatus(x.status)}</span> },
@@ -155,9 +155,9 @@ export function TopUpsCard() {
           rows={data}
           rowKey={(x) => x.id}
           query={query}
-          filter={(x, search) => `${x.organizationName} ${x.invoiceRef ?? ''} ${x.status}`.toLowerCase().includes(search.toLowerCase())}
+          filter={(x, search) => `${x.userName} ${x.invoiceRef ?? ''} ${x.status}`.toLowerCase().includes(search.toLowerCase())}
           isLoading={isFetching && !data.length}
-          searchPlaceholder={t('Search workspaces…')}
+          searchPlaceholder={t('Search users…')}
           empty={t('No top-ups yet.')}
           toolbar={
             <Button size="sm" variant="outline" onClick={() => check.mutate()} disabled={check.isPending}>

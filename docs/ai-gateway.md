@@ -21,9 +21,19 @@ payment fees, payments.
 
 ## Data
 
-`AiAccount` (workspace → gateway account, and `billedSpent`), `Wallet`
-(`balance`, micro-IDR) and `WalletEntry` (append-only, `ref` unique) in
-`backend/prisma/schema.prisma`, migration `20260928000000_ai_gateway`.
+One wallet **per paying user**, shared by every workspace they pay for (a workspace's
+payer is its billing OWNER — `walletService.billingUserOf`), so the AI account is per
+payer too:
+
+- `AiAccount` (payer → one gateway account and `billedSpent`): one spend cap over the
+  whole balance, so it cannot be spent twice across workspaces.
+- `AiKey` (gateway key → workspace): the workspace's key list, its usage lines
+  (`ai:<org>:<day>:<model>:<payer>[:optima]`) and its "you saved". When a workspace
+  changes payer its keys move to the new payer's account (`moveWorkspaceKeys`, gateway
+  `PATCH /admin/keys/:id {accountId}`).
+- `Wallet` (`userId`, `balance` micro-IDR) and `WalletEntry` (`userId`, the workspace it
+  was spent on or none, append-only, `ref` unique). Migrations `20260928000000_ai_gateway`,
+  `20261001000000_wallet_per_user` (merged the old per-workspace wallets into their payers').
 
 Plus in `IntegrationConfig`: the gateway's base URL and admin key (`secretBox`),
 the feed cursor (last billed request id), the **rate** (IDR per USD, market)
@@ -133,4 +143,4 @@ gateway trusts the admin key. `yarn check:ai-money` covers the charge and cap ma
 
 - Markup value: 1.044 (≈ Rp 19,000 at 18,200) is the default until set.
 - Tax consultant: PPN on top-up vs usage; PKP; crediting the providers' PPN.
-- The wallet is general (not AI-only) — WhatsApp and hosting can charge it later.
+- The wallet is general (hosting, AI and domains charge it now); WhatsApp charges it next — to the workspace's payer.

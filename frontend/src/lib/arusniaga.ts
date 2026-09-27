@@ -52,5 +52,5 @@ export interface ArusniagaConfig {
 export const getArusniagaConfig = async () => unwrap(await apiRequest<ArusniagaConfig>('/arusniaga/config'), t('Failed to fetch the ArusNiaga settings'));
 export const saveArusniagaConfig = async (body: { baseUrl?: string; apiKey?: string }) =>
   unwrap(await apiRequest<ArusniagaConfig>('/arusniaga/config', { method: 'PUT', body: JSON.stringify(body) }), t('Failed to save the ArusNiaga settings'));
-export const getAllTopUps = async () => unwrap(await apiRequest<Array<TopUp & { organizationName: string }>>('/arusniaga/topups'), t('Could not read the top-ups'));
+export const getAllTopUps = async () => unwrap(await apiRequest<Array<TopUp & { userName: string }>>('/arusniaga/topups'), t('Could not read the top-ups'));
 export const checkTopUpsNow = async () => unwrap(await apiRequest<{ summary: string }>('/arusniaga/topups/check', { method: 'POST' }), t('The check failed'));
