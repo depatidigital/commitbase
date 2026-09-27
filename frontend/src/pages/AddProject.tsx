@@ -18,7 +18,6 @@ import {
 import {
   Globe,
   ArrowLeft,
-  GitBranch,
   CheckCircle,
   AlertCircle,
   Github,
@@ -57,6 +56,7 @@ import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import { getServers } from "@/lib/servers";
 
 const PENDING_REPOSITORY = "addApp.pendingRepository";
+const SOURCE_MODE = "addApp.sourceMode";
 
 /** A DNS-safe label: `My Shop_v2` → `my-shop-v2`. */
 const slugify = (value?: string | null) =>
@@ -118,7 +118,15 @@ export default function AddProject() {
   }, [formData.type, servers, serverId]);
   // what Create is doing after the click: creating, the picked files going up, the first deploy starting
   const [busy, setBusy] = useState<"" | "uploading" | "deploying">("");
-  const [sourceMode, setSourceMode] = useState<"git" | "upload">("git");
+  // upload first — the one a newcomer has; back from connecting GitHub/GitLab, git;
+  // otherwise the last one used, so someone who works from git is not asked each time
+  const [sourceMode, setSourceMode] = useState<"git" | "upload">(() =>
+    sessionStorage.getItem(PENDING_REPOSITORY) || localStorage.getItem(SOURCE_MODE) === "git" ? "git" : "upload",
+  );
+  const pickSourceMode = (mode: "git" | "upload") => {
+    setSourceMode(mode);
+    localStorage.setItem(SOURCE_MODE, mode);
+  };
   // everything picked, and the paths unticked in the preview; what detection
   // and the upload see is the difference
   const [pickedFiles, setPickedFiles] = useState<UploadEntry[]>([]);
@@ -499,11 +507,11 @@ export default function AddProject() {
     <PageLayout
       backTo={projectId ? `/apps/${projectId}` : "/apps"}
       // without ?project=, this makes a project: its source, and its first app
-      title={joining ? t("Add a service to {name}", { name: joining.name }) : t("Add app")}
+      title={joining ? t("Add a service to {name}", { name: joining.name }) : t("Add app or website")}
       description={
         projectId
           ? t("It is built from the app's repository with its other services, and deployed with them.")
-          : t("Point at the code — the type is detected. Its hosts and env are added once it exists, then it is deployed.")
+          : t("Pick your code or your website's files — we set up the rest.")
       }
     >
       <form onSubmit={handleSubmit} className="space-y-8">
@@ -545,67 +553,24 @@ export default function AddProject() {
         {/* where the code comes from — the rest of the form opens once it is read */}
         {!projectId && sourceMode && (
           <>
-            {/* a project is a name and where its code comes from — one card, no scrolling */}
+            {/* a project is where its code comes from, then its name (filled from it) — one card, no scrolling */}
             <Card className="bg-gradient-card border-border/50 shadow-elegant">
               <CardContent className="space-y-4 pt-6">
-                <div className={`grid gap-4 ${needsOrg ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+                {/* whose it is: no host decides it here — its hosts are added on its page */}
+                {needsOrg && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="name">
-                      {t("App name")} <span className="text-red-500">*</span>
+                    <Label>
+                      {t("Workspace")} <span className="text-red-500">*</span>
                     </Label>
-                    <Input
-                      id="name"
-                      placeholder="my-project"
-                      value={formData.name}
-                      onChange={(e) => {
-                        setNameTouched(true);
-                        handleInputChange("name", e.target.value);
-                      }}
-                      required
+                    <OrganizationCombobox
+                      value={organizationId || null}
+                      onChange={(id) => setOrganizationId(id ?? "")}
+                      placeholder={t("Whose service is it?")}
                     />
                   </div>
-                  {/* whose it is: no host decides it here — its hosts are added on its page */}
-                  {needsOrg && (
-                    <div className="space-y-1.5">
-                      <Label>
-                        {t("Workspace")} <span className="text-red-500">*</span>
-                      </Label>
-                      <OrganizationCombobox
-                        value={organizationId || null}
-                        onChange={(id) => setOrganizationId(id ?? "")}
-                        placeholder={t("Whose service is it?")}
-                      />
-                    </div>
-                  )}
-                  {/* where the code comes from: a repository, or files from this machine */}
-                  <div className="space-y-1.5">
-                    <Label>{t("Source")}</Label>
-                    <div className="flex w-full rounded-md border border-border/60 p-0.5 text-sm">
-                      {(
-                        [
-                          ["git", GitBranch, t("Git repository"), t("Clone from GitHub, GitLab, or any repository URL.")],
-                          ["upload", Upload, t("Upload files or folder"), t("Send files straight from this machine. No repository needed.")],
-                        ] as const
-                      ).map(([mode, Icon, label, hint]) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          title={hint}
-                          aria-pressed={sourceMode === mode}
-                          onClick={() => setSourceMode(mode)}
-                          className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 transition-colors ${
-                            sourceMode === mode ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                )}
 
-
+                {/* where the code comes from: files from this machine, or — offered inside the drop zone — a repository */}
                 {sourceMode === "upload" && (
                   <div className="space-y-4">
                     <SourcePicker
@@ -613,6 +578,19 @@ export default function AddProject() {
                       excluded={excluded}
                       onPick={setUploadFiles}
                       onExcludedChange={setExcluded}
+                      alternative={
+                        // picking a repository here switches to it: its branch and folder open below
+                        <div className="w-full max-w-md">
+                          <RepositoryCombobox
+                            value=""
+                            onChange={(url) => {
+                              handleInputChange("repository", url);
+                              pickSourceMode("git");
+                            }}
+                            onConnect={(provider) => void (provider === "github" ? handleConnectGithub() : handleConnectGitlab())}
+                          />
+                        </div>
+                      }
                     />
                     {formData.type === "STATIC" && (
                       <p className="text-xs text-muted-foreground">
@@ -626,6 +604,14 @@ export default function AddProject() {
 
                 {sourceMode === "git" && (
                   <>
+                    <button
+                      type="button"
+                      onClick={() => pickSourceMode("upload")}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <Upload className="h-3 w-3" />
+                      {t("Upload files instead")}
+                    </button>
                     <div className="space-y-1.5">
                       <RepositoryCombobox
                         id="repository"
@@ -744,6 +730,24 @@ export default function AddProject() {
                     </div>
                     )}
                   </>
+                )}
+
+                {/* the name only once the source is read: by then it is filled from it */}
+                {stepComplete(1) && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="name">{t("App name")}</Label>
+                    <Input
+                      id="name"
+                      placeholder={t("e.g. my-shop")}
+                      value={formData.name}
+                      onChange={(e) => {
+                        setNameTouched(true);
+                        handleInputChange("name", e.target.value);
+                      }}
+                      required
+                    />
+                    {sourceLabel && <p className="text-xs text-muted-foreground">{t("Filled in from your code. You can change it.")}</p>}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1008,7 +1012,7 @@ export default function AddProject() {
             ) : (
               stepComplete(1) && stepComplete(2) && !createApp.isPending && !busy && (
                 <span className="text-right text-xs text-muted-foreground">
-                  {t("Created now — add its hosts and env on its page, then deploy.")}
+                  {t("Next: connect your domain, then put it online.")}
                 </span>
               )
             )}

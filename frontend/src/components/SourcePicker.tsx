@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { FileUp, FolderUp, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UploadTree } from "@/components/UploadTree";
@@ -13,6 +13,8 @@ type Props = {
   /** a new pick replaces the old one and clears the exclusions */
   onPick: (entries: UploadEntry[]) => void;
   onExcludedChange: (excluded: Set<string>) => void;
+  /** another way in, under an "or" inside the drop zone — add-app's repository picker */
+  alternative?: ReactNode;
 };
 
 /**
@@ -21,7 +23,7 @@ type Props = {
  * between wizard steps does not lose the pick. Used by the add-app wizard and
  * the re-upload dialog on an app's page.
  */
-export function SourcePicker({ picked, excluded, onPick, onExcludedChange }: Props) {
+export function SourcePicker({ picked, excluded, onPick, onExcludedChange, alternative }: Props) {
   const [dragging, setDragging] = useState(false);
   // two pickers can sit on one page (wizard + dialog), so ids must not clash
   const id = useId();
@@ -47,10 +49,15 @@ export function SourcePicker({ picked, excluded, onPick, onExcludedChange }: Pro
           setDragging(false);
           onPick(await entriesFromDrop(e.dataTransfer.items));
         }}
-        className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+        className={`relative isolate flex flex-col items-center gap-3 overflow-hidden rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
           dragging ? "border-primary bg-primary/5" : "border-border/60"
         }`}
       >
+        {/* a work-surface grid, fading out towards the edges */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(to_right,hsl(var(--border))_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border))_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_75%)]"
+        />
         <Upload className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm font-medium">{t("Drop files or a folder here")}</p>
         <div className="flex flex-wrap justify-center gap-2">
@@ -90,6 +97,16 @@ export function SourcePicker({ picked, excluded, onPick, onExcludedChange }: Pro
             e.target.value = "";
           }}
         />
+        {alternative && (
+          <>
+            <div className="flex w-full max-w-xs items-center gap-3 text-xs text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              {t("or")}
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            {alternative}
+          </>
+        )}
       </div>
 
       {picked.length > 0 && (
@@ -98,7 +115,7 @@ export function SourcePicker({ picked, excluded, onPick, onExcludedChange }: Pro
 
       <p className="text-sm text-muted-foreground">
         {picked.length === 0
-          ? t("Pick the files or the folder to deploy.")
+          ? t("Pick the files or the folder to put online.")
           : (() => {
               const vars = {
                 count: selected.length,

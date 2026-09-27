@@ -50,7 +50,7 @@ export function AppSidebar() {
     {
       items: [
         { title: t("Dashboard"), url: "/", icon: LayoutDashboard },
-        { title: t("Apps"), url: "/apps", icon: AppWindow },
+        { title: t("Apps & Websites"), url: "/apps", icon: AppWindow },
       ],
     },
     // services the platform offers a workspace's apps, beside hosting them

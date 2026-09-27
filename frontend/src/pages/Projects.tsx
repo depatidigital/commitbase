@@ -373,7 +373,7 @@ export default function Projects() {
 
   return (
     <PageLayout
-      title={t("Apps")}
+      title={t("Apps & Websites")}
       description={t("Your websites and apps.")}
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -386,7 +386,7 @@ export default function Projects() {
           <Button asChild className="bg-gradient-primary shadow-glow transition-all duration-300 hover:shadow-elegant">
             <Link to="/apps/new">
               <Plus className="mr-2 h-4 w-4" />
-              {t("Add app")}
+              {t("Add app or website")}
             </Link>
           </Button>
         </div>

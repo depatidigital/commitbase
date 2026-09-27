@@ -12,7 +12,7 @@ import { Home } from "lucide-react";
 import { t } from "@/lib/i18n";
 
 const LABELS: Record<string, string> = {
-  apps: t("Apps"),
+  apps: t("Apps & Websites"),
   services: t("Services"),
   usage: t("Usage"),
   new: t("New"),

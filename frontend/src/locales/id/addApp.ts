@@ -46,13 +46,14 @@ export default {
   Expand: "Buka",
   "{count} file ready — {size} MB": "{count} file siap — {size} MB",
   "{count} files ready — {size} MB": "{count} file siap — {size} MB",
-  "Pick the files or the folder to deploy.": "Pilih file atau folder yang akan di-deploy.",
+  "Pick the files or the folder to put online.": "Pilih file atau folder yang ingin di-online-kan.",
   "Static uploads go straight to object storage and are served from there — nothing is built.":
     "Unggahan statis langsung masuk ke object storage dan disajikan dari sana — tidak ada proses build.",
   Repository: "Repositori",
   "Select a repository or paste a URL": "Pilih repositori atau tempel URL",
   "Search your repositories, or paste a Git URL…": "Cari repositori Anda, atau tempel URL Git…",
-  "Use this URL: {url}": "Pakai URL ini: {url}",
+  "Use '{name}'": "Gunakan '{name}'",
+  "Type the whole address, e.g. github.com/owner/repo": "Ketik alamat lengkapnya, mis. github.com/nama/repo",
   "Loading repositories…": "Memuat repositori…",
   "No repositories found — paste the URL instead.": "Repositori tidak ditemukan — tempel URL-nya saja.",
   "No GitHub or GitLab account connected. Connect one below, or paste a public repository URL.":

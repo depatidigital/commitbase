@@ -6,8 +6,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { listGitRepositories, type GitRepositoryListing } from "@/lib/git";
 import { t } from "@/lib/i18n";
-
-export const REPOSITORY_URL = /^(https?:\/\/|git@|ssh:\/\/)[^\s'"]+$/;
+import { parseRepository } from "@/lib/repositoryUrl";
 
 type Props = {
   value: string;
@@ -58,7 +57,9 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
   }, [listing.data]);
   // the chosen repository, when it came from the list — shown by name, not URL
   const picked = listing.data?.repositories.find((repo) => repo.cloneUrl === value);
-  const pasted = REPOSITORY_URL.test(search.trim());
+  const pasted = parseRepository(search);
+  // on its way to a URL (a dot, a slash, a scheme) but not one yet
+  const typingUrl = !pasted && /[./:]/.test(search.trim());
   const choose = (url: string) => {
     onChange(url);
     setOpen(false);
@@ -99,16 +100,36 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] p-0" align="start">
-        <Command>
-          <CommandInput placeholder={t("Search your repositories, or paste a Git URL…")} value={search} onValueChange={setSearch} />
-          <CommandList>
+      {/* never taller than the room below (or above) the trigger: the list shrinks, the footer stays */}
+      <PopoverContent
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] relative flex-col p-0"
+        align="start"
+        collisionPadding={8}
+      >
+        {/* reload beside the search, where it is always in reach — the footer can be cut off */}
+        {!!listing.data?.accounts.length && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-1.5 top-1.5 z-10 h-8 w-8"
+            title={t("Reload")}
+            aria-label={t("Reload")}
+            onClick={() => void reload()}
+            disabled={reloading}
+          >
+            {reloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
+        )}
+        <Command className="min-h-0 flex-1">
+          <CommandInput className="pr-8" placeholder={t("Search your repositories, or paste a Git URL…")} value={search} onValueChange={setSearch} />
+          <CommandList className="min-h-0 flex-1">
             {/* a pasted URL is always offered, whatever the list filter says */}
             {pasted && (
               <CommandGroup>
-                <CommandItem forceMount value={`url:${search.trim()}`} onSelect={() => choose(search.trim())}>
+                <CommandItem forceMount value={`url:${pasted.url}`} onSelect={() => choose(pasted.url)}>
                   <GitBranch className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">{t("Use this URL: {url}", { url: search.trim() })}</span>
+                  <span className="truncate">{t("Use '{name}'", { name: pasted.name })}</span>
                 </CommandItem>
               </CommandGroup>
             )}
@@ -117,7 +138,9 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
             ) : (
               !pasted && (
                 <CommandEmpty>
-                  {listing.data?.accounts.length
+                  {typingUrl
+                    ? t("Type the whole address, e.g. github.com/owner/repo")
+                    : listing.data?.accounts.length
                     ? t("No repositories found — paste the URL instead.")
                     : onConnect
                       ? t("No GitHub or GitLab account connected. Connect one below, or paste a public repository URL.")
@@ -138,27 +161,19 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
             ))}
           </CommandList>
         </Command>
-        {!!listing.data?.errors.length && <p className="border-t px-3 py-2 text-xs text-destructive">{listing.data.errors.join(" · ")}</p>}
-        <div className="flex flex-wrap gap-1 border-t p-2">
-          {onConnect && (
-            <>
-              <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("github")}>
-                <Github className="h-4 w-4 mr-2" />
-                {t("Connect GitHub")}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("gitlab")}>
-                <Gitlab className="h-4 w-4 mr-2" />
-                {t("Connect GitLab")}
-              </Button>
-            </>
-          )}
-          {!!listing.data?.accounts.length && (
-            <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => void reload()} disabled={reloading}>
-              {reloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-              {t("Reload")}
+        {!!listing.data?.errors.length && <p className="shrink-0 border-t px-3 py-2 text-xs text-destructive">{listing.data.errors.join(" · ")}</p>}
+        {onConnect && (
+          <div className="flex shrink-0 flex-wrap gap-1 border-t p-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("github")}>
+              <Github className="h-4 w-4 mr-2" />
+              {t("Connect GitHub")}
             </Button>
-          )}
-        </div>
+            <Button type="button" variant="ghost" size="sm" onClick={() => onConnect("gitlab")}>
+              <Gitlab className="h-4 w-4 mr-2" />
+              {t("Connect GitLab")}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

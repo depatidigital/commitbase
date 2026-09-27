@@ -3,18 +3,22 @@
 // app to a project.
 export default {
   Apps: "Aplikasi",
+  "Apps & Websites": "Aplikasi & Website",
   App: "Aplikasi",
   "Your code and the services served from it.": "Kode Anda dan layanan yang berjalan darinya.",
   "Add app": "Tambah Aplikasi",
+  "Add app or website": "Tambah Aplikasi & Website",
+  "Pick your code or your website's files — we set up the rest.": "Pilih kode atau file website Anda — sisanya kami atur.",
+  "Filled in from your code. You can change it.": "Terisi otomatis dari kode Anda. Boleh diganti.",
+  "e.g. my-shop": "mis. toko-bunga",
+  "Upload files instead": "Unggah file saja",
   "Create app": "Buat aplikasi",
   "App name": "Nama aplikasi",
   "Taken from its source — its first service starts with the same name. Both can be renamed later.":
     "Diambil dari sumbernya — layanan pertamanya memakai nama yang sama. Keduanya bisa diganti nanti.",
   "Create service": "Buat layanan",
   Workspace: "Workspace",
-  "Point at the code — the type is detected. Its hosts and env are added once it exists, then it is deployed.":
-    "Pilih kodenya — tipenya terdeteksi otomatis. Host dan env ditambahkan setelah aplikasi dibuat, lalu di-deploy.",
-  "Created now — add its hosts and env on its page, then deploy.": "Dibuat sekarang — tambahkan host dan env di halamannya, lalu deploy.",
+  "Next: connect your domain, then put it online.": "Berikutnya: hubungkan domain Anda, lalu online-kan.",
   "Your label for the service, taken from its source. It stays when its hosts change.":
     "Label layanan Anda, diambil dari sumbernya. Tetap sama walau host-nya berubah.",
   "{online} of {total} online": "{online} dari {total} online",
