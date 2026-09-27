@@ -181,13 +181,37 @@ export default function AddProject() {
     [sourceMode, formData.repository, uploadFiles, projectId, rootDirectory, joining?.name],
   );
 
-  // The name is the app's own label, not its address (as on Vercel, Netlify,
-  // Fly): it comes from the source and stays when its hosts change. Loose files
-  // have no source name, so it is typed.
-  const [nameTouched, setNameTouched] = useState(false);
+  // An upload's page title — what the site calls itself — read from its root
+  // index.html / index.htm (or its only page): the best name an upload has.
+  const [pageTitle, setPageTitle] = useState("");
   useEffect(() => {
-    if (!nameTouched) setFormData((prev) => ({ ...prev, name: sourceLabel || "" }));
-  }, [sourceLabel, nameTouched]);
+    let live = true;
+    const root = sourceMode === "upload" ? uploadFiles.filter(({ path }) => !path.includes("/") && /\.html?$/i.test(path)) : [];
+    const page = root.find(({ path }) => /^index\.html?$/i.test(path)) ?? (root.length === 1 ? root[0] : undefined);
+    if (!page) return setPageTitle("");
+    void page.file
+      .slice(0, 64 * 1024)
+      .text()
+      .then((html) => live && setPageTitle(new DOMParser().parseFromString(html, "text/html").title.trim()));
+    return () => {
+      live = false;
+    };
+  }, [sourceMode, uploadFiles]);
+  // the last resort, stable for the visit
+  const [fallbackName] = useState(() => `website-${Math.random().toString(36).slice(2, 6)}`);
+
+  // The name is the app's own label, not its address (as on Vercel, Netlify,
+  // Fly), and not asked: the page's title, else the source's name, else a lone
+  // file's, else website-xxxx. Renamed on its page any time.
+  const [nameTouched, setNameTouched] = useState(false);
+  const autoName =
+    slugify(pageTitle) ||
+    sourceLabel ||
+    slugify(uploadFiles.length === 1 ? uploadFiles[0].path.replace(/\.[^.]*$/, "") : "") ||
+    fallbackName;
+  useEffect(() => {
+    if (!nameTouched) setFormData((prev) => ({ ...prev, name: autoName }));
+  }, [autoName, nameTouched]);
 
   // A pasted URL: read its branches and switch to the default one (not every
   // repo uses "main"). null = not read, which leaves the branch as free text.
@@ -515,7 +539,7 @@ export default function AddProject() {
           : t("Pick your code or your website's files — we set up the rest.")
       }
     >
-      <form onSubmit={handleSubmit} className="mx-auto max-w-5xl space-y-8">
+      <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl space-y-8">
         {/* an app of an existing project: its code is known, only the folder is asked */}
         {projectId && (
           <Card className="bg-gradient-card border-border/50 shadow-elegant">
@@ -733,23 +757,6 @@ export default function AddProject() {
                   </>
                 )}
 
-                {/* the name only once the source is read: by then it is filled from it */}
-                {stepComplete(1) && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="name">{t("App name")}</Label>
-                    <Input
-                      id="name"
-                      placeholder={t("e.g. my-shop")}
-                      value={formData.name}
-                      onChange={(e) => {
-                        setNameTouched(true);
-                        handleInputChange("name", e.target.value);
-                      }}
-                      required
-                    />
-                    {sourceLabel && <p className="text-xs text-muted-foreground">{t("Filled in from your code. You can change it.")}</p>}
-                  </div>
-                )}
               </CardContent>
             </Card>
           </>
@@ -1030,7 +1037,7 @@ export default function AddProject() {
               ) : (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  {projectId ? t("Create service") : t("Create app")}
+                  {projectId ? t("Create service") : t("Create now")}
                 </>
               )}
             </Button>

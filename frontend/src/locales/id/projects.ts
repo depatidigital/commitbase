@@ -14,6 +14,7 @@ export default {
   "Upload files instead": "Unggah file saja",
   "Remove {name}": "Hapus {name}",
   "Replace folder": "Ganti folder",
+  "Create now": "Buat Sekarang",
   Reload: "Muat ulang",
   "Create app": "Buat aplikasi",
   "App name": "Nama aplikasi",
