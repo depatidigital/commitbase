@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { creditWallet, fromMicro, getAiGatewayConfig, getWallets, rupiah, saveAiGatewayConfig, setAiSuspended, type AiGatewayConfig, type WalletRow } from '@/lib/ai';
 import { t } from '@/lib/i18n';
 
-type Form = { baseUrl: string; adminKey: string; adminPath: string; rate: string; markup: string };
+type Form = { baseUrl: string; adminKey: string; adminPath: string; rate: string; markup: string; optimaMarkup: string };
 
 const QUERY_KEY = ['integrations', 'ai-gateway'];
 
@@ -66,11 +66,15 @@ export function AiGatewaySettingsCard() {
               <span className="tabular-nums">
                 × {status?.markup} = {rupiah(perDollar)} {t('per dollar bought')}
               </span>
+              <span className="text-muted-foreground">larika-optima</span>
+              <span className="tabular-nums">
+                × {status?.optimaMarkup} = {rupiah((status?.rate ?? 0) * (status?.optimaMarkup ?? 0))} {t('per dollar bought')}
+              </span>
             </div>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => status && setForm({ baseUrl: status.baseUrl, adminKey: '', adminPath: '', rate: String(status.rate), markup: String(status.markup) })}
+              onClick={() => status && setForm({ baseUrl: status.baseUrl, adminKey: '', adminPath: '', rate: String(status.rate), markup: String(status.markup), optimaMarkup: String(status.optimaMarkup) })}
             >
               {t('Edit')}
             </Button>
@@ -98,7 +102,7 @@ export function AiGatewaySettingsCard() {
               className="space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                save.mutate({ baseUrl: form.baseUrl, adminKey: form.adminKey, adminPath: form.adminPath, rate: Number(form.rate), markup: Number(form.markup) });
+                save.mutate({ baseUrl: form.baseUrl, adminKey: form.adminKey, adminPath: form.adminPath, rate: Number(form.rate), markup: Number(form.markup), optimaMarkup: Number(form.optimaMarkup) });
               }}
             >
               <div className="space-y-1">
@@ -140,6 +144,11 @@ export function AiGatewaySettingsCard() {
                   <Label htmlFor="ai-markup">{t('Markup')}</Label>
                   <Input id="ai-markup" type="number" required min={1} step="0.001" value={form.markup} onChange={(e) => setForm({ ...form, markup: e.target.value })} />
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ai-optima-markup">{t('larika-optima markup')}</Label>
+                <Input id="ai-optima-markup" type="number" required min={1} step="0.001" value={form.optimaMarkup} onChange={(e) => setForm({ ...form, optimaMarkup: e.target.value })} />
+                <p className="text-xs text-muted-foreground">{t("For turns the router picked, and only out of what they saved: never above the cheapest top model at the normal markup, never below the model that ran. Caps use the higher of the two markups.")}</p>
               </div>
               <p className="text-xs text-muted-foreground">
                 {t('Every call is charged its buy price × rate × markup: {price} per dollar bought. Changing either moves every workspace\'s spend cap at once.', {

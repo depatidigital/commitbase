@@ -16,9 +16,16 @@ export const fromMicro = (micro: string | number) => Number(micro) / 1e6;
 export const rupiah = (value: number, fraction = false) =>
   new Intl.NumberFormat(locale, { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: fraction ? 2 : 0 }).format(value);
 
+export type KeyPeriod = 'DAY' | 'MONTH';
+
 export interface AiKey {
   id: string;
   name: string;
+  /** micro-IDR at today's rate: what it spent this day or month, and its limit for one (null = none) */
+  spent: string;
+  spendCap: string | null;
+  /** the limit's period, WIB */
+  capPeriod: KeyPeriod;
   prefix: string;
   rpm: number;
   lastUsedAt: string | null;
@@ -37,6 +44,10 @@ export interface AiOverview {
   suspended: boolean;
   keys: AiKey[];
   gatewayError: string | null;
+  /** larika-optima this month, micro-IDR: what its calls cost, and the same on the cheapest top model */
+  optima: { paid: string; baseline: string } | null;
+  /** larika-optima's markup over the normal one, e.g. 0.10 */
+  optimaSurcharge: number;
 }
 
 /** IDR per 1M tokens; a tier covers prompts up to `upTo` tokens (null = the rest). */
@@ -50,7 +61,10 @@ export interface AiModelPrice {
 
 export const getAi = async () => unwrap(await apiRequest<AiOverview>('/ai'), t('Failed to fetch the AI API'));
 export const enableAi = async () => unwrap(await apiRequest('/ai/account', post()), t('Failed to turn the AI API on'));
-export const createAiKey = async (body: { name: string; rpm?: number }) =>
+/** limit: whole rupiah per period; null lifts it */
+export const setAiKeyLimit = async (id: string, limit: number | null, period: KeyPeriod) =>
+  unwrap(await apiRequest(`/ai/keys/${id}`, { method: 'PATCH', body: JSON.stringify({ limit, period }) }), t('Failed to change the limit'));
+export const createAiKey = async (body: { name: string; rpm?: number; limit?: number; period?: KeyPeriod }) =>
   unwrap(await apiRequest<AiKey & { key: string }>('/ai/keys', post(body)), t('Failed to create an API key'));
 export const revokeAiKey = async (id: string) => unwrap(await apiRequest(`/ai/keys/${id}`, { method: 'DELETE' }), t('Failed to revoke the key'));
 export const getAiModels = async () => unwrap(await apiRequest<AiModelPrice[]>('/ai/models'), t('Failed to fetch the AI models'));
@@ -66,6 +80,8 @@ export interface AiGatewayConfig {
   rate: number;
   /** one factor over buy price × rate */
   markup: number;
+  /** the same for calls larika-optima routed: the model's price plus the routing service */
+  optimaMarkup: number;
   /** after a save: null when the gateway took the key, else why not */
   check?: string | null;
 }
@@ -80,7 +96,7 @@ export interface WalletRow {
 }
 
 export const getAiGatewayConfig = async () => unwrap(await apiRequest<AiGatewayConfig>('/ai-gateway/config'), t('Failed to fetch the AI gateway settings'));
-export const saveAiGatewayConfig = async (body: { baseUrl?: string; adminKey?: string; adminPath?: string; rate?: number; markup?: number }) =>
+export const saveAiGatewayConfig = async (body: { baseUrl?: string; adminKey?: string; adminPath?: string; rate?: number; markup?: number; optimaMarkup?: number }) =>
   unwrap(await apiRequest<AiGatewayConfig>('/ai-gateway/config', { method: 'PUT', body: JSON.stringify(body) }), t('Failed to save the AI gateway settings'));
 export const getWallets = async () => unwrap(await apiRequest<WalletRow[]>('/ai-gateway/wallets'), t('Failed to fetch the wallets'));
 export const creditWallet = async (body: { organizationId: string; amount: number; note: string }) =>

@@ -4,6 +4,7 @@ import { registerRdashDomain, updateRdashDomainNameservers } from './rdashServic
 import { getDomainExpiry } from './rdapService';
 import { refreshDomainSummary } from './domainSyncService';
 import { ensureWildcardRecord } from './appDnsService';
+import { refundCharge } from './walletService';
 
 /**
  * Buying a domain takes tens of seconds — the registrar order, the Cloudflare
@@ -94,6 +95,10 @@ export async function provisionDomain(domainId: string): Promise<void> {
             error: `Registrar refused the registration: ${String(error?.message ?? '').slice(0, 300)}`,
           },
           { status: 'ERROR' },
+        );
+        // nothing was bought: the workspace gets its money back
+        await refundCharge(`domain:${domainId}:register`, `Refund: ${domain.name} refused by the registrar`).catch((e) =>
+          console.error(`Refund for ${domain.name} failed:`, e),
         );
         return;
       }

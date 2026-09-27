@@ -388,7 +388,8 @@ Atau beri instruksi: "lebih pendek, ganti kata sinergi dengan kata lain, tetap B
                 <p className="text-xs text-muted-foreground">
                   {t("Renews at {price} for 1 year.", {
                     price: money(selected.renewalPeriods[1] ?? null, selected.currency),
-                  })}
+                  })}{" "}
+                  {t("Paid from the workspace balance; refunded if the registrar refuses.")}
                 </p>
               </>
             ) : (

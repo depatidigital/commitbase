@@ -1103,13 +1103,14 @@ model WalletEntry {
   id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  /// TOPUP | ADJUST | WELCOME | AI_USAGE | HOSTING_USAGE
+  /// TOPUP | ADJUST | WELCOME | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN
   kind           String
   /// micro-IDR, signed
   amount         BigInt
   /// what makes it once-only: TOPUP the payment id, ADJUST its own id,
   /// WELCOME `welcome:<userId>` — once per user, AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry
   /// a day per model, added to as calls are billed, HOSTING_USAGE `host:<org>:<WIB day>` — the day's cost, rewritten as it grows
+  /// DOMAIN `domain:<id>:register` / `domain:<id>:renew:<uuid>`, REFUND `refund:<the charge ref>`
   ref            String       @unique
   note           String?
   createdById    String?

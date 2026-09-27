@@ -18,23 +18,51 @@ export async function aiGateway<T = any>(path: string, init: GatewayInit = {}): 
 
 // ── Money ──
 
-/** Until the superadmin sets them: market IDR per USD, and the one markup over it. */
+/**
+ * Until the superadmin sets them: market IDR per USD, the one markup over it, and the
+ * markup on calls larika-optima routed — the model's price plus the routing service.
+ */
 export const DEFAULT_RATE = 18_200;
 export const DEFAULT_MARKUP = 1.044;
+export const DEFAULT_OPTIMA_MARKUP = 1.15;
 
-export type AiPricing = { rate: number; markup: number };
+export type AiPricing = { rate: number; markup: number; optimaMarkup: number };
 
 export async function aiPricing(): Promise<AiPricing> {
-  const [rate, markup] = await Promise.all([getLarikaAiValue('rate'), getLarikaAiValue('markup')]);
-  return { rate: Number(rate) || DEFAULT_RATE, markup: Number(markup) || DEFAULT_MARKUP };
+  const [rate, markup, optimaMarkup] = await Promise.all([getLarikaAiValue('rate'), getLarikaAiValue('markup'), getLarikaAiValue('optimaMarkup')]);
+  return { rate: Number(rate) || DEFAULT_RATE, markup: Number(markup) || DEFAULT_MARKUP, optimaMarkup: Number(optimaMarkup) || DEFAULT_OPTIMA_MARKUP };
 }
 
 /** rate × markup, ×10⁴ so the money math stays in BigInt. */
 const SCALE = 10_000n;
-export const factorOf = ({ rate, markup }: AiPricing) => BigInt(Math.round(rate * markup * 10_000));
+export const factorOf = ({ rate, markup }: { rate: number; markup: number }) => BigInt(Math.round(rate * markup * 10_000));
+/** What a call larika-optima routed is charged at. */
+export const optimaFactorOf = (p: AiPricing) => factorOf({ rate: p.rate, markup: p.optimaMarkup });
+/**
+ * Spend caps and key limits turn rupiah into buy price at the dearer of the two markups,
+ * so a balance never buys more than it pays for, whichever way the calls go.
+ */
+export const capFactorOf = (p: AiPricing) => factorOf({ rate: p.rate, markup: Math.max(p.markup, p.optimaMarkup) });
 
 /** A buy cost (micro-USD) → what the workspace pays (micro-IDR), rounded up. micro-USD × IDR/USD = micro-IDR. */
 export const chargeFor = (costMicroUsd: bigint, factor: bigint) => (costMicroUsd * factor + SCALE - 1n) / SCALE;
+
+/**
+ * A turn larika-optima routed, charged (micro-IDR). The model that answered plus the turn's
+ * routing, at the optima markup — but never more than the same tokens on the cheapest top
+ * model at the normal markup, so routing that saved nothing costs nothing extra; and never
+ * less than the model that answered at the normal markup. No baseline (a tool loop carried
+ * on, unrouted): the normal price.
+ */
+export function chargeRouted(cost: bigint, routingCost: bigint, baselineCost: bigint | null, p: AiPricing) {
+  const normal = factorOf(p);
+  const floor = chargeFor(cost, normal);
+  if (baselineCost === null) return floor;
+  const withService = chargeFor(cost + routingCost, optimaFactorOf(p));
+  const ceiling = chargeFor(baselineCost, normal);
+  const capped = withService < ceiling ? withService : ceiling;
+  return capped > floor ? capped : floor;
+}
 
 /** What a balance (micro-IDR) buys at buy price (micro-USD), rounded down. Nothing when it is not positive. */
 export const buyableWith = (balanceMicroIdr: bigint, factor: bigint) => (balanceMicroIdr > 0n ? (balanceMicroIdr * SCALE) / factor : 0n);
@@ -55,27 +83,38 @@ export async function syncAiCap(organizationId: string) {
     FROM ai_accounts a LEFT JOIN wallets w ON w."organizationId" = a."organizationId"
     WHERE a."organizationId" = ${organizationId}`;
   if (!row) return;
-  const cap = row.billedSpent + buyableWith(row.balance, factorOf(await aiPricing()));
+  const cap = row.billedSpent + buyableWith(row.balance, capFactorOf(await aiPricing()));
   await aiGateway(`/admin/accounts/${row.accountId}`, { method: 'PATCH', body: { spendCap: cap.toString() } });
 }
 
 // ── Billing ──
 
-type FeedRequest = { id: string; accountId: string; model: string; cost: string; createdAt: string };
+type FeedRequest = {
+  id: string;
+  accountId: string;
+  model: string;
+  cost: string;
+  via: string | null;
+  /** routed rows: the same tokens on the cheapest top model, and the turn's routing (router.ts) */
+  baselineCost: string | null;
+  routingCost: string | null;
+  createdAt: string;
+};
 const PAGE = 1000;
 /** Serialises billing runs across processes; the cursor is re-checked under it. */
 const BILLING_LOCK = 7_431_001;
 
 /**
  * Charge what the gateway metered since the last run: its request feed, read from
- * our cursor, priced `buy × rate × markup`, added to one wallet entry per workspace,
- * WIB day and model. Each page is one transaction that also moves the cursor, so a
+ * our cursor, priced `buy × rate × markup` (larika-optima's turns by chargeRouted), added
+ * to one wallet entry per workspace, WIB day and model. Each page is one transaction that also moves the cursor, so a
  * crash re-reads the page and nothing is charged twice. Then each workspace billed
  * gets its new spend cap.
  */
 export async function billAiUsage(): Promise<string> {
   if (!(await getLarikaAiConfig())) return 'skipped — the AI gateway is not set up';
-  const factor = factorOf(await aiPricing());
+  const pricing = await aiPricing();
+  const factor = factorOf(pricing);
   const owners = new Map((await prisma.aiAccount.findMany({ select: { organizationId: true, accountId: true } })).map((a) => [a.accountId, a.organizationId]));
   let cursor = (await getLarikaAiValue('cursor')) ?? '0';
   const touched = new Set<string>();
@@ -92,15 +131,20 @@ export async function billAiUsage(): Promise<string> {
       const organizationId = owners.get(r.accountId);
       const cost = BigInt(r.cost);
       if (!organizationId || cost === 0n) continue;
-      const day = new Date(new Date(r.createdAt).getTime() + WIB_MS).toISOString().slice(0, 10);
-      const ref = `ai:${organizationId}:${day}:${r.model}`;
-      // larika-optima's classifier call: its own line, "routing"
-      const label = r.model.endsWith(':router') ? `routing (${r.model.slice(0, -':router'.length)})` : r.model;
-      const entry = entries.get(ref) ?? { organizationId, amount: 0n, note: `AI · ${label} · ${day}` };
-      entry.amount += chargeFor(cost, factor);
-      entries.set(ref, entry);
       spent.set(organizationId, (spent.get(organizationId) ?? 0n) + cost);
       billed++;
+      // larika-optima's classifier call: bought, not charged on its own — the turn it
+      // routed carries it (chargeRouted), so a turn that saved nothing pays nothing for it
+      if (r.model.endsWith(':router')) continue;
+      const day = new Date(new Date(r.createdAt).getTime() + WIB_MS).toISOString().slice(0, 10);
+      // the models larika-optima picked: on lines of their own (`:optima`), so "you saved" can add them up
+      const ref = `ai:${organizationId}:${day}:${r.model}${r.via ? ':optima' : ''}`;
+      const label = r.via ? `${r.model} via ${r.via}` : r.model;
+      const entry = entries.get(ref) ?? { organizationId, amount: 0n, note: `AI · ${label} · ${day}` };
+      entry.amount += r.via
+        ? chargeRouted(cost, BigInt(r.routingCost ?? 0), r.baselineCost === null ? null : BigInt(r.baselineCost), pricing)
+        : chargeFor(cost, factor);
+      entries.set(ref, entry);
     }
 
     const from = cursor;

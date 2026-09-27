@@ -17,7 +17,7 @@ export const WELCOME_CREDIT = 50_000n * MICRO;
  * Money in or out: one entry, and the balance moved in the same transaction.
  * Once per ref — a repeated ref (a payment webhook sent twice) changes nothing and returns false.
  */
-export async function addWalletEntry(entry: { organizationId: string; kind: 'TOPUP' | 'ADJUST' | 'WELCOME'; amount: bigint; ref: string; note?: string; createdById?: string }) {
+export async function addWalletEntry(entry: { organizationId: string; kind: 'TOPUP' | 'ADJUST' | 'WELCOME' | 'REFUND'; amount: bigint; ref: string; note?: string; createdById?: string }) {
   try {
     await prisma.$transaction([
       prisma.walletEntry.create({ data: entry }),
@@ -35,6 +35,44 @@ export async function addWalletEntry(entry: { organizationId: string; kind: 'TOP
   // a top-up starts stopped apps now, not at the next hourly check
   if (entry.amount > 0n) void guardWallet(entry.organizationId).catch((error) => console.error('Balance guard failed:', error));
   return true;
+}
+
+export class InsufficientBalance extends Error {
+  constructor(public needed: bigint, public balance: bigint) {
+    super(`Not enough balance: this costs Rp ${(needed / MICRO).toLocaleString('id-ID')}, the workspace has Rp ${(balance / MICRO).toLocaleString('id-ID')}`);
+  }
+}
+
+/**
+ * Pay for a purchase (a domain, a renewal) from the balance — all of it, now, or
+ * not at all: unlike hosting it never goes below zero. Throws InsufficientBalance.
+ * Once per ref: a repeated ref charges nothing and returns false.
+ */
+export async function spendFromWallet(entry: { organizationId: string; kind: 'DOMAIN'; amount: bigint; ref: string; note: string; createdById?: string }) {
+  try {
+    await prisma.$transaction(async (tx) => {
+      // the entry first: a repeated ref fails here, before any money moves
+      await tx.walletEntry.create({ data: { ...entry, amount: -entry.amount } });
+      const paid = await tx.$executeRaw`UPDATE "wallets" SET "balance" = "balance" - ${entry.amount}, "updatedAt" = now()
+        WHERE "organizationId" = ${entry.organizationId} AND "balance" >= ${entry.amount}`;
+      if (!paid) {
+        const wallet = await tx.wallet.findUnique({ where: { organizationId: entry.organizationId }, select: { balance: true } });
+        throw new InsufficientBalance(entry.amount, wallet?.balance ?? 0n);
+      }
+    });
+  } catch (error: any) {
+    if (error?.code === 'P2002') return false;
+    throw error;
+  }
+  await syncAiCap(entry.organizationId).catch((error) => console.error('AI spend cap sync failed:', error));
+  return true;
+}
+
+/** Give back what the entry `ref` took — a purchase the registrar refused. Once. */
+export async function refundCharge(ref: string, note: string) {
+  const charge = await prisma.walletEntry.findUnique({ where: { ref }, select: { organizationId: true, amount: true } });
+  if (!charge || charge.amount >= 0n) return false;
+  return addWalletEntry({ organizationId: charge.organizationId, kind: 'REFUND', amount: -charge.amount, ref: `refund:${ref}`, note });
 }
 
 /** The welcome credit, into this workspace — unless the user had theirs already. */

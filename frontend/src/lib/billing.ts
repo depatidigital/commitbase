@@ -68,7 +68,7 @@ export const setBillingUser = async (organizationId: string, userId: string) => 
 
 export interface WalletEntry {
   id: string;
-  /** TOPUP | ADJUST | WELCOME | AI_USAGE | HOSTING_USAGE */
+  /** TOPUP | ADJUST | WELCOME | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN */
   kind: string;
   /** micro-IDR, signed */
   amount: string;

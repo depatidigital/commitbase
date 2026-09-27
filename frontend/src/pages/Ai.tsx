@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Boxes, KeyRound, List, Loader2, Plus, Sparkles, Trash2, Wallet } from "lucide-react";
+import { AlertCircle, Boxes, Gauge, KeyRound, List, Loader2, Plus, Sparkles, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
 import { useToast } from "@/hooks/use-toast";
-import { createAiKey, enableAi, fromMicro, getAi, getAiModels, revokeAiKey, rupiah, type AiKey, type AiModelPrice } from "@/lib/ai";
+import { createAiKey, enableAi, fromMicro, getAi, getAiModels, revokeAiKey, rupiah, setAiKeyLimit, type AiKey, type AiModelPrice, type AiOverview, type KeyPeriod } from "@/lib/ai";
 import { getWalletEntries } from "@/lib/billing";
 import { WalletStatement } from "@/pages/Billing";
 import { locale, t } from "@/lib/i18n";
@@ -28,7 +29,8 @@ export default function Ai() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({ queryKey: KEY, queryFn: getAi, refetchInterval: 60_000 });
-  const [creating, setCreating] = useState<{ name: string; rpm: string } | null>(null);
+  const [creating, setCreating] = useState<{ name: string; rpm: string; limit: string; period: KeyPeriod } | null>(null);
+  const [limiting, setLimiting] = useState<{ key: AiKey; limit: string; period: KeyPeriod } | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<AiKey | null>(null);
   const keysQuery = useTableQuery(10);
@@ -45,6 +47,14 @@ export default function Ai() {
     },
     onError: failed(t("Failed to create an API key")),
   });
+  const limit = useMutation({
+    mutationFn: ({ id, limit, period }: { id: string; limit: number | null; period: KeyPeriod }) => setAiKeyLimit(id, limit, period),
+    onSuccess: () => {
+      setLimiting(null);
+      refresh();
+    },
+    onError: failed(t("Failed to change the limit")),
+  });
   const revoke = useMutation({
     mutationFn: (id: string) => revokeAiKey(id),
     onSuccess: () => {
@@ -58,14 +68,38 @@ export default function Ai() {
     { header: t("Name"), cell: (k) => <span className="font-medium">{k.name}</span> },
     { header: t("Key"), cell: (k) => <code className="font-mono text-xs">{k.prefix}…</code> },
     { header: t("Requests / min"), cell: (k) => <span className="tabular-nums">{k.rpm}</span> },
+    {
+      header: t("Spent / limit"),
+      // this day or month — the limit's period
+      cell: (k) => {
+        const spent = fromMicro(k.spent);
+        const cap = k.spendCap === null ? null : fromMicro(k.spendCap);
+        return (
+          <span className={`tabular-nums ${cap !== null && spent >= cap ? "text-destructive" : ""}`}>
+            {rupiah(spent, spent < 100)} / {cap === null ? t("no limit") : `${rupiah(cap)} ${per(k.capPeriod)}`}
+          </span>
+        );
+      },
+    },
     { header: t("Last used"), cell: (k) => when(k.lastUsedAt) },
     {
       header: "",
-      className: "w-16 text-right",
+      className: "w-24 text-right",
       cell: (k) => (
-        <Button variant="ghost" size="sm" onClick={() => setRevoking(k)} aria-label={t("Revoke")}>
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLimiting({ key: k, limit: k.spendCap === null ? "" : String(Math.round(fromMicro(k.spendCap))), period: k.capPeriod })}
+            aria-label={t("Spending limit")}
+            title={t("Spending limit")}
+          >
+            <Gauge className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setRevoking(k)} aria-label={t("Revoke")}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </>
       ),
     },
   ];
@@ -79,7 +113,7 @@ export default function Ai() {
       description={t("One OpenAI-compatible API for many models, paid per token from the workspace balance.")}
       actions={
         data?.hasAccount && (
-          <Button onClick={() => setCreating({ name: "", rpm: "60" })}>
+          <Button onClick={() => setCreating({ name: "", rpm: "60", limit: "", period: "MONTH" })}>
             <Plus className="mr-2 h-4 w-4" /> {t("New key")}
           </Button>
         )
@@ -111,6 +145,7 @@ export default function Ai() {
                   {t("To top up, contact support.")}
                 </p>
                 {data.suspended && <p className="text-sm text-destructive">{t("The AI API of this workspace is suspended.")}</p>}
+                <OptimaSaved optima={data.optima} />
               </CardContent>
             </Card>
             <Card>
@@ -175,7 +210,7 @@ export default function Ai() {
                 <UsageTab />
               </TabsContent>
               <TabsContent value="models">
-                <ModelsTable />
+                <ModelsTable optimaSurcharge={data.optimaSurcharge} />
               </TabsContent>
             </Tabs>
           )}
@@ -194,7 +229,7 @@ export default function Ai() {
               className="space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                create.mutate({ name: creating.name, rpm: Number(creating.rpm) || undefined });
+                create.mutate({ name: creating.name, rpm: Number(creating.rpm) || undefined, limit: Number(creating.limit) || undefined, period: creating.period });
               }}
             >
               <div className="space-y-1">
@@ -204,6 +239,14 @@ export default function Ai() {
               <div className="space-y-1">
                 <Label htmlFor="ai-key-rpm">{t("Requests per minute")}</Label>
                 <Input id="ai-key-rpm" type="number" min={1} max={600} value={creating.rpm} onChange={(e) => setCreating({ ...creating, rpm: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ai-key-limit">{t("Spending limit (Rp, optional)")}</Label>
+                <div className="flex gap-2">
+                  <Input id="ai-key-limit" type="number" min={1000} step={1000} placeholder={t("No limit")} value={creating.limit} onChange={(e) => setCreating({ ...creating, limit: e.target.value })} />
+                  <PeriodSelect value={creating.period} onChange={(period) => setCreating({ ...creating, period })} />
+                </div>
+                <p className="text-xs text-muted-foreground">{t("The key is refused once it has spent this much in a day or month (WIB), so a leaked key or a runaway loop cannot drain the balance.")}</p>
               </div>
             </form>
           )}
@@ -230,6 +273,43 @@ export default function Ai() {
           </DialogBody>
           <DialogFooter>
             <Button onClick={() => setNewKey(null)}>{t("Done")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!limiting} onOpenChange={(o) => !o && setLimiting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("Spending limit for {name}", { name: limiting?.key.name ?? "" })}</DialogTitle>
+            <DialogDescription>
+              {t("Spent this period: {amount}. The key is refused once it reaches the limit, until the next day or month (WIB); empty means no limit.", {
+                amount: limiting ? rupiah(fromMicro(limiting.key.spent), fromMicro(limiting.key.spent) < 100) : "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {limiting && (
+            <form
+              id="ai-key-limit-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                limit.mutate({ id: limiting.key.id, limit: Number(limiting.limit) || null, period: limiting.period });
+              }}
+            >
+              <Label htmlFor="ai-key-limit-edit">{t("Limit (Rp)")}</Label>
+              <div className="flex gap-2">
+                <Input id="ai-key-limit-edit" type="number" min={1000} step={1000} autoFocus placeholder={t("No limit")} value={limiting.limit} onChange={(e) => setLimiting({ ...limiting, limit: e.target.value })} />
+                <PeriodSelect value={limiting.period} onChange={(period) => setLimiting({ ...limiting, period })} />
+              </div>
+            </form>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLimiting(null)} disabled={limit.isPending}>
+              {t("Cancel")}
+            </Button>
+            <Button type="submit" form="ai-key-limit-form" disabled={limit.isPending}>
+              {limit.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("Save")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -269,8 +349,27 @@ function UsageTab() {
   );
 }
 
+/**
+ * What larika-optima saved this month: its calls (routing included) against the same
+ * tokens on the cheapest top model. Only once it has saved something.
+ */
+function OptimaSaved({ optima }: { optima: AiOverview["optima"] }) {
+  if (!optima) return null;
+  const paid = fromMicro(optima.paid);
+  const baseline = fromMicro(optima.baseline);
+  if (baseline <= paid) return null;
+  return (
+    <p className="rounded-md bg-success/10 p-2 text-xs text-success">
+      {t("larika-optima saved you ≈ {amount} this month ({pct}% less than always using a top model).", {
+        amount: rupiah(baseline - paid, baseline - paid < 100),
+        pct: Math.round(((baseline - paid) / baseline) * 100),
+      })}
+    </p>
+  );
+}
+
 /** What each model costs here, per 1M tokens. Shared with the Pricing page. */
-export function ModelsTable() {
+export function ModelsTable({ optimaSurcharge }: { optimaSurcharge?: number } = {}) {
   const query = useTableQuery(25);
   const { data = [], isFetching } = useQuery({ queryKey: ["ai-models"], queryFn: getAiModels, staleTime: 10 * 60_000 });
   const price = (m: AiModelPrice, k: "input" | "cacheRead" | "output") =>
@@ -300,7 +399,9 @@ export function ModelsTable() {
       <p className="text-sm text-muted-foreground">{t("Rupiah per 1 million tokens. Send the model name as `model`.")}</p>
       <p className="rounded-md bg-primary/5 p-3 text-sm">
         <code className="font-mono text-xs">larika-optima</code> —{" "}
-        {t("picks the cheapest model good enough for each message, and is charged as that model plus a small routing fee. Add :cheap, :best or :max2 to steer it.")}
+        {optimaSurcharge
+          ? t("picks the cheapest model good enough for each message. Its fee, up to {pct}%, comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.", { pct: Math.round(optimaSurcharge * 100) })
+          : t("picks the cheapest model good enough for each message. Its fee comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.")}
       </p>
       <DataTable
         columns={columns}
@@ -313,5 +414,22 @@ export function ModelsTable() {
         empty={t("No models yet.")}
       />
     </div>
+  );
+}
+
+const per = (period: KeyPeriod) => (period === "DAY" ? t("/ day") : t("/ month"));
+
+/** A key limit's period: per WIB day or month. */
+function PeriodSelect({ value, onChange }: { value: KeyPeriod; onChange: (period: KeyPeriod) => void }) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as KeyPeriod)}>
+      <SelectTrigger className="w-36" aria-label={t("Per")}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="DAY">{t("per day")}</SelectItem>
+        <SelectItem value="MONTH">{t("per month")}</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }

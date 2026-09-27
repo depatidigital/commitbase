@@ -16,6 +16,8 @@ import { moveDomainToCloudflare, toImportableRecords } from '../services/domainC
 import { suggestDomains } from '../services/domainSuggestService';
 import { addDomainToSearchConsole } from '../services/searchConsoleService';
 import { splitEmails } from '../services/integrationConfigService';
+import { randomUUID } from 'crypto';
+import { InsufficientBalance, MICRO, refundCharge, spendFromWallet } from '../services/walletService';
 
 /** `?sort=&order=` — whitelisted so the query cannot be steered from the URL. */
 const sortOrder = (sort: unknown, order: unknown): any => {
@@ -329,9 +331,9 @@ router.get('/search/check', authenticateToken, async (req: AuthenticatedRequest,
 
 /**
  * Buy a domain through RDASH, then wire it up here — any user, for an
- * organization they belong to. Spends registrar balance,
- * so availability is re-checked server-side — the client's search result is a
- * hint, never the authority.
+ * organization they belong to. Paid from the workspace balance, up front, at the
+ * price the search showed; refunded if the registrar refuses. Availability is
+ * re-checked server-side — the client's search result is a hint, never the authority.
  */
 router.post('/register', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -414,6 +416,23 @@ router.post('/register', authenticateToken, async (req: AuthenticatedRequest, re
         userId: req.user!.userId,
       },
     });
+
+    // paid before anything is ordered — the whole price, or no purchase
+    const price = BigInt(Math.round(pricing.registration[years]!)) * MICRO;
+    try {
+      await spendFromWallet({
+        organizationId,
+        kind: 'DOMAIN',
+        amount: price,
+        ref: `domain:${domain.id}:register`,
+        note: `Domain ${domainName} · ${years} year${years > 1 ? 's' : ''}`,
+        createdById: req.user!.userId,
+      });
+    } catch (error) {
+      await prisma.domain.delete({ where: { id: domain.id } });
+      if (error instanceof InsufficientBalance) return res.status(402).json({ success: false, error: error.message } as ApiResponse);
+      throw error;
+    }
 
     // start now, cron sweeps up anything this process never finished
     void provisionDomain(domain.id);
@@ -909,7 +928,7 @@ router.get('/:id/registration', authenticateToken, async (req: AuthenticatedRequ
   }
 });
 
-// Renew a domain registration at the registrar (RDASH only) — spends reseller balance
+// Renew a domain registration at the registrar (RDASH only) — paid from the workspace balance, refunded if the registrar refuses
 router.post('/:id/renew', authenticateToken, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -930,7 +949,34 @@ router.post('/:id/renew', authenticateToken, requireRole(['ADMIN']), async (req:
       } as ApiResponse);
     }
 
-    await renewRdashDomain(domain.name, years);
+    const tld = domain.name.split('.').slice(1).join('.');
+    const renewal = (await getRdashPricing())[tld]?.renewal[years];
+    if (!renewal) {
+      return res.status(400).json({ success: false, error: `The renewal price for .${tld} (${years} year${years > 1 ? 's' : ''}) is not available right now` } as ApiResponse);
+    }
+    if (!domain.organizationId) {
+      return res.status(400).json({ success: false, error: 'Assign the domain to a workspace first: the renewal is paid from its balance' } as ApiResponse);
+    }
+    const ref = `domain:${domain.id}:renew:${randomUUID()}`;
+    try {
+      await spendFromWallet({
+        organizationId: domain.organizationId,
+        kind: 'DOMAIN',
+        amount: BigInt(Math.round(renewal)) * MICRO,
+        ref,
+        note: `Renewal ${domain.name} · ${years} year${years > 1 ? 's' : ''}`,
+        createdById: req.user!.userId,
+      });
+    } catch (error) {
+      if (error instanceof InsufficientBalance) return res.status(402).json({ success: false, error: error.message } as ApiResponse);
+      throw error;
+    }
+    try {
+      await renewRdashDomain(domain.name, years);
+    } catch (error) {
+      await refundCharge(ref, `Refund: renewal of ${domain.name} refused by the registrar`);
+      throw error;
+    }
 
     return res.json({
       success: true,

@@ -61,6 +61,15 @@ export default {
   Output: "Output",
   "Rupiah per 1 million tokens. Send the model name as `model`.": "Rupiah per 1 juta token. Kirim nama model sebagai `model`.",
   "Search models…": "Cari model…",
+  "picks the cheapest model good enough for each message. Its fee, up to {pct}%, comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.":
+    "memilih model termurah yang cukup mampu untuk setiap pesan. Biayanya, maksimal {pct}%, hanya diambil dari yang dihemat: satu pesan tidak pernah lebih mahal daripada di model teratas termurah. Tambahkan :cheap, :best, atau :max2 untuk mengarahkannya.",
+  "picks the cheapest model good enough for each message. Its fee comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.":
+    "memilih model termurah yang cukup mampu untuk setiap pesan. Biayanya hanya diambil dari yang dihemat: satu pesan tidak pernah lebih mahal daripada di model teratas termurah. Tambahkan :cheap, :best, atau :max2 untuk mengarahkannya.",
+  "larika-optima saved you ≈ {amount} this month ({pct}% less than always using a top model).":
+    "larika-optima menghemat ≈ {amount} bulan ini ({pct}% lebih murah daripada selalu memakai model teratas).",
+  "larika-optima markup": "Markup larika-optima",
+  "For turns the router picked, and only out of what they saved: never above the cheapest top model at the normal markup, never below the model that ran. Caps use the higher of the two markups.":
+    "Untuk giliran yang dipilih router, dan hanya dari yang dihemat: tidak pernah di atas model teratas termurah dengan markup normal, tidak pernah di bawah harga model yang dipakai. Batas belanja memakai markup yang lebih tinggi dari keduanya.",
   "picks the cheapest model good enough for each message, and is charged as that model plus a small routing fee. Add :cheap, :best or :max2 to steer it.":
     "memilih model termurah yang cukup mampu untuk setiap pesan, dan ditagih sebagai model itu ditambah biaya routing kecil. Tambahkan :cheap, :best, atau :max2 untuk mengarahkannya.",
   "No models yet.": "Belum ada model.",

@@ -43,6 +43,25 @@ set by the superadmin (fetched later); the markup carries QRIS, paying
 providers in USD, the rupiah buffer and the margin — e.g. 1.044 ≈ Rp 19,000 per
 dollar at 18,200.
 
+**larika-optima** (the gateway's router, see its README) has its own markup,
+`optimaMarkup` (default 1.15), charged **only out of what a turn saved**
+(`chargeRouted`): the model that answered plus the turn's routing (the classifier's
+cost, which the gateway records on that row) at `optimaMarkup`, but never more than the
+same tokens on the cheapest top model at the normal markup, and never less than the
+model that answered at the normal markup. A turn that stayed on the top model costs
+exactly what calling it directly costs; the classifier's own rows are not charged.
+Routed turns go on wallet lines of their own (ref `…:optima`, "AI · qwen3.7-flash via
+larika-optima"). In the test the customer saved 47% against the cheapest top model, and
+Larika still earned more per conversation than on the top model at 1.044.
+
+Spend caps and key limits turn rupiah into buy price at the **higher** of the two
+markups, so a balance never buys more than it pays for, whichever way calls go.
+
+**"You saved"** (AI API page): this month's `:optima` lines against `baselineCost` —
+what the gateway says the same tokens would have cost on the cheapest top-tier model
+that could take them — at the normal markup and today's rate (so approximate across a
+rate change).
+
 ## Billing loop
 
 `billAiUsage()` in `backend/src/services/aiGatewayService.ts`, cron job
