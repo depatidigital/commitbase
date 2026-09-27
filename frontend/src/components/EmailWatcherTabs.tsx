@@ -105,14 +105,14 @@ export function RulesTab({ mailboxes }: { mailboxes: Mailbox[] }) {
     { header: t("Rule"), cell: (r) => <span className="font-medium">{r.name}</span> },
     ...(managed.length > 1 ? [{ header: t("Mailbox"), cell: (r: Rule) => <span className="text-xs">{r.mailbox.email}</span> }] : []),
     {
-      header: t("Takes"),
+      header: t("Filter"),
       cell: (r) => (
         <span className="text-xs text-muted-foreground">
           {r.conditions.map((c) => `${t(FIELD_LABEL[c.field])} ${t(OP_LABEL[c.op])} “${c.value}”`).join(r.match === "any" ? ` ${t("or")} ` : ` ${t("and")} `) || t("no filter yet")}
         </span>
       ),
     },
-    { header: t("Reads"), cell: (r) => <span className="font-mono text-xs">{r.fields.map((f) => f.name).join(", ") || "—"}</span> },
+    { header: t("Extracted data"), cell: (r) => <span className="font-mono text-xs">{r.fields.map((f) => f.name).join(", ") || "—"}</span> },
     { header: t("Sends to"), cell: (r) => <span className="text-xs">{[r.webhookUrl && "Webhook", r.waNumberId && r.waTo && "WhatsApp"].filter(Boolean).join(" + ") || t("nowhere")}</span> },
     {
       header: t("On"),
@@ -321,7 +321,7 @@ export function EventsTab({ manyMailboxes }: { manyMailboxes: boolean }) {
 
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">{t("Emails your rules matched, kept {days} days. Failed sends are retried for about 9 hours.", { days: overview?.retentionDays ?? 90 })}</p>
+      <p className="text-sm text-muted-foreground">{t("Kept {days} days. Failed sends are retried for about 9 hours.", { days: overview?.retentionDays ?? 90 })}</p>
       <DataTable
         columns={columns}
         rows={data?.data ?? []}

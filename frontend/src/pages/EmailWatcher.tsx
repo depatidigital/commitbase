@@ -187,7 +187,7 @@ export default function EmailWatcher() {
     <PageLayout
       icon={MailSearch}
       title={t("Email Watcher")}
-      description={t("Larika reads new emails in your inbox as they arrive, picks the ones your rules match — like bank transfer notifications — and sends what it reads out to your app or WhatsApp.")}
+      description={t("Reads incoming emails, like bank notifications, and sends their data to your app or WhatsApp.")}
       actions={
         <Button onClick={startAdding}>
           <Plus className="mr-2 h-4 w-4" /> {t("Add mailbox")}

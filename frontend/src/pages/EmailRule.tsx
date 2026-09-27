@@ -477,7 +477,7 @@ export default function EmailRule() {
                       <div className="flex items-center gap-1.5">
                         <span className={`h-3 w-3 shrink-0 rounded-sm ${MARKS[i % MARKS.length]}`} title={t("Its colour in the email")} />
                         <Input aria-label={t("Field name")} className="h-8 min-w-0 flex-1 font-mono text-xs" placeholder="amount" value={f.name} onChange={(e) => setField(i, { name: toFieldName(e.target.value) })} />
-                        <Select value={f.type || undefined} onValueChange={(type) => setField(i, { type: type as FieldType })}>
+                        <Select value={f.type} onValueChange={(type) => setField(i, { type: type as FieldType })}>
                           <SelectTrigger className={`h-8 w-28 shrink-0 gap-1 px-2 text-xs ${f.type ? "" : "border-warning text-warning"}`} aria-label={t("Type")}>
                             <SelectValue placeholder={t("Pick a type")} />
                           </SelectTrigger>

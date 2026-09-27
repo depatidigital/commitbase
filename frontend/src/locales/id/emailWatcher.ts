@@ -41,8 +41,8 @@ export default {
     "Dengan nomor di Whatsapp Gateway API, rule bisa mengirim pesan untuk setiap email yang cocok — seperti “Masuk Rp {amount} dari {source}” — memakai field yang dibacanya.",
 
   // list page
-  "Larika reads new emails in your inbox as they arrive, picks the ones your rules match — like bank transfer notifications — and sends what it reads out to your app or WhatsApp.":
-    "Larika membaca email baru di inbox Anda begitu masuk, memilih yang cocok dengan rule Anda — seperti notifikasi transfer bank — lalu mengirim datanya ke aplikasi atau WhatsApp Anda.",
+  "Reads incoming emails, like bank notifications, and sends their data to your app or WhatsApp.":
+    "Membaca email masuk, seperti notifikasi bank, lalu mengirim datanya ke aplikasi atau WhatsApp Anda.",
   "Add mailbox": "Tambah mailbox",
   Mailbox: "Mailbox",
   Rules: "Rule",
@@ -74,8 +74,7 @@ export default {
 
   // rules
   Rule: "Rule",
-  Takes: "Mengambil",
-  Reads: "Membaca",
+  "Extracted data": "Data diekstrak",
   "Sends to": "Kirim ke",
   nowhere: "tidak ke mana pun",
   "Rule on": "Rule aktif",
@@ -227,8 +226,7 @@ export default {
   Received: "Diterima",
   Read: "Terbaca",
   "Logged only": "Hanya dicatat",
-  "Emails your rules matched, kept {days} days. Failed sends are retried for about 9 hours.":
-    "Email yang cocok dengan rule Anda, disimpan {days} hari. Pengiriman yang gagal dicoba ulang selama sekitar 9 jam.",
+  "Kept {days} days. Failed sends are retried for about 9 hours.": "Disimpan {days} hari. Gagal kirim dicoba ulang ±9 jam.",
   "Search subject or sender…": "Cari subjek atau pengirim…",
   "Nothing matched yet. New emails show here within seconds of arriving.":
     "Belum ada yang cocok. Email baru muncul di sini beberapa detik setelah masuk.",

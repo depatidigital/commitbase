@@ -65,6 +65,8 @@ export function ExtractAiDialog({ mailboxId, rows, onApply, onClose }: { mailbox
     if (!value || value.length > 300) return;
     const start = before.toString().length + raw.indexOf(value);
     setPicked({ source, start, end: start + value.length, value });
+    // a new value starts unnamed: the last label is not carried over
+    setLabel({ name: "", type: "" });
   };
 
   const addMark = () => {
@@ -74,6 +76,7 @@ export function ExtractAiDialog({ mailboxId, rows, onApply, onClose }: { mailbox
     if (!picked || !name || !type) return;
     setMarks([...marks.filter((m) => !(m.sample === at && m.name === name)), { ...picked, name, type, sample: at }]);
     setPicked(null);
+    setLabel({ name: "", type: "" });
     setResult(null);
     window.getSelection()?.removeAllRanges();
   };
@@ -178,7 +181,11 @@ export function ExtractAiDialog({ mailboxId, rows, onApply, onClose }: { mailbox
                     aria-label={t("Field name")}
                     value={label.name}
                     // stored as a key and a {placeholder}: lowercase, _ for spaces, nothing else
-                    onChange={(e) => setLabel({ ...label, name: toFieldName(e.target.value) })}
+                    onChange={(e) => {
+                      const name = toFieldName(e.target.value);
+                      // a name already used brings its type along
+                      setLabel({ name, type: marks.find((m) => m.name === name)?.type ?? label.type });
+                    }}
                     onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addMark())}
                   />
                   <datalist id="extract-names">
@@ -187,7 +194,7 @@ export function ExtractAiDialog({ mailboxId, rows, onApply, onClose }: { mailbox
                     ))}
                   </datalist>
                   <div className="flex items-center gap-2">
-                    <Select value={label.type || undefined} onValueChange={(type) => setLabel({ ...label, type: type as FieldType })}>
+                    <Select key={picked ? `${picked.source}-${picked.start}` : "none"} value={label.type} onValueChange={(type) => setLabel({ ...label, type: type as FieldType })}>
                       <SelectTrigger className="h-8 min-w-0 flex-1 text-xs" aria-label={t("Type")}>
                         <SelectValue placeholder={t("Pick a type")} />
                       </SelectTrigger>
