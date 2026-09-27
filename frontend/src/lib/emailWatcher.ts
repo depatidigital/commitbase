@@ -44,12 +44,21 @@ export interface RuleField {
   type: FieldType;
 }
 
+export type ConditionField = 'from' | 'subject' | 'body';
+export type ConditionOp = 'contains' | 'not_contains' | 'equals' | 'in' | 'not_in' | 'regex';
+/** in / not_in: a comma-separated list, any of which may appear. Case-insensitive throughout. */
+export interface Condition {
+  field: ConditionField;
+  op: ConditionOp;
+  value: string;
+}
+
 export interface Rule {
   id: string;
   name: string;
-  fromContains: string;
-  subjectContains: string;
-  bodyContains: string;
+  /** all: every condition (AND); any: one is enough (OR) */
+  match: 'all' | 'any';
+  conditions: Condition[];
   onlyVerified: boolean;
   fields: RuleField[];
   webhookUrl: string | null;
@@ -77,7 +86,7 @@ export interface PreviewRow {
   from: string;
   subject: string;
   verified: boolean;
-  /** the body filter lets it through too — the sender and subject ones already did */
+  /** the whole rule takes it — the header already let it through */
   matched: boolean;
   /** the text body, as the fields read it (after the subject line) */
   text: string;
@@ -128,7 +137,7 @@ export const updateMailbox = async (id: string, body: Partial<{ host: string; po
 
 export const deleteMailbox = async (id: string) => unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('DELETE')), t('Failed to delete the mailbox'));
 
-export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'fromContains' | 'subjectContains' | 'bodyContains' | 'fields'> & { days?: number; limit?: number }) =>
+export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'match' | 'conditions' | 'fields'> & { days?: number; limit?: number }) =>
   unwrap(await apiRequest<{ rows: PreviewRow[] }>(`/email-watcher/mailboxes/${mailboxId}/preview`, send('POST', rule)), t('Failed to try the rule'));
 
 export const createRule = async (mailboxId: string, rule: Partial<RuleInput> & { name: string }) =>

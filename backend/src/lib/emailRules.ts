@@ -9,45 +9,117 @@ import * as vm from 'vm';
 
 export type FieldType = 'text' | 'amount';
 export type Field = { name: string; pattern: string; type: FieldType };
-export type RuleFilter = { fromContains: string; subjectContains: string; bodyContains: string };
 export type Message = { from: string; subject: string; text: string };
 
-/** A filter written between slashes, `/…/`, is a regular expression: its pattern; else null (a plain "contains"). */
-export const filterRegex = (filter: string): string | null => /^\/(.+)\/$/s.exec(filter.trim())?.[1] ?? null;
+/** What a condition looks at, and how. `in`/`not_in`: a comma-separated list, any of which may appear. */
+export const CONDITION_FIELDS = ['from', 'subject', 'body'] as const;
+export const CONDITION_OPS = ['contains', 'not_contains', 'equals', 'in', 'not_in', 'regex'] as const;
+export type Condition = { field: (typeof CONDITION_FIELDS)[number]; op: (typeof CONDITION_OPS)[number]; value: string };
+/** all: every condition (AND); any: at least one (OR). No condition takes every email. */
+export type RuleFilter = { match: 'all' | 'any'; conditions: Condition[] };
 
-/** A filter's own pattern must compile: the message to show, or null when it is fine. */
-export function filterProblem(filter: string): string | null {
-  const pattern = filterRegex(filter);
-  if (pattern === null) return null;
-  try {
-    new RegExp(pattern, 'i');
-    return null;
-  } catch {
-    return `${filter} is not a valid regular expression`;
-  }
-}
+const NEGATIVE = new Set(['not_contains', 'not_in']);
 
-/**
- * Case-insensitive either way. A regular expression is the user's: run in a vm with a
- * time limit, like the fields, so a catastrophic one fails the match instead of the process.
- */
-function has(haystack: string, filter: string) {
-  const needle = filter.trim();
-  if (!needle) return true;
-  const pattern = filterRegex(needle);
-  if (pattern === null) return haystack.toLowerCase().includes(needle.toLowerCase());
+/** A rule row's filter as the matcher takes it (match is a string column, conditions JSON). */
+export const filterOf = (rule: { match: string; conditions: unknown }): RuleFilter => ({
+  match: rule.match === 'any' ? 'any' : 'all',
+  conditions: Array.isArray(rule.conditions) ? (rule.conditions as Condition[]) : [],
+});
+
+/** A user's regular expression, run in a vm with a time limit so a catastrophic one fails the test instead of stalling the process. */
+function regexTest(pattern: string, text: string) {
   try {
-    return vm.runInNewContext('new RegExp(p, "i").test(t)', { p: pattern, t: haystack.slice(0, 20_000) }, { timeout: 100 }) === true;
+    return vm.runInNewContext('new RegExp(p, "i").test(t)', { p: pattern, t: text.slice(0, 20_000) }, { timeout: 100 }) === true;
   } catch {
     return false;
   }
 }
 
-/** Every filter a rule sets is a case-insensitive "contains", or `/regex/`; an empty one takes anything. */
-export const headerMatches = (rule: Pick<RuleFilter, 'fromContains' | 'subjectContains'>, m: Pick<Message, 'from' | 'subject'>) =>
-  has(m.from, rule.fromContains) && has(m.subject, rule.subjectContains);
+const listOf = (value: string) =>
+  value
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
 
-export const ruleMatches = (rule: RuleFilter, m: Message) => headerMatches(rule, m) && has(m.text, rule.bodyContains);
+/** The sender as a condition sees it for "equals": the whole line, the address, the name. */
+function senderForms(from: string) {
+  const address = /<([^>]+)>/.exec(from)?.[1] ?? from;
+  const name = from.replace(/<[^>]*>/, '').replace(/"/g, '').trim();
+  return [from, address, name].map((v) => v.trim().toLowerCase());
+}
+
+/** One condition on one message part. Case-insensitive throughout. */
+export function conditionHolds(c: Condition, m: Message): boolean {
+  const text = c.field === 'from' ? m.from : c.field === 'subject' ? m.subject : m.text;
+  const lower = text.toLowerCase();
+  const value = c.value.trim().toLowerCase();
+  switch (c.op) {
+    case 'contains':
+      return lower.includes(value);
+    case 'not_contains':
+      return !lower.includes(value);
+    case 'equals':
+      return (c.field === 'from' ? senderForms(text) : [lower.trim()]).includes(value);
+    case 'in':
+      return listOf(c.value).some((v) => lower.includes(v));
+    case 'not_in':
+      return !listOf(c.value).some((v) => lower.includes(v));
+    case 'regex':
+      return regexTest(c.value.trim(), text);
+  }
+}
+
+export const ruleMatches = (rule: RuleFilter, m: Message) =>
+  !rule.conditions.length || (rule.match === 'any' ? rule.conditions.some((c) => conditionHolds(c, m)) : rule.conditions.every((c) => conditionHolds(c, m)));
+
+/**
+ * Whether a message could match from its header alone — before its body is downloaded.
+ * A body condition is not known yet, so it counts as "may hold": AND needs every header
+ * condition, OR is open as soon as one condition holds or waits on the body.
+ */
+export function headerMayMatch(rule: RuleFilter, header: Pick<Message, 'from' | 'subject'>) {
+  if (!rule.conditions.length) return true;
+  const m = { ...header, text: '' };
+  const known = (c: Condition) => c.field === 'body' || conditionHolds(c, m);
+  return rule.match === 'any' ? rule.conditions.some(known) : rule.conditions.every(known);
+}
+
+/** A rule may be on only with a condition that picks emails — not every email, not "everything but". */
+export const picksEmails = (rule: RuleFilter) => rule.conditions.some((c) => !NEGATIVE.has(c.op) && c.value.trim());
+
+/** Conditions from the page: known fields and operators, a value, regexes that compile. */
+export function validConditions(input: unknown): Condition[] | string {
+  if (!Array.isArray(input) || input.length > 20) return 'Up to 20 conditions';
+  const conditions: Condition[] = [];
+  for (const c of input) {
+    const field = c?.field;
+    const op = c?.op;
+    const value = String(c?.value ?? '').trim();
+    if (!CONDITION_FIELDS.includes(field)) return 'A condition looks at the sender, the subject or the body';
+    if (!CONDITION_OPS.includes(op)) return `Unknown operator "${op}"`;
+    if (!value || value.length > 500) return 'Give each condition a value (up to 500 characters)';
+    if (op === 'regex') {
+      try {
+        new RegExp(value, 'i');
+      } catch {
+        return `${value} is not a valid regular expression`;
+      }
+    }
+    conditions.push({ field, op, value });
+  }
+  return conditions;
+}
+
+/**
+ * IMAP SEARCH terms that narrow a mailbox on the server: only for AND, only plain
+ * "contains" on the sender or subject (one each — SEARCH takes one FROM, one SUBJECT).
+ * The rest is checked here after the headers are read.
+ */
+export function searchTerms(rule: RuleFilter): { from?: string | undefined; subject?: string | undefined } {
+  if (rule.match !== 'all') return {};
+  const first = (field: Condition['field']) => rule.conditions.find((c) => c.field === field && c.op === 'contains')?.value.trim();
+  return { ...(first('from') && { from: first('from') }), ...(first('subject') && { subject: first('subject') }) };
+}
 
 /**
  * A rupiah amount as banks write it: "150,000.00", "150.000,00", "150.000", "Rp 1.250.000".

@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma';
 import { canEncrypt, decrypt, encrypt } from '../lib/secretBox';
 import { paging, paginated } from '../lib/paging';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } from '../lib/scope';
-import { filterProblem, validFields } from '../lib/emailRules';
+import { filterOf, picksEmails, validConditions, validFields } from '../lib/emailRules';
 import { payerIdOf } from '../services/walletService';
 import {
   assertPublicHost,
@@ -71,15 +71,13 @@ function settingsFrom(body: any, email: string, current?: ImapSettings): ImapSet
   return { host, port, secure: body?.secure === undefined ? (current?.secure ?? port === 993) : !!body.secure, username, password };
 }
 
-/** A rule from a body: filters, fields, targets. `partial`: only what is given (PATCH). */
+/** A rule from a body: conditions, fields, targets. `partial`: only what is given (PATCH). */
 async function ruleFrom(body: any, organizationId: string, partial = false) {
   const data: Record<string, unknown> = {};
   const text = (key: string, max: number) => {
     if (body?.[key] === undefined) return;
     const value = String(body[key] ?? '').trim();
     if (value.length > max) throw new UserError(`${key} is too long`);
-    const problem = filterProblem(value);
-    if (problem) throw new UserError(problem);
     data[key] = value;
   };
   if (!partial || body?.name !== undefined) {
@@ -87,9 +85,12 @@ async function ruleFrom(body: any, organizationId: string, partial = false) {
     if (!name || name.length > 80) throw new UserError('Name the rule (up to 80 characters)');
     data.name = name;
   }
-  text('fromContains', 200);
-  text('subjectContains', 200);
-  text('bodyContains', 200);
+  if (body?.match !== undefined) data.match = body.match === 'any' ? 'any' : 'all';
+  if (body?.conditions !== undefined) {
+    const conditions = validConditions(body.conditions);
+    if (typeof conditions === 'string') throw new UserError(conditions);
+    data.conditions = conditions;
+  }
   if (body?.onlyVerified !== undefined) data.onlyVerified = !!body.onlyVerified;
   if (body?.active !== undefined) data.active = !!body.active;
   if (body?.fields !== undefined) {
@@ -244,20 +245,17 @@ router.delete('/mailboxes/:id', async (req: AuthenticatedRequest, res: Response)
   }
 });
 
-/** A rule tried on the last 30 days of mail before it is saved. Nothing is stored. */
+/** A rule tried on real mail before it is saved. Nothing is stored. */
 router.post('/mailboxes/:id/preview', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const box = await mailboxFor(req, req.params.id);
     if (!box) return bad(res, 'Mailbox not found', 404);
     const fields = validFields(req.body?.fields ?? []);
     if (typeof fields === 'string') return bad(res, fields);
-    const rule = {
-      fromContains: String(req.body?.fromContains ?? '').slice(0, 200),
-      subjectContains: String(req.body?.subjectContains ?? '').slice(0, 200),
-      bodyContains: String(req.body?.bodyContains ?? '').slice(0, 200),
-      fields,
-    };
-    // no filter yet: the newest emails of the inbox, to pick the filters from
+    const conditions = validConditions(req.body?.conditions ?? []);
+    if (typeof conditions === 'string') return bad(res, conditions);
+    // no condition yet: the newest emails of the inbox, to pick the conditions from
+    const rule = { ...filterOf({ match: String(req.body?.match ?? 'all'), conditions }), fields };
     const settings = { host: box.host, port: box.port, secure: box.secure, username: box.username, password: decrypt(box.passwordEnc) };
     // how far back and how many: the editor's choice, kept to what one IMAP read should fetch
     const days = Math.min(365, Math.max(1, Math.round(Number(req.body?.days) || 60)));
@@ -293,8 +291,8 @@ router.post('/mailboxes/:id/rules', async (req: AuthenticatedRequest, res: Respo
     const box = await mailboxFor(req, req.params.id);
     if (!box) return bad(res, 'Mailbox not found', 404);
     const data = await ruleFrom(req.body, box.organizationId);
-    // made from a name alone: off until the editor gives it a sender or subject filter
-    if (!data.fromContains && !data.subjectContains) data.active = false;
+    // made from a name alone: off until the editor gives it a condition that picks emails
+    if (!picksEmails(filterOf({ match: String(data.match ?? 'all'), conditions: data.conditions ?? [] }))) data.active = false;
     const rule = await prisma.emailRule.create({ data: { ...(data as any), mailboxId: box.id, webhookSecret: randomBytes(24).toString('hex') } });
     // saved either way; a balance that does not cover today pauses the mailbox, said as a warning
     const watching = await syncMailbox(box.id);
@@ -322,9 +320,9 @@ router.patch('/rules/:id', async (req: AuthenticatedRequest, res: Response) => {
     const rule = await ruleFor(req, req.params.id);
     if (!rule) return bad(res, 'Rule not found', 404);
     const data = await ruleFrom(req.body, rule.mailbox.organizationId, true);
-    // on, a rule without a sender or subject filter would take every email
-    if ((data.active ?? rule.active) && !(data.fromContains ?? rule.fromContains) && !(data.subjectContains ?? rule.subjectContains)) {
-      return bad(res, 'Filter on the sender or the subject before turning the rule on, so it does not take every email');
+    // on, a rule with no condition that picks emails would take every email (or every one but some)
+    if ((data.active ?? rule.active) && !picksEmails(filterOf({ match: String(data.match ?? rule.match), conditions: data.conditions ?? rule.conditions }))) {
+      return bad(res, 'Add a condition that picks emails (contains, equals, in or regex) before turning the rule on, so it does not take every email');
     }
     if (req.body?.newSecret) data.webhookSecret = randomBytes(24).toString('hex');
     const updated = await prisma.emailRule.update({ where: { id: rule.id }, data });

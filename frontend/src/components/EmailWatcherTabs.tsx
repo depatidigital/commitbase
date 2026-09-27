@@ -29,6 +29,7 @@ import {
   type RuleInput,
 } from "@/lib/emailWatcher";
 import { t } from "@/lib/i18n";
+import { FIELD_LABEL, OP_LABEL } from "@/lib/emailConditions";
 
 const BLANK = "blank";
 
@@ -37,8 +38,11 @@ const PRESETS: Array<{ label: string; rule: Partial<RuleInput> }> = [
   {
     label: "BNI Merchant",
     rule: {
-      fromContains: "BNI",
-      subjectContains: "Transaksi Sebesar",
+      match: "all",
+      conditions: [
+        { field: "from", op: "contains", value: "BNI" },
+        { field: "subject", op: "contains", value: "Transaksi Sebesar" },
+      ],
       fields: [
         { name: "amount", pattern: "Rp\\s*([\\d.,]+)", type: "amount" },
         { name: "source", pattern: "dari (\\S+) telah berhasil", type: "text" },
@@ -104,9 +108,7 @@ export function RulesTab({ mailboxes }: { mailboxes: Mailbox[] }) {
       header: t("Takes"),
       cell: (r) => (
         <span className="text-xs text-muted-foreground">
-          {[r.fromContains && t("from “{v}”", { v: r.fromContains }), r.subjectContains && t("subject “{v}”", { v: r.subjectContains }), r.bodyContains && t("body “{v}”", { v: r.bodyContains })]
-            .filter(Boolean)
-            .join(", ") || t("no filter yet")}
+          {r.conditions.map((c) => `${t(FIELD_LABEL[c.field])} ${t(OP_LABEL[c.op])} “${c.value}”`).join(r.match === "any" ? ` ${t("or")} ` : ` ${t("and")} `) || t("no filter yet")}
         </span>
       ),
     },

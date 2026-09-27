@@ -1209,15 +1209,16 @@ model EmailMailbox {
   @@map("email_mailboxes")
 }
 
-/// Which messages of a mailbox count (plain "contains", case-insensitive) and what is read out of them.
+/// Which messages of a mailbox count (conditions on sender, subject and body, case-insensitive) and what is read out of them.
 model EmailRule {
   id              String       @id @default(cuid())
   mailboxId       String
   mailbox         EmailMailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
   name            String
-  fromContains    String       @default("")
-  subjectContains String       @default("")
-  bodyContains    String       @default("")
+  /// all (AND) | any (OR) of the conditions
+  match           String       @default("all")
+  /// [{ field: from | subject | body, op: contains | not_contains | equals | in | not_in | regex, value }]
+  conditions      Json         @default("[]")
   /// only messages whose From domain passed DKIM/DMARC at the receiving server (Authentication-Results)
   onlyVerified    Boolean      @default(true)
   /// [{ name, pattern, type: "text" | "amount" }] — pattern is a regex, the value its first group

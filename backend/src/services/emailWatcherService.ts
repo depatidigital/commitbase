@@ -5,7 +5,7 @@ import { convert } from 'html-to-text';
 import { prisma } from '../lib/prisma';
 import { decrypt } from '../lib/secretBox';
 import { sendMail } from '../lib/mailer';
-import { extractFields, Field, filterRegex, firstHeader, headerMatches, isPrivateIp, renderTemplate, ruleMatches, senderVerified } from '../lib/emailRules';
+import { extractFields, Field, filterOf, firstHeader, headerMayMatch, isPrivateIp, renderTemplate, ruleMatches, type RuleFilter, searchTerms, senderVerified } from '../lib/emailRules';
 import { gateway } from './larikaGatewayService';
 import { EMAIL_WATCHER_RATES, WIB_MS } from './usageMeterService';
 import { billingUserOf, InsufficientBalance, MICRO, spendFromWallet } from './walletService';
@@ -172,31 +172,32 @@ const envelopeFrom = (env: { from?: Array<{ name?: string | undefined; address?:
 
 const textOf = (m: Pick<Parsed, 'subject' | 'text'>) => `${m.subject}\n${m.text}`;
 
-type RuleLike = { fromContains: string; subjectContains: string; bodyContains: string; fields: unknown };
 
 /**
- * The rule editor's emails: the newest 30 of the last 30 days the sender and subject
- * filters take, read once over IMAP and kept a few minutes — the editor asks again on
- * every change, and a new field or body filter should not mean a new login.
+ * The rule editor's emails: the newest of the last days whose header the conditions may
+ * take, read once over IMAP and kept a few minutes — the editor asks again on every
+ * change, and a new field or body condition should not mean a new login.
  */
 const PREVIEW_TTL_MS = 5 * 60_000;
 const previewCache = new Map<string, { at: number; messages: Array<Parsed & { uid: number }> }>();
 
-async function previewMessages(cacheKey: string, s: ImapSettings, from: string, subject: string, days: number, limit: number) {
-  const key = `${cacheKey}|${from.toLowerCase()}|${subject.toLowerCase()}|${days}|${limit}`;
+async function previewMessages(cacheKey: string, s: ImapSettings, rule: RuleFilter, days: number, limit: number) {
+  // the body conditions change which emails pass, not which are read: left out of the key (OR still opens to them)
+  const header = rule.conditions.filter((c) => c.field !== 'body');
+  const key = `${cacheKey}|${rule.match}|${JSON.stringify(header).toLowerCase()}|${rule.match === 'any' && header.length < rule.conditions.length}|${days}|${limit}`;
   const hit = previewCache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.messages;
   const messages = await withClient(s, async (client) => {
     await client.mailboxOpen('INBOX', { readOnly: true });
     const since = new Date(Date.now() - days * 86_400_000);
-    // plain filters narrow the search on the server; a /regex/ one is run here, on the newest 300 headers
-    const plain = (f: string) => (f && filterRegex(f) === null ? f : undefined);
-    const uids = ((await client.search({ since, ...(plain(from) && { from }), ...(plain(subject) && { subject }) }, { uid: true })) || []).sort((a, b) => b - a);
+    // AND's plain "contains" narrows the search on the server; every condition is then
+    // checked here on the newest 300 headers (OR, NOT, IN, regex cannot be searched)
+    const uids = ((await client.search({ since, ...searchTerms(rule) }, { uid: true })) || []).sort((a, b) => b - a);
     let recent = uids.slice(0, limit);
-    if ((from && !plain(from)) || (subject && !plain(subject))) {
+    if (header.length) {
       const heads = uids.length ? await client.fetchAll(uids.slice(0, 300).join(','), { uid: true, envelope: true }, { uid: true }) : [];
       recent = heads
-        .filter((m) => headerMatches({ fromContains: from, subjectContains: subject }, { from: envelopeFrom(m.envelope), subject: m.envelope?.subject ?? '' }))
+        .filter((m) => headerMayMatch(rule, { from: envelopeFrom(m.envelope), subject: m.envelope?.subject ?? '' }))
         .map((m) => m.uid)
         .sort((a, b) => b - a)
         .slice(0, limit);
@@ -214,12 +215,12 @@ async function previewMessages(cacheKey: string, s: ImapSettings, from: string, 
 }
 
 /**
- * A rule tried on real mail: every email its sender and subject filters take, whether the
- * body filter lets it through too, and what the fields read out of it. Nothing is stored.
+ * A rule tried on real mail: every email whose header its conditions may take, whether
+ * the whole rule takes it, and what the fields read out of it. Nothing is stored.
  */
-export async function previewRule(cacheKey: string, s: ImapSettings, rule: RuleLike, window: { days: number; limit: number } = { days: 60, limit: 30 }) {
-  const fields = rule.fields as Field[];
-  const messages = await previewMessages(cacheKey, s, rule.fromContains.trim(), rule.subjectContains.trim(), window.days, window.limit);
+export async function previewRule(cacheKey: string, s: ImapSettings, rule: RuleFilter & { fields: Field[] }, window: { days: number; limit: number } = { days: 60, limit: 30 }) {
+  const fields = rule.fields;
+  const messages = await previewMessages(cacheKey, s, rule, window.days, window.limit);
   return {
     rows: messages.map((m) => ({
       uid: m.uid,
@@ -420,7 +421,7 @@ async function check(id: string, w: Watch, client: ImapFlow) {
   for (const msg of found) {
     const at = msg.internalDate ? new Date(msg.internalDate) : new Date();
     const header = { from: envelopeFrom(msg.envelope), subject: msg.envelope?.subject ?? '' };
-    const rules = box.rules.filter((r) => headerMatches(r, header));
+    const rules = box.rules.filter((r) => headerMayMatch(filterOf(r), header));
     if (rules.length && Date.now() - at.getTime() < MAX_AGE_MS) {
       const full = await client.fetchOne(String(msg.uid), { source: { maxLength: 512_000 } }, { uid: true });
       if (full && full.source) await record(rules, await parse(full.source, `uid:${uidValidity}:${msg.uid}`));
@@ -432,11 +433,11 @@ async function check(id: string, w: Watch, client: ImapFlow) {
   if (found.length === BATCH) void enqueue(id, w, client);
 }
 
-type Rule = { id: string; name: string; fromContains: string; subjectContains: string; bodyContains: string; onlyVerified: boolean; fields: unknown; webhookUrl: string | null; waNumberId: string | null; waTo: string | null };
+type Rule = { id: string; name: string; match: string; conditions: unknown; onlyVerified: boolean; fields: unknown; webhookUrl: string | null; waNumberId: string | null; waTo: string | null };
 
 async function record(rules: Rule[], m: Parsed) {
   for (const rule of rules) {
-    if (!ruleMatches(rule, m)) continue;
+    if (!ruleMatches(filterOf(rule), m)) continue;
     const status = rule.onlyVerified && !m.verified ? 'SKIPPED' : !rule.webhookUrl && !(rule.waNumberId && rule.waTo) ? 'NO_TARGET' : 'PENDING';
     try {
       const event = await prisma.emailEvent.create({

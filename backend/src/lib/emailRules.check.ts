@@ -1,6 +1,6 @@
 // npx tsx src/lib/emailRules.check.ts — Email Watcher's matching, parsing and sender check.
 import assert from 'node:assert/strict';
-import { extractFields, filterProblem, firstHeader, isPrivateIp, parseAmount, renderTemplate, ruleMatches, senderVerified, validFields } from './emailRules';
+import { type Condition, extractFields, firstHeader, headerMayMatch, isPrivateIp, parseAmount, picksEmails, renderTemplate, ruleMatches, searchTerms, senderVerified, validConditions, validFields } from './emailRules';
 
 // amounts as banks write them
 assert.equal(parseAmount('150,000.00'), 150000);
@@ -14,19 +14,49 @@ assert.equal(parseAmount('abc'), null);
 
 // the BNI Merchant subject from the screenshot
 const subject = 'BNI Merchant - Transaksi Sebesar Rp 150,000.00 dari DANA telah berhasil';
-const rule = { fromContains: 'bni', subjectContains: 'transaksi sebesar', bodyContains: '' };
-assert.ok(ruleMatches(rule, { from: 'BNI Merchant <merchant@bni.co.id>', subject, text: '' }));
-assert.ok(!ruleMatches(rule, { from: 'Toko <a@b.id>', subject, text: '' }));
-assert.ok(!ruleMatches({ ...rule, bodyContains: 'DEPATI' }, { from: 'BNI <x@bni.co.id>', subject, text: 'other' }));
+const bni = { from: '"BNI Merchant" <noreply@bni.co.id>', subject, text: 'DEPATI AKADEMI Pembayaran Berhasil No Referensi: F1260PIQ9P' };
+const c = (field: 'from' | 'subject' | 'body', op: Condition['op'], value: string): Condition => ({ field, op, value });
+const all = (...conditions: Condition[]) => ({ match: 'all' as const, conditions });
+const any = (...conditions: Condition[]) => ({ match: 'any' as const, conditions });
 
-// filters between slashes are regular expressions, case-insensitive
-assert.ok(ruleMatches({ ...rule, subjectContains: '/transaksi sebesar rp [\\d,.]+ dari (dana|ovo)/' }, { from: 'BNI <x@bni.co.id>', subject, text: '' }));
-assert.ok(!ruleMatches({ ...rule, subjectContains: '/dari (ovo|gopay)/' }, { from: 'BNI <x@bni.co.id>', subject, text: '' }));
-assert.ok(ruleMatches({ ...rule, fromContains: '/@bni\\.co\\.id>$/' }, { from: 'BNI <x@bni.co.id>', subject, text: '' }));
-assert.equal(filterProblem('/(/'), '/(/ is not a valid regular expression');
-assert.equal(filterProblem('plain (text'), null);
-// a catastrophic filter fails the match, it does not hang
-assert.ok(!ruleMatches({ ...rule, bodyContains: '/(a+)+$/' }, { from: 'BNI <x@bni.co.id>', subject, text: `${'a'.repeat(40)}!` }));
+// AND
+const rule = all(c('from', 'contains', 'bni'), c('subject', 'contains', 'transaksi sebesar'));
+assert.ok(ruleMatches(rule, bni));
+assert.ok(!ruleMatches(rule, { ...bni, from: 'Toko <a@b.id>' }));
+assert.ok(!ruleMatches(all(...rule.conditions, c('body', 'contains', 'other')), bni));
+// OR
+assert.ok(ruleMatches(any(c('from', 'contains', 'mandiri'), c('subject', 'contains', 'transaksi')), bni));
+assert.ok(!ruleMatches(any(c('from', 'contains', 'mandiri'), c('subject', 'contains', 'tagihan')), bni));
+// IN / NOT IN: a comma list, any of which appears
+assert.ok(ruleMatches(all(c('subject', 'in', 'DANA, OVO, GoPay')), bni));
+assert.ok(!ruleMatches(all(c('subject', 'not_in', 'dana,ovo')), bni));
+assert.ok(ruleMatches(all(c('subject', 'not_in', 'ovo, gopay')), bni));
+assert.ok(ruleMatches(all(c('body', 'not_contains', 'gagal')), bni));
+// equals: the sender's address, name or whole line
+assert.ok(ruleMatches(all(c('from', 'equals', 'noreply@bni.co.id')), bni));
+assert.ok(ruleMatches(all(c('from', 'equals', 'BNI Merchant')), bni));
+assert.ok(!ruleMatches(all(c('from', 'equals', 'bni')), bni));
+// regex, case-insensitive; a catastrophic one fails instead of hanging
+assert.ok(ruleMatches(all(c('subject', 'regex', 'transaksi sebesar rp [\\d,.]+ dari (dana|ovo)')), bni));
+assert.ok(!ruleMatches(all(c('body', 'regex', '(a+)+$')), { ...bni, text: `${'a'.repeat(40)}!` }));
+// no condition takes everything; a rule is on only with a positive one
+assert.ok(ruleMatches(all(), bni));
+assert.ok(!picksEmails(all(c('subject', 'not_in', 'spam'))));
+assert.ok(picksEmails(any(c('subject', 'not_in', 'spam'), c('from', 'contains', 'bni'))));
+// the header decides alone where it can: body conditions wait for the body
+assert.ok(headerMayMatch(all(c('from', 'contains', 'bni'), c('body', 'contains', 'x')), bni));
+assert.ok(!headerMayMatch(all(c('from', 'contains', 'mandiri'), c('body', 'contains', 'x')), bni));
+assert.ok(headerMayMatch(any(c('from', 'contains', 'mandiri'), c('body', 'contains', 'x')), bni));
+assert.ok(!headerMayMatch(any(c('from', 'contains', 'mandiri'), c('subject', 'contains', 'tagihan')), bni));
+// server-side SEARCH only for AND's plain contains
+assert.deepEqual(searchTerms(rule), { from: 'bni', subject: 'transaksi sebesar' });
+assert.deepEqual(searchTerms(any(c('from', 'contains', 'bni'))), {});
+assert.deepEqual(searchTerms(all(c('from', 'regex', 'bni'), c('subject', 'in', 'a,b'))), {});
+// validation
+assert.equal(typeof validConditions([c('subject', 'regex', '(')]), 'string');
+assert.equal(typeof validConditions([{ field: 'to', op: 'contains', value: 'x' }]), 'string');
+assert.equal(typeof validConditions([c('subject', 'contains', ' ')]), 'string');
+assert.deepEqual(validConditions([c('subject', 'in', ' dana ')]), [c('subject', 'in', 'dana')]);
 
 const fields = validFields([
   { name: 'amount', pattern: 'Rp\\s*([\\d.,]+)', type: 'amount' },
