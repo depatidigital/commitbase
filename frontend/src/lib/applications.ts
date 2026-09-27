@@ -611,11 +611,29 @@ export const checkStaticUpload = (entries: UploadEntry[]) => {
   };
 };
 
+/**
+ * A static site is served from its index.html. With none, but an index.htm or
+ * a single page at the root, that page also goes up as index.html — the site
+ * opens at / and the page keeps its own address too. Otherwise as picked.
+ */
+export const withIndexPage = (entries: UploadEntry[]): UploadEntry[] => {
+  const root = entries.filter(({ path }) => !path.includes('/'));
+  if (root.some(({ path }) => path === 'index.html')) return entries;
+  const pages = root.filter(({ path }) => /\.html?$/i.test(path));
+  const page = pages.find(({ path }) => path.toLowerCase() === 'index.htm') ?? (pages.length === 1 ? pages[0] : undefined);
+  return page ? [...entries, { file: page.file, path: 'index.html' }] : entries;
+};
+
 /** Pull the detection files out of an upload (root level only). */
 export const readDetectFiles = async (entries: UploadEntry[]): Promise<Record<string, string>> => {
   const out: Record<string, string> = {};
   for (const { file, path } of entries) {
-    if (path.includes('/') || !DETECT_FILES.includes(path)) continue;
+    if (path.includes('/')) continue;
+    // a root page other than index.html: by presence, so a lone .htm reads as a static site
+    if (!DETECT_FILES.includes(path)) {
+      if (/\.html?$/i.test(path)) out[path] = '';
+      continue;
+    }
     out[path] = PRESENCE_ONLY.test(path) ? '' : await file.slice(0, 256 * 1024).text();
   }
   return out;

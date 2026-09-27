@@ -49,6 +49,7 @@ import {
   uploadApplicationSource,
   listRepositoryBranches,
   type UploadEntry,
+  withIndexPage,
 } from "@/lib/applications";
 import { getGithubAuthUrl, getGitlabAuthUrl } from "@/lib/git";
 import { t } from "@/lib/i18n";
@@ -388,7 +389,7 @@ export default function AddProject() {
     if (sourceMode === "upload" && uploadFiles.length > 0) {
       setBusy("uploading");
       try {
-        await uploadApplicationSource(createdId, uploadFiles);
+        await uploadApplicationSource(createdId, formData.type === "STATIC" ? withIndexPage(uploadFiles) : uploadFiles);
       } catch (error) {
         toast({
           variant: "destructive",
@@ -514,7 +515,7 @@ export default function AddProject() {
           : t("Pick your code or your website's files — we set up the rest.")
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-8">
+      <form onSubmit={handleSubmit} className="mx-auto max-w-5xl space-y-8">
         {/* an app of an existing project: its code is known, only the folder is asked */}
         {projectId && (
           <Card className="bg-gradient-card border-border/50 shadow-elegant">

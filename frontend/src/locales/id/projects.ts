@@ -13,6 +13,7 @@ export default {
   "e.g. my-shop": "mis. toko-bunga",
   "Upload files instead": "Unggah file saja",
   "Remove {name}": "Hapus {name}",
+  "Replace folder": "Ganti folder",
   Reload: "Muat ulang",
   "Create app": "Buat aplikasi",
   "App name": "Nama aplikasi",

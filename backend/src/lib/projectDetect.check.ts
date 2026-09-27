@@ -72,6 +72,9 @@ assert.strictEqual(laravel.buildCommand, 'pnpm import && pnpm install --frozen-l
 
 const html = detectFromFiles({ 'index.html': '<html>' });
 assert.strictEqual(html.type, 'STATIC');
+// index.htm, or a lone page by another name: static too
+assert.strictEqual(detectFromFiles({ 'index.htm': '' }).type, 'STATIC');
+assert.strictEqual(detectFromFiles({ 'tugas.HTML': '' }).type, 'STATIC');
 
 assert.strictEqual(detectFromFiles({ 'package.json': '{not json' }).framework, 'node');
 

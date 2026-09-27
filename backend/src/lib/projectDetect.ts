@@ -525,7 +525,9 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
         nodeVersion,
       });
     }
-    if (files['index.html'] !== undefined) {
+    // nothing to build or run, and a page at the root (index.htm, or any .html
+    // dropped on its own): a static site
+    if (files['index.html'] !== undefined || Object.keys(files).some((name) => !name.includes('/') && /\.html?$/i.test(name))) {
       return base({ type: 'STATIC', framework: 'html', label: 'Static HTML', outputDir: '.' });
     }
     return base({ type: 'NODEJS', framework: null, label: 'Unknown' });

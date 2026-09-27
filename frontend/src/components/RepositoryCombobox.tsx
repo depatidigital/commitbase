@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, GitBranch, Github, Gitlab, Loader2, Lock, RefreshCw, Search } from "lucide-react";
+import { Check, ChevronsUpDown, GitBranch, Github, Gitlab, Loader2, Lock, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -91,7 +91,7 @@ export function RepositoryCombobox({ value, onChange, id, onConnect }: Props) {
                 <Gitlab className="h-4 w-4 shrink-0" />
               )
             ) : (
-              <Search className="h-4 w-4 shrink-0 opacity-50" />
+              <GitBranch className="h-4 w-4 shrink-0 opacity-50" />
             )}
             <span className={`truncate ${value ? "" : "text-muted-foreground"}`}>
               {picked?.fullName || value || t("Select a repository or paste a URL")}

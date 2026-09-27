@@ -22,6 +22,7 @@ import {
   uploadApplicationSource,
   type Application,
   type UploadEntry,
+  withIndexPage,
 } from "@/lib/applications";
 import { t } from "@/lib/i18n";
 
@@ -55,7 +56,9 @@ export function ReuploadDialog({
   // uploaded, not the folder plus whatever earlier uploads left behind
   const [replace, setReplace] = useState(true);
   const isStatic = application.type === "STATIC";
-  const selected = picked.filter(({ path }) => !excluded.has(path));
+  // a static site's lone page (or index.htm) also goes up as its index.html
+  const chosen = picked.filter(({ path }) => !excluded.has(path));
+  const selected = isStatic ? withIndexPage(chosen) : chosen;
 
   const pick = (entries: UploadEntry[]) => {
     setPicked(entries);

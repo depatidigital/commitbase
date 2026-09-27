@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, File as FileIcon, Folder, Trash2 } from "lucide-react";
+import { ChevronRight, Folder, Trash2 } from "lucide-react";
+import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { Checkbox } from "@/components/ui/checkbox";
 import { t } from "@/lib/i18n";
 
@@ -137,7 +138,7 @@ export function UploadTree({ entries, excluded = new Set(), onExcludedChange, st
           {folder ? (
             <Folder className="h-4 w-4 shrink-0 text-primary" />
           ) : (
-            <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <FileTypeIcon name={node.name} />
           )}
           <span
             className={`flex-1 truncate ${

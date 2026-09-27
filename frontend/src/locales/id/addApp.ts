@@ -44,8 +44,6 @@ export default {
   "{count} files": "{count} file",
   Collapse: "Tutup",
   Expand: "Buka",
-  "{count} file ready — {size}": "{count} file siap — {size}",
-  "{count} files ready — {size}": "{count} file siap — {size}",
   "Pick the files or the folder to put online.": "Pilih file atau folder yang ingin di-online-kan.",
   "Static uploads go straight to object storage and are served from there — nothing is built.":
     "Unggahan statis langsung masuk ke object storage dan disajikan dari sana — tidak ada proses build.",
