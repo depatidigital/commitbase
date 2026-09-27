@@ -107,8 +107,8 @@ export default {
   "Anyone can send an email that says it is from your bank. Keep this on for payments: an email whose sender's domain did not pass DKIM/DMARC is logged but not sent on.":
     "Siapa pun bisa mengirim email yang mengaku dari bank Anda. Biarkan aktif untuk pembayaran: email yang domain pengirimnya tidak lolos DKIM/DMARC dicatat, tapi tidak diteruskan.",
   "Webhook URL (optional)": "URL webhook (opsional)",
-  "Signing secret — x-larika-signature is the HMAC-SHA256 (hex) of the body:":
-    "Secret penanda tangan — x-larika-signature adalah HMAC-SHA256 (hex) dari body:",
+  "Signing secret — x-larika-signature is sha256= and the HMAC-SHA256 (hex) of the body:":
+    "Secret penanda tangan — x-larika-signature berisi sha256= diikuti HMAC-SHA256 (hex) dari body:",
   "WhatsApp (optional)": "WhatsApp (opsional)",
   "Add a number under Whatsapp Gateway API to be notified on WhatsApp.":
     "Tambahkan nomor di Whatsapp Gateway API untuk menerima notifikasi WhatsApp.",

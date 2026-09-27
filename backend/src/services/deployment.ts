@@ -244,9 +244,36 @@ export interface DeploymentConfig {
   acceptDataLoss?: boolean;
 }
 
-/** The pre-deploy command, with `prisma db push` told to accept data loss when asked. Pure. */
-export const preDeployCommandOf = (command: string, acceptDataLoss = false): string =>
-  acceptDataLoss && !command.includes('--accept-data-loss') ? command.replace(/\bprisma db push\b/g, '$& --accept-data-loss') : command;
+/** `<runner> prisma db push` as detection saves it for a repo that had no prisma/migrations then. */
+const DETECTED_DB_PUSH = /^(npx|pnpm|yarn|bunx) prisma db push$/;
+
+/**
+ * Migrations first: once the release has prisma/migrations, a detected `db push` runs
+ * `migrate deploy` instead. A database db push made has no migration history, and
+ * migrate deploy refuses it (P3005): it is brought to the schema by db push once and
+ * each migration recorded as applied — a baseline — then deployed as usual. One line:
+ * the build log shows it as the step. Pure.
+ */
+export function migrateFirst(runner: string): string {
+  const x = `${runner} prisma`;
+  return [
+    `if [ -n "$(ls -d prisma/migrations/*/ 2>/dev/null)" ]; then`,
+    `echo 'prisma/migrations found: migrate deploy instead of db push';`,
+    `if ! out=$(${x} migrate deploy 2>&1); then printf '%s\\n' "$out";`,
+    `printf '%s' "$out" | grep -q P3005 || exit 1;`,
+    `echo 'The database was made by db push: synced to the schema, then its migrations recorded as applied (once)';`,
+    `${x} db push; for d in prisma/migrations/*/; do ${x} migrate resolve --applied "$(basename "$d")"; done; ${x} migrate deploy;`,
+    `else printf '%s\\n' "$out"; fi;`,
+    `else ${x} db push; fi`,
+  ].join(' ');
+}
+
+/** The pre-deploy command: a detected db push migrates first; `prisma db push` told to accept data loss when asked. Pure. */
+export const preDeployCommandOf = (saved: string, acceptDataLoss = false): string => {
+  const detected = DETECTED_DB_PUSH.exec(saved.trim());
+  const command = detected ? migrateFirst(detected[1]!) : saved;
+  return acceptDataLoss && !command.includes('--accept-data-loss') ? command.replace(/\bprisma db push\b/g, '$& --accept-data-loss') : command;
+};
 
 export interface BuildResult {
   success: boolean;

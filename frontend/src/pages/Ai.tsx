@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Boxes, Gauge, KeyRound, List, Loader2, Plus, Sparkles, Trash2, Wallet } from "lucide-react";
+import { AlertCircle, BookOpen, Boxes, Gauge, KeyRound, List, Loader2, Plus, Sparkles, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
+import { CodeExample } from "@/components/CodeExample";
+import { Step } from "@/components/QuickStartStep";
 import { useToast } from "@/hooks/use-toast";
 import { createAiKey, enableAi, fromMicro, getAi, getAiModels, revokeAiKey, rupiah, setAiKeyLimit, type AiKey, type AiModelPrice, type AiOverview, type KeyPeriod } from "@/lib/ai";
 import { getWalletEntries } from "@/lib/billing";
@@ -34,6 +36,7 @@ export default function Ai() {
   const [newKey, setNewKey] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<AiKey | null>(null);
   const keysQuery = useTableQuery(10);
+  const [tab, setTab] = useState<string | null>(null);
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: KEY });
   const failed = (title: string) => (e: Error) => toast({ title, description: e.message, variant: "destructive" });
@@ -105,6 +108,7 @@ export default function Ai() {
   ];
 
   const balance = data ? fromMicro(data.balance) : 0;
+  const startCreating = () => setCreating({ name: "", rpm: "60", limit: "", period: "MONTH" });
 
   return (
     <PageLayout
@@ -113,7 +117,7 @@ export default function Ai() {
       description={t("One OpenAI-compatible API for many models, paid per token from the workspace balance.")}
       actions={
         data?.hasAccount && (
-          <Button onClick={() => setCreating({ name: "", rpm: "60", limit: "", period: "MONTH" })}>
+          <Button onClick={startCreating}>
             <Plus className="mr-2 h-4 w-4" /> {t("New key")}
           </Button>
         )
@@ -180,8 +184,13 @@ export default function Ai() {
               </CardContent>
             </Card>
           ) : (
-            <Tabs defaultValue="keys" className="space-y-4">
+            // a workspace with no keys yet lands on the guide
+            <Tabs value={tab ?? (data.keys.length ? "keys" : "start")} onValueChange={setTab} className="space-y-4">
               <TabsList>
+                <TabsTrigger value="start">
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  {t("Quick start")}
+                </TabsTrigger>
                 <TabsTrigger value="keys">
                   <KeyRound className="mr-2 h-4 w-4" />
                   {t("Keys")}
@@ -196,6 +205,9 @@ export default function Ai() {
                   {t("Models")}
                 </TabsTrigger>
               </TabsList>
+              <TabsContent value="start">
+                <QuickStart baseUrl={data.baseUrl ?? ""} balance={balance} hasKey={data.keys.length > 0} onCreate={startCreating} onModels={() => setTab("models")} />
+              </TabsContent>
               <TabsContent value="keys">
                 <DataTable
                   columns={keyColumns}
@@ -432,5 +444,80 @@ function PeriodSelect({ value, onChange }: { value: KeyPeriod; onChange: (period
         <SelectItem value="MONTH">{t("per month")}</SelectItem>
       </SelectContent>
     </Select>
+  );
+}
+
+/** From an empty balance to a first answer, each step ticked off from the workspace's own state. */
+function QuickStart({ baseUrl, balance, hasKey, onCreate, onModels }: { baseUrl: string; balance: number; hasKey: boolean; onCreate: () => void; onModels: () => void }) {
+  const message = '[{"role":"user","content":"Halo!"}]';
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <Step n={1} done={balance > 0} title={t("Have a balance")}>
+        <p className="text-sm text-muted-foreground">{t("Calls are paid per token from the balance, charged every minute. The welcome credit covers the first tries.")}</p>
+        <Button variant="outline" size="sm" asChild>
+          <a href="/usage">
+            <Wallet className="mr-2 h-4 w-4" />
+            {t("Top up on the Usage page.")}
+          </a>
+        </Button>
+      </Step>
+
+      <Step n={2} done={hasKey} title={t("Create an API key")}>
+        <p className="text-sm text-muted-foreground">{t("One key per app, so one can be revoked without stopping the others. A spending limit per day or month keeps a leaked key or a runaway loop from draining the balance. The key is shown once.")}</p>
+        <Button size="sm" onClick={onCreate}>
+          <Plus className="mr-2 h-4 w-4" />
+          {t("New key")}
+        </Button>
+      </Step>
+
+      <Step n={3} title={t("Make your first call")}>
+        <p className="text-sm text-muted-foreground">{t("It is the OpenAI API: any OpenAI SDK works with the base URL below and a key from here.")}</p>
+        {baseUrl && <CopyField value={baseUrl} />}
+        <CodeExample
+          examples={[
+            {
+              label: "cURL",
+              lang: "bash",
+              code: `curl ${baseUrl}/chat/completions \
+  -H "Authorization: Bearer lk_…" -H "content-type: application/json" \
+  -d '{"model":"larika-optima","messages":${message}}'`,
+            },
+            {
+              label: "Node.js",
+              lang: "js",
+              code: `import OpenAI from "openai";
+
+const ai = new OpenAI({ baseURL: "${baseUrl}", apiKey: process.env.LARIKA_AI_KEY });
+const res = await ai.chat.completions.create({
+  model: "larika-optima",
+  messages: ${message},
+});
+console.log(res.choices[0].message.content);`,
+            },
+            {
+              label: "Python",
+              lang: "python",
+              code: `from openai import OpenAI
+import os
+
+ai = OpenAI(base_url="${baseUrl}", api_key=os.environ["LARIKA_AI_KEY"])
+res = ai.chat.completions.create(model="larika-optima", messages=${message})
+print(res.choices[0].message.content)`,
+            },
+          ]}
+        />
+      </Step>
+
+      <Step n={4} title={t("Pick a model")}>
+        <p className="text-sm text-muted-foreground">
+          <code className="font-mono text-xs">larika-optima</code>{" "}
+          {t("picks the cheapest model good enough for each message, and never costs more than the cheapest top model. Or send any model from the list as `model`.")}
+        </p>
+        <Button variant="outline" size="sm" onClick={onModels}>
+          <Boxes className="mr-2 h-4 w-4" />
+          {t("Models")}
+        </Button>
+      </Step>
+    </div>
   );
 }

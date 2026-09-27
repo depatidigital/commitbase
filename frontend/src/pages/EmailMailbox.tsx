@@ -462,7 +462,7 @@ function RuleDialog({ box, editing, onClose, onSaved }: { box: MailboxDetail; ed
                 <Input id="rule-webhook" type="url" placeholder="https://tokoanda.com/api/payment-email" value={rule.webhookUrl ?? ""} onChange={(e) => set({ webhookUrl: e.target.value || null })} />
                 {secret && (
                   <div className="space-y-1 pt-1">
-                    <p className="text-xs text-muted-foreground">{t("Signing secret — x-larika-signature is the HMAC-SHA256 (hex) of the body:")}</p>
+                    <p className="text-xs text-muted-foreground">{t("Signing secret — x-larika-signature is sha256= and the HMAC-SHA256 (hex) of the body:")}</p>
                     <CopyField value={secret} />
                     <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => rotate.mutate()} disabled={rotate.isPending}>
                       {t("New secret")}

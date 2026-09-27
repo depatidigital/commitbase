@@ -1223,7 +1223,7 @@ model EmailRule {
   /// [{ name, pattern, type: "text" | "amount" }] — pattern is a regex, the value its first group
   fields          Json         @default("[]")
   webhookUrl      String?
-  /// signs webhook bodies (x-larika-signature: HMAC-SHA256 hex)
+  /// signs webhook bodies (x-larika-signature: sha256=<HMAC-SHA256 hex>)
   webhookSecret   String
   waNumberId      String?
   waTo            String?

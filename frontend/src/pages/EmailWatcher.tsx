@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, MailSearch, Plus } from "lucide-react";
+import { AlertTriangle, BookOpen, List, Loader2, MailSearch, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CodeExample } from "@/components/CodeExample";
+import { Step } from "@/components/QuickStartStep";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveOrg } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
@@ -56,6 +59,7 @@ export default function EmailWatcher() {
   const { data: rates } = useQuery({ queryKey: ["billing", "rates"], queryFn: getRates, staleTime: 10 * 60_000 });
   const [adding, setAdding] = useState<Adding | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [tab, setTab] = useState<string | null>(null);
   const { data: orgs = [] } = useQuery({ queryKey: ["organizations"], queryFn: getOrganizations, enabled: !!adding });
   const manageable = orgs.filter((org) => isAdmin() || org.myRole === "OWNER" || org.myRole === "ADMIN");
   const showWorkspace = isAdmin() || new Set(rows.map((r) => r.organization?.id)).size > 1;
@@ -100,6 +104,7 @@ export default function EmailWatcher() {
   ];
 
   const detected = adding?.detected;
+  const startAdding = () => setAdding({ organizationId: getActiveOrg() ?? "", email: "", host: "", port: "993", username: "", password: "", detected: null });
 
   return (
     <PageLayout
@@ -107,27 +112,41 @@ export default function EmailWatcher() {
       title={t("Email Watcher")}
       description={t("Larika reads new emails in your inbox as they arrive, picks the ones your rules match — like bank transfer notifications — and sends what it reads out to your app or WhatsApp.")}
       actions={
-        <Button onClick={() => setAdding({ organizationId: getActiveOrg() ?? "", email: "", host: "", port: "993", username: "", password: "", detected: null })}>
+        <Button onClick={startAdding}>
           <Plus className="mr-2 h-4 w-4" /> {t("Add mailbox")}
         </Button>
       }
     >
-      {rates && (
-        <p className="rounded-md bg-primary/5 p-3 text-sm">
-          {t("{price} per mailbox per day from your balance, only on days it is watched. Paused mailboxes cost nothing.", { price: rupiah(rates.email.mailboxDay) })}
-        </p>
-      )}
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(m) => m.id}
-        query={query}
-        filter={(m, search) => m.email.toLowerCase().includes(search.toLowerCase())}
-        isLoading={isFetching && !rows.length}
-        searchPlaceholder={t("Search mailboxes…")}
-        empty={t("No mailboxes yet. Add the inbox your bank or payment notifications arrive in.")}
-        onRowClick={(m) => m.canManage && navigate(`/email-watcher/${m.id}`)}
-      />
+      {/* a workspace with no mailboxes yet lands on the guide */}
+      <Tabs value={tab ?? (!isFetching && !rows.length ? "start" : "mailboxes")} onValueChange={setTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="start">
+            <BookOpen className="mr-2 h-4 w-4" />
+            {t("Quick start")}
+          </TabsTrigger>
+          <TabsTrigger value="mailboxes">
+            <List className="mr-2 h-4 w-4" />
+            {t("Mailboxes")}
+            {rows.length > 0 && ` (${rows.length})`}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="start">
+          <QuickStart rows={rows} price={rates ? rupiah(rates.email.mailboxDay) : null} onAdd={startAdding} onOpen={(m) => navigate(`/email-watcher/${m.id}`)} />
+        </TabsContent>
+        <TabsContent value="mailboxes">
+          <DataTable
+            columns={columns}
+            rows={rows}
+            rowKey={(m) => m.id}
+            query={query}
+            filter={(m, search) => m.email.toLowerCase().includes(search.toLowerCase())}
+            isLoading={isFetching && !rows.length}
+            searchPlaceholder={t("Search mailboxes…")}
+            empty={t("No mailboxes yet. Add the inbox your bank or payment notifications arrive in.")}
+            onRowClick={(m) => m.canManage && navigate(`/email-watcher/${m.id}`)}
+          />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!adding} onOpenChange={(o) => !o && setAdding(null)}>
         <DialogContent>
@@ -233,5 +252,95 @@ export default function EmailWatcher() {
         </DialogContent>
       </Dialog>
     </PageLayout>
+  );
+}
+
+const PAYLOAD = JSON.stringify(
+  {
+    event: "email.matched",
+    id: "cm1x…",
+    rule: { id: "cm1r…", name: "BNI Merchant" },
+    mailbox: "finance@tokoanda.com",
+    message: {
+      id: "<…@bni.co.id>",
+      from: "BNI Merchant <merchant@bni.co.id>",
+      subject: "BNI Merchant - Transaksi Sebesar Rp 150,000.00 dari DANA telah berhasil",
+      receivedAt: "2026-09-20T08:15:00.000Z",
+    },
+    verified: true,
+    data: { amount: 150000, source: "DANA" },
+  },
+  null,
+  2,
+);
+
+const VERIFY = `import crypto from "node:crypto";
+
+// rawBody: the request body exactly as received, before JSON parsing
+const expected = "sha256=" + crypto.createHmac("sha256", RULE_SECRET).update(rawBody).digest("hex");
+const got = req.headers["x-larika-signature"] ?? "";
+if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+  return res.status(401).end();
+}
+const { id, verified, data } = JSON.parse(rawBody); // data.amount = 150000, data.source = "DANA"
+// sent at least once: skip an id you have already handled
+res.status(200).end();`;
+
+/** From nothing to parsed notifications in an app, each step ticked off from the real mailboxes. */
+function QuickStart({ rows, price, onAdd, onOpen }: { rows: Mailbox[]; price: string | null; onAdd: () => void; onOpen: (m: Mailbox) => void }) {
+  const first = rows.find((m) => m.canManage);
+  const withRule = rows.find((m) => m.canManage && (m.rules ?? 0) > 0);
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      {price && (
+        <p className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
+          {t("{price} per mailbox per day from your balance, only on days it is watched. Paused mailboxes cost nothing.", { price })}
+        </p>
+      )}
+
+      <Step n={1} done={rows.length > 0} title={t("Connect the inbox your notifications arrive in")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Gmail, Yahoo and iCloud need an app password (2-step verification on); email on your own domain uses its normal password. Larika only reads, and never stores an email your rules do not match.")}
+        </p>
+        {!rows.length && (
+          <Button size="sm" onClick={onAdd}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t("Add mailbox")}
+          </Button>
+        )}
+      </Step>
+
+      <Step n={2} done={!!withRule} title={t("Make a rule and try it on real emails")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Pick emails by sender and subject (or start from the BNI Merchant preset), add the fields to read — a regular expression each — and press Try: the last 30 days of your inbox show what the rule would read out.")}
+        </p>
+        {first && (
+          <Button variant="outline" size="sm" onClick={() => onOpen(withRule ?? first)}>
+            <MailSearch className="mr-2 h-4 w-4" />
+            {t("Rules of {email}", { email: (withRule ?? first).email })}
+          </Button>
+        )}
+      </Step>
+
+      <Step n={3} title={t("Receive it in your app with a webhook")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Set a webhook URL on the rule. Each matched email is POSTed there as JSON within seconds, signed with the rule's secret in")}{" "}
+          <code className="font-mono text-xs">x-larika-signature</code>. {t("Failed sends are retried for about 9 hours.")}
+        </p>
+        <CodeExample examples={[{ label: "Payload", code: PAYLOAD, lang: "json" }, { label: "Node.js", code: VERIFY, lang: "js" }]} />
+      </Step>
+
+      <Step n={4} title={t("Or get it on WhatsApp")}>
+        <p className="text-sm text-muted-foreground">
+          {t("With a number on Whatsapp Gateway API, a rule can message you for each match — like “Masuk Rp {amount} dari {source}” — using the fields it read.")}
+        </p>
+        <Button variant="outline" size="sm" asChild>
+          <a href="/wa-gateway">
+            <MessageCircle className="mr-2 h-4 w-4" />
+            Whatsapp Gateway API
+          </a>
+        </Button>
+      </Step>
+    </div>
   );
 }

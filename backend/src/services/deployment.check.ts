@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { buildBlock, buildFailureText, buildScript, dotenvLine, guardedPrune, lenientInstall, pruneOf } from './deployment';
+import { buildBlock, buildFailureText, buildScript, dotenvLine, guardedPrune, lenientInstall, preDeployCommandOf, pruneOf } from './deployment';
 import { parseEnv } from 'util';
 
 // .env lines read back verbatim by Node's own loader (process.loadEnvFile uses parseEnv)
@@ -140,3 +140,40 @@ assert.strictEqual(lenientInstall('npm install --no-audit --no-fund'), 'npm inst
   assert.ok(out.includes('loose-ran'), out);
 }
 console.log('lenientInstall: ok');
+
+// a detected db push migrates first once the repo has migrations; a db-pushed database is baselined once
+{
+  const { mkdtempSync, mkdirSync } = require('fs') as typeof import('fs');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'predeploy-'));
+  // a fake npx: logs each prisma call; migrate deploy answers P3005 until the migrations are recorded
+  const fakeNpx = `npx() { echo "npx $*" >> calls; case "$*" in "prisma migrate deploy") if [ -f resolved ]; then echo deployed; else echo 'Error: P3005 The database schema is not empty'; return 1; fi ;; "prisma migrate resolve"*) touch resolved ;; esac; }`;
+  const runIn = (command: string) => {
+    require('fs').rmSync(path.join(dir, 'calls'), { force: true });
+    require('fs').rmSync(path.join(dir, 'resolved'), { force: true });
+    const out = execFileSync('bash', ['-c', `set -euo pipefail; ${fakeNpx}; ${command}`], { cwd: dir, encoding: 'utf8' });
+    return { out, calls: require('fs').readFileSync(path.join(dir, 'calls'), 'utf8').trim().split('\n') };
+  };
+  // no migrations yet: db push, as detected
+  assert.deepStrictEqual(runIn(preDeployCommandOf('npx prisma db push')).calls, ['npx prisma db push']);
+  // migrations and a db-pushed database: baseline once, then deploy
+  mkdirSync(path.join(dir, 'prisma', 'migrations', '20260101000000_init'), { recursive: true });
+  mkdirSync(path.join(dir, 'prisma', 'migrations', '20260102000000_more'), { recursive: true });
+  const first = runIn(preDeployCommandOf('npx prisma db push'));
+  assert.deepStrictEqual(first.calls, [
+    'npx prisma migrate deploy',
+    'npx prisma db push',
+    'npx prisma migrate resolve --applied 20260101000000_init',
+    'npx prisma migrate resolve --applied 20260102000000_more',
+    'npx prisma migrate deploy',
+  ]);
+  assert.ok(first.out.includes('deployed'), first.out);
+  // accepting data loss reaches the baseline's db push too
+  assert.ok(preDeployCommandOf('npx prisma db push', true).includes('npx prisma db push --accept-data-loss; for d'));
+  // any other migrate deploy failure fails the step
+  const failing = `npx() { echo 'Error: P3009 failed migration'; return 1; }`;
+  assert.throws(() => execFileSync('bash', ['-c', `set -euo pipefail; ${failing}; ${preDeployCommandOf('npx prisma db push')}`], { cwd: dir, stdio: 'pipe' }));
+  // a command the user wrote is theirs
+  assert.strictEqual(preDeployCommandOf('npx prisma db push && npm run seed'), 'npx prisma db push && npm run seed');
+  assert.strictEqual(preDeployCommandOf('pnpm prisma migrate deploy'), 'pnpm prisma migrate deploy');
+  console.log('preDeployCommandOf: migrate first OK');
+}

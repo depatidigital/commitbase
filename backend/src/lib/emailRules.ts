@@ -98,7 +98,8 @@ export function validFields(input: unknown): Field[] | string {
 export const renderTemplate = (template: string, vars: Record<string, unknown>) =>
   template.replace(/\{(\w+)\}/g, (all, key: string) => (vars[key] == null ? all : String(vars[key])));
 
-export const webhookSignature = (secret: string, body: string) => crypto.createHmac('sha256', secret).update(body).digest('hex');
+/** `sha256=<hex>` — the same x-larika-signature the WhatsApp gateway's webhooks carry, so one check verifies both. */
+export const webhookSignature = (secret: string, body: string) => `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
 
 /** The first occurrence of a header in a raw message, unfolded; undefined when absent. */
 export function firstHeader(source: string, name: string): string | undefined {
