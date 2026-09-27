@@ -82,6 +82,7 @@ model Organization {
   applications     Application[]
   invites          Invite[]
   waNumbers        WaNumber[]
+  emailMailboxes   EmailMailbox[]
   databases        Database[]
   databaseAccounts OrgDatabaseAccount[]
   nodes            OrgNode[]
@@ -1176,4 +1177,89 @@ model WalletEntry {
   @@index([userId, createdAt])
   @@index([organizationId, createdAt])
   @@map("wallet_entries")
+}
+
+/// Email Watcher ("Pantau Email"): a mailbox Larika keeps one IMAP connection to (IDLE),
+/// running its rules on each new message. The password is the user's (an app password on
+/// Gmail/Yahoo/iCloud) — secretBox, never sent back to the page.
+model EmailMailbox {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  host           String
+  port           Int          @default(993)
+  secure         Boolean      @default(true)
+  username       String
+  passwordEnc    String
+  /// OK | AUTH_FAILED (stopped, no retry until the password is changed) | ERROR (retrying) | PAUSED
+  status         String       @default("OK")
+  lastError      String?
+  /// where the watcher is in INBOX: a new UIDVALIDITY means the UIDs were renumbered,
+  /// so lastUid restarts at the newest message instead of replaying the mailbox
+  uidValidity    String?
+  lastUid        Int          @default(0)
+  lastCheckedAt  DateTime?
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  rules          EmailRule[]
+
+  @@index([organizationId])
+  @@map("email_mailboxes")
+}
+
+/// Which messages of a mailbox count (plain "contains", case-insensitive) and what is read out of them.
+model EmailRule {
+  id              String       @id @default(cuid())
+  mailboxId       String
+  mailbox         EmailMailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  name            String
+  fromContains    String       @default("")
+  subjectContains String       @default("")
+  bodyContains    String       @default("")
+  /// only messages whose From domain passed DKIM/DMARC at the receiving server (Authentication-Results)
+  onlyVerified    Boolean      @default(true)
+  /// [{ name, pattern, type: "text" | "amount" }] — pattern is a regex, the value its first group
+  fields          Json         @default("[]")
+  webhookUrl      String?
+  /// signs webhook bodies (x-larika-signature: HMAC-SHA256 hex)
+  webhookSecret   String
+  waNumberId      String?
+  waTo            String?
+  /// "{amount} dari {source}" — {field}, {subject}, {from}, {rule}
+  waTemplate      String?
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  events          EmailEvent[]
+
+  @@index([mailboxId])
+  @@map("email_rules")
+}
+
+/// A message a rule matched, what was read out of it and where it was sent. Kept 90 days.
+model EmailEvent {
+  id            String    @id @default(cuid())
+  ruleId        String
+  rule          EmailRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  messageId     String
+  from          String
+  subject       String
+  /// the start of the text body, for debugging a rule — not the whole message
+  snippet       String
+  receivedAt    DateTime
+  verified      Boolean
+  data          Json
+  /// PENDING (sending or retrying) | DELIVERED | FAILED | SKIPPED (sender not verified) | NO_TARGET
+  status        String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime?
+  webhookAt     DateTime?
+  waAt          DateTime?
+  error         String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([ruleId, messageId])
+  @@index([status, nextAttemptAt])
+  @@index([createdAt])
+  @@map("email_events")
 }

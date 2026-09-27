@@ -14,6 +14,7 @@ import { backfillStorageDays, meterUsage } from './usageMeterService';
 import { billAiUsage } from './aiGatewayService';
 import { checkTopUps } from './arusniagaService';
 import { billHosting, guardWallets } from './walletService';
+import { pruneEmailEvents, retryDeliveries } from './emailWatcherService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -180,6 +181,18 @@ const jobs: Job[] = [
     // what each app takes on disk / in R2 — a du per app, so a few times a day
     schedule: process.env.CRON_APP_DISK || '17 */6 * * *',
     run: measureAllAppDisks,
+  },
+  {
+    name: 'email-deliveries',
+    // Email Watcher events whose webhook or WhatsApp failed: retried on their schedule (1 min … 6 h)
+    schedule: process.env.CRON_EMAIL_DELIVERIES || '* * * * *',
+    run: retryDeliveries,
+  },
+  {
+    name: 'email-events-prune',
+    // matched emails are kept 90 days — they carry the user's transaction data
+    schedule: process.env.CRON_EMAIL_EVENTS_PRUNE || '40 4 * * *',
+    run: pruneEmailEvents,
   },
 ];
 

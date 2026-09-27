@@ -1,0 +1,131 @@
+import apiRequest from './api';
+import { t } from '@/lib/i18n';
+import type { Paginated } from '@/components/DataTable';
+
+/** Email Watcher ("Pantau Email"): watched mailboxes, their rules, the emails the rules matched. */
+
+const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback: string): T => {
+  if (res.success) return res.data as T;
+  throw new Error(res.error || fallback);
+};
+
+const send = (method: string, body?: unknown) => ({ method, ...(body !== undefined && { body: JSON.stringify(body) }) });
+
+export type MailboxStatus = 'OK' | 'AUTH_FAILED' | 'ERROR' | 'PAUSED';
+
+export interface Mailbox {
+  id: string;
+  email: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  status: MailboxStatus;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string;
+  organization: { id: string; name: string } | null;
+  canManage: boolean;
+  rules?: number;
+}
+
+export type FieldType = 'text' | 'amount';
+export interface RuleField {
+  name: string;
+  pattern: string;
+  type: FieldType;
+}
+
+export interface Rule {
+  id: string;
+  name: string;
+  fromContains: string;
+  subjectContains: string;
+  bodyContains: string;
+  onlyVerified: boolean;
+  fields: RuleField[];
+  webhookUrl: string | null;
+  webhookSecret: string;
+  waNumberId: string | null;
+  waTo: string | null;
+  waTemplate: string | null;
+  active: boolean;
+}
+
+export interface MailboxDetail extends Mailbox {
+  rules: Rule[];
+  waNumbers: Array<{ id: string; name: string }>;
+  retentionDays: number;
+}
+
+export type RuleInput = Omit<Rule, 'id' | 'webhookSecret'>;
+
+export interface PreviewRow {
+  uid: number;
+  date: string;
+  from: string;
+  subject: string;
+  verified: boolean;
+  snippet: string;
+  data: Record<string, string | number | null>;
+}
+
+export type EventStatus = 'PENDING' | 'DELIVERED' | 'FAILED' | 'SKIPPED' | 'NO_TARGET';
+
+export interface MailEvent {
+  id: string;
+  rule: { id: string; name: string };
+  from: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  verified: boolean;
+  data: Record<string, string | number | null>;
+  status: EventStatus;
+  attempts: number;
+  nextAttemptAt: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface Detected {
+  host: string;
+  port: number;
+  secure: boolean;
+  provider: string | null;
+  unsupported?: string;
+}
+
+export const detectMailbox = async (email: string) =>
+  unwrap(await apiRequest<Detected>(`/email-watcher/detect?email=${encodeURIComponent(email)}`), t('Could not look up the mail server'));
+
+export const getMailboxes = async () => unwrap(await apiRequest<Mailbox[]>('/email-watcher/mailboxes'), t('Failed to fetch mailboxes'));
+
+export const addMailbox = async (body: { organizationId?: string; email: string; host: string; port: number; secure: boolean; username: string; password: string }) =>
+  unwrap(await apiRequest<{ id: string }>('/email-watcher/mailboxes', send('POST', body)), t('Failed to add the mailbox'));
+
+export const getMailbox = async (id: string) => unwrap(await apiRequest<MailboxDetail>(`/email-watcher/mailboxes/${id}`), t('Failed to fetch the mailbox'));
+
+export const updateMailbox = async (id: string, body: Partial<{ host: string; port: number; secure: boolean; username: string; password: string; paused: boolean }>) =>
+  unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('PATCH', body)), t('Failed to update the mailbox'));
+
+export const deleteMailbox = async (id: string) => unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('DELETE')), t('Failed to delete the mailbox'));
+
+export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'fromContains' | 'subjectContains' | 'bodyContains' | 'fields'>) =>
+  unwrap(await apiRequest<{ scanned: number; rows: PreviewRow[] }>(`/email-watcher/mailboxes/${mailboxId}/preview`, send('POST', rule)), t('Failed to try the rule'));
+
+export const createRule = async (mailboxId: string, rule: RuleInput) =>
+  unwrap(await apiRequest<Rule>(`/email-watcher/mailboxes/${mailboxId}/rules`, send('POST', rule)), t('Failed to save the rule'));
+
+export const updateRule = async (id: string, rule: Partial<RuleInput> & { newSecret?: boolean }) =>
+  unwrap(await apiRequest<Rule>(`/email-watcher/rules/${id}`, send('PATCH', rule)), t('Failed to save the rule'));
+
+export const deleteRule = async (id: string) => unwrap(await apiRequest(`/email-watcher/rules/${id}`, send('DELETE')), t('Failed to delete the rule'));
+
+export const getEvents = async (mailboxId: string, params: { page: number; limit: number; search: string }) =>
+  unwrap(
+    await apiRequest<Paginated<MailEvent>>(`/email-watcher/mailboxes/${mailboxId}/events?${new URLSearchParams({ page: String(params.page), limit: String(params.limit), search: params.search })}`),
+    t('Failed to fetch events'),
+  );
+
+export const replayEvent = async (id: string) => unwrap(await apiRequest<MailEvent>(`/email-watcher/events/${id}/replay`, send('POST')), t('Failed to send the event again'));

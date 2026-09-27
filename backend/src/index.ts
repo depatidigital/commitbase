@@ -57,6 +57,8 @@ import cloudflareRoutes from './routes/cloudflare';
 import googleRoutes from './routes/google';
 import larikaGatewayRoutes from './routes/larikaGateway';
 import waNumbersRoutes from './routes/waNumbers';
+import emailWatcherRoutes from './routes/emailWatcher';
+import { startEmailWatchers } from './services/emailWatcherService';
 import aiGatewayRoutes from './routes/aiGateway';
 import aiRoutes from './routes/ai';
 import arusniagaRoutes from './routes/arusniaga';
@@ -155,6 +157,8 @@ app.use('/api/git-oauth', authenticateToken, requireRole(['SUPERADMIN']), gitOAu
 app.use('/api/larika-gateway', authenticateToken, requireRole(['SUPERADMIN']), larikaGatewayRoutes);
 // a workspace's WhatsApp numbers on that gateway: scoped per org in the router
 app.use('/api/wa-numbers', waNumbersRoutes);
+// a workspace's watched mailboxes (Email Watcher): scoped per org in the router
+app.use('/api/email-watcher', emailWatcherRoutes);
 app.use('/api/ai-gateway', authenticateToken, requireRole(['SUPERADMIN']), aiGatewayRoutes);
 app.use('/api/arusniaga', authenticateToken, requireRole(['SUPERADMIN']), arusniagaRoutes);
 // a workspace's AI API and wallet: scoped per org in the router
@@ -238,6 +242,11 @@ async function onListening() {
   console.log('🔍 Application status watcher started');
 
   startCronJobs();
+
+  // one IMAP connection per watched mailbox, each after a random pause
+  startEmailWatchers()
+    .then((count) => count && console.log(`📬 Watching ${count} mailbox(es)`))
+    .catch((err) => console.error('Could not start the email watchers:', err));
 
   // a raised DB_ORG_CONNECTION_LIMIT reaches the logins made before it
   applyConnectionLimits()
