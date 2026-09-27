@@ -784,9 +784,8 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
         return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
       }
       parentDomain = resolved.parent;
-      // a superadmin adding to a project with another workspace's domain: the app stays in the project's workspace
-      const superadmin = req.user?.role === 'SUPERADMIN';
-      organizationId = superadmin && joining?.organizationId ? joining.organizationId : resolved.organizationId;
+      // a platform admin adding to a project with another workspace's domain: the app stays in the project's workspace
+      organizationId = isPlatformAdmin(req) && joining?.organizationId ? joining.organizationId : resolved.organizationId;
       // a name another organization's app already answers on (at a path) is theirs
       const otherOrg = await hostRefused(domain, organizationId);
       if (otherOrg) return res.status(403).json({ success: false, error: otherOrg } as ApiResponse);
@@ -1394,8 +1393,8 @@ router.post('/:id/domains', authenticateToken, async (req: AuthenticatedRequest,
       // same ownership boundary as create — and a name never moves the app to another org
       const resolved = await resolveAppHost(req, host, application.organizationId);
       if ('error' in resolved) return res.status(resolved.status).json({ success: false, error: resolved.error } as ApiResponse);
-      // a superadmin may put any domain on any app: it stays in its own workspace
-      if (application.organizationId && resolved.organizationId !== application.organizationId && req.user?.role !== 'SUPERADMIN') {
+      // a platform admin may put any domain on any app: it stays in its own workspace
+      if (application.organizationId && resolved.organizationId !== application.organizationId && !isPlatformAdmin(req)) {
         return res.status(403).json({ success: false, error: "That domain belongs to another workspace — pick one of this app's workspace" } as ApiResponse);
       }
       const taken = await sharedHostTaken(resolved.parent, host, node);

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdmin } from "@/lib/auth";
 import { AlertTriangle, ArrowRight, CheckCircle, ExternalLink, Globe, Loader2, Plus, Settings2, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -388,10 +388,10 @@ export function RoutingCard({
 function AddRouteForm({ application, onAdded }: { application: Application; onAdded: () => Promise<void> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: allChoices = [], isLoading } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
-  // a host keeps the app in its org: shared zones, and that org's own — a superadmin gets every domain
+  const { data: allChoices = [], isLoading, error: choicesError } = useQuery({ queryKey: ["domains", "choices"], queryFn: getDomainChoices });
+  // a host keeps the app in its org: shared zones, and that org's own — a platform admin gets every domain
   const choices = useMemo(
-    () => (isSuperAdmin() ? allChoices : allChoices.filter((choice) => choice.shared || choice.organizationId === application.organizationId)),
+    () => (isAdmin() ? allChoices : allChoices.filter((choice) => choice.shared || choice.organizationId === application.organizationId)),
     [allChoices, application.organizationId],
   );
 
@@ -452,6 +452,8 @@ function AddRouteForm({ application, onAdded }: { application: Application; onAd
   };
 
   if (isLoading) return <Loader2 className="h-5 w-5 animate-spin" />;
+  // an empty picker would read as "no domains" — say it failed instead
+  if (choicesError) return <p className="text-sm text-destructive">{t("Could not load domains: {error}", { error: (choicesError as Error).message })}</p>;
   return (
     <div className="space-y-2">
       {/* a route opens the app; a redirect sends its visitors on to one of the hosts that does */}

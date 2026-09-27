@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CornerUpRight, Globe, HardDrive, Loader2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CornerUpRight, Globe, HardDrive, Loader2, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -28,6 +28,9 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 type Row = HostHealth & ReturnType<typeof appStatus>;
+/** A monitor line: an app with several hosts (shown by its worst one, opened like a task manager's group), or one host. */
+type Line = { kind: "app"; key: string; name: string; hosts: Row[]; top: Row } | { kind: "host"; key: string; row: Row; child: boolean };
+const rowOf = (line: Line) => (line.kind === "app" ? line.top : line.row);
 
 /** A count; coloured only when it is not zero, so a calm day looks calm. */
 function Tile({ label, value, icon: Icon, tone = "", hint }: { label: string; value: number | string; icon: typeof Globe; tone?: string; hint?: string }) {
@@ -107,7 +110,33 @@ export default function Dashboard() {
     attention: { label: t("Need attention"), test: (row: Row) => row.tone === "down" || row.tone === "warn", tone: "text-destructive", icon: AlertTriangle },
   };
   const [filter, setFilter] = useState<keyof typeof FILTERS | null>(null);
-  const shown = filter ? rows.filter(FILTERS[filter].test) : rows;
+  const search = query.search.toLowerCase();
+  const shown = (filter ? rows.filter(FILTERS[filter].test) : rows).filter(
+    (row) => !search || `${row.id} ${row.redirects?.join(" ") ?? ""} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search),
+  );
+  // hosts grouped by app, worst app first (rows are already worst first); a search opens every group
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const groups = new Map<string, { name: string; hosts: Row[] }>();
+  for (const row of shown) {
+    const key = row.app ? `app:${row.app.id}` : `service:${row.service.id}`;
+    const group = groups.get(key) ?? { name: row.app?.name ?? row.service.name, hosts: [] };
+    group.hosts.push(row);
+    groups.set(key, group);
+  }
+  const lines: Line[] = [...groups].flatMap(([key, { name, hosts }]): Line[] =>
+    hosts.length === 1
+      ? [{ kind: "host", key: hosts[0]!.id, row: hosts[0]!, child: false }]
+      : [
+          { kind: "app", key, name, hosts, top: hosts[0]! },
+          ...(expanded.has(key) || search ? hosts.map((row): Line => ({ kind: "host", key: row.id, row, child: true })) : []),
+        ],
+  );
   const chips = (
     <div className="flex shrink-0 gap-2">
       {(Object.keys(FILTERS) as Array<keyof typeof FILTERS>).map((key) => {
@@ -133,12 +162,24 @@ export default function Dashboard() {
     </div>
   );
 
-  const columns: Column<Row>[] = [
+  const columns: Column<Line>[] = [
     {
       header: t("Host"),
       className: "w-[34%]",
-      cell: ({ host, path, redirects }) => (
-        <>
+      cell: (line) => {
+        if (line.kind === "app") {
+          const open = expanded.has(line.key) || !!search;
+          return (
+            <button type="button" onClick={() => toggle(line.key)} aria-expanded={open} className="flex w-full min-w-0 items-center gap-1 text-left font-medium">
+              <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
+              <span className="truncate">{line.name}</span>
+              <span className="shrink-0 text-muted-foreground">({line.hosts.length})</span>
+            </button>
+          );
+        }
+        const { host, path, redirects } = line.row;
+        return (
+        <div className={line.child ? "pl-5" : ""}>
           <span className="block truncate font-medium">
             {host}
             {path && <span className="font-mono text-xs text-muted-foreground">{path}</span>}
@@ -150,14 +191,16 @@ export default function Dashboard() {
               {from}
             </span>
           ))}
-        </>
-      ),
+        </div>
+        );
+      },
     },
     {
       header: t("Status"),
       className: "w-20",
       // the dot alone; its words (and the last error) on hover
-      cell: ({ text, tone, health }) => {
+      cell: (line) => {
+        const { text, tone, health } = rowOf(line);
         const reason = health?.state !== "up" ? health?.lastError : null;
         return (
           <Tooltip>
@@ -177,23 +220,27 @@ export default function Dashboard() {
     {
       header: t("Last 30 checks"),
       className: "w-48",
-      cell: ({ health }) => <HeartbeatBar health={health} />,
+      cell: (line) => <HeartbeatBar health={rowOf(line).health} />,
     },
     {
       header: t("Uptime 24h"),
       className: "w-28 text-right",
-      cell: ({ health, tone }) =>
-        health?.uptime24h != null ? (
+      cell: (line) => {
+        const { health, tone } = rowOf(line);
+        return health?.uptime24h != null ? (
           <span className={tone === "down" ? "font-medium text-destructive" : ""}>{health.uptime24h}%</span>
         ) : (
           <span className="text-muted-foreground">—</span>
-        ),
+        );
+      },
     },
     {
       header: t("Response"),
       className: "w-24 text-right",
-      cell: ({ health }) =>
-        health?.responseMs != null ? <span className="text-sm">{health.responseMs} ms</span> : <span className="text-muted-foreground">—</span>,
+      cell: (line) => {
+        const { health } = rowOf(line);
+        return health?.responseMs != null ? <span className="text-sm">{health.responseMs} ms</span> : <span className="text-muted-foreground">—</span>;
+      },
     },
   ];
 
@@ -205,15 +252,14 @@ export default function Dashboard() {
       <div className="min-w-0 lg:col-span-2">
         <DataTable
           columns={columns}
-          rows={shown}
+          rows={lines}
           toolbar={chips}
-          rowKey={(row) => row.id}
+          rowKey={(line) => line.key}
           query={query}
           isLoading={isLoading}
           searchPlaceholder={t("Search hostname, app or service…")}
-          filter={(row, search) => `${row.id} ${row.redirects?.join(" ") ?? ""} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search.toLowerCase())}
           empty={t("No hostnames yet.")}
-          onRowClick={(row) => navigate(`/services/${row.service.id}`)}
+          onRowClick={(line) => (line.kind === "app" ? toggle(line.key) : navigate(`/services/${line.row.service.id}`))}
           // the rows scroll under a sticky header; the page stays one screen
           bodyClassName="max-h-[60vh]"
           sizePicker={false}
