@@ -37,13 +37,16 @@ export interface Mailbox {
   activeRules?: number;
 }
 
-export type FieldType = 'text' | 'amount';
+/** text, number, amount (money), date, code (an ID: text, zeros kept). None until the user picks one. */
+export type FieldType = 'text' | 'number' | 'amount' | 'date' | 'code';
+export const TYPE_LABEL: Record<FieldType, string> = { text: 'Free text', number: 'Numeric', amount: 'Money', date: 'Date', code: 'Code / ID' };
 /** Where a field reads — one part, never a mix. The body by default. */
 export type FieldSource = 'subject' | 'body' | 'from';
 export interface RuleField {
   name: string;
   pattern: string;
-  type: FieldType;
+  /** '' until picked — a field is not saved without one */
+  type: FieldType | '';
   source?: FieldSource;
 }
 
@@ -165,7 +168,18 @@ export interface ExtractLabel {
   type: FieldType;
   sample: number;
   value: string;
+  /** the part of the email it was marked in */
+  source: FieldSource;
 }
+
+/** A field name as the rule stores it: lowercase, spaces to _, nothing but letters, digits and _. */
+export const toFieldName = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
+    .replace(/^(\d)/, '_$1')
+    .slice(0, 40);
 
 export interface ExtractResult {
   fields: RuleField[];
@@ -176,5 +190,5 @@ export interface ExtractResult {
   left: number;
 }
 
-export const extractWithAi = async (mailboxId: string, body: { source: FieldSource; samples: string[]; labels: ExtractLabel[] }) =>
+export const extractWithAi = async (mailboxId: string, body: { samples: Array<{ from: string; subject: string; text: string }>; labels: ExtractLabel[] }) =>
   unwrap(await apiRequest<ExtractResult>(`/email-watcher/mailboxes/${mailboxId}/extract-ai`, send('POST', body)), t('Failed to extract with AI'));

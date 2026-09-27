@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Filter, FlaskConical, ScanText, Loader2, Mail, Pencil, Plus, Save, Send, ShieldAlert, Trash2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Filter, FlaskConical, ScanText, Sparkles, Loader2, Mail, Pencil, Plus, Save, Send, ShieldAlert, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import {
   MAILBOXES_KEY,
   previewRule,
   RULES_KEY,
+  toFieldName,
   updateRule,
   when,
   type Condition,
@@ -29,8 +30,11 @@ import {
   type PreviewRow,
   type RuleField,
   type RuleInput,
+  type FieldType,
+  TYPE_LABEL,
 } from "@/lib/emailWatcher";
 import { t } from "@/lib/i18n";
+import { ExtractAiDialog } from "@/components/ExtractAiDialog";
 import { conditionHolds, conditionInvalid, FIELD_LABEL, firstSpan, listOf, OP_LABEL, ruleHolds, usable } from "@/lib/emailConditions";
 
 const NONE = "none";
@@ -53,7 +57,7 @@ const inputOf = (r: RuleInput): RuleInput => ({
 /** Fields the preview can run: named, with a pattern the browser compiles (the server refuses the others). */
 const runnable = (fields: RuleField[]) =>
   fields.filter((f) => {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,39}$/.test(f.name) || !f.pattern) return false;
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,39}$/.test(f.name) || !f.pattern || !f.type) return false;
     try {
       new RegExp(f.pattern, "i");
       return true;
@@ -129,14 +133,14 @@ const TEMPLATES: Template[] = [
     label: "Date (20/09/2026, 20 Sep 2026)",
     name: "date",
     pattern: "(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}|\\d{1,2} [A-Za-z]{3,9} \\d{4})",
-    type: "text",
+    type: "date",
   },
   {
     id: "reference",
     label: "Reference number",
     name: "reference",
     pattern: "(?:no\\.?\\s*ref(?:erensi)?|ref(?:erence)?|no\\.?\\s*transaksi|trx\\s*id)\\s*[:#]?\\s*([A-Z0-9-]{6,})",
-    type: "text",
+    type: "code",
   },
   {
     id: "email",
@@ -150,7 +154,7 @@ const TEMPLATES: Template[] = [
     label: "First number",
     name: "number",
     pattern: "(\\d[\\d.,]*)",
-    type: "text",
+    type: "number",
   },
 ];
 const CUSTOM = "custom";
@@ -198,6 +202,7 @@ export default function EmailRule() {
   const [removing, setRemoving] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const [window, setWindow] = useState({ days: "60", limit: "30" });
 
   // the form starts from the saved rule, once
@@ -428,8 +433,23 @@ export default function EmailRule() {
           <TabsContent value="extract" className="mt-0 space-y-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">{t("Extract")}</CardTitle>
-                <p className="text-xs text-muted-foreground">{t("Values read out of each email and sent as its data. A pattern's first group (…) is the value.")}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">{t("Extract")}</CardTitle>
+                    <p className="text-xs text-muted-foreground">{t("Values read out of each email and sent as its data. A pattern's first group (…) is the value.")}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={!rows.some((r) => r.matched)}
+                    title={rows.some((r) => r.matched) ? undefined : t("Set a filter that takes some emails first")}
+                    onClick={() => setAiOpen(true)}
+                  >
+                    <Sparkles className="mr-2 h-4 w-4 text-primary" /> {t("Extract with AI")}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-2">
                 {fields.length === 0 && (
@@ -456,14 +476,17 @@ export default function EmailRule() {
                     <div key={i} className={`space-y-2 rounded-lg border border-l-4 bg-muted/20 p-2.5 ${found === 0 || badName || badPattern ? "border-l-destructive" : "border-l-primary/60"}`}>
                       <div className="flex items-center gap-1.5">
                         <span className={`h-3 w-3 shrink-0 rounded-sm ${MARKS[i % MARKS.length]}`} title={t("Its colour in the email")} />
-                        <Input aria-label={t("Field name")} className="h-8 min-w-0 flex-1 font-mono text-xs" placeholder="amount" value={f.name} onChange={(e) => setField(i, { name: e.target.value })} />
-                        <Select value={f.type} onValueChange={(type) => setField(i, { type: type as RuleField["type"] })}>
-                          <SelectTrigger className="h-8 w-auto gap-1 px-2 text-xs" aria-label={t("Type")}>
-                            <SelectValue />
+                        <Input aria-label={t("Field name")} className="h-8 min-w-0 flex-1 font-mono text-xs" placeholder="amount" value={f.name} onChange={(e) => setField(i, { name: toFieldName(e.target.value) })} />
+                        <Select value={f.type || undefined} onValueChange={(type) => setField(i, { type: type as FieldType })}>
+                          <SelectTrigger className={`h-8 w-28 shrink-0 gap-1 px-2 text-xs ${f.type ? "" : "border-warning text-warning"}`} aria-label={t("Type")}>
+                            <SelectValue placeholder={t("Pick a type")} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="text">{t("Text")}</SelectItem>
-                            <SelectItem value="amount">{t("Amount")}</SelectItem>
+                            {(Object.keys(TYPE_LABEL) as FieldType[]).map((type) => (
+                              <SelectItem key={type} value={type}>
+                                {t(TYPE_LABEL[type])}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         {found !== null && (
@@ -532,7 +555,7 @@ export default function EmailRule() {
                   );
                 })}
                 {fields.length > 0 && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => set({ fields: [...fields, { name: "", pattern: "", type: "text", source: "body" }] })}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => set({ fields: [...fields, { name: "", pattern: "", type: "", source: "body" }] })}>
                     <Plus className="mr-2 h-4 w-4" /> {t("Add field")}
                   </Button>
                 )}
@@ -715,6 +738,15 @@ export default function EmailRule() {
             )}
           </Card>
 
+          {aiOpen && saved && form && (
+            <ExtractAiDialog
+              mailboxId={saved.mailboxId}
+              rows={rows.filter((r) => r.matched)}
+              // a name the rule already has is replaced; the rest are added
+              onApply={(generated) => set({ fields: [...form.fields.filter((f) => !generated.some((g) => g.name === f.name)), ...generated] })}
+              onClose={() => setAiOpen(false)}
+            />
+          )}
           <Dialog open={!!current} onOpenChange={(o) => !o && setSelected(null)}>
             <DialogContent className="max-w-3xl">{current && <EmailView row={current} fields={runnable(fields)} filters={form} />}</DialogContent>
           </Dialog>

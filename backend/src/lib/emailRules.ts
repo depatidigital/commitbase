@@ -7,7 +7,12 @@ import * as vm from 'vm';
  * emailRules.check.ts.
  */
 
-export type FieldType = 'text' | 'amount';
+/**
+ * What a field holds, and so what it is sent as: text, number and amount (money) — the
+ * latter two as numbers — date, and code (an ID or reference: text, so leading zeros stay).
+ */
+export const FIELD_TYPES = ['text', 'number', 'amount', 'date', 'code'] as const;
+export type FieldType = (typeof FIELD_TYPES)[number];
 /** Where a field reads — one part, never a mix, so what it reads and what is marked stay unambiguous. */
 export type FieldSource = 'subject' | 'body' | 'from';
 export type Field = { name: string; pattern: string; type: FieldType; source?: FieldSource };
@@ -174,7 +179,7 @@ export function extractFields(fields: Field[], m: Message): Record<string, strin
   return Object.fromEntries(
     fields.map((f, i) => {
       const value = raw[i] == null ? null : String(raw[i]).trim();
-      return [f.name, value !== null && f.type === 'amount' ? parseAmount(value) : value];
+      return [f.name, value !== null && (f.type === 'amount' || f.type === 'number') ? parseAmount(value) : value];
     }),
   );
 }
@@ -195,7 +200,8 @@ export function validFields(input: unknown): Field[] | string {
     }
     if (fields.some((x) => x.name === name)) return `Field "${name}" is listed twice`;
     const source: FieldSource = f?.source === 'subject' || f?.source === 'from' ? f.source : 'body';
-    fields.push({ name, pattern, type: f?.type === 'amount' ? 'amount' : 'text', source });
+    if (!FIELD_TYPES.includes(f?.type)) return `Field "${name}": pick a type`;
+    fields.push({ name, pattern, type: f.type, source });
   }
   return fields;
 }

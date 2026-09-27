@@ -7,22 +7,32 @@ import { extractFields, type Field, type FieldSource, type FieldType, parseAmoun
  * went wrong. Nothing is saved here: the page applies the fields it is given.
  *
  * Only parts of the samples go to the model — around the marked values, else the start.
+ * Free, up to PER_DAY generations per workspace a day.
  */
 
 export type Label = { name: string; type: FieldType; sample: number; value: string };
 export type Check = { name: string; sample: number; expected: string; got: string | number | null; ok: boolean };
 
 const TIMEOUT_MS = 45_000;
+/** What each type's values look like, for the model. */
+const TYPE_HINT: Record<FieldType, string> = {
+  text: 'free text',
+  number: 'a number',
+  amount: 'money, like 150,000.00 or 1.250.000',
+  date: 'a date, maybe with a time',
+  code: 'an ID or reference code: letters and/or digits',
+};
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const CONTEXT = 1_200;
-const PER_DAY = 20;
+const PER_DAY = 100;
 
-// ponytail: in memory, per workspace and UTC day — a restart forgets the count; a table when it matters
+// ponytail: in memory, per workspace and UTC day — a restart forgets the counts; a table when it matters
 const used = new Map<string, number>();
+const today = (organizationId: string) => `${organizationId}:${new Date().toISOString().slice(0, 10)}`;
 
 /** One more generation for a workspace today, or false past the daily limit. */
 export function takeGeneration(organizationId: string) {
-  const key = `${organizationId}:${new Date().toISOString().slice(0, 10)}`;
+  const key = today(organizationId);
   const count = used.get(key) ?? 0;
   if (count >= PER_DAY) return false;
   used.set(key, count + 1);
@@ -30,7 +40,13 @@ export function takeGeneration(organizationId: string) {
   return true;
 }
 
-export const generationsLeft = (organizationId: string) => PER_DAY - (used.get(`${organizationId}:${new Date().toISOString().slice(0, 10)}`) ?? 0);
+/** Hand a generation back — the AI failed, nothing was made. */
+export function returnGeneration(organizationId: string) {
+  const key = today(organizationId);
+  used.set(key, Math.max(0, (used.get(key) ?? 1) - 1));
+}
+
+export const generationsLeft = (organizationId: string) => PER_DAY - (used.get(today(organizationId)) ?? 0);
 
 const messageOf = (source: FieldSource, text: string) => ({ from: source === 'from' ? text : '', subject: source === 'subject' ? text : '', text: source === 'body' ? text : '' });
 
@@ -44,7 +60,7 @@ function excerpt(text: string, labels: Label[]) {
 
 /** A value read back matches the marked one: the same text, or the same amount. */
 const same = (label: Label, got: string | number | null) =>
-  got !== null && (label.type === 'amount' ? got === parseAmount(label.value) : String(got).trim().toLowerCase() === label.value.trim().toLowerCase());
+  got !== null && (label.type === 'amount' || label.type === 'number' ? got === parseAmount(label.value) : String(got).trim().toLowerCase() === label.value.trim().toLowerCase());
 
 function check(fields: Field[], source: FieldSource, samples: string[], labels: Label[]): Check[] {
   return labels.map((l) => {
@@ -95,7 +111,7 @@ export async function generateFields(source: FieldSource, samples: string[], lab
   const names = [...new Set(labels.map((l) => l.name))];
   const typeOf = (name: string) => labels.find((l) => l.name === name)!.type;
   const shown = samples.map((text, i) => `### Email ${i + 1}\n${excerpt(text, labels.filter((l) => l.sample === i))}`).join('\n\n');
-  const marked = labels.map((l) => `- ${l.name} = "${l.value}" (in email ${l.sample + 1})`).join('\n');
+  const marked = labels.map((l) => `- ${l.name} (${TYPE_HINT[l.type]}) = "${l.value}" (in email ${l.sample + 1})`).join('\n');
   const base = `The ${source === 'from' ? 'sender line' : source} of ${samples.length} email(s):\n\n${shown}\n\nValues to read, with examples:\n${marked}\n\nWrite one expression for each name: ${names.join(', ')}.`;
 
   const toFields = (answer: Array<{ name: string; pattern: string }>): Field[] =>
@@ -131,5 +147,32 @@ export async function generateFields(source: FieldSource, samples: string[], lab
     checks,
     // what the fields read out of every sample, marked or not
     values: samples.map((text) => extractFields(fields.filter((f) => f.pattern), messageOf(source, text))),
+  };
+}
+
+/** A sample email as the page shows it: its three parts. */
+export type Sample = { from: string; subject: string; text: string };
+
+const partOf = (sample: Sample, source: FieldSource) => (source === 'subject' ? sample.subject : source === 'from' ? sample.from : sample.text);
+
+/**
+ * Marks made anywhere in the samples — sender, subject or body. Each part's marks get
+ * their own patterns (a field reads one part), then the results are put back together.
+ */
+export async function generateAll(samples: Sample[], labels: Array<Label & { source: FieldSource }>) {
+  const sources = [...new Set(labels.map((l) => l.source))];
+  const parts = await Promise.all(
+    sources.map((source) =>
+      generateFields(
+        source,
+        samples.map((sample) => partOf(sample, source)),
+        labels.filter((l) => l.source === source),
+      ),
+    ),
+  );
+  return {
+    fields: parts.flatMap((p) => p.fields),
+    checks: parts.flatMap((p) => p.checks),
+    values: samples.map((_, i) => Object.assign({}, ...parts.map((p) => p.values[i]))),
   };
 }

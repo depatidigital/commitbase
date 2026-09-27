@@ -193,6 +193,36 @@ export default {
   "Read from": "Baca dari",
   "Add a filter to narrow them.": "Tambah filter untuk menyaring.",
 
+  // extract with AI
+  "Extract with AI": "Ekstrak dengan AI",
+  "Set a filter that takes some emails first": "Atur filter yang mengambil beberapa email dulu",
+  "Failed to extract with AI": "Gagal mengekstrak dengan AI",
+  "Show the AI which values to read; it writes the patterns and checks them on these emails.":
+    "Tunjukkan ke AI nilai mana yang dibaca; AI membuat polanya dan mengeceknya pada email-email ini.",
+  "Select a value": "Blok nilai",
+  "Give it a name": "Beri nama",
+  "The AI writes the pattern": "AI membuat pola",
+  "Previous email": "Email sebelumnya",
+  "Email {n} of {total}": "Email {n} dari {total}",
+  "Next email": "Email berikutnya",
+  Label: "Label",
+  "Select text in the email to label it. Mark it in a second email too: the AI learns what stays the same.":
+    "Blok teks di email untuk memberinya label. Tandai juga di email kedua: AI jadi tahu bagian mana yang tetap.",
+  "No pattern for {name}. Label it in another email and try again.": "Tidak ada pola untuk {name}. Labeli juga di email lain lalu coba lagi.",
+  "Free, up to 100 a day. Parts of these emails are sent to the AI to write the patterns.":
+    "Gratis, maksimal 100 per hari. Sebagian isi email ini dikirim ke AI untuk membuat pola.",
+  "{left} left today.": "Sisa {left} hari ini.",
+  "Apply {n} field(s)": "Terapkan {n} field",
+  "Generate again": "Generate ulang",
+
+  // field types
+  "Pick a type": "Pilih tipe",
+  "Free text": "Teks bebas",
+  Numeric: "Angka",
+  Money: "Uang",
+  Date: "Tanggal",
+  "Code / ID": "Kode / ID",
+
   // events
   Received: "Diterima",
   Read: "Terbaca",

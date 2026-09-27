@@ -60,7 +60,7 @@ assert.deepEqual(validConditions([c('subject', 'in', ' dana ')]), [c('subject', 
 
 const fields = validFields([
   { name: 'amount', pattern: 'Rp\\s*([\\d.,]+)', type: 'amount', source: 'subject' },
-  { name: 'source', pattern: 'dari (\\S+) telah berhasil', source: 'subject' },
+  { name: 'source', pattern: 'dari (\\S+) telah berhasil', type: 'text', source: 'subject' },
 ]);
 assert.ok(Array.isArray(fields));
 assert.deepEqual(extractFields(fields, bni), { amount: 150000, source: 'DANA' });
@@ -70,10 +70,15 @@ const reference = { name: 'ref', pattern: 'Referensi: (\\S+)', type: 'text' as c
 assert.deepEqual(extractFields([{ ...reference, source: 'body' }], bni), { ref: 'F1260PIQ9P' });
 assert.deepEqual(extractFields([{ ...reference, source: 'subject' }], bni), { ref: null });
 assert.deepEqual(extractFields([{ name: 'bank', pattern: '@([\\w.]+)>', type: 'text', source: 'from' }], bni), { bank: 'bni.co.id' });
-assert.deepEqual((validFields([{ name: 'x', pattern: 'a', source: 'nowhere' }]) as Field[])[0]!.source, 'body');
-assert.deepEqual((validFields([{ name: 'x', pattern: 'a', source: 'all' }]) as Field[])[0]!.source, 'body');
-assert.equal(typeof validFields([{ name: 'x', pattern: '(' }]), 'string');
-assert.equal(typeof validFields([{ name: 'bad name', pattern: 'a' }]), 'string');
+assert.deepEqual((validFields([{ name: 'x', pattern: 'a', type: 'text', source: 'nowhere' }]) as Field[])[0]!.source, 'body');
+assert.deepEqual((validFields([{ name: 'x', pattern: 'a', type: 'text', source: 'all' }]) as Field[])[0]!.source, 'body');
+// a type is picked, never assumed; numbers and money are sent as numbers, codes keep their zeros
+assert.equal(validFields([{ name: 'x', pattern: 'a' }]), 'Field "x": pick a type');
+const rrn = { from: '', subject: '', text: 'RRN 020716021463 · Biaya 1.500' };
+assert.deepEqual(extractFields([{ name: 'rrn', pattern: 'RRN (\\d+)', type: 'code' }], rrn), { rrn: '020716021463' });
+assert.deepEqual(extractFields([{ name: 'fee', pattern: 'Biaya ([\\d.]+)', type: 'number' }], rrn), { fee: 1500 });
+assert.equal(typeof validFields([{ name: 'x', pattern: '(', type: 'text' }]), 'string');
+assert.equal(typeof validFields([{ name: 'bad name', pattern: 'a', type: 'text' }]), 'string');
 
 // a catastrophic pattern times out instead of hanging the process
 const started = Date.now();
