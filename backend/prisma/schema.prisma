@@ -34,6 +34,11 @@ model User {
   projectMembers   ProjectMember[]
   databasesCreated Database[]       @relation("DatabaseCreator")
   billingFor       Organization[]   @relation("OrgBillingUser")
+  /// the wallet this user pays their workspaces from (one balance, shared by all they pay for)
+  wallet           Wallet?
+  walletEntries    WalletEntry[]
+  topUps           TopUp[]
+  aiAccount        AiAccount?
 
   @@map("users")
 }
@@ -57,15 +62,12 @@ model Organization {
   /// org's first provisioning (adopted from the node when the user already exists).
   uid Int? @unique
 
-  /// Who pays: an OWNER, sent its statements and balance warnings. Null, or no
-  /// longer an OWNER, means its longest-standing OWNER (walletService.billingUserOf).
+  /// Who pays: an OWNER — charged from their wallet, sent the balance warnings. Null, or
+  /// no longer an OWNER, means its longest-standing OWNER (walletService.billingUserOf).
   billingUserId String?
-  billingUser   User?   @relation("OrgBillingUser", fields: [billingUserId], references: [id], onDelete: SetNull)
-  /// Its apps stopped: the balance went past the negative limit (walletService.guardWallet). Cleared by a top-up.
+  billingUser   User?     @relation("OrgBillingUser", fields: [billingUserId], references: [id], onDelete: SetNull)
+  /// Its apps stopped: its payer's balance went past the negative limit (walletService.guardWallet). Cleared by a top-up.
   suspendedAt   DateTime?
-  /// The last balance warning mailed to the billing user — LOW | NEGATIVE | STOPPED — and when, so each goes once (NEGATIVE daily).
-  balanceNotice   String?
-  balanceNoticeAt DateTime?
 
   // Which database server this org's databases are created on, per engine.
   // Same rule as serverId: null means "not placed", and creating a database
@@ -86,8 +88,7 @@ model Organization {
   sources          Source[]
   usage            UsageHour[]
   storageDays      StorageDay[]
-  aiAccount        AiAccount?
-  wallet           Wallet?
+  aiKeys           AiKey[]
   topUps           TopUp[]
   walletEntries    WalletEntry[]
 
@@ -369,24 +370,24 @@ model Invite {
 }
 
 model Application {
-  id      String      @id @default(cuid())
-  name    String
+  id                String      @id @default(cuid())
+  name              String
   /// The hostnames (and paths) it answers on — one or more, all alike (AppDomain).
-  domains AppDomain[]
+  domains           AppDomain[]
   /// What Caddy sends its requests to — `{ kind: 'proxy', port }`, `{ kind:
   /// 'files', root, spa }`, `{ kind: 'php', root, socket }`, `{ kind: 'bucket',
   /// origin }`, `{ kind: 'placeholder' }` (hostRouteService). Written by the
   /// deploy for the panel's apps and by the sync for imported ones; a hostname's
   /// route is composed from the serve of every app bound to it.
-  serve   Json?
-  type    AppType
-  status  AppStatus   @default(STOPPED)
+  serve             Json?
+  type              AppType
+  status            AppStatus   @default(STOPPED)
   /// Stopped by the panel when the workspace ran past its negative limit — started again on a top-up.
-  stoppedForBalance Boolean @default(false)
-  port    Int?
-  memory  String?
-  cpu     String?
-  uptime  String?
+  stoppedForBalance Boolean     @default(false)
+  port              Int?
+  memory            String?
+  cpu               String?
+  uptime            String?
 
   // Where the code comes from — repository, branch, clone account, releases.
   // Several apps of one monorepo share a source. Null only until
@@ -419,7 +420,7 @@ model Application {
   preDeployCommand String?
   /// After the build: devDependencies removed from the release (pnpm prune --prod).
   /// Not when the start command runs one (tsx, ts-node, nodemon) — deployment.ts.
-  pruneDevDeps     Boolean @default(false)
+  pruneDevDeps     Boolean  @default(false)
   /// System requirements (lib/systemPackages): keys like "libreoffice" that
   /// deploy makes sure are installed on the app's node. A record of what the
   /// app needs, not a switch — once installed, every app on the node has them.
@@ -1072,81 +1073,107 @@ model WaNumber {
   @@map("wa_numbers")
 }
 
-/// A workspace's account on the AI gateway (larika-ai-gateway). The gateway has no
-/// tenants and knows buy prices only: its keys and metered usage live there
-/// (accountId); what it is sold for, and to whom, is ours.
+/// A payer's account on the AI gateway (larika-ai-gateway): one spend cap over every
+/// workspace they pay for, so one balance cannot be spent twice. The gateway has no
+/// tenants and knows buy prices only; which workspace each key belongs to is AiKey.
 model AiAccount {
-  organizationId String       @id
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  accountId      String       @unique
+  userId      String   @id
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId   String   @unique
   /// the gateway's `spent` covered by what we billed so far — micro-USD, buy cost.
   /// The next spend cap is this plus what the balance buys.
-  billedSpent    BigInt       @default(0)
-  createdAt      DateTime     @default(now())
+  billedSpent BigInt   @default(0)
+  createdAt   DateTime @default(now())
 
   @@map("ai_accounts")
 }
 
-/// A workspace's rupiah balance. `balance` is the sum of its entries, kept in the
-/// same transaction that writes one. AI and hosting charge it; WhatsApp can later.
-model Wallet {
-  organizationId String       @id
+/// A gateway key, and the workspace it belongs to: its usage is that workspace's lines,
+/// and it moves to the new payer's account when the workspace changes payer.
+model AiKey {
+  keyId          String       @id
+  organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@map("ai_keys")
+}
+
+/// A user's rupiah balance, shared by every workspace they pay for (its billing user).
+/// `balance` is the sum of their entries, kept in the same transaction that writes one.
+/// AI, hosting and domains charge it; top-ups, gifts and the welcome credit fill it.
+model Wallet {
+  userId             String    @id
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// micro-IDR: an AI call can cost a fraction of a rupiah
-  balance        BigInt       @default(0)
-  /// the workspace as a customer (contact) in ArusNiaga, where its top-up invoices are issued
+  balance            BigInt    @default(0)
+  /// the user as a customer (contact) in ArusNiaga, where top-up invoices are issued
   arusniagaContactId String?
-  updatedAt      DateTime     @updatedAt
+  /// the last balance warning mailed — LOW | NEGATIVE | STOPPED — and when, so each goes once (NEGATIVE daily)
+  balanceNotice      String?
+  balanceNoticeAt    DateTime?
+  updatedAt          DateTime  @updatedAt
 
   @@map("wallets")
 }
 
 /// A top-up: an invoice issued in ArusNiaga (erp.depatidigital.com). When it is paid there,
-/// the wallet is credited once (a TOPUP entry, ref `topup:<id>`).
+/// the user's wallet is credited once (a TOPUP entry, ref `topup:<id>`).
 model TopUp {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String        @id @default(cuid())
+  /// whose wallet it fills
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// the workspace it was made from, if any
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   /// micro-IDR the wallet gets when paid
   amount         BigInt
   /// PENDING | PAID | CANCELLED | EXPIRED
-  status         String       @default("PENDING")
+  status         String        @default("PENDING")
   /// the invoice in ArusNiaga
-  invoiceId      String?      @unique
+  invoiceId      String?       @unique
   invoiceRef     String?
   invoiceUrl     String?
   /// what the invoice asks for, rupiah (the amount, plus tax or a unique code once ArusNiaga adds them)
   invoiceTotal   Float?
   createdById    String?
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime      @default(now())
   paidAt         DateTime?
   /// last time its invoice was asked about
   checkedAt      DateTime?
 
   @@index([status])
-  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
   @@map("top_ups")
 }
 
 /// Money in or out of a wallet. Append-only — a correction is a new entry.
 model WalletEntry {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  /// TOPUP | ADJUST | WELCOME | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN
+  id             String        @id @default(cuid())
+  /// whose wallet
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// the workspace it was spent on (usage, domains, their refunds); null for money in —
+  /// top-ups, gifts, welcome credit, adjustments. Kept when the workspace is deleted.
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  /// TOPUP | ADJUST | WELCOME | GIFT | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN
   kind           String
   /// micro-IDR, signed
   amount         BigInt
   /// what makes it once-only: TOPUP the payment id, ADJUST its own id,
-  /// WELCOME `welcome:<userId>` — once per user, AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry
+  /// WELCOME `welcome:<userId>` — once per user, GIFT `gift:<uuid>` — a platform admin's gift, AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry
   /// a day per model, added to as calls are billed, HOSTING_USAGE `host:<org>:<WIB day>` — the day's cost, rewritten as it grows
   /// DOMAIN `domain:<id>:register` / `domain:<id>:renew:<uuid>`, REFUND `refund:<the charge ref>`
-  ref            String       @unique
+  ref            String        @unique
   note           String?
   createdById    String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
+  @@index([userId, createdAt])
   @@index([organizationId, createdAt])
   @@map("wallet_entries")
 }

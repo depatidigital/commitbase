@@ -32,7 +32,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Loader2, Mail, Trash2 } from "lucide-react";
+import { ArrowLeft, Gift, Loader2, Mail, Trash2 } from "lucide-react";
+import { GiftCreditDialog } from "@/components/GiftCreditDialog";
+import { fromMicro, rupiah } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -88,6 +90,7 @@ export default function OrganizationDetail() {
 
   // the node whose provisioning output is open
   const [logNodeId, setLogNodeId] = useState<string | null>(null);
+  const [gifting, setGifting] = useState(false);
 
   const { data: org, isLoading } = useQuery({
     queryKey: ["organizations", id],
@@ -341,7 +344,21 @@ export default function OrganizationDetail() {
         domains: org._count.domains,
         apps: org._count.applications,
       })}`}
+      actions={
+        // the balance comes back only for platform admins, who may gift credit
+        org.balance !== undefined && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {t("Balance")}: <span className={`font-medium tabular-nums ${fromMicro(org.balance) < 0 ? "text-destructive" : "text-foreground"}`}>{rupiah(fromMicro(org.balance))}</span>
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setGifting(true)}>
+              <Gift className="mr-2 h-4 w-4" /> {t("Gift credit")}
+            </Button>
+          </div>
+        )
+      }
     >
+      {gifting && <GiftCreditDialog organizationId={org.id} name={org.name} onClose={() => setGifting(false)} />}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("Servers")}</CardTitle>

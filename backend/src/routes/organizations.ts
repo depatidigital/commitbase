@@ -9,7 +9,7 @@ import { canManageOrg, getMemberships, getOrgIds, getOrgRole, isPlatformAdmin } 
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
 import { queueOrgNode, orgNodesInclude } from '../services/orgProvisionService';
-import { billingUserOf, grantWelcomeCredit } from '../services/walletService';
+import { addWalletEntry, billingUserOf, GIFT_MAX, GIFT_MIN, grantWelcomeCredit, MICRO } from '../services/walletService';
 
 const router: Router = Router();
 
@@ -351,10 +351,47 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 
     const memberships = await getMemberships(req);
     const myRole = memberships.find((m) => m.organizationId === id)?.role ?? null;
+    // platform admins see the balance here, to gift credit (micro-IDR, a string: BigInt)
+    const balance = isPlatformAdmin(req)
+      ? String((await prisma.wallet.findUnique({ where: { organizationId: id }, select: { balance: true } }))?.balance ?? 0n)
+      : undefined;
 
-    return res.json({ success: true, data: { ...organization, myRole } } as ApiResponse);
+    return res.json({ success: true, data: { ...organization, myRole, balance } } as ApiResponse);
   } catch (error) {
     console.error('Error fetching organization:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/**
+ * Gift credit to a workspace — platform admins (ADMIN, SUPERADMIN): a GIFT entry on its
+ * statement with the admin who gave it, and its caps and stopped apps follow. Rupiah,
+ * whole, GIFT_MIN to GIFT_MAX; corrections (and taking back) are the superadmin's ADJUST.
+ */
+router.post('/:id/gift', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isPlatformAdmin(req)) return forbidden(res);
+    const id = req.params.id as string;
+    const amount = Number(req.body?.amount);
+    const note = String(req.body?.note ?? '').trim().slice(0, 200);
+    if (!Number.isInteger(amount) || amount < GIFT_MIN || amount > GIFT_MAX) {
+      return res.status(400).json({ success: false, error: `A gift is from Rp ${GIFT_MIN.toLocaleString('id-ID')} to Rp ${GIFT_MAX.toLocaleString('id-ID')}` } as ApiResponse);
+    }
+    if (!(await prisma.organization.findUnique({ where: { id }, select: { id: true } }))) {
+      return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+    }
+    await addWalletEntry({
+      organizationId: id,
+      kind: 'GIFT',
+      amount: BigInt(amount) * MICRO,
+      ref: `gift:${crypto.randomUUID()}`,
+      note: note ? `Gift · ${note}` : 'Gift',
+      createdById: req.user!.userId,
+    });
+    const balance = (await prisma.wallet.findUnique({ where: { organizationId: id }, select: { balance: true } }))?.balance ?? 0n;
+    return res.json({ success: true, data: { balance: String(balance) } } as ApiResponse);
+  } catch (error) {
+    console.error('Error gifting credit:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

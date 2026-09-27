@@ -46,4 +46,17 @@ export default {
     "Workspace mengisi ulang dari halaman Pemakaian: setiap isi ulang adalah tagihan di ArusNiaga, dibayar di halaman tagihannya.",
   "When ArusNiaga shows it paid, the balance is credited within a minute. Unpaid invoices stop being checked after 14 days.":
     "Setelah ArusNiaga mencatatnya lunas, saldo bertambah dalam satu menit. Tagihan yang belum dibayar berhenti dicek setelah 14 hari.",
+
+  // gift credit (workspace detail, platform admins)
+  Gift: "Hadiah",
+  "Gift credit": "Beri saldo",
+  "Gift credit to {name}": "Beri saldo ke {name}",
+  "Added to its balance at once, shown on its statement as a gift. It cannot be taken back here.":
+    "Langsung masuk ke saldonya, tampil di riwayatnya sebagai hadiah. Tidak bisa ditarik kembali dari sini.",
+  "e.g. Beta tester, sorry for the downtime": "mis. Penguji beta, permintaan maaf atas gangguan",
+  "Shown on the workspace's statement.": "Tampil di riwayat saldo workspace.",
+  "Gift {amount}": "Beri {amount}",
+  "Credit gifted": "Saldo diberikan",
+  "{name} now has {balance}.": "{name} sekarang punya {balance}.",
+  "Could not gift the credit": "Gagal memberi saldo",
 } satisfies Record<string, string>;

@@ -12,12 +12,15 @@ import { currentRate, daysInMonthOf, priceOf, usageByDay, WIB_MS, wibDayStart } 
 export const MICRO = 1_000_000n;
 /** What a new user starts with, once: enough to deploy and try things before paying. */
 export const WELCOME_CREDIT = 50_000n * MICRO;
+/** A gift from a platform admin: rupiah, whole — the ceiling keeps a typo from giving away millions. */
+export const GIFT_MIN = 1_000;
+export const GIFT_MAX = 10_000_000;
 
 /**
  * Money in or out: one entry, and the balance moved in the same transaction.
  * Once per ref — a repeated ref (a payment webhook sent twice) changes nothing and returns false.
  */
-export async function addWalletEntry(entry: { organizationId: string; kind: 'TOPUP' | 'ADJUST' | 'WELCOME' | 'REFUND'; amount: bigint; ref: string; note?: string; createdById?: string }) {
+export async function addWalletEntry(entry: { organizationId: string; kind: 'TOPUP' | 'ADJUST' | 'WELCOME' | 'REFUND' | 'GIFT'; amount: bigint; ref: string; note?: string; createdById?: string }) {
   try {
     await prisma.$transaction([
       prisma.walletEntry.create({ data: entry }),
