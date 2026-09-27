@@ -88,7 +88,6 @@ async function ruleFrom(body: any, organizationId: string, partial = false) {
   text('fromContains', 200);
   text('subjectContains', 200);
   text('bodyContains', 200);
-  if (!partial && !data.fromContains && !data.subjectContains) throw new UserError('Filter on the sender or the subject, so the rule does not take every email');
   if (body?.onlyVerified !== undefined) data.onlyVerified = !!body.onlyVerified;
   if (body?.active !== undefined) data.active = !!body.active;
   if (body?.fields !== undefined) {
@@ -258,7 +257,7 @@ router.post('/mailboxes/:id/preview', async (req: AuthenticatedRequest, res: Res
     };
     if (!rule.fromContains.trim() && !rule.subjectContains.trim()) return bad(res, 'Filter on the sender or the subject first');
     const settings = { host: box.host, port: box.port, secure: box.secure, username: box.username, password: decrypt(box.passwordEnc) };
-    return res.json({ success: true, data: await previewRule(settings, rule) } as ApiResponse);
+    return res.json({ success: true, data: await previewRule(box.id, settings, rule) } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
@@ -289,10 +288,25 @@ router.post('/mailboxes/:id/rules', async (req: AuthenticatedRequest, res: Respo
     const box = await mailboxFor(req, req.params.id);
     if (!box) return bad(res, 'Mailbox not found', 404);
     const data = await ruleFrom(req.body, box.organizationId);
+    // made from a name alone: off until the editor gives it a sender or subject filter
+    if (!data.fromContains && !data.subjectContains) data.active = false;
     const rule = await prisma.emailRule.create({ data: { ...(data as any), mailboxId: box.id, webhookSecret: randomBytes(24).toString('hex') } });
     // saved either way; a balance that does not cover today pauses the mailbox, said as a warning
     const watching = await syncMailbox(box.id);
     return res.status(201).json({ success: true, data: { ...rule, ...(!watching && { warning: NO_BALANCE }) } } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+/** One rule for its editor: the rule, its mailbox and the WhatsApp numbers it may send from. */
+router.get('/rules/:id', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rule = await ruleFor(req, req.params.id);
+    if (!rule) return bad(res, 'Rule not found', 404);
+    const waNumbers = await prisma.waNumber.findMany({ where: { organizationId: rule.mailbox.organizationId }, select: { id: true, name: true, organizationId: true } });
+    const { mailbox, ...rest } = rule;
+    return res.json({ success: true, data: { ...rest, mailbox: { id: mailbox.id, email: mailbox.email, organizationId: mailbox.organizationId }, waNumbers } } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
@@ -303,8 +317,9 @@ router.patch('/rules/:id', async (req: AuthenticatedRequest, res: Response) => {
     const rule = await ruleFor(req, req.params.id);
     if (!rule) return bad(res, 'Rule not found', 404);
     const data = await ruleFrom(req.body, rule.mailbox.organizationId, true);
-    if (!(data.fromContains ?? rule.fromContains) && !(data.subjectContains ?? rule.subjectContains)) {
-      return bad(res, 'Filter on the sender or the subject, so the rule does not take every email');
+    // on, a rule without a sender or subject filter would take every email
+    if ((data.active ?? rule.active) && !(data.fromContains ?? rule.fromContains) && !(data.subjectContains ?? rule.subjectContains)) {
+      return bad(res, 'Filter on the sender or the subject before turning the rule on, so it does not take every email');
     }
     if (req.body?.newSecret) data.webhookSecret = randomBytes(24).toString('hex');
     const updated = await prisma.emailRule.update({ where: { id: rule.id }, data });

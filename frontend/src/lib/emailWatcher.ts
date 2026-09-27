@@ -77,7 +77,10 @@ export interface PreviewRow {
   from: string;
   subject: string;
   verified: boolean;
-  snippet: string;
+  /** the body filter lets it through too — the sender and subject ones already did */
+  matched: boolean;
+  /** the text body, as the fields read it (after the subject line) */
+  text: string;
   data: Record<string, string | number | null>;
 }
 
@@ -117,15 +120,18 @@ export const addMailbox = async (body: { organizationId?: string; email: string;
 
 export const getRules = async () => unwrap(await apiRequest<RulesOverview>('/email-watcher/rules'), t('Failed to fetch the rules'));
 
+export const getRule = async (id: string) =>
+  unwrap(await apiRequest<Rule & { waNumbers: RulesOverview['waNumbers'] }>(`/email-watcher/rules/${id}`), t('Failed to fetch the rule'));
+
 export const updateMailbox = async (id: string, body: Partial<{ host: string; port: number; secure: boolean; username: string; password: string; paused: boolean }>) =>
   unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('PATCH', body)), t('Failed to update the mailbox'));
 
 export const deleteMailbox = async (id: string) => unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('DELETE')), t('Failed to delete the mailbox'));
 
 export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'fromContains' | 'subjectContains' | 'bodyContains' | 'fields'>) =>
-  unwrap(await apiRequest<{ scanned: number; rows: PreviewRow[] }>(`/email-watcher/mailboxes/${mailboxId}/preview`, send('POST', rule)), t('Failed to try the rule'));
+  unwrap(await apiRequest<{ rows: PreviewRow[] }>(`/email-watcher/mailboxes/${mailboxId}/preview`, send('POST', rule)), t('Failed to try the rule'));
 
-export const createRule = async (mailboxId: string, rule: RuleInput) =>
+export const createRule = async (mailboxId: string, rule: Partial<RuleInput> & { name: string }) =>
   unwrap(await apiRequest<Rule & { warning?: string }>(`/email-watcher/mailboxes/${mailboxId}/rules`, send('POST', rule)), t('Failed to save the rule'));
 
 export const updateRule = async (id: string, rule: Partial<RuleInput> & { newSecret?: boolean }) =>

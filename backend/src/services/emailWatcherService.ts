@@ -163,31 +163,53 @@ const textOf = (m: Pick<Parsed, 'subject' | 'text'>) => `${m.subject}\n${m.text}
 type RuleLike = { fromContains: string; subjectContains: string; bodyContains: string; fields: unknown };
 
 /**
- * A rule tried on the last 30 days of INBOX, before it is saved: the newest 20 messages
- * it takes, with what it reads out of them. Nothing is stored.
+ * The rule editor's emails: the newest 30 of the last 30 days the sender and subject
+ * filters take, read once over IMAP and kept a few minutes — the editor asks again on
+ * every change, and a new field or body filter should not mean a new login.
  */
-export async function previewRule(s: ImapSettings, rule: RuleLike) {
-  const fields = rule.fields as Field[];
-  return withClient(s, async (client) => {
+const PREVIEW_TTL_MS = 5 * 60_000;
+const previewCache = new Map<string, { at: number; messages: Array<Parsed & { uid: number }> }>();
+
+async function previewMessages(cacheKey: string, s: ImapSettings, from: string, subject: string) {
+  const key = `${cacheKey}|${from.toLowerCase()}|${subject.toLowerCase()}`;
+  const hit = previewCache.get(key);
+  if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.messages;
+  const messages = await withClient(s, async (client) => {
     await client.mailboxOpen('INBOX', { readOnly: true });
     const since = new Date(Date.now() - 30 * 86_400_000);
-    const uids = (await client.search(
-      { since, ...(rule.fromContains.trim() && { from: rule.fromContains.trim() }), ...(rule.subjectContains.trim() && { subject: rule.subjectContains.trim() }) },
-      { uid: true },
-    )) || [];
-    const recent = uids.sort((a, b) => b - a).slice(0, 40);
-    if (!recent.length) return { scanned: 0, rows: [] };
-    const messages = await client.fetchAll(recent.join(','), { uid: true, source: { maxLength: 512_000 } }, { uid: true });
-    const rows = [];
-    for (const msg of messages.sort((a, b) => b.uid - a.uid)) {
-      if (!msg.source) continue;
-      const m = await parse(msg.source, `uid:${msg.uid}`);
-      if (!ruleMatches(rule, m)) continue;
-      rows.push({ uid: msg.uid, date: m.date, from: m.from, subject: m.subject, verified: m.verified, snippet: m.text.slice(0, 300), data: extractFields(fields, textOf(m)) });
-      if (rows.length >= 20) break;
-    }
-    return { scanned: messages.length, rows };
+    const uids = (await client.search({ since, ...(from && { from }), ...(subject && { subject }) }, { uid: true })) || [];
+    const recent = uids.sort((a, b) => b - a).slice(0, 30);
+    if (!recent.length) return [];
+    const fetched = await client.fetchAll(recent.join(','), { uid: true, source: { maxLength: 512_000 } }, { uid: true });
+    const parsed = [];
+    for (const msg of fetched.sort((a, b) => b.uid - a.uid)) if (msg.source) parsed.push({ uid: msg.uid, ...(await parse(msg.source, `uid:${msg.uid}`)) });
+    return parsed;
   });
+  // ponytail: a plain map, the oldest dropped past 50 entries — an editor's few minutes, not a store
+  if (previewCache.size >= 50) previewCache.delete(previewCache.keys().next().value!);
+  previewCache.set(key, { at: Date.now(), messages });
+  return messages;
+}
+
+/**
+ * A rule tried on real mail: every email its sender and subject filters take, whether the
+ * body filter lets it through too, and what the fields read out of it. Nothing is stored.
+ */
+export async function previewRule(cacheKey: string, s: ImapSettings, rule: RuleLike) {
+  const fields = rule.fields as Field[];
+  const messages = await previewMessages(cacheKey, s, rule.fromContains.trim(), rule.subjectContains.trim());
+  return {
+    rows: messages.map((m) => ({
+      uid: m.uid,
+      date: m.date,
+      from: m.from,
+      subject: m.subject,
+      verified: m.verified,
+      matched: ruleMatches(rule, m),
+      text: m.text.slice(0, 5_000),
+      data: extractFields(fields, textOf(m)),
+    })),
+  };
 }
 
 // ── The watcher ──
