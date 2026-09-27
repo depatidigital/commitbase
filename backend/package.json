@@ -21,7 +21,8 @@
     "check:source-bucket": "tsx src/scripts/checkSourceBucket.ts",
     "check:disk-grow": "tsx src/services/diskGrowService.check.ts",
     "check:usage-meter": "tsx src/services/usageMeterService.check.ts",
-    "check:ai-money": "tsx src/services/aiGatewayService.check.ts"
+    "check:ai-money": "tsx src/services/aiGatewayService.check.ts",
+    "check:wallet": "tsx src/services/walletService.check.ts"
   },
   "keywords": [
     "api",

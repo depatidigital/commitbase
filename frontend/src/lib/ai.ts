@@ -48,25 +48,13 @@ export interface AiModelPrice {
   tiers: Array<{ upTo: number | null; input: number; cacheRead: number; cacheWrite: number; output: number }>;
 }
 
-export interface WalletEntry {
-  id: string;
-  /** TOPUP | ADJUST | WELCOME | AI_USAGE | HOSTING_USAGE */
-  kind: string;
-  /** micro-IDR, signed */
-  amount: string;
-  note: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export const getAi = async () => unwrap(await apiRequest<AiOverview>('/ai'), t('Failed to fetch the AI API'));
 export const enableAi = async () => unwrap(await apiRequest('/ai/account', post()), t('Failed to turn the AI API on'));
 export const createAiKey = async (body: { name: string; rpm?: number }) =>
   unwrap(await apiRequest<AiKey & { key: string }>('/ai/keys', post(body)), t('Failed to create an API key'));
 export const revokeAiKey = async (id: string) => unwrap(await apiRequest(`/ai/keys/${id}`, { method: 'DELETE' }), t('Failed to revoke the key'));
 export const getAiModels = async () => unwrap(await apiRequest<AiModelPrice[]>('/ai/models'), t('Failed to fetch the AI models'));
-export const getWalletEntries = async (month?: string) =>
-  unwrap(await apiRequest<{ month: string; entries: WalletEntry[] }>(`/ai/entries${month ? `?month=${encodeURIComponent(month)}` : ''}`), t('Failed to fetch the balance history'));
+
 
 // ── Superadmin ──
 

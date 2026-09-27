@@ -11,7 +11,9 @@ import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
 import { useToast } from "@/hooks/use-toast";
-import { createAiKey, enableAi, fromMicro, getAi, getAiModels, getWalletEntries, revokeAiKey, rupiah, type AiKey, type AiModelPrice, type WalletEntry } from "@/lib/ai";
+import { createAiKey, enableAi, fromMicro, getAi, getAiModels, revokeAiKey, rupiah, type AiKey, type AiModelPrice } from "@/lib/ai";
+import { getWalletEntries } from "@/lib/billing";
+import { WalletStatement } from "@/pages/Billing";
 import { locale, t } from "@/lib/i18n";
 
 const KEY = ["ai"];
@@ -253,41 +255,16 @@ export default function Ai() {
   );
 }
 
-const KIND: Record<string, string> = { TOPUP: "Top-up", ADJUST: "Adjustment", WELCOME: "Welcome credit", AI_USAGE: "AI usage", HOSTING_USAGE: "Hosting" };
-
-/** The balance's entries this month: AI use by day and model, top-ups, adjustments. */
+/** This month's AI use: one line per day and model, added to as calls are billed. */
 function UsageTab() {
-  const query = useTableQuery(25);
-  const { data, isFetching } = useQuery({ queryKey: [...KEY, "entries"], queryFn: () => getWalletEntries(), refetchInterval: 60_000 });
-  const rows = data?.entries ?? [];
-  const spent = rows.filter((e) => e.kind === "AI_USAGE").reduce((n, e) => n - fromMicro(e.amount), 0);
-  const columns: Column<WalletEntry>[] = [
-    { header: t("Updated"), cell: (e) => when(e.updatedAt) },
-    { header: t("Type"), cell: (e) => t(KIND[e.kind] ?? e.kind) },
-    { header: t("Description"), cell: (e) => <span className="text-muted-foreground">{e.note ?? "—"}</span> },
-    {
-      header: t("Amount"),
-      className: "text-right",
-      cell: (e) => {
-        const v = fromMicro(e.amount);
-        return <span className={`tabular-nums ${v < 0 ? "" : "text-success"}`}>{rupiah(v, Math.abs(v) < 100)}</span>;
-      },
-    },
-  ];
+  const { data } = useQuery({ queryKey: ["billing", "entries", ""], queryFn: () => getWalletEntries(), refetchInterval: 60_000 });
+  const spent = (data?.entries ?? []).filter((e) => e.kind === "AI_USAGE").reduce((n, e) => n - fromMicro(e.amount), 0);
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
         {t("This month's AI use: {amount}. One line per day and model, added to as calls are billed.", { amount: rupiah(spent, spent < 100) })}
       </p>
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(e) => e.id}
-        query={query}
-        filter={(e, search) => `${e.note ?? ""} ${e.kind}`.toLowerCase().includes(search.toLowerCase())}
-        isLoading={isFetching && !rows.length}
-        empty={t("Nothing this month yet.")}
-      />
+      <WalletStatement only="AI_USAGE" />
     </div>
   );
 }

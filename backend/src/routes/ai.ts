@@ -6,7 +6,6 @@ import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { gatewayFailure } from '../services/larikaGatewayService';
 import { aiGateway, aiPricing, sellPerMillion, syncAiCap } from '../services/aiGatewayService';
 import { getLarikaAiConfig } from '../services/integrationConfigService';
-import { WIB_MS } from '../services/usageMeterService';
 
 // A workspace's AI API ("AI API" in the sidebar): an account on the AI gateway,
 // its keys, and the rupiah wallet it is charged to. Owners and admins only — the
@@ -149,27 +148,6 @@ router.delete('/keys/:keyId', async (req: AuthenticatedRequest, res: Response) =
     if (!account?.keys.some((k) => k.id === req.params.keyId)) return res.status(404).json({ success: false, error: 'Key not found' } as ApiResponse);
     await aiGateway(`/admin/keys/${req.params.keyId}`, { method: 'DELETE' });
     return res.json({ success: true } as ApiResponse);
-  } catch (error) {
-    return fail(res, error);
-  }
-});
-
-/** The wallet's entries in one month (WIB): AI use by day and model, top-ups, adjustments. Newest first. */
-router.get('/entries', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const organizationId = await orgFor(req, res);
-    if (!organizationId) return;
-    const nowWib = new Date(Date.now() + WIB_MS);
-    const month = /^\d{4}-\d{2}$/.test(String(req.query.month ?? '')) ? String(req.query.month) : nowWib.toISOString().slice(0, 7);
-    const [year, mon] = month.split('-').map(Number) as [number, number];
-    const start = new Date(Date.UTC(year, mon - 1, 1) - WIB_MS);
-    const end = new Date(Date.UTC(year, mon, 1) - WIB_MS);
-    const rows = await prisma.walletEntry.findMany({
-      where: { organizationId, createdAt: { gte: start, lt: end } },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, kind: true, amount: true, note: true, createdAt: true, updatedAt: true },
-    });
-    return res.json({ success: true, data: { month, entries: rows.map((e) => ({ ...e, amount: String(e.amount) })) } } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }

@@ -13,6 +13,7 @@ import { healthFor, isServing } from '../services/heartbeatService';
 import { launchDeploy } from '../services/deployLaunch';
 import { buildProject, notOwner } from '../services/pm2DeployService';
 import { DeploymentService } from '../services/deployment';
+import { stoppedForBalance } from '../services/walletService';
 import { sourceFsFor } from '../lib/appFs';
 
 const deploymentService = new DeploymentService();
@@ -693,6 +694,10 @@ router.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRequest, 
         success: false,
         error: 'This project was imported from its server and is managed there — pull it instead',
       } as ApiResponse);
+    }
+
+    if (await stoppedForBalance(source.organizationId)) {
+      return res.status(402).json({ success: false, error: 'The workspace balance is used up and its apps are stopped. Top up to start them again.' } as ApiResponse);
     }
 
     // only: the services picked in the pull dialog; none named, all of them

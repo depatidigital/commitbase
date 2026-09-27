@@ -1,6 +1,8 @@
 import { prisma } from '../lib/prisma';
+import { sendMail } from '../lib/mailer';
 import { syncAiCap } from './aiGatewayService';
-import { daysInMonthOf, priceOf, usageByDay, WIB_MS, wibDayStart } from './usageMeterService';
+import { DeploymentService } from './deployment';
+import { currentRate, daysInMonthOf, priceOf, usageByDay, WIB_MS, wibDayStart } from './usageMeterService';
 
 /**
  * A workspace's rupiah wallet: one balance, charged by what it uses — AI calls,
@@ -30,6 +32,8 @@ export async function addWalletEntry(entry: { organizationId: string; kind: 'TOP
     throw error;
   }
   await syncAiCap(entry.organizationId).catch((error) => console.error('AI spend cap sync failed:', error));
+  // a top-up starts stopped apps now, not at the next hourly check
+  if (entry.amount > 0n) void guardWallet(entry.organizationId).catch((error) => console.error('Balance guard failed:', error));
   return true;
 }
 
@@ -121,4 +125,137 @@ export async function billHosting(): Promise<string> {
     }
   }
   return `hosting charged to ${moved} of ${orgs.length} workspace(s)`;
+}
+
+// ── Running out ──
+
+/** How far below zero hosting may go before the apps stop: 7 days of what it costs, at least Rp 10,000. */
+export const negativeLimit = (perDay: bigint) => {
+  const week = 7n * perDay;
+  return week > 10_000n * MICRO ? week : 10_000n * MICRO;
+};
+
+type Notice = 'LOW' | 'NEGATIVE' | 'STOPPED';
+export type GuardStep = { do: 'stop' | 'resume' | 'keep-stopped' | 'none'; notice: Notice | null; mail: boolean };
+
+/**
+ * What a workspace's balance calls for. Pure. perDay: what it costs a day now
+ * (micro-IDR). A warning is mailed when it changes — LOW at 3 days left,
+ * NEGATIVE again each day it stays below zero, STOPPED once.
+ */
+export function guardStep(w: { balance: bigint; perDay: bigint; suspended: boolean; notice: string | null; noticeAt: Date | null; now: number }): GuardStep {
+  if (w.suspended) return w.balance > 0n ? { do: 'resume', notice: null, mail: false } : { do: 'keep-stopped', notice: 'STOPPED', mail: false };
+  if (w.balance <= -negativeLimit(w.perDay)) return { do: 'stop', notice: 'STOPPED', mail: true };
+  if (w.balance < 0n) {
+    const daily = w.notice !== 'NEGATIVE' || !w.noticeAt || w.now - w.noticeAt.getTime() >= 20 * 3_600_000;
+    return { do: 'none', notice: 'NEGATIVE', mail: daily };
+  }
+  if (w.perDay > 0n && w.balance < 3n * w.perDay) return { do: 'none', notice: 'LOW', mail: w.notice !== 'LOW' };
+  return { do: 'none', notice: null, mail: false };
+}
+
+/** Days (one decimal) an amount lasts at perDay; null when nothing is spent. */
+export const daysOf = (amount: bigint, perDay: bigint) => (perDay > 0n ? Number((amount * 10n) / perDay) / 10 : null);
+
+/** What a workspace costs a day now (micro-IDR): its hosting at the current pace. */
+export async function perDayOf(organizationId: string) {
+  return BigInt(Math.round((await currentRate(organizationId)).perHour * 24 * 1e6));
+}
+
+const deployments = new DeploymentService();
+const rp = (micro: bigint) => `Rp ${Math.round(Number(micro) / 1e6).toLocaleString('id-ID')}`;
+
+function balanceMail(notice: Notice, org: string, balance: bigint, perDay: bigint) {
+  const app = process.env.APP_NAME || 'Larika';
+  const limit = rp(-negativeLimit(perDay));
+  const left = daysOf(balance, perDay);
+  const untilStop = daysOf(balance + negativeLimit(perDay), perDay);
+  if (notice === 'LOW') {
+    return {
+      subject: `${org}: balance running low`,
+      lines: [`${org} has ${rp(balance)} left on ${app}${left !== null ? ` — about ${left} days at ${rp(perDay)} a day` : ''}.`, 'Top up to keep its apps running.'],
+    };
+  }
+  if (notice === 'NEGATIVE') {
+    return {
+      subject: `${org}: balance below zero`,
+      lines: [`${org} is ${rp(-balance)} below zero on ${app}.`, `Its apps stop ${untilStop !== null ? `in about ${untilStop} days` : 'soon'}, at ${limit}. Top up to keep them running.`],
+    };
+  }
+  return {
+    subject: `${org}: apps stopped, balance used up`,
+    lines: [`${org} went past ${limit} on ${app}, so its apps were stopped. Nothing was deleted.`, 'Top up and they start again.'],
+  };
+}
+
+/**
+ * Check one workspace's balance: warn its billing user, stop its apps past the
+ * negative limit — and keep them stopped, a reboot starts units again — and
+ * start them once a top-up brings it above zero. Off until hosting is charged.
+ */
+export async function guardWallet(organizationId: string): Promise<GuardStep['do']> {
+  if (!hostingBillingFrom()) return 'none';
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { name: true, suspendedAt: true, balanceNotice: true, balanceNoticeAt: true, wallet: { select: { balance: true } } },
+  });
+  if (!org) return 'none';
+  const balance = org.wallet?.balance ?? 0n;
+  const perDay = await perDayOf(organizationId);
+  const step = guardStep({ balance, perDay, suspended: !!org.suspendedAt, notice: org.balanceNotice, noticeAt: org.balanceNoticeAt, now: Date.now() });
+
+  if (step.do === 'stop' || step.do === 'keep-stopped') {
+    if (step.do === 'stop') await prisma.organization.update({ where: { id: organizationId }, data: { suspendedAt: new Date() } });
+    // panel-managed apps only: imported ones are run by their own server
+    const running = await prisma.application.findMany({ where: { organizationId, runtime: null, status: 'RUNNING' }, select: { id: true } });
+    for (const { id } of running) {
+      if (await deployments.stopApplication(id)) await prisma.application.update({ where: { id }, data: { status: 'STOPPED', stoppedForBalance: true } });
+    }
+  }
+  if (step.do === 'resume') {
+    await prisma.organization.update({ where: { id: organizationId }, data: { suspendedAt: null } });
+    const stopped = await prisma.application.findMany({ where: { organizationId, stoppedForBalance: true }, select: { id: true } });
+    for (const { id } of stopped) {
+      const started = await deployments.startApplication(id);
+      await prisma.application.update({ where: { id }, data: { status: started ? 'RUNNING' : 'ERROR', stoppedForBalance: false } });
+    }
+  }
+
+  if (step.notice !== org.balanceNotice || step.mail) {
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { balanceNotice: step.notice, ...(step.mail && { balanceNoticeAt: new Date() }) },
+    });
+  }
+  const payer = step.mail && step.notice ? await billingUserOf(organizationId) : null;
+  if (payer && step.notice) {
+    const mail = balanceMail(step.notice, org.name, balance, perDay);
+    const url = process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/usage` : null;
+    await sendMail({ to: payer.email, subject: mail.subject, text: [...mail.lines, ...(url ? ['', url] : [])].join('\n') });
+  }
+  return step.do;
+}
+
+/** The cron's run: every workspace with a wallet, or stopped for one. */
+export async function guardWallets(): Promise<string> {
+  if (!hostingBillingFrom()) return 'skipped — HOSTING_BILLING_FROM is not set';
+  const orgs = await prisma.organization.findMany({
+    where: { OR: [{ wallet: { isNot: null } }, { suspendedAt: { not: null } }] },
+    select: { id: true },
+  });
+  const done: Record<string, number> = {};
+  for (const { id } of orgs) {
+    const step = await guardWallet(id).catch((error) => {
+      console.error(`Balance guard failed (${id}):`, error);
+      return 'failed';
+    });
+    done[step] = (done[step] ?? 0) + 1;
+  }
+  return Object.entries(done).map(([k, n]) => `${n} ${k}`).join(', ') || 'no wallets';
+}
+
+/** Whether the workspace's apps are stopped for its balance: nothing starts until a top-up. */
+export async function stoppedForBalance(organizationId: string | null) {
+  if (!organizationId) return false;
+  return !!(await prisma.organization.findUnique({ where: { id: organizationId }, select: { suspendedAt: true } }))?.suspendedAt;
 }

@@ -12,7 +12,7 @@ import { setupQueuedServers } from './serverSetupService';
 import { measureAllAppDisks } from './appDiskService';
 import { backfillStorageDays, meterUsage } from './usageMeterService';
 import { billAiUsage } from './aiGatewayService';
-import { billHosting } from './walletService';
+import { billHosting, guardWallets } from './walletService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -160,6 +160,12 @@ const jobs: Job[] = [
     // has filled in the past days, so they are charged once, at what was held
     schedule: process.env.CRON_HOSTING_BILLING || '37 * * * *',
     run: billHosting,
+  },
+  {
+    name: 'balance-guard',
+    // after hosting-billing: warn the payer as the balance runs low, stop apps past the negative limit
+    schedule: process.env.CRON_BALANCE_GUARD || '47 * * * *',
+    run: guardWallets,
   },
   {
     name: 'app-disk',

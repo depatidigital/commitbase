@@ -61,6 +61,11 @@ model Organization {
   /// longer an OWNER, means its longest-standing OWNER (walletService.billingUserOf).
   billingUserId String?
   billingUser   User?   @relation("OrgBillingUser", fields: [billingUserId], references: [id], onDelete: SetNull)
+  /// Its apps stopped: the balance went past the negative limit (walletService.guardWallet). Cleared by a top-up.
+  suspendedAt   DateTime?
+  /// The last balance warning mailed to the billing user — LOW | NEGATIVE | STOPPED — and when, so each goes once (NEGATIVE daily).
+  balanceNotice   String?
+  balanceNoticeAt DateTime?
 
   // Which database server this org's databases are created on, per engine.
   // Same rule as serverId: null means "not placed", and creating a database
@@ -375,6 +380,8 @@ model Application {
   serve   Json?
   type    AppType
   status  AppStatus   @default(STOPPED)
+  /// Stopped by the panel when the workspace ran past its negative limit — started again on a top-up.
+  stoppedForBalance Boolean @default(false)
   port    Int?
   memory  String?
   cpu     String?

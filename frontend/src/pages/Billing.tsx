@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, Cloud, Cpu, HardDrive, Loader2, MemoryStick, TrendingUp, Wallet } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, Cloud, Cpu, HardDrive, List, Loader2, MemoryStick, TrendingUp, Wallet } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
-import { getUsage } from "@/lib/billing";
+import { useToast } from "@/hooks/use-toast";
+import { fromMicro, rupiah as rupiahFine } from "@/lib/ai";
+import { getUsage, getWallet, getWalletEntries, setBillingUser, type WalletEntry } from "@/lib/billing";
 import { locale, t } from "@/lib/i18n";
 
 const rupiah = (value: number) =>
@@ -25,7 +28,7 @@ const monthLabel = (month: string) =>
 /**
  * What the workspace used this month and what it costs: pay for what you use.
  * CPU and memory metered every five minutes, storage as it is held — priced by
- * the hour. An estimate until billing exists: nothing is charged yet.
+ * the hour. Above it, the balance it is charged to; below, the statement.
  */
 export default function Billing() {
   const options = months();
@@ -91,6 +94,7 @@ export default function Billing() {
         </p>
       ) : data ? (
         <>
+          <WalletCard />
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>
               <CardContent className="p-5">
@@ -179,11 +183,127 @@ export default function Billing() {
             </CardContent>
           </Card>
 
-          <p className="text-xs text-muted-foreground">
-            {t("An estimate: nothing is charged yet. Services imported from a server (pm2 of another user) are not metered.")}
-          </p>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <List className="h-4 w-4 text-primary" />
+                {t("Statement")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <WalletStatement month={month} />
+            </CardContent>
+          </Card>
+
+          <p className="text-xs text-muted-foreground">{t("Services imported from a server (pm2 of another user) are not metered.")}</p>
         </>
       ) : null}
     </PageLayout>
+  );
+}
+
+const days = (n: number | null) => (n === null ? "—" : t("{n} days", { n: amount(n, 1) }));
+
+/**
+ * The workspace's balance: how long it lasts at today's pace, what happens when
+ * it runs out — below zero down to 7 days of spend, then the apps stop — and
+ * who pays. Top-ups go through support for now.
+ */
+function WalletCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ["billing", "wallet"], queryFn: getWallet, refetchInterval: 5 * 60_000 });
+  const change = useMutation({
+    mutationFn: (userId: string) => setBillingUser(data!.organizationId, userId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["billing", "wallet"] }),
+    onError: (error: Error) => toast({ title: t("Could not change who pays"), description: error.message, variant: "destructive" }),
+  });
+  if (!data) return null;
+  const balance = fromMicro(data.balance);
+  const perDay = fromMicro(data.perDay);
+  const limit = rupiah(-fromMicro(data.limit));
+
+  return (
+    <Card>
+      <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+        <div>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Wallet className="h-4 w-4" />
+            {t("Balance")}
+          </p>
+          <p className={`text-3xl font-semibold tabular-nums ${balance < 0 ? "text-destructive" : ""}`}>{rupiahFine(balance, Math.abs(balance) < 100)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("To top up, contact support.")}</p>
+        </div>
+        <div className="text-sm">
+          <p className="text-muted-foreground">{t("At the current pace")}</p>
+          <p className="font-medium">{t("{amount} a day", { amount: rupiah(perDay) })}</p>
+          {!data.hostingBilledFrom ? (
+            <p className="mt-1 text-xs text-muted-foreground">{t("Hosting is not charged yet: only AI use comes off the balance.")}</p>
+          ) : data.suspendedAt ? (
+            <p className="mt-1 text-destructive">{t("The balance is used up and the apps are stopped. Nothing was deleted: top up and they start again.")}</p>
+          ) : balance < 0 ? (
+            <p className="mt-1 text-destructive">{t("Below zero: the apps stop in about {days}, at {limit}.", { days: days(data.daysUntilStop), limit })}</p>
+          ) : (
+            <p className="mt-1 text-muted-foreground">
+              {t("Lasts about {days}. After that it may go down to {limit} before the apps stop.", { days: days(data.daysLeft), limit })}
+            </p>
+          )}
+        </div>
+        <div className="space-y-1 text-sm">
+          <p className="text-muted-foreground">{t("Billed to")}</p>
+          {data.canChangeBillingUser && data.owners.length > 1 ? (
+            <Select value={data.billingUser?.id} onValueChange={(id) => change.mutate(id)} disabled={change.isPending}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {data.owners.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.name || o.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="font-medium">{data.billingUser ? data.billingUser.name || data.billingUser.email : "—"}</p>
+          )}
+          <p className="text-xs text-muted-foreground">{t("An owner of the workspace. Balance warnings are mailed to them.")}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const KIND: Record<string, string> = { TOPUP: "Top-up", ADJUST: "Adjustment", WELCOME: "Welcome credit", AI_USAGE: "AI usage", HOSTING_USAGE: "Hosting" };
+const when = (at: string) => new Date(at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+
+/** The wallet's entries in a month: top-ups and credit, hosting and AI by the day. `only` narrows it to one kind. */
+export function WalletStatement({ month, only }: { month?: string; only?: string }) {
+  const query = useTableQuery(25);
+  const { data, isFetching } = useQuery({ queryKey: ["billing", "entries", month ?? ""], queryFn: () => getWalletEntries(month), refetchInterval: 60_000 });
+  const rows = (data?.entries ?? []).filter((e) => !only || e.kind === only);
+  const columns: Column<WalletEntry>[] = [
+    { header: t("Updated"), cell: (e) => when(e.updatedAt) },
+    { header: t("Type"), cell: (e) => t(KIND[e.kind] ?? e.kind) },
+    { header: t("Description"), cell: (e) => <span className="text-muted-foreground">{e.note ?? "—"}</span> },
+    {
+      header: t("Amount"),
+      className: "text-right",
+      cell: (e) => {
+        const v = fromMicro(e.amount);
+        return <span className={`tabular-nums ${v < 0 ? "" : "text-success"}`}>{rupiahFine(v, Math.abs(v) < 100)}</span>;
+      },
+    },
+  ];
+  return (
+    <DataTable
+      columns={columns}
+      rows={rows}
+      rowKey={(e) => e.id}
+      query={query}
+      filter={(e, search) => `${e.note ?? ""} ${e.kind}`.toLowerCase().includes(search.toLowerCase())}
+      isLoading={isFetching && !rows.length}
+      empty={t("Nothing this month yet.")}
+    />
   );
 }

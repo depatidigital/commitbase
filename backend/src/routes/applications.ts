@@ -51,6 +51,7 @@ import { hostnameRegistration } from '../services/rdapService';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
+import { stoppedForBalance } from '../services/walletService';
 
 const router: Router = Router();
 const deploymentService = new DeploymentService();
@@ -91,6 +92,11 @@ const sortOrder = (sort: unknown, order: unknown): any[] => {
  * not manage them. Deploying one would build a second, managed copy beside it
  * and take over its Caddy route; provisioning is only for apps created here.
  */
+/** 402: the workspace's apps are stopped for its balance — a top-up starts them. */
+function refuseStopped(res: Response): Response {
+  return res.status(402).json({ success: false, error: 'The workspace balance is used up and its apps are stopped. Top up to start them again.' } as ApiResponse);
+}
+
 function refuseImported(application: { runtime: string | null }, res: Response): Response | null {
   if (!application.runtime) return null;
   return res.status(409).json({
@@ -1810,6 +1816,8 @@ router.post('/:id/start-existing', authenticateToken, async (req: AuthenticatedR
       } as ApiResponse);
     }
 
+    if (await stoppedForBalance(application.organizationId)) return refuseStopped(res);
+
     const pm2Handled = await handlePm2Action(application, 'start', res);
     if (pm2Handled) return pm2Handled;
 
@@ -1890,6 +1898,8 @@ router.post('/:id/start', authenticateToken, async (req: AuthenticatedRequest, r
         error: 'Application not found',
       } as ApiResponse);
     }
+
+    if (await stoppedForBalance(application.organizationId)) return refuseStopped(res);
 
     const imported = refuseImported(application, res);
     if (imported) return imported;
@@ -2189,6 +2199,8 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
         error: 'Application not found',
       } as ApiResponse);
     }
+
+    if (await stoppedForBalance(application.organizationId)) return refuseStopped(res);
 
     const pm2Handled = await handlePm2Action(application, 'restart', res);
     if (pm2Handled) return pm2Handled;
