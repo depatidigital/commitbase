@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, FlaskConical, KeyRound, List, Loader2, MailSearch, MessageCircle, Pause, Play, Plus, ScrollText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,7 +77,10 @@ export default function EmailWatcher() {
   const [detecting, setDetecting] = useState(false);
   const [login, setLogin] = useState<Login | null>(null);
   const [removing, setRemoving] = useState<Mailbox | null>(null);
-  const [tab, setTab] = useState<string | null>(null);
+  // the tab is in the URL: the rule editor's back link lands on Rules
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab");
+  const setTab = (next: string) => setParams({ tab: next }, { replace: true });
   const { data: orgs = [] } = useQuery({ queryKey: ["organizations"], queryFn: getOrganizations, enabled: !!adding });
   const manageable = orgs.filter((org) => isAdmin() || org.myRole === "OWNER" || org.myRole === "ADMIN");
   const showWorkspace = isAdmin() || new Set(rows.map((r) => r.organization?.id)).size > 1;

@@ -12,10 +12,39 @@ export type Field = { name: string; pattern: string; type: FieldType };
 export type RuleFilter = { fromContains: string; subjectContains: string; bodyContains: string };
 export type Message = { from: string; subject: string; text: string };
 
-const has = (haystack: string, needle: string) => !needle.trim() || haystack.toLowerCase().includes(needle.trim().toLowerCase());
+/** A filter written between slashes, `/…/`, is a regular expression: its pattern; else null (a plain "contains"). */
+export const filterRegex = (filter: string): string | null => /^\/(.+)\/$/s.exec(filter.trim())?.[1] ?? null;
 
-/** Every filter a rule sets is a plain, case-insensitive "contains"; an empty one takes anything. */
-export const headerMatches = (rule: RuleFilter, m: Pick<Message, 'from' | 'subject'>) =>
+/** A filter's own pattern must compile: the message to show, or null when it is fine. */
+export function filterProblem(filter: string): string | null {
+  const pattern = filterRegex(filter);
+  if (pattern === null) return null;
+  try {
+    new RegExp(pattern, 'i');
+    return null;
+  } catch {
+    return `${filter} is not a valid regular expression`;
+  }
+}
+
+/**
+ * Case-insensitive either way. A regular expression is the user's: run in a vm with a
+ * time limit, like the fields, so a catastrophic one fails the match instead of the process.
+ */
+function has(haystack: string, filter: string) {
+  const needle = filter.trim();
+  if (!needle) return true;
+  const pattern = filterRegex(needle);
+  if (pattern === null) return haystack.toLowerCase().includes(needle.toLowerCase());
+  try {
+    return vm.runInNewContext('new RegExp(p, "i").test(t)', { p: pattern, t: haystack.slice(0, 20_000) }, { timeout: 100 }) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Every filter a rule sets is a case-insensitive "contains", or `/regex/`; an empty one takes anything. */
+export const headerMatches = (rule: Pick<RuleFilter, 'fromContains' | 'subjectContains'>, m: Pick<Message, 'from' | 'subject'>) =>
   has(m.from, rule.fromContains) && has(m.subject, rule.subjectContains);
 
 export const ruleMatches = (rule: RuleFilter, m: Message) => headerMatches(rule, m) && has(m.text, rule.bodyContains);

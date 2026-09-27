@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma';
 import { canEncrypt, decrypt, encrypt } from '../lib/secretBox';
 import { paging, paginated } from '../lib/paging';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } from '../lib/scope';
-import { validFields } from '../lib/emailRules';
+import { filterProblem, validFields } from '../lib/emailRules';
 import { payerIdOf } from '../services/walletService';
 import {
   assertPublicHost,
@@ -78,6 +78,8 @@ async function ruleFrom(body: any, organizationId: string, partial = false) {
     if (body?.[key] === undefined) return;
     const value = String(body[key] ?? '').trim();
     if (value.length > max) throw new UserError(`${key} is too long`);
+    const problem = filterProblem(value);
+    if (problem) throw new UserError(problem);
     data[key] = value;
   };
   if (!partial || body?.name !== undefined) {
@@ -255,9 +257,12 @@ router.post('/mailboxes/:id/preview', async (req: AuthenticatedRequest, res: Res
       bodyContains: String(req.body?.bodyContains ?? '').slice(0, 200),
       fields,
     };
-    if (!rule.fromContains.trim() && !rule.subjectContains.trim()) return bad(res, 'Filter on the sender or the subject first');
+    // no filter yet: the newest emails of the inbox, to pick the filters from
     const settings = { host: box.host, port: box.port, secure: box.secure, username: box.username, password: decrypt(box.passwordEnc) };
-    return res.json({ success: true, data: await previewRule(box.id, settings, rule) } as ApiResponse);
+    // how far back and how many: the editor's choice, kept to what one IMAP read should fetch
+    const days = Math.min(365, Math.max(1, Math.round(Number(req.body?.days) || 60)));
+    const limit = Math.min(100, Math.max(5, Math.round(Number(req.body?.limit) || 30)));
+    return res.json({ success: true, data: await previewRule(box.id, settings, rule, { days, limit }) } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }

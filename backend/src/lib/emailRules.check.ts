@@ -1,6 +1,6 @@
 // npx tsx src/lib/emailRules.check.ts — Email Watcher's matching, parsing and sender check.
 import assert from 'node:assert/strict';
-import { extractFields, firstHeader, isPrivateIp, parseAmount, renderTemplate, ruleMatches, senderVerified, validFields } from './emailRules';
+import { extractFields, filterProblem, firstHeader, isPrivateIp, parseAmount, renderTemplate, ruleMatches, senderVerified, validFields } from './emailRules';
 
 // amounts as banks write them
 assert.equal(parseAmount('150,000.00'), 150000);
@@ -18,6 +18,15 @@ const rule = { fromContains: 'bni', subjectContains: 'transaksi sebesar', bodyCo
 assert.ok(ruleMatches(rule, { from: 'BNI Merchant <merchant@bni.co.id>', subject, text: '' }));
 assert.ok(!ruleMatches(rule, { from: 'Toko <a@b.id>', subject, text: '' }));
 assert.ok(!ruleMatches({ ...rule, bodyContains: 'DEPATI' }, { from: 'BNI <x@bni.co.id>', subject, text: 'other' }));
+
+// filters between slashes are regular expressions, case-insensitive
+assert.ok(ruleMatches({ ...rule, subjectContains: '/transaksi sebesar rp [\\d,.]+ dari (dana|ovo)/' }, { from: 'BNI <x@bni.co.id>', subject, text: '' }));
+assert.ok(!ruleMatches({ ...rule, subjectContains: '/dari (ovo|gopay)/' }, { from: 'BNI <x@bni.co.id>', subject, text: '' }));
+assert.ok(ruleMatches({ ...rule, fromContains: '/@bni\\.co\\.id>$/' }, { from: 'BNI <x@bni.co.id>', subject, text: '' }));
+assert.equal(filterProblem('/(/'), '/(/ is not a valid regular expression');
+assert.equal(filterProblem('plain (text'), null);
+// a catastrophic filter fails the match, it does not hang
+assert.ok(!ruleMatches({ ...rule, bodyContains: '/(a+)+$/' }, { from: 'BNI <x@bni.co.id>', subject, text: `${'a'.repeat(40)}!` }));
 
 const fields = validFields([
   { name: 'amount', pattern: 'Rp\\s*([\\d.,]+)', type: 'amount' },

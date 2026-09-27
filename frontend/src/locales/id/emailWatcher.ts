@@ -9,8 +9,6 @@ export default {
   "Login refused": "Login ditolak",
   Reconnecting: "Menyambung ulang",
   Paused: "Dijeda",
-  "Paused: the balance does not cover today. Top up, then resume.":
-    "Dijeda: saldo tidak cukup untuk hari ini. Isi saldo, lalu lanjutkan.",
 
   // password guides
   "Gmail needs an app password: turn on 2-Step Verification, then create one at myaccount.google.com/apppasswords and paste its 16 characters here.":
@@ -25,10 +23,6 @@ export default {
     "Aktifkan akses IMAP di pengaturan Zoho Mail. Jika login dua faktor aktif, gunakan sandi khusus aplikasi.",
   "Use the mailbox's own password. The server is usually mail.<your domain> — your hosting's email settings show it.":
     "Gunakan sandi mailbox itu sendiri. Servernya biasanya mail.<domain Anda> — lihat di pengaturan email hosting Anda.",
-  "Outlook and Hotmail only allow sign-in with Microsoft, which is not supported yet":
-    "Outlook dan Hotmail hanya mengizinkan login lewat Microsoft, yang belum didukung",
-  "Microsoft 365 only allows sign-in with Microsoft, which is not supported yet":
-    "Microsoft 365 hanya mengizinkan login lewat Microsoft, yang belum didukung",
 
   // quick start
   Mailboxes: "Mailbox",
@@ -90,14 +84,10 @@ export default {
   "Rule on": "Rule aktif",
   "New rule": "Rule baru",
   "Add a mailbox first; its rules show here.": "Tambahkan mailbox dulu; rule-nya muncul di sini.",
-  "Edit rule": "Ubah rule",
   "Rule saved": "Rule tersimpan",
   "Search rules…": "Cari rule…",
   "No rules yet. A rule picks emails by sender and subject and reads values out of them.":
     "Belum ada rule. Rule memilih email berdasarkan pengirim dan subjek, lalu membaca nilai dari email itu.",
-  "Filters are plain text, not case-sensitive. Each field is a regular expression: its first group (…) is the value.":
-    "Filter berupa teks biasa, tidak membedakan huruf besar/kecil. Tiap field adalah regular expression: grup pertamanya (…) menjadi nilainya.",
-  "Start from:": "Mulai dari:",
   "Sender contains": "Pengirim mengandung",
   "Subject contains": "Subjek mengandung",
   "Body contains (optional)": "Isi mengandung (opsional)",
@@ -106,10 +96,6 @@ export default {
   Pattern: "Pola",
   Text: "Teks",
   "Add field": "Tambah field",
-  "Try it on the last 30 days": "Coba pada 30 hari terakhir",
-  Try: "Coba",
-  "No email in the last 30 days matches. Loosen the filters.":
-    "Tidak ada email 30 hari terakhir yang cocok. Longgarkan filternya.",
   Date: "Tanggal",
   Subject: "Subjek",
   "Verified sender": "Pengirim terverifikasi",
@@ -133,6 +119,37 @@ export default {
   "Failed to save the rule": "Gagal menyimpan rule",
   "Failed to delete the rule": "Gagal menghapus rule",
 
+  // messages from the server, shown through t()
+  "Paused: the balance does not cover today. Top up, then resume.":
+    "Dijeda: saldo tidak cukup untuk hari ini. Isi saldo, lalu lanjutkan.",
+  "Outlook and Hotmail only allow sign-in with Microsoft, which is not supported yet":
+    "Outlook dan Hotmail hanya mengizinkan login lewat Microsoft, yang belum didukung",
+  "Microsoft 365 only allows sign-in with Microsoft, which is not supported yet":
+    "Microsoft 365 hanya mengizinkan login lewat Microsoft, yang belum didukung",
+
+  // rule editor
+  "no filter yet": "belum ada filter",
+  "Name it and pick its mailbox; the editor opens next, with the mailbox's emails to try it on.":
+    "Beri nama dan pilih mailbox-nya; editor terbuka setelahnya, dengan email dari mailbox itu untuk mencobanya.",
+  "Start from": "Mulai dari",
+  Blank: "Kosong",
+  "Create and edit": "Buat dan ubah",
+  "Rule not found": "Rule tidak ditemukan",
+  Off: "Mati",
+  "Which emails": "Email yang diambil",
+  "Plain text, not case-sensitive. Set the sender or the subject: a rule is not turned on without one.":
+    "Teks biasa, tidak membedakan huruf besar/kecil. Isi pengirim atau subjek: rule tidak bisa diaktifkan tanpa salah satunya.",
+  "Each field is a regular expression run on the subject and body: its first group (…) is the value. Amount turns “Rp 150,000.00” into 150000.":
+    "Tiap field adalah regular expression yang dijalankan pada subjek dan isi: grup pertamanya (…) menjadi nilainya. Tipe Jumlah mengubah “Rp 150,000.00” menjadi 150000.",
+  "Not a valid regular expression": "Bukan regular expression yang valid",
+  "Emails of the last 30 days": "Email 30 hari terakhir",
+  "The newest emails of the inbox. Set the sender or the subject to narrow them to the ones the rule takes.":
+    "Email terbaru di inbox. Isi pengirim atau subjek untuk menyaringnya ke email yang diambil rule ini.",
+  "{taken} taken by the sender and subject filters, {passed} also by the body filter. Newest 30; redone as you type.":
+    "{taken} diambil filter pengirim dan subjek, {passed} juga lolos filter isi. 30 terbaru; diperbarui saat Anda mengetik.",
+  "left out by the body filter": "tidak lolos filter isi",
+  "Failed to fetch the rule": "Gagal mengambil rule",
+
   // events
   Received: "Diterima",
   Read: "Terbaca",
@@ -149,7 +166,6 @@ export default {
   "Failed to add the mailbox": "Gagal menambahkan mailbox",
   "Failed to update the mailbox": "Gagal memperbarui mailbox",
   "Failed to delete the mailbox": "Gagal menghapus mailbox",
-  "Failed to delete": "Gagal menghapus",
   "Failed to fetch mailboxes": "Gagal mengambil daftar mailbox",
   "Failed to fetch the rules": "Gagal mengambil daftar rule",
 

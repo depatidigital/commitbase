@@ -128,7 +128,7 @@ export const updateMailbox = async (id: string, body: Partial<{ host: string; po
 
 export const deleteMailbox = async (id: string) => unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('DELETE')), t('Failed to delete the mailbox'));
 
-export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'fromContains' | 'subjectContains' | 'bodyContains' | 'fields'>) =>
+export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'fromContains' | 'subjectContains' | 'bodyContains' | 'fields'> & { days?: number; limit?: number }) =>
   unwrap(await apiRequest<{ rows: PreviewRow[] }>(`/email-watcher/mailboxes/${mailboxId}/preview`, send('POST', rule)), t('Failed to try the rule'));
 
 export const createRule = async (mailboxId: string, rule: Partial<RuleInput> & { name: string }) =>

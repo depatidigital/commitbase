@@ -1,10 +1,11 @@
 import { promises as dns } from 'dns';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { convert } from 'html-to-text';
 import { prisma } from '../lib/prisma';
 import { decrypt } from '../lib/secretBox';
 import { sendMail } from '../lib/mailer';
-import { extractFields, Field, firstHeader, headerMatches, isPrivateIp, renderTemplate, ruleMatches, senderVerified } from '../lib/emailRules';
+import { extractFields, Field, filterRegex, firstHeader, headerMatches, isPrivateIp, renderTemplate, ruleMatches, senderVerified } from '../lib/emailRules';
 import { gateway } from './larikaGatewayService';
 import { EMAIL_WATCHER_RATES, WIB_MS } from './usageMeterService';
 import { billingUserOf, InsufficientBalance, MICRO, spendFromWallet } from './walletService';
@@ -138,6 +139,16 @@ export async function testLogin(s: ImapSettings) {
 
 // ── Reading a message ──
 
+/** HTML → text the fields can read: table cells apart ("Tujuan    DEPATI"), no image or link noise. */
+const HTML_TEXT = {
+  wordwrap: false as const,
+  selectors: [
+    { selector: 'table', format: 'dataTable', options: { uppercaseHeaderCells: false, maxColumnWidth: 200 } },
+    { selector: 'img', format: 'skip' },
+    { selector: 'a', options: { ignoreHref: true } },
+  ],
+};
+
 type Parsed = { messageId: string; from: string; fromAddress: string | undefined; subject: string; text: string; date: Date; verified: boolean };
 
 async function parse(source: Buffer, fallbackId: string): Promise<Parsed> {
@@ -149,7 +160,8 @@ async function parse(source: Buffer, fallbackId: string): Promise<Parsed> {
     from: mail.from?.text ?? '',
     fromAddress,
     subject: mail.subject ?? '',
-    text: (mail.text || '').slice(0, 20_000),
+    // an HTML-only email (bank notifications often are) is read as its text
+    text: (mail.text || (mail.html ? convert(mail.html, HTML_TEXT) : '')).slice(0, 20_000),
     date: mail.date ?? new Date(),
     verified: senderVerified(firstHeader(raw, 'authentication-results'), fromAddress),
   };
@@ -170,15 +182,25 @@ type RuleLike = { fromContains: string; subjectContains: string; bodyContains: s
 const PREVIEW_TTL_MS = 5 * 60_000;
 const previewCache = new Map<string, { at: number; messages: Array<Parsed & { uid: number }> }>();
 
-async function previewMessages(cacheKey: string, s: ImapSettings, from: string, subject: string) {
-  const key = `${cacheKey}|${from.toLowerCase()}|${subject.toLowerCase()}`;
+async function previewMessages(cacheKey: string, s: ImapSettings, from: string, subject: string, days: number, limit: number) {
+  const key = `${cacheKey}|${from.toLowerCase()}|${subject.toLowerCase()}|${days}|${limit}`;
   const hit = previewCache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.messages;
   const messages = await withClient(s, async (client) => {
     await client.mailboxOpen('INBOX', { readOnly: true });
-    const since = new Date(Date.now() - 30 * 86_400_000);
-    const uids = (await client.search({ since, ...(from && { from }), ...(subject && { subject }) }, { uid: true })) || [];
-    const recent = uids.sort((a, b) => b - a).slice(0, 30);
+    const since = new Date(Date.now() - days * 86_400_000);
+    // plain filters narrow the search on the server; a /regex/ one is run here, on the newest 300 headers
+    const plain = (f: string) => (f && filterRegex(f) === null ? f : undefined);
+    const uids = ((await client.search({ since, ...(plain(from) && { from }), ...(plain(subject) && { subject }) }, { uid: true })) || []).sort((a, b) => b - a);
+    let recent = uids.slice(0, limit);
+    if ((from && !plain(from)) || (subject && !plain(subject))) {
+      const heads = uids.length ? await client.fetchAll(uids.slice(0, 300).join(','), { uid: true, envelope: true }, { uid: true }) : [];
+      recent = heads
+        .filter((m) => headerMatches({ fromContains: from, subjectContains: subject }, { from: envelopeFrom(m.envelope), subject: m.envelope?.subject ?? '' }))
+        .map((m) => m.uid)
+        .sort((a, b) => b - a)
+        .slice(0, limit);
+    }
     if (!recent.length) return [];
     const fetched = await client.fetchAll(recent.join(','), { uid: true, source: { maxLength: 512_000 } }, { uid: true });
     const parsed = [];
@@ -195,9 +217,9 @@ async function previewMessages(cacheKey: string, s: ImapSettings, from: string, 
  * A rule tried on real mail: every email its sender and subject filters take, whether the
  * body filter lets it through too, and what the fields read out of it. Nothing is stored.
  */
-export async function previewRule(cacheKey: string, s: ImapSettings, rule: RuleLike) {
+export async function previewRule(cacheKey: string, s: ImapSettings, rule: RuleLike, window: { days: number; limit: number } = { days: 60, limit: 30 }) {
   const fields = rule.fields as Field[];
-  const messages = await previewMessages(cacheKey, s, rule.fromContains.trim(), rule.subjectContains.trim());
+  const messages = await previewMessages(cacheKey, s, rule.fromContains.trim(), rule.subjectContains.trim(), window.days, window.limit);
   return {
     rows: messages.map((m) => ({
       uid: m.uid,
