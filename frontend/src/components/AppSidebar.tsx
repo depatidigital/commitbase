@@ -1,4 +1,4 @@
-import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MessageCircle, Smartphone, Sparkles, Tag, type LucideIcon } from "lucide-react";
+import { ArrowUpCircle, Wallet, Mail, Database, Globe, Link2, Users, ShieldCheck, Building2, UserCog, HardDrive, DatabaseZap, AppWindow, LayoutDashboard, LifeBuoy, MailSearch, MessageCircle, Smartphone, Sparkles, Tag, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
@@ -58,6 +58,7 @@ export function AppSidebar() {
       label: t("Services"),
       items: [
         { title: "Whatsapp Gateway API", url: "/wa-gateway", icon: MessageCircle },
+        { title: t("Email Watcher"), url: "/email-watcher", icon: MailSearch },
         { title: t("AI API"), url: "/ai", icon: Sparkles },
       ],
     },

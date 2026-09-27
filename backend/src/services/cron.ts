@@ -14,7 +14,7 @@ import { backfillStorageDays, meterUsage } from './usageMeterService';
 import { billAiUsage } from './aiGatewayService';
 import { checkTopUps } from './arusniagaService';
 import { billHosting, guardWallets } from './walletService';
-import { pruneEmailEvents, retryDeliveries } from './emailWatcherService';
+import { billEmailWatchers, pruneEmailEvents, retryDeliveries } from './emailWatcherService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -187,6 +187,12 @@ const jobs: Job[] = [
     // Email Watcher events whose webhook or WhatsApp failed: retried on their schedule (1 min … 6 h)
     schedule: process.env.CRON_EMAIL_DELIVERIES || '* * * * *',
     run: retryDeliveries,
+  },
+  {
+    name: 'email-watcher-billing',
+    // hourly: a watched mailbox's day is paid up front; the first run after midnight WIB charges the new day
+    schedule: process.env.CRON_EMAIL_WATCHER_BILLING || '5 * * * *',
+    run: billEmailWatchers,
   },
   {
     name: 'email-events-prune',

@@ -1,7 +1,7 @@
 import { useState, type ElementType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, AppWindow, Calculator, Sparkles, Cloud, Cpu, Globe, HardDrive, Image, Loader2, MemoryStick, MessageCircle, MessageSquare, Phone, Server, Tag } from "lucide-react";
+import { AlertCircle, AppWindow, Calculator, Sparkles, Cloud, Cpu, Globe, HardDrive, Image, Loader2, MemoryStick, MailSearch, MessageCircle, MessageSquare, Phone, Server, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -100,6 +100,10 @@ export default function Pricing() {
               <p className="pt-3 text-xs text-muted-foreground">
                 {t("Runs on WhatsApp linked devices, not the official Business API: a number WhatsApp bans is not refunded. Daily sending limits stay on to protect your numbers.")}
               </p>
+            </Section>
+
+            <Section icon={MailSearch} title={t("Email Watcher")} description={t("Reads your inbox and sends matched emails to your app or WhatsApp.")}>
+              <PriceRow icon={MailSearch} label={t("Watched mailbox")} note={t("Only the days it is watched; paid up front each day")} price={`${rupiah(rates.email.mailboxDay)} / ${t("day")}`} sub={`≈ ${rupiah(rates.email.mailboxDay * WA_DAYS)} / ${t("month")}`} />
             </Section>
 
             <Estimator rates={rates} />

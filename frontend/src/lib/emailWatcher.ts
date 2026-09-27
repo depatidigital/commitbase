@@ -1,5 +1,5 @@
 import apiRequest from './api';
-import { t } from '@/lib/i18n';
+import { locale, t } from '@/lib/i18n';
 import type { Paginated } from '@/components/DataTable';
 
 /** Email Watcher ("Pantau Email"): watched mailboxes, their rules, the emails the rules matched. */
@@ -8,6 +8,10 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
   if (res.success) return res.data as T;
   throw new Error(res.error || fallback);
 };
+
+export const MAILBOXES_KEY = ['email-watcher', 'mailboxes'];
+
+export const when = (at: string | null) => (at ? new Date(at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
 const send = (method: string, body?: unknown) => ({ method, ...(body !== undefined && { body: JSON.stringify(body) }) });
 
@@ -52,7 +56,7 @@ export interface Rule {
   active: boolean;
 }
 
-export interface MailboxDetail extends Mailbox {
+export interface MailboxDetail extends Omit<Mailbox, 'rules'> {
   rules: Rule[];
   waNumbers: Array<{ id: string; name: string }>;
   retentionDays: number;
@@ -115,10 +119,10 @@ export const previewRule = async (mailboxId: string, rule: Pick<RuleInput, 'from
   unwrap(await apiRequest<{ scanned: number; rows: PreviewRow[] }>(`/email-watcher/mailboxes/${mailboxId}/preview`, send('POST', rule)), t('Failed to try the rule'));
 
 export const createRule = async (mailboxId: string, rule: RuleInput) =>
-  unwrap(await apiRequest<Rule>(`/email-watcher/mailboxes/${mailboxId}/rules`, send('POST', rule)), t('Failed to save the rule'));
+  unwrap(await apiRequest<Rule & { warning?: string }>(`/email-watcher/mailboxes/${mailboxId}/rules`, send('POST', rule)), t('Failed to save the rule'));
 
 export const updateRule = async (id: string, rule: Partial<RuleInput> & { newSecret?: boolean }) =>
-  unwrap(await apiRequest<Rule>(`/email-watcher/rules/${id}`, send('PATCH', rule)), t('Failed to save the rule'));
+  unwrap(await apiRequest<Rule & { warning?: string }>(`/email-watcher/rules/${id}`, send('PATCH', rule)), t('Failed to save the rule'));
 
 export const deleteRule = async (id: string) => unwrap(await apiRequest(`/email-watcher/rules/${id}`, send('DELETE')), t('Failed to delete the rule'));
 

@@ -1160,7 +1160,7 @@ model WalletEntry {
   /// top-ups, gifts, welcome credit, adjustments. Kept when the workspace is deleted.
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  /// TOPUP | ADJUST | WELCOME | GIFT | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN
+  /// TOPUP | ADJUST | WELCOME | GIFT | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN | EMAIL_WATCHER
   kind           String
   /// micro-IDR, signed
   amount         BigInt
@@ -1168,6 +1168,7 @@ model WalletEntry {
   /// WELCOME `welcome:<userId>` — once per user, GIFT `gift:<uuid>` — a platform admin's gift, AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry
   /// a day per model, added to as calls are billed, HOSTING_USAGE `host:<org>:<WIB day>` — the day's cost, rewritten as it grows
   /// DOMAIN `domain:<id>:register` / `domain:<id>:renew:<uuid>`, REFUND `refund:<the charge ref>`
+  /// EMAIL_WATCHER `email:<mailboxId>:<WIB day>` — a watched mailbox's day, paid up front
   ref            String        @unique
   note           String?
   createdById    String?

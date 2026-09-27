@@ -32,6 +32,8 @@ import { AiGatewaySettingsCard, WalletsCard } from "./components/AiGatewaySettin
 import Ai from "./pages/Ai";
 import WaNodes from "./pages/WaNodes";
 import WaGateway from "./pages/WaGateway";
+import EmailWatcher from "./pages/EmailWatcher";
+import EmailMailbox from "./pages/EmailMailbox";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import Team from "./pages/Team";
@@ -270,6 +272,8 @@ const App = () => (
               }
             />
             <Route path="wa-gateway" element={<WaGateway />} />
+            <Route path="email-watcher" element={<EmailWatcher />} />
+            <Route path="email-watcher/:id" element={<EmailMailbox />} />
             <Route path="ai" element={<Ai />} />
             <Route
               path="integrations/arusniaga"

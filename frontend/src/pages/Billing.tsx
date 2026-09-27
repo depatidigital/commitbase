@@ -284,7 +284,7 @@ function WalletCard() {
   );
 }
 
-const KIND: Record<string, string> = { TOPUP: "Top-up", ADJUST: "Adjustment", WELCOME: "Welcome credit", GIFT: "Gift", REFUND: "Refund", AI_USAGE: "AI usage", HOSTING_USAGE: "Hosting", DOMAIN: "Domain" };
+const KIND: Record<string, string> = { TOPUP: "Top-up", ADJUST: "Adjustment", WELCOME: "Welcome credit", GIFT: "Gift", REFUND: "Refund", AI_USAGE: "AI usage", HOSTING_USAGE: "Hosting", DOMAIN: "Domain", EMAIL_WATCHER: "Email Watcher" };
 const when = (at: string) => new Date(at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
 
 /** The wallet's entries in a month: top-ups and credit, hosting and AI by the day. `only` narrows it to one kind. */

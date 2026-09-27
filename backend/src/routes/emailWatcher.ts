@@ -7,13 +7,14 @@ import { canEncrypt, decrypt, encrypt } from '../lib/secretBox';
 import { paging, paginated } from '../lib/paging';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } from '../lib/scope';
 import { validFields } from '../lib/emailRules';
-import { paidWorkspaces, payerIdOf } from '../services/walletService';
+import { payerIdOf } from '../services/walletService';
 import {
   assertPublicHost,
   assertPublicUrl,
   deliver,
   detectSettings,
   EVENT_RETENTION_DAYS,
+  NO_BALANCE,
   ImapSettings,
   previewRule,
   stop,
@@ -24,12 +25,10 @@ import {
 
 // Email Watcher ("Pantau Email"): a workspace's mailboxes, their rules and the events
 // the rules matched. Members see the mailboxes; owners and admins manage them and
-// see the events — those carry the contents of the user's mail.
+// see the events — those carry the contents of the user's mail. A watched mailbox is
+// charged by the day to the workspace payer's wallet (emailWatcherService).
 const router: Router = Router();
 router.use(authenticateToken);
-
-/** During the beta each paying user gets one mailbox, across the workspaces they pay for. */
-const BETA_MAILBOXES_PER_PAYER = 1;
 
 const bad = (res: Response, error: string, status = 400) => res.status(status).json({ success: false, error } as ApiResponse);
 
@@ -169,12 +168,7 @@ router.post('/mailboxes', async (req: AuthenticatedRequest, res: Response) => {
     if (!isPlatformAdmin(req) && !(await getOrgRole(req, organizationId))) return bad(res, 'Workspace not found', 404);
     if (!(await canManageOrg(req, organizationId))) return bad(res, 'Only workspace owners and admins add mailboxes', 403);
 
-    const payer = await payerIdOf(organizationId);
-    if (!payer) return bad(res, 'This workspace has no owner to pay for it');
-    const used = await prisma.emailMailbox.count({ where: { organizationId: { in: await paidWorkspaces(payer) } } });
-    if (used >= BETA_MAILBOXES_PER_PAYER) {
-      return bad(res, 'During the beta each account gets one watched mailbox. Delete the other one first.', 402);
-    }
+    if (!(await payerIdOf(organizationId))) return bad(res, 'This workspace has no owner to pay for it');
 
     const start = await testLogin(settings);
     const box = await prisma.emailMailbox.create({
@@ -233,7 +227,7 @@ router.patch('/mailboxes/:id', async (req: AuthenticatedRequest, res: Response) 
       restart = true;
     }
     await prisma.emailMailbox.update({ where: { id: box.id }, data });
-    if (restart) await syncMailbox(box.id, true);
+    if (restart && !(await syncMailbox(box.id, true))) return bad(res, NO_BALANCE, 402);
     return res.json({ success: true } as ApiResponse);
   } catch (error) {
     return fail(res, error);
@@ -281,8 +275,9 @@ router.post('/mailboxes/:id/rules', async (req: AuthenticatedRequest, res: Respo
     if (!box) return bad(res, 'Mailbox not found', 404);
     const data = await ruleFrom(req.body, box.organizationId);
     const rule = await prisma.emailRule.create({ data: { ...(data as any), mailboxId: box.id, webhookSecret: randomBytes(24).toString('hex') } });
-    await syncMailbox(box.id);
-    return res.status(201).json({ success: true, data: rule } as ApiResponse);
+    // saved either way; a balance that does not cover today pauses the mailbox, said as a warning
+    const watching = await syncMailbox(box.id);
+    return res.status(201).json({ success: true, data: { ...rule, ...(!watching && { warning: NO_BALANCE }) } } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
@@ -298,8 +293,8 @@ router.patch('/rules/:id', async (req: AuthenticatedRequest, res: Response) => {
     }
     if (req.body?.newSecret) data.webhookSecret = randomBytes(24).toString('hex');
     const updated = await prisma.emailRule.update({ where: { id: rule.id }, data });
-    await syncMailbox(rule.mailboxId);
-    return res.json({ success: true, data: updated } as ApiResponse);
+    const watching = await syncMailbox(rule.mailboxId);
+    return res.json({ success: true, data: { ...updated, ...(!watching && { warning: NO_BALANCE }) } } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }

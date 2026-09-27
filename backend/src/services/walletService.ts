@@ -62,7 +62,7 @@ export class InsufficientBalance extends Error {
  * of it, now, or not at all: unlike hosting it never goes below zero. Throws
  * InsufficientBalance. Once per ref: a repeated ref charges nothing and returns false.
  */
-export async function spendFromWallet(entry: { organizationId: string; kind: 'DOMAIN'; amount: bigint; ref: string; note: string; createdById?: string }) {
+export async function spendFromWallet(entry: { organizationId: string; kind: 'DOMAIN' | 'EMAIL_WATCHER'; amount: bigint; ref: string; note: string; createdById?: string }) {
   const userId = await payerIdOf(entry.organizationId);
   if (!userId) throw new InsufficientBalance(entry.amount, 0n);
   try {

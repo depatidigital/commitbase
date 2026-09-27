@@ -27,6 +27,7 @@ export const getUsage = async (month?: string): Promise<Usage> => {
 export interface Rates {
   apps: { cpuCoreHour: number; memGbHour: number; storageGbMonth: number; objectGbMonth: number; currency: string };
   wa: { linkedDay: number; freeTextsPerDay: number; textAfterFree: number; media: number; ownNodeMonth: number; currency: string };
+  email: { mailboxDay: number; currency: string };
 }
 
 export const getRates = async (): Promise<Rates> => {
@@ -74,7 +75,7 @@ export const setBillingUser = async (organizationId: string, userId: string) => 
 
 export interface WalletEntry {
   id: string;
-  /** TOPUP | ADJUST | WELCOME | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN */
+  /** TOPUP | ADJUST | WELCOME | REFUND | AI_USAGE | HOSTING_USAGE | DOMAIN | EMAIL_WATCHER */
   kind: string;
   /** micro-IDR, signed */
   amount: string;

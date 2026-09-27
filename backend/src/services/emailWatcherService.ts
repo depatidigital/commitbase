@@ -6,6 +6,8 @@ import { decrypt } from '../lib/secretBox';
 import { sendMail } from '../lib/mailer';
 import { extractFields, Field, firstHeader, headerMatches, isPrivateIp, renderTemplate, ruleMatches, senderVerified, webhookSignature } from '../lib/emailRules';
 import { gateway } from './larikaGatewayService';
+import { EMAIL_WATCHER_RATES, WIB_MS } from './usageMeterService';
+import { billingUserOf, InsufficientBalance, MICRO, spendFromWallet } from './walletService';
 
 /**
  * Email Watcher ("Pantau Email"): one IMAP connection per mailbox that has an active
@@ -20,6 +22,10 @@ import { gateway } from './larikaGatewayService';
  * - A refused login stops the mailbox (AUTH_FAILED) and mails its owner — retrying a
  *   wrong password gets the account locked or Larika's IP blocked.
  * - Other failures retry with backoff (5 s doubling to 5 min, jittered).
+ *
+ * Billing: each day a mailbox is watched costs EMAIL_WATCHER_RATES.mailboxDay, paid up front
+ * from the payer's wallet when watching starts and by the hourly cron after that. No balance
+ * → the mailbox is paused (never below zero, like AI and WA) and the payer is mailed.
  *
  * ponytail: in-process, like cron.ts — one backend instance only. Move startEmailWatchers
  * into its own entrypoint (larika-inbox.service) past a few hundred mailboxes.
@@ -199,18 +205,67 @@ const settingsOf = (box: { host: string; port: number; secure: boolean; username
 
 /** Every mailbox that should be watched, each after a random pause so a restart does not log in to all at once. */
 export async function startEmailWatchers() {
-  const boxes = await prisma.emailMailbox.findMany({ where: { status: { notIn: ['PAUSED', 'AUTH_FAILED'] }, rules: { some: { active: true } } }, select: { id: true } });
+  const boxes = await prisma.emailMailbox.findMany({ where: WATCHED, select: { id: true } });
   for (const { id } of boxes) start(id, Math.random() * BOOT_JITTER_MS);
   return boxes.length;
 }
 
-/** Watch or stop watching a mailbox to match what the database says now (after any change to it or its rules). */
+/** Mailboxes that are watched, so charged: not paused or locked out, with a rule on. */
+const WATCHED = { status: { notIn: ['PAUSED', 'AUTH_FAILED'] }, rules: { some: { active: true } } };
+
+export const NO_BALANCE = 'Paused: the balance does not cover today. Top up, then resume.';
+
+/**
+ * Watch or stop watching a mailbox to match what the database says now (after any change
+ * to it or its rules). Starting charges today first; false when the balance did not cover
+ * it and the mailbox was paused instead.
+ */
 export async function syncMailbox(id: string, restart = false) {
   if (restart) stop(id);
-  const box = await prisma.emailMailbox.findUnique({ where: { id }, select: { status: true, _count: { select: { rules: { where: { active: true } } } } } });
-  const wanted = !!box && box.status !== 'PAUSED' && box.status !== 'AUTH_FAILED' && box._count.rules > 0;
-  if (!wanted) stop(id);
-  else if (!watches.has(id)) start(id, 0);
+  const box = await prisma.emailMailbox.findFirst({ where: { id, ...WATCHED } });
+  if (!box) return stop(id), true;
+  if (!(await chargeToday(box))) return false;
+  if (!watches.has(id)) start(id, 0);
+  return true;
+}
+
+/** Today's (WIB) charge for a mailbox, once. false: not enough balance — the mailbox is paused and its payer mailed. */
+async function chargeToday(box: { id: string; email: string; organizationId: string }) {
+  const day = new Date(Date.now() + WIB_MS).toISOString().slice(0, 10);
+  try {
+    await spendFromWallet({
+      organizationId: box.organizationId,
+      kind: 'EMAIL_WATCHER',
+      amount: BigInt(EMAIL_WATCHER_RATES.mailboxDay) * MICRO,
+      ref: `email:${box.id}:${day}`,
+      note: `Email Watcher ${box.email}, ${day}`,
+    });
+    return true;
+  } catch (error) {
+    if (!(error instanceof InsufficientBalance)) throw error;
+    stop(box.id);
+    await prisma.emailMailbox.update({ where: { id: box.id }, data: { status: 'PAUSED', lastError: NO_BALANCE } });
+    const payer = await billingUserOf(box.organizationId);
+    if (payer) {
+      await sendMail({
+        to: payer.email,
+        subject: `Email Watcher paused: ${box.email}`,
+        text: `Your balance does not cover today's Rp ${EMAIL_WATCHER_RATES.mailboxDay} for watching ${box.email}, so Larika stopped reading it.
+
+Top up, then press Resume:
+${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/email-watcher/${box.id}`,
+      }).catch(() => undefined);
+    }
+    return false;
+  }
+}
+
+/** Cron, hourly: each watched mailbox's day charged — the first run after midnight WIB charges the new day. */
+export async function billEmailWatchers(): Promise<string> {
+  const boxes = await prisma.emailMailbox.findMany({ where: WATCHED, select: { id: true, email: true, organizationId: true } });
+  let paused = 0;
+  for (const box of boxes) if (!(await chargeToday(box).catch((e) => (console.warn(`Email Watcher ${box.id}: charge failed:`, e), true)))) paused += 1;
+  return `${boxes.length} mailbox(es) charged${paused ? `, ${paused} paused for balance` : ''}`;
 }
 
 export function stop(id: string) {

@@ -59,6 +59,12 @@ export const WA_RATES = {
   currency: 'IDR',
 } as const;
 
+/** Email Watcher: a day a mailbox is watched, paid up front from the wallet (never below zero). */
+export const EMAIL_WATCHER_RATES = {
+  mailboxDay: 300,
+  currency: 'IDR',
+} as const;
+
 /** Stored in R2, not on a node: a static site's files. */
 export const inObjectStorage = (app: { type: string; staticBucket: string | null }) => app.type === 'STATIC' && !!app.staticBucket;
 

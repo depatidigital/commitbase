@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { currentRate, priceOf, RATES, usageByDay, WA_RATES, WIB_MS } from '../services/usageMeterService';
+import { currentRate, EMAIL_WATCHER_RATES, priceOf, RATES, usageByDay, WA_RATES, WIB_MS } from '../services/usageMeterService';
 import { billingUserOf, daysOf, hostingBillingFrom, negativeLimit, paidWorkspaces, perDayOf, perDayOfUser } from '../services/walletService';
 import { ArusniagaError, createTopUp, TOPUP_MAX, TOPUP_MIN, topUpView } from '../services/arusniagaService';
 import { getArusniagaConfig } from '../services/integrationConfigService';
@@ -40,7 +40,7 @@ function monthOf(req: AuthenticatedRequest) {
 
 /** The price list: the Pricing page reads it, so it never disagrees with the meter. */
 router.get('/rates', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
-  return res.json({ success: true, data: { apps: RATES, wa: WA_RATES } } as ApiResponse);
+  return res.json({ success: true, data: { apps: RATES, wa: WA_RATES, email: EMAIL_WATCHER_RATES } } as ApiResponse);
 });
 
 /** A workspace's metered use in one month and what it costs — per day, the month so far, and where it is heading. */

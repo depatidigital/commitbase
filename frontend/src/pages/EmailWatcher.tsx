@@ -14,12 +14,10 @@ import { useToast } from "@/hooks/use-toast";
 import { getActiveOrg } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { getOrganizations } from "@/lib/organizations";
-import { addMailbox, detectMailbox, getMailboxes, type Detected, type Mailbox, type MailboxStatus } from "@/lib/emailWatcher";
-import { locale, t } from "@/lib/i18n";
-
-export const MAILBOXES_KEY = ["email-watcher", "mailboxes"];
-
-export const when = (at: string | null) => (at ? new Date(at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" }) : "—");
+import { getRates } from "@/lib/billing";
+import { rupiah } from "@/lib/ai";
+import { addMailbox, detectMailbox, getMailboxes, MAILBOXES_KEY, when, type Detected, type Mailbox, type MailboxStatus } from "@/lib/emailWatcher";
+import { t } from "@/lib/i18n";
 
 export function MailboxStatusBadge({ status }: { status: MailboxStatus }) {
   const label: Record<MailboxStatus, string> = { OK: t("Watching"), AUTH_FAILED: t("Login refused"), ERROR: t("Reconnecting"), PAUSED: t("Paused") };
@@ -55,6 +53,7 @@ export default function EmailWatcher() {
   const queryClient = useQueryClient();
   const query = useTableQuery(10);
   const { data: rows = [], isFetching } = useQuery({ queryKey: MAILBOXES_KEY, queryFn: getMailboxes, refetchInterval: 30_000 });
+  const { data: rates } = useQuery({ queryKey: ["billing", "rates"], queryFn: getRates, staleTime: 10 * 60_000 });
   const [adding, setAdding] = useState<Adding | null>(null);
   const [detecting, setDetecting] = useState(false);
   const { data: orgs = [] } = useQuery({ queryKey: ["organizations"], queryFn: getOrganizations, enabled: !!adding });
@@ -92,7 +91,7 @@ export default function EmailWatcher() {
       cell: (m) => (
         <div className="space-y-1">
           <MailboxStatusBadge status={m.status} />
-          {m.status !== "OK" && m.status !== "PAUSED" && m.lastError && <p className="max-w-xs truncate text-xs text-destructive" title={m.lastError}>{m.lastError}</p>}
+          {m.status !== "OK" && m.lastError && <p className="max-w-xs truncate text-xs text-destructive" title={m.lastError}>{m.lastError}</p>}
         </div>
       ),
     },
@@ -113,7 +112,11 @@ export default function EmailWatcher() {
         </Button>
       }
     >
-      <p className="rounded-md bg-primary/5 p-3 text-sm">{t("Beta: one watched mailbox per account, free.")}</p>
+      {rates && (
+        <p className="rounded-md bg-primary/5 p-3 text-sm">
+          {t("{price} per mailbox per day from your balance, only on days it is watched. Paused mailboxes cost nothing.", { price: rupiah(rates.email.mailboxDay) })}
+        </p>
+      )}
       <DataTable
         columns={columns}
         rows={rows}
