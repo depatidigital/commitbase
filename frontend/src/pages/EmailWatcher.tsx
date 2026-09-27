@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, List, Loader2, MailSearch, MessageCircle, Plus } from "lucide-react";
+import { AlertTriangle, BookOpen, FlaskConical, KeyRound, List, Loader2, MailSearch, MessageCircle, Pause, Play, Plus, ScrollText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -13,23 +12,37 @@ import { PageLayout } from "@/components/PageLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeExample } from "@/components/CodeExample";
 import { Step } from "@/components/QuickStartStep";
+import { EventsTab, RulesTab } from "@/components/EmailWatcherTabs";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveOrg } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 import { getOrganizations } from "@/lib/organizations";
-import { getRates } from "@/lib/billing";
-import { rupiah } from "@/lib/ai";
-import { addMailbox, detectMailbox, getMailboxes, MAILBOXES_KEY, when, type Detected, type Mailbox, type MailboxStatus } from "@/lib/emailWatcher";
+import {
+  addMailbox,
+  deleteMailbox,
+  detectMailbox,
+  EVENTS_KEY,
+  getMailboxes,
+  MAILBOXES_KEY,
+  RULES_KEY,
+  updateMailbox,
+  when,
+  type Detected,
+  type Mailbox,
+  type MailboxStatus,
+} from "@/lib/emailWatcher";
 import { t } from "@/lib/i18n";
 
-export function MailboxStatusBadge({ status }: { status: MailboxStatus }) {
+/** idle: no rule is on, so nothing is watched yet — said instead of "Watching" */
+function MailboxStatusBadge({ status, idle = false }: { status: MailboxStatus; idle?: boolean }) {
+  if (status === "OK" && idle) return <Badge variant="outline">{t("No rule yet")}</Badge>;
   const label: Record<MailboxStatus, string> = { OK: t("Watching"), AUTH_FAILED: t("Login refused"), ERROR: t("Reconnecting"), PAUSED: t("Paused") };
   const variant = status === "OK" ? "default" : status === "PAUSED" ? "secondary" : "destructive";
   return <Badge variant={variant}>{label[status] ?? status}</Badge>;
 }
 
 /** How to get a password Larika may log in with, per provider (detectMailbox's `provider`). */
-export function PasswordGuide({ provider }: { provider: string | null }) {
+function PasswordGuide({ provider }: { provider: string | null }) {
   const steps: Record<string, string> = {
     gmail: t("Gmail needs an app password: turn on 2-Step Verification, then create one at myaccount.google.com/apppasswords and paste its 16 characters here."),
     google: t("Google Workspace needs an app password: turn on 2-Step Verification, then create one at myaccount.google.com/apppasswords. Your admin may have to allow app passwords."),
@@ -44,34 +57,63 @@ export function PasswordGuide({ provider }: { provider: string | null }) {
   );
 }
 
+/** The provider of a saved mailbox, for its password guide. */
+const providerOf = (host: string) => (host.includes("gmail") ? "gmail" : host.includes("yahoo") ? "yahoo" : host.includes("me.com") ? "me" : host.includes("zoho") ? "zoho" : null);
+
 type Adding = { organizationId: string; email: string; host: string; port: string; username: string; password: string; detected: Detected | null };
+type Login = { mailbox: Mailbox; host: string; port: string; username: string; password: string };
 
 /**
- * Email Watcher: mailboxes Larika keeps an IMAP connection to, reading new emails as
- * they arrive and running the mailbox's rules on them.
+ * Email Watcher: mailboxes Larika keeps an IMAP connection to, the rules run on their
+ * new emails, and what the rules matched — one page, a tab each.
  */
 export default function EmailWatcher() {
   const { toast } = useToast();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const query = useTableQuery(10);
   const { data: rows = [], isFetching } = useQuery({ queryKey: MAILBOXES_KEY, queryFn: getMailboxes, refetchInterval: 30_000 });
-  const { data: rates } = useQuery({ queryKey: ["billing", "rates"], queryFn: getRates, staleTime: 10 * 60_000 });
   const [adding, setAdding] = useState<Adding | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [login, setLogin] = useState<Login | null>(null);
+  const [removing, setRemoving] = useState<Mailbox | null>(null);
   const [tab, setTab] = useState<string | null>(null);
   const { data: orgs = [] } = useQuery({ queryKey: ["organizations"], queryFn: getOrganizations, enabled: !!adding });
   const manageable = orgs.filter((org) => isAdmin() || org.myRole === "OWNER" || org.myRole === "ADMIN");
   const showWorkspace = isAdmin() || new Set(rows.map((r) => r.organization?.id)).size > 1;
 
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: MAILBOXES_KEY });
+    void queryClient.invalidateQueries({ queryKey: RULES_KEY });
+    void queryClient.invalidateQueries({ queryKey: EVENTS_KEY });
+  };
+  const failed = (title: string) => (e: Error) => toast({ title, description: e.message, variant: "destructive" });
+
   const create = useMutation({
     mutationFn: addMailbox,
-    onSuccess: ({ id }) => {
+    onSuccess: () => {
       setAdding(null);
-      void queryClient.invalidateQueries({ queryKey: MAILBOXES_KEY });
-      navigate(`/email-watcher/${id}`);
+      refresh();
+      // next: its first rule
+      setTab("rules");
     },
-    onError: (e: Error) => toast({ title: t("Failed to add the mailbox"), description: e.message, variant: "destructive" }),
+    onError: failed(t("Failed to add the mailbox")),
+  });
+  const pause = useMutation({ mutationFn: (m: Mailbox) => updateMailbox(m.id, { paused: m.status !== "PAUSED" }), onSuccess: refresh, onError: failed(t("Failed to update the mailbox")) });
+  const saveLogin = useMutation({
+    mutationFn: (l: Login) => updateMailbox(l.mailbox.id, { host: l.host, port: Number(l.port) || 993, secure: (Number(l.port) || 993) === 993, username: l.username, password: l.password }),
+    onSuccess: () => {
+      setLogin(null);
+      refresh();
+    },
+    onError: failed(t("Failed to update the mailbox")),
+  });
+  const remove = useMutation({
+    mutationFn: (m: Mailbox) => deleteMailbox(m.id),
+    onSuccess: () => {
+      setRemoving(null);
+      refresh();
+    },
+    onError: failed(t("Failed to delete the mailbox")),
   });
 
   const detect = async (form: Adding) => {
@@ -87,6 +129,8 @@ export default function EmailWatcher() {
     }
   };
 
+  const startLogin = (m: Mailbox) => setLogin({ mailbox: m, host: m.host, port: String(m.port), username: m.username, password: "" });
+
   const columns: Column<Mailbox>[] = [
     { header: t("Mailbox"), cell: (m) => <span className="font-medium">{m.email}</span> },
     ...(showWorkspace ? [{ header: t("Workspace"), cell: (m: Mailbox) => m.organization?.name ?? "—" }] : []),
@@ -94,13 +138,42 @@ export default function EmailWatcher() {
       header: t("Status"),
       cell: (m) => (
         <div className="space-y-1">
-          <MailboxStatusBadge status={m.status} />
-          {m.status !== "OK" && m.lastError && <p className="max-w-xs truncate text-xs text-destructive" title={m.lastError}>{m.lastError}</p>}
+          <MailboxStatusBadge status={m.status} idle={!m.activeRules} />
+          {m.status !== "OK" && m.lastError && (
+            <p className="max-w-xs truncate text-xs text-destructive" title={m.lastError}>
+              {m.lastError}
+            </p>
+          )}
         </div>
       ),
     },
     { header: t("Rules"), cell: (m) => <span className="tabular-nums">{m.rules ?? 0}</span> },
     { header: t("Last checked"), cell: (m) => when(m.lastCheckedAt) },
+    {
+      header: "",
+      className: "w-32 text-right",
+      cell: (m) =>
+        m.canManage && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={m.status === "PAUSED" ? t("Resume") : t("Pause")}
+              title={m.status === "PAUSED" ? t("Resume") : t("Pause")}
+              disabled={pause.isPending}
+              onClick={() => pause.mutate(m)}
+            >
+              {m.status === "PAUSED" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+            </Button>
+            <Button variant={m.status === "AUTH_FAILED" ? "destructive" : "ghost"} size="sm" aria-label={t("Login")} title={t("Login")} onClick={() => startLogin(m)}>
+              <KeyRound className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" aria-label={t("Delete mailbox")} title={t("Delete mailbox")} onClick={() => setRemoving(m)}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </>
+        ),
+    },
   ];
 
   const detected = adding?.detected;
@@ -129,9 +202,17 @@ export default function EmailWatcher() {
             {t("Mailboxes")}
             {rows.length > 0 && ` (${rows.length})`}
           </TabsTrigger>
+          <TabsTrigger value="rules">
+            <FlaskConical className="mr-2 h-4 w-4" />
+            {t("Rules")}
+          </TabsTrigger>
+          <TabsTrigger value="events">
+            <ScrollText className="mr-2 h-4 w-4" />
+            {t("Events")}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="start">
-          <QuickStart rows={rows} price={rates ? rupiah(rates.email.mailboxDay) : null} onAdd={startAdding} onOpen={(m) => navigate(`/email-watcher/${m.id}`)} />
+          <QuickStart rows={rows} onAdd={startAdding} onRules={() => setTab("rules")} />
         </TabsContent>
         <TabsContent value="mailboxes">
           <DataTable
@@ -143,8 +224,13 @@ export default function EmailWatcher() {
             isLoading={isFetching && !rows.length}
             searchPlaceholder={t("Search mailboxes…")}
             empty={t("No mailboxes yet. Add the inbox your bank or payment notifications arrive in.")}
-            onRowClick={(m) => m.canManage && navigate(`/email-watcher/${m.id}`)}
           />
+        </TabsContent>
+        <TabsContent value="rules">
+          <RulesTab mailboxes={rows} />
+        </TabsContent>
+        <TabsContent value="events">
+          <EventsTab manyMailboxes={rows.length > 1} />
         </TabsContent>
       </Tabs>
 
@@ -251,6 +337,73 @@ export default function EmailWatcher() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!login} onOpenChange={(o) => !o && setLogin(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("Login for {email}", { email: login?.mailbox.email ?? "" })}</DialogTitle>
+            <DialogDescription>{t("Tested before it is saved. The watcher reconnects with it and reads what arrived meanwhile.")}</DialogDescription>
+          </DialogHeader>
+          {login && (
+            <form
+              id="mailbox-login"
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveLogin.mutate(login);
+              }}
+            >
+              {login.mailbox.lastError && login.mailbox.status === "AUTH_FAILED" && <p className="text-sm text-destructive">{login.mailbox.lastError}</p>}
+              <PasswordGuide provider={providerOf(login.mailbox.host)} />
+              <div className="grid grid-cols-[1fr_6rem] gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="login-host">{t("IMAP server")}</Label>
+                  <Input id="login-host" required value={login.host} onChange={(e) => setLogin({ ...login, host: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="login-port">{t("Port")}</Label>
+                  <Input id="login-port" type="number" required value={login.port} onChange={(e) => setLogin({ ...login, port: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="login-username">{t("Username")}</Label>
+                <Input id="login-username" required value={login.username} onChange={(e) => setLogin({ ...login, username: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="login-password">{t("Password or app password")}</Label>
+                <Input id="login-password" type="password" required autoFocus autoComplete="off" value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} />
+              </div>
+            </form>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLogin(null)} disabled={saveLogin.isPending}>
+              {t("Cancel")}
+            </Button>
+            <Button type="submit" form="mailbox-login" disabled={saveLogin.isPending}>
+              {saveLogin.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("Test and save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("Delete {name}?", { name: removing?.email ?? "" })}</DialogTitle>
+            <DialogDescription>{t("Larika stops reading it and deletes its rules and events. The emails stay in the mailbox.")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoving(null)} disabled={remove.isPending}>
+              {t("Cancel")}
+            </Button>
+            <Button variant="destructive" onClick={() => removing && remove.mutate(removing)} disabled={remove.isPending}>
+              {remove.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("Delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   );
 }
@@ -283,17 +436,9 @@ const { id, verified, data } = req.body; // data.amount = 150000, data.source = 
 res.status(200).end();`;
 
 /** From nothing to parsed notifications in an app, each step ticked off from the real mailboxes. */
-function QuickStart({ rows, price, onAdd, onOpen }: { rows: Mailbox[]; price: string | null; onAdd: () => void; onOpen: (m: Mailbox) => void }) {
-  const first = rows.find((m) => m.canManage);
-  const withRule = rows.find((m) => m.canManage && (m.rules ?? 0) > 0);
+function QuickStart({ rows, onAdd, onRules }: { rows: Mailbox[]; onAdd: () => void; onRules: () => void }) {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      {price && (
-        <p className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
-          {t("{price} per mailbox per day from your balance, only on days it is watched. Paused mailboxes cost nothing.", { price })}
-        </p>
-      )}
-
       <Step n={1} done={rows.length > 0} title={t("Connect the inbox your notifications arrive in")}>
         <p className="text-sm text-muted-foreground">
           {t("Gmail, Yahoo and iCloud need an app password (2-step verification on); email on your own domain uses its normal password. Larika only reads, and never stores an email your rules do not match.")}
@@ -306,14 +451,14 @@ function QuickStart({ rows, price, onAdd, onOpen }: { rows: Mailbox[]; price: st
         )}
       </Step>
 
-      <Step n={2} done={!!withRule} title={t("Make a rule and try it on real emails")}>
+      <Step n={2} done={rows.some((m) => (m.rules ?? 0) > 0)} title={t("Make a rule and try it on real emails")}>
         <p className="text-sm text-muted-foreground">
           {t("Pick emails by sender and subject (or start from the BNI Merchant preset), add the fields to read — a regular expression each — and press Try: the last 30 days of your inbox show what the rule would read out.")}
         </p>
-        {first && (
-          <Button variant="outline" size="sm" onClick={() => onOpen(withRule ?? first)}>
-            <MailSearch className="mr-2 h-4 w-4" />
-            {t("Rules of {email}", { email: (withRule ?? first).email })}
+        {rows.some((m) => m.canManage) && (
+          <Button variant="outline" size="sm" onClick={onRules}>
+            <FlaskConical className="mr-2 h-4 w-4" />
+            {t("Rules")}
           </Button>
         )}
       </Step>

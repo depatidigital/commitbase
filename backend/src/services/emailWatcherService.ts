@@ -253,7 +253,7 @@ async function chargeToday(box: { id: string; email: string; organizationId: str
         text: `Your balance does not cover today's Rp ${EMAIL_WATCHER_RATES.mailboxDay} for watching ${box.email}, so Larika stopped reading it.
 
 Top up, then press Resume:
-${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/email-watcher/${box.id}`,
+${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/email-watcher`,
       }).catch(() => undefined);
     }
     return false;
@@ -348,7 +348,7 @@ async function fail(id: string, w: Watch, error: unknown) {
 async function mailAuthFailed(box: { id: string; email: string; createdById: string | null; organizationId: string }) {
   const user = box.createdById ? await prisma.user.findUnique({ where: { id: box.createdById }, select: { email: true } }) : null;
   if (!user) return;
-  const url = `${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/email-watcher/${box.id}`;
+  const url = `${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/email-watcher`;
   await sendMail({
     to: user.email,
     subject: `Email Watcher stopped: ${box.email}`,

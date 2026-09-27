@@ -38,6 +38,13 @@ const fail = (res: Response, error: unknown) => {
   return bad(res, 'Something went wrong', 500);
 };
 
+/** Mailboxes the caller manages (owner or admin of their workspace): where the Rules and Events tabs list from. */
+async function managedScope(req: AuthenticatedRequest): Promise<{ organizationId?: { in: string[] } }> {
+  if (isPlatformAdmin(req)) return {};
+  const memberships = await listMemberships(req);
+  return { organizationId: { in: memberships.filter((m) => m.role === 'OWNER' || m.role === 'ADMIN').map((m) => m.organizationId) } };
+}
+
 /** The mailbox, when the caller may manage it; else null. */
 async function mailboxFor(req: AuthenticatedRequest, id: unknown) {
   const box = await prisma.emailMailbox.findFirst({ where: { id: String(id), ...(await orgScope(req)) } });
@@ -146,7 +153,12 @@ router.get('/mailboxes', async (req: AuthenticatedRequest, res: Response) => {
       include: { organization: { select: { id: true, name: true } }, _count: { select: { rules: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    const data = await Promise.all(rows.map(async (box) => mailboxView(box, await canManageOrg(req, box.organizationId))));
+    // a mailbox with no rule on is not connected: the list says so instead of "Watching"
+    const active = await prisma.emailRule.groupBy({ by: ['mailboxId'], where: { active: true, mailboxId: { in: rows.map((b) => b.id) } }, _count: true });
+    const activeOf = new Map(active.map((a) => [a.mailboxId, a._count]));
+    const data = await Promise.all(
+      rows.map(async (box) => ({ ...mailboxView(box, await canManageOrg(req, box.organizationId)), activeRules: activeOf.get(box.id) ?? 0 })),
+    );
     return res.json({ success: true, data } as ApiResponse);
   } catch (error) {
     return fail(res, error);
@@ -186,21 +198,6 @@ router.post('/mailboxes', async (req: AuthenticatedRequest, res: Response) => {
       },
     });
     return res.status(201).json({ success: true, data: { id: box.id } } as ApiResponse);
-  } catch (error) {
-    return fail(res, error);
-  }
-});
-
-router.get('/mailboxes/:id', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const box = await mailboxFor(req, req.params.id);
-    if (!box) return bad(res, 'Mailbox not found', 404);
-    const [organization, rules, waNumbers] = await Promise.all([
-      prisma.organization.findUnique({ where: { id: box.organizationId }, select: { id: true, name: true } }),
-      prisma.emailRule.findMany({ where: { mailboxId: box.id }, orderBy: { createdAt: 'asc' } }),
-      prisma.waNumber.findMany({ where: { organizationId: box.organizationId }, select: { id: true, name: true } }),
-    ]);
-    return res.json({ success: true, data: { ...mailboxView({ ...box, organization }, true), rules, waNumbers, retentionDays: EVENT_RETENTION_DAYS } } as ApiResponse);
   } catch (error) {
     return fail(res, error);
   }
@@ -269,6 +266,24 @@ router.post('/mailboxes/:id/preview', async (req: AuthenticatedRequest, res: Res
 
 // ── Rules ──
 
+/** Every rule of the mailboxes the caller manages, with the WhatsApp numbers a rule may send from. */
+router.get('/rules', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const scope = await managedScope(req);
+    const [rules, waNumbers] = await Promise.all([
+      prisma.emailRule.findMany({
+        where: { mailbox: scope },
+        include: { mailbox: { select: { id: true, email: true, organizationId: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.waNumber.findMany({ where: scope, select: { id: true, name: true, organizationId: true } }),
+    ]);
+    return res.json({ success: true, data: { rules, waNumbers, retentionDays: EVENT_RETENTION_DAYS } } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
 router.post('/mailboxes/:id/rules', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const box = await mailboxFor(req, req.params.id);
@@ -314,17 +329,22 @@ router.delete('/rules/:id', async (req: AuthenticatedRequest, res: Response) => 
 
 // ── Events ──
 
-router.get('/mailboxes/:id/events', async (req: AuthenticatedRequest, res: Response) => {
+/** What the rules of the caller's mailboxes matched, newest first. */
+router.get('/events', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const box = await mailboxFor(req, req.params.id);
-    if (!box) return bad(res, 'Mailbox not found', 404);
     const { page, limit, skip, search } = paging(req);
     const where = {
-      rule: { mailboxId: box.id },
+      rule: { mailbox: await managedScope(req) },
       ...(search && { OR: [{ subject: { contains: search, mode: 'insensitive' as const } }, { from: { contains: search, mode: 'insensitive' as const } }] }),
     };
     const [rows, total] = await Promise.all([
-      prisma.emailEvent.findMany({ where, include: { rule: { select: { id: true, name: true } } }, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+      prisma.emailEvent.findMany({
+        where,
+        include: { rule: { select: { id: true, name: true, mailbox: { select: { email: true } } } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
       prisma.emailEvent.count({ where }),
     ]);
     return res.json(paginated(rows, total, page, limit));

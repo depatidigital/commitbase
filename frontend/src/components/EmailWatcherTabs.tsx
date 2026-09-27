@@ -1,40 +1,37 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, FlaskConical, KeyRound, List, Loader2, MailSearch, Pause, Pencil, Play, Plus, RotateCw, ShieldAlert, Trash2, X } from "lucide-react";
+import { CheckCircle2, FlaskConical, Loader2, Pencil, Plus, RotateCw, ShieldAlert, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
-import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
 import { useToast } from "@/hooks/use-toast";
 import {
   createRule,
-  deleteMailbox,
   deleteRule,
+  EVENTS_KEY,
   getEvents,
-  getMailbox,
+  getRules,
+  MAILBOXES_KEY,
   previewRule,
   replayEvent,
-  updateMailbox,
+  RULES_KEY,
   updateRule,
-  MAILBOXES_KEY,
   when,
   type EventStatus,
-  type MailboxDetail,
+  type Mailbox,
   type MailEvent,
   type PreviewRow,
   type Rule,
   type RuleInput,
+  type RulesOverview,
 } from "@/lib/emailWatcher";
-import { MailboxStatusBadge, PasswordGuide } from "@/pages/EmailWatcher";
 import { t } from "@/lib/i18n";
 
 const NONE = "none";
@@ -75,58 +72,44 @@ const dataLine = (data: Record<string, unknown>) =>
     .map(([k, v]) => `${k}: ${v ?? "—"}`)
     .join(" · ");
 
-/** One watched mailbox: its connection, its rules and what they matched. Owners and admins. */
-export default function EmailMailbox() {
-  const { id = "" } = useParams();
-  const navigate = useNavigate();
+type Editing = { id: string | null; mailboxId: string; rule: RuleInput; secret?: string };
+
+/** Every rule of the mailboxes the caller manages. */
+export function RulesTab({ mailboxes }: { mailboxes: Mailbox[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const key = ["email-watcher", "mailbox", id];
-  const { data: box, isLoading, error } = useQuery({ queryKey: key, queryFn: () => getMailbox(id), refetchInterval: 30_000 });
-  const [editing, setEditing] = useState<{ id: string | null; rule: RuleInput; secret?: string } | null>(null);
-  const [password, setPassword] = useState<{ host: string; port: string; username: string; password: string } | null>(null);
-  const [removing, setRemoving] = useState<"mailbox" | Rule | null>(null);
+  const query = useTableQuery(10);
+  const { data, isFetching } = useQuery({ queryKey: RULES_KEY, queryFn: getRules, refetchInterval: 30_000 });
+  const rules = data?.rules ?? [];
+  const managed = mailboxes.filter((m) => m.canManage);
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [removing, setRemoving] = useState<Rule | null>(null);
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: key });
+    void queryClient.invalidateQueries({ queryKey: RULES_KEY });
+    // a rule turned on or off starts or stops its mailbox
     void queryClient.invalidateQueries({ queryKey: MAILBOXES_KEY });
   };
-  const failed = (title: string) => (e: Error) => toast({ title, description: e.message, variant: "destructive" });
-
-  const pause = useMutation({ mutationFn: (paused: boolean) => updateMailbox(id, { paused }), onSuccess: refresh, onError: failed(t("Failed to update the mailbox")) });
-  const login = useMutation({
-    mutationFn: () => updateMailbox(id, { host: password!.host, port: Number(password!.port) || 993, secure: (Number(password!.port) || 993) === 993, username: password!.username, password: password!.password }),
-    onSuccess: () => {
-      setPassword(null);
-      refresh();
-    },
-    onError: failed(t("Failed to update the mailbox")),
-  });
-  const remove = useMutation({
-    mutationFn: async () => {
-      if (removing === "mailbox") {
-        await deleteMailbox(id);
-        navigate("/email-watcher");
-      } else if (removing) await deleteRule(removing.id);
-    },
-    onSuccess: () => {
-      setRemoving(null);
-      refresh();
-    },
-    onError: failed(t("Failed to delete")),
-  });
   const toggle = useMutation({
     mutationFn: (r: Rule) => updateRule(r.id, { active: !r.active }),
     onSuccess: (r) => {
       if (r.warning) toast({ title: t(r.warning), variant: "destructive" });
       refresh();
     },
-    onError: failed(t("Failed to save the rule")),
+    onError: (e: Error) => toast({ title: t("Failed to save the rule"), description: e.message, variant: "destructive" }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteRule(id),
+    onSuccess: () => {
+      setRemoving(null);
+      refresh();
+    },
+    onError: (e: Error) => toast({ title: t("Failed to delete the rule"), description: e.message, variant: "destructive" }),
   });
 
-  const ruleQuery = useTableQuery(10);
-  const ruleColumns: Column<Rule>[] = [
+  const columns: Column<Rule>[] = [
     { header: t("Rule"), cell: (r) => <span className="font-medium">{r.name}</span> },
+    ...(managed.length > 1 ? [{ header: t("Mailbox"), cell: (r: Rule) => <span className="text-xs">{r.mailbox.email}</span> }] : []),
     {
       header: t("Takes"),
       cell: (r) => (
@@ -137,13 +120,13 @@ export default function EmailMailbox() {
     },
     { header: t("Reads"), cell: (r) => <span className="font-mono text-xs">{r.fields.map((f) => f.name).join(", ") || "—"}</span> },
     { header: t("Sends to"), cell: (r) => <span className="text-xs">{[r.webhookUrl && "Webhook", r.waNumberId && r.waTo && "WhatsApp"].filter(Boolean).join(" + ") || t("nowhere")}</span> },
-    { header: t("On"), cell: (r) => <Switch checked={r.active} onCheckedChange={() => toggle.mutate(r)} onClick={(e) => e.stopPropagation()} aria-label={t("Rule on")} /> },
+    { header: t("On"), cell: (r) => <Switch checked={r.active} onCheckedChange={() => toggle.mutate(r)} aria-label={t("Rule on")} /> },
     {
       header: "",
       className: "w-24 text-right",
       cell: (r) => (
         <>
-          <Button variant="ghost" size="sm" aria-label={t("Edit")} onClick={() => setEditing({ id: r.id, rule: { ...r }, secret: r.webhookSecret })}>
+          <Button variant="ghost" size="sm" aria-label={t("Edit")} onClick={() => setEditing({ id: r.id, mailboxId: r.mailboxId, rule: { ...r }, secret: r.webhookSecret })}>
             <Pencil className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" aria-label={t("Delete")} onClick={() => setRemoving(r)}>
@@ -154,167 +137,66 @@ export default function EmailMailbox() {
     },
   ];
 
-  if (isLoading) return <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />;
-  if (error || !box)
-    return (
-      <p className="flex items-center gap-2 text-sm text-destructive">
-        <AlertCircle className="h-4 w-4" />
-        {(error as Error)?.message ?? t("Mailbox not found")}
-      </p>
-    );
-
   return (
-    <PageLayout
-      icon={MailSearch}
-      backTo="/email-watcher"
-      title={box.email}
-      description={`${box.host}:${box.port} · ${t("last checked {when}", { when: when(box.lastCheckedAt) })}`}
-      actions={
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => pause.mutate(box.status !== "PAUSED")} disabled={pause.isPending}>
-            {box.status === "PAUSED" ? <Play className="mr-2 h-4 w-4" /> : <Pause className="mr-2 h-4 w-4" />}
-            {box.status === "PAUSED" ? t("Resume") : t("Pause")}
+    <>
+      <DataTable
+        columns={columns}
+        rows={rules}
+        rowKey={(r) => r.id}
+        query={query}
+        filter={(r, search) => `${r.name} ${r.mailbox.email}`.toLowerCase().includes(search.toLowerCase())}
+        isLoading={isFetching && !data}
+        searchPlaceholder={t("Search rules…")}
+        toolbar={
+          <Button disabled={!managed[0] || !data} onClick={() => managed[0] && setEditing({ id: null, mailboxId: managed[0].id, rule: emptyRule() })}>
+            <Plus className="mr-2 h-4 w-4" /> {t("New rule")}
           </Button>
-          <Button variant="outline" onClick={() => setPassword({ host: box.host, port: String(box.port), username: box.username, password: "" })}>
-            <KeyRound className="mr-2 h-4 w-4" /> {t("Login")}
-          </Button>
-          <Button variant="outline" onClick={() => setRemoving("mailbox")} aria-label={t("Delete mailbox")}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-wrap items-center gap-3">
-        <MailboxStatusBadge status={box.status} />
-        {box.status === "OK" && !box.rules.some((r) => r.active) && <span className="text-sm text-muted-foreground">{t("Not connected until a rule is on.")}</span>}
-        {box.lastError && box.status !== "OK" && <span className="text-sm text-destructive">{box.lastError}</span>}
-        {box.status === "AUTH_FAILED" && (
-          <Button size="sm" onClick={() => setPassword({ host: box.host, port: String(box.port), username: box.username, password: "" })}>
-            {t("Enter a new password")}
-          </Button>
-        )}
-      </div>
+        }
+        empty={managed.length ? t("No rules yet. A rule picks emails by sender and subject and reads values out of them.") : t("Add a mailbox first; its rules show here.")}
+      />
 
-      <Tabs defaultValue="rules" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="rules">
-            <FlaskConical className="mr-2 h-4 w-4" />
-            {t("Rules")} {box.rules.length > 0 && `(${box.rules.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="events">
-            <List className="mr-2 h-4 w-4" />
-            {t("Events")}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="rules" className="space-y-3">
-          <div className="flex justify-end">
-            <Button onClick={() => setEditing({ id: null, rule: emptyRule() })}>
-              <Plus className="mr-2 h-4 w-4" /> {t("New rule")}
-            </Button>
-          </div>
-          <DataTable
-            columns={ruleColumns}
-            rows={box.rules}
-            rowKey={(r) => r.id}
-            query={ruleQuery}
-            filter={(r, search) => r.name.toLowerCase().includes(search.toLowerCase())}
-            searchPlaceholder={t("Search rules…")}
-            empty={t("No rules yet. A rule picks emails by sender and subject and reads values out of them.")}
-          />
-        </TabsContent>
-        <TabsContent value="events">
-          <EventsTab mailboxId={box.id} retentionDays={box.retentionDays} />
-        </TabsContent>
-      </Tabs>
-
-      {editing && <RuleDialog box={box} editing={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
-
-      <Dialog open={!!password} onOpenChange={(o) => !o && setPassword(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("Login for {email}", { email: box.email })}</DialogTitle>
-            <DialogDescription>{t("Tested before it is saved. The watcher reconnects with it and reads what arrived meanwhile.")}</DialogDescription>
-          </DialogHeader>
-          {password && (
-            <form
-              id="mailbox-login"
-              className="space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                login.mutate();
-              }}
-            >
-              <PasswordGuide provider={box.host.includes("gmail") ? "gmail" : box.host.includes("yahoo") ? "yahoo" : box.host.includes("me.com") ? "me" : null} />
-              <div className="grid grid-cols-[1fr_6rem] gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="login-host">{t("IMAP server")}</Label>
-                  <Input id="login-host" required value={password.host} onChange={(e) => setPassword({ ...password, host: e.target.value })} />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="login-port">{t("Port")}</Label>
-                  <Input id="login-port" type="number" required value={password.port} onChange={(e) => setPassword({ ...password, port: e.target.value })} />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="login-username">{t("Username")}</Label>
-                <Input id="login-username" required value={password.username} onChange={(e) => setPassword({ ...password, username: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="login-password">{t("Password or app password")}</Label>
-                <Input id="login-password" type="password" required autoFocus autoComplete="off" value={password.password} onChange={(e) => setPassword({ ...password, password: e.target.value })} />
-              </div>
-            </form>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPassword(null)} disabled={login.isPending}>
-              {t("Cancel")}
-            </Button>
-            <Button type="submit" form="mailbox-login" disabled={login.isPending}>
-              {login.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t("Test and save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {editing && data && <RuleDialog mailboxes={managed} overview={data} editing={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
 
       <Dialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{removing === "mailbox" ? t("Delete {name}?", { name: box.email }) : t("Delete {name}?", { name: (removing as Rule | null)?.name ?? "" })}</DialogTitle>
-            <DialogDescription>
-              {removing === "mailbox" ? t("Larika stops reading it and deletes its rules and events. The emails stay in the mailbox.") : t("Its events are deleted with it.")}
-            </DialogDescription>
+            <DialogTitle>{t("Delete {name}?", { name: removing?.name ?? "" })}</DialogTitle>
+            <DialogDescription>{t("Its events are deleted with it.")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRemoving(null)} disabled={remove.isPending}>
               {t("Cancel")}
             </Button>
-            <Button variant="destructive" onClick={() => remove.mutate()} disabled={remove.isPending}>
+            <Button variant="destructive" onClick={() => removing && remove.mutate(removing.id)} disabled={remove.isPending}>
               {remove.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t("Delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageLayout>
+    </>
   );
 }
 
 /** A rule's form, with a try-it on the last 30 days of real mail before saving. */
-function RuleDialog({ box, editing, onClose, onSaved }: { box: MailboxDetail; editing: { id: string | null; rule: RuleInput; secret?: string }; onClose: () => void; onSaved: () => void }) {
+function RuleDialog({ mailboxes, overview, editing, onClose, onSaved }: { mailboxes: Mailbox[]; overview: RulesOverview; editing: Editing; onClose: () => void; onSaved: () => void }) {
   const { toast } = useToast();
   const [rule, setRule] = useState<RuleInput>(editing.rule);
+  const [mailboxId, setMailboxId] = useState(editing.mailboxId);
   const [secret, setSecret] = useState(editing.secret);
   const [preview, setPreview] = useState<{ scanned: number; rows: PreviewRow[] } | null>(null);
   const set = (patch: Partial<RuleInput>) => setRule((r) => ({ ...r, ...patch }));
+  const mailbox = mailboxes.find((m) => m.id === mailboxId);
+  // a rule sends from a number of its mailbox's workspace
+  const waNumbers = overview.waNumbers.filter((n) => n.organizationId === mailbox?.organization?.id);
 
   const tryIt = useMutation({
-    mutationFn: () => previewRule(box.id, rule),
+    mutationFn: () => previewRule(mailboxId, rule),
     onSuccess: setPreview,
     onError: (e: Error) => toast({ title: t("Failed to try the rule"), description: e.message, variant: "destructive" }),
   });
   const save = useMutation({
-    mutationFn: () => (editing.id ? updateRule(editing.id, rule) : createRule(box.id, rule)),
+    mutationFn: () => (editing.id ? updateRule(editing.id, rule) : createRule(mailboxId, rule)),
     onSuccess: (saved) => {
       if (saved.warning) toast({ title: t("Rule saved"), description: t(saved.warning), variant: "destructive" });
       onSaved();
@@ -357,6 +239,31 @@ function RuleDialog({ box, editing, onClose, onSaved }: { box: MailboxDetail; ed
               </div>
             )}
             <div className="grid gap-3 md:grid-cols-2">
+              {/* a rule stays with its mailbox: picked when it is made, when there is a choice */}
+              {!editing.id && mailboxes.length > 1 && (
+                <div className="space-y-1 md:col-span-2">
+                  <Label>{t("Mailbox")}</Label>
+                  <Select
+                    value={mailboxId}
+                    onValueChange={(id) => {
+                      setMailboxId(id);
+                      setPreview(null);
+                      set({ waNumberId: null });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {mailboxes.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-1">
                 <Label htmlFor="rule-name">{t("Name")}</Label>
                 <Input id="rule-name" required maxLength={80} value={rule.name} onChange={(e) => set({ name: e.target.value })} />
@@ -472,7 +379,7 @@ function RuleDialog({ box, editing, onClose, onSaved }: { box: MailboxDetail; ed
               </div>
               <div className="space-y-2">
                 <Label>{t("WhatsApp (optional)")}</Label>
-                {box.waNumbers.length === 0 ? (
+                {waNumbers.length === 0 ? (
                   <p className="text-xs text-muted-foreground">{t("Add a number under Whatsapp Gateway API to be notified on WhatsApp.")}</p>
                 ) : (
                   <>
@@ -482,7 +389,7 @@ function RuleDialog({ box, editing, onClose, onSaved }: { box: MailboxDetail; ed
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NONE}>{t("No WhatsApp")}</SelectItem>
-                        {box.waNumbers.map((n) => (
+                        {waNumbers.map((n) => (
                           <SelectItem key={n.id} value={n.id}>
                             {t("Send from {name}", { name: n.name })}
                           </SelectItem>
@@ -511,7 +418,7 @@ function RuleDialog({ box, editing, onClose, onSaved }: { box: MailboxDetail; ed
           <Button variant="outline" onClick={onClose} disabled={save.isPending}>
             {t("Cancel")}
           </Button>
-          <Button type="submit" form="email-rule" disabled={save.isPending}>
+          <Button type="submit" form="email-rule" disabled={save.isPending || !mailboxId}>
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {t("Save")}
           </Button>
@@ -529,22 +436,31 @@ const STATUS: Record<EventStatus, { label: string; variant: "default" | "seconda
   NO_TARGET: { label: "Logged only", variant: "outline" },
 };
 
-/** What the rules matched, newest first, with a send-again for failures. */
-function EventsTab({ mailboxId, retentionDays }: { mailboxId: string; retentionDays: number }) {
+/** What the rules of every managed mailbox matched, newest first, with a send-again for failures. */
+export function EventsTab({ manyMailboxes }: { manyMailboxes: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const query = useTableQuery(25);
-  const key = ["email-watcher", "events", mailboxId, query.params];
-  const { data, isFetching } = useQuery({ queryKey: key, queryFn: () => getEvents(mailboxId, query.params), refetchInterval: 15_000, placeholderData: keepPreviousData });
+  const { data, isFetching } = useQuery({ queryKey: [...EVENTS_KEY, query.params], queryFn: () => getEvents(query.params), refetchInterval: 15_000, placeholderData: keepPreviousData });
+  // the retention the server keeps events for — the rules overview says it
+  const { data: overview } = useQuery({ queryKey: RULES_KEY, queryFn: getRules });
   const replay = useMutation({
     mutationFn: replayEvent,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["email-watcher", "events", mailboxId] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: EVENTS_KEY }),
     onError: (e: Error) => toast({ title: t("Failed to send the event again"), description: e.message, variant: "destructive" }),
   });
 
   const columns: Column<MailEvent>[] = [
     { header: t("Received"), cell: (e) => <span className="whitespace-nowrap">{when(e.receivedAt)}</span> },
-    { header: t("Rule"), cell: (e) => e.rule.name },
+    {
+      header: t("Rule"),
+      cell: (e) => (
+        <div>
+          <p>{e.rule.name}</p>
+          {manyMailboxes && <p className="text-xs text-muted-foreground">{e.rule.mailbox.email}</p>}
+        </div>
+      ),
+    },
     {
       header: t("Email"),
       cell: (e) => (
@@ -580,7 +496,7 @@ function EventsTab({ mailboxId, retentionDays }: { mailboxId: string; retentionD
 
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">{t("Emails your rules matched, kept {days} days. Failed sends are retried for about 9 hours.", { days: retentionDays })}</p>
+      <p className="text-sm text-muted-foreground">{t("Emails your rules matched, kept {days} days. Failed sends are retried for about 9 hours.", { days: overview?.retentionDays ?? 90 })}</p>
       <DataTable
         columns={columns}
         rows={data?.data ?? []}

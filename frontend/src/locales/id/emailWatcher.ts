@@ -5,6 +5,7 @@ export default {
 
   // statuses
   Watching: "Memantau",
+  "No rule yet": "Belum ada rule",
   "Login refused": "Login ditolak",
   Reconnecting: "Menyambung ulang",
   Paused: "Dijeda",
@@ -37,7 +38,6 @@ export default {
   "Make a rule and try it on real emails": "Buat rule dan coba pada email asli",
   "Pick emails by sender and subject (or start from the BNI Merchant preset), add the fields to read — a regular expression each — and press Try: the last 30 days of your inbox show what the rule would read out.":
     "Pilih email berdasarkan pengirim dan subjek (atau mulai dari preset BNI Merchant), tambahkan field yang dibaca — masing-masing sebuah regular expression — lalu tekan Coba: email 30 hari terakhir di inbox Anda menunjukkan apa yang akan dibaca rule itu.",
-  "Rules of {email}": "Rule {email}",
   "Receive it in your app with a webhook": "Terima di aplikasi Anda lewat webhook",
   "Set a webhook URL on the rule. Each matched email is POSTed there as JSON within seconds, with the rule's webhook key in":
     "Isi webhook URL pada rule. Setiap email yang cocok dikirim (POST) ke sana sebagai JSON dalam hitungan detik, dengan webhook key rule itu di",
@@ -49,8 +49,6 @@ export default {
   // list page
   "Larika reads new emails in your inbox as they arrive, picks the ones your rules match — like bank transfer notifications — and sends what it reads out to your app or WhatsApp.":
     "Larika membaca email baru di inbox Anda begitu masuk, memilih yang cocok dengan rule Anda — seperti notifikasi transfer bank — lalu mengirim datanya ke aplikasi atau WhatsApp Anda.",
-  "{price} per mailbox per day from your balance, only on days it is watched. Paused mailboxes cost nothing.":
-    "{price} per mailbox per hari dari saldo Anda, hanya pada hari mailbox dipantau. Mailbox yang dijeda tidak ditagih.",
   "Add mailbox": "Tambah mailbox",
   Mailbox: "Mailbox",
   Rules: "Rule",
@@ -69,12 +67,8 @@ export default {
   "Could not look up the mail server": "Tidak bisa mencari server email",
 
   // mailbox page
-  "Mailbox not found": "Mailbox tidak ditemukan",
-  "last checked {when}": "terakhir dicek {when}",
   Pause: "Jeda",
   "Delete mailbox": "Hapus mailbox",
-  "Not connected until a rule is on.": "Belum tersambung sampai ada rule yang aktif.",
-  "Enter a new password": "Masukkan sandi baru",
   "Login for {email}": "Login untuk {email}",
   "Tested before it is saved. The watcher reconnects with it and reads what arrived meanwhile.":
     "Dites sebelum disimpan. Pemantau menyambung ulang dengannya dan membaca email yang masuk selama terputus.",
@@ -95,6 +89,7 @@ export default {
   nowhere: "tidak ke mana pun",
   "Rule on": "Rule aktif",
   "New rule": "Rule baru",
+  "Add a mailbox first; its rules show here.": "Tambahkan mailbox dulu; rule-nya muncul di sini.",
   "Edit rule": "Ubah rule",
   "Rule saved": "Rule tersimpan",
   "Search rules…": "Cari rule…",
@@ -156,7 +151,7 @@ export default {
   "Failed to delete the mailbox": "Gagal menghapus mailbox",
   "Failed to delete": "Gagal menghapus",
   "Failed to fetch mailboxes": "Gagal mengambil daftar mailbox",
-  "Failed to fetch the mailbox": "Gagal mengambil mailbox",
+  "Failed to fetch the rules": "Gagal mengambil daftar rule",
 
   // Pricing page
   "Reads your inbox and sends matched emails to your app or WhatsApp.":

@@ -10,6 +10,8 @@ const unwrap = <T>(res: { success: boolean; data?: T; error?: string }, fallback
 };
 
 export const MAILBOXES_KEY = ['email-watcher', 'mailboxes'];
+export const RULES_KEY = ['email-watcher', 'rules'];
+export const EVENTS_KEY = ['email-watcher', 'events'];
 
 export const when = (at: string | null) => (at ? new Date(at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
@@ -31,6 +33,8 @@ export interface Mailbox {
   organization: { id: string; name: string } | null;
   canManage: boolean;
   rules?: number;
+  /** rules switched on — none: not connected */
+  activeRules?: number;
 }
 
 export type FieldType = 'text' | 'amount';
@@ -54,15 +58,18 @@ export interface Rule {
   waTo: string | null;
   waTemplate: string | null;
   active: boolean;
+  mailboxId: string;
+  mailbox: { id: string; email: string; organizationId: string };
 }
 
-export interface MailboxDetail extends Omit<Mailbox, 'rules'> {
+/** The Rules tab: every rule of the mailboxes the caller manages, and the WhatsApp numbers a rule may send from. */
+export interface RulesOverview {
   rules: Rule[];
-  waNumbers: Array<{ id: string; name: string }>;
+  waNumbers: Array<{ id: string; name: string; organizationId: string }>;
   retentionDays: number;
 }
 
-export type RuleInput = Omit<Rule, 'id' | 'webhookSecret'>;
+export type RuleInput = Omit<Rule, 'id' | 'webhookSecret' | 'mailboxId' | 'mailbox'>;
 
 export interface PreviewRow {
   uid: number;
@@ -78,7 +85,7 @@ export type EventStatus = 'PENDING' | 'DELIVERED' | 'FAILED' | 'SKIPPED' | 'NO_T
 
 export interface MailEvent {
   id: string;
-  rule: { id: string; name: string };
+  rule: { id: string; name: string; mailbox: { email: string } };
   from: string;
   subject: string;
   snippet: string;
@@ -108,7 +115,7 @@ export const getMailboxes = async () => unwrap(await apiRequest<Mailbox[]>('/ema
 export const addMailbox = async (body: { organizationId?: string; email: string; host: string; port: number; secure: boolean; username: string; password: string }) =>
   unwrap(await apiRequest<{ id: string }>('/email-watcher/mailboxes', send('POST', body)), t('Failed to add the mailbox'));
 
-export const getMailbox = async (id: string) => unwrap(await apiRequest<MailboxDetail>(`/email-watcher/mailboxes/${id}`), t('Failed to fetch the mailbox'));
+export const getRules = async () => unwrap(await apiRequest<RulesOverview>('/email-watcher/rules'), t('Failed to fetch the rules'));
 
 export const updateMailbox = async (id: string, body: Partial<{ host: string; port: number; secure: boolean; username: string; password: string; paused: boolean }>) =>
   unwrap(await apiRequest(`/email-watcher/mailboxes/${id}`, send('PATCH', body)), t('Failed to update the mailbox'));
@@ -126,9 +133,9 @@ export const updateRule = async (id: string, rule: Partial<RuleInput> & { newSec
 
 export const deleteRule = async (id: string) => unwrap(await apiRequest(`/email-watcher/rules/${id}`, send('DELETE')), t('Failed to delete the rule'));
 
-export const getEvents = async (mailboxId: string, params: { page: number; limit: number; search: string }) =>
+export const getEvents = async (params: { page: number; limit: number; search: string }) =>
   unwrap(
-    await apiRequest<Paginated<MailEvent>>(`/email-watcher/mailboxes/${mailboxId}/events?${new URLSearchParams({ page: String(params.page), limit: String(params.limit), search: params.search })}`),
+    await apiRequest<Paginated<MailEvent>>(`/email-watcher/events?${new URLSearchParams({ page: String(params.page), limit: String(params.limit), search: params.search })}`),
     t('Failed to fetch events'),
   );
 
