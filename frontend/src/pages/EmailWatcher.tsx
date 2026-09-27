@@ -274,15 +274,11 @@ const PAYLOAD = JSON.stringify(
   2,
 );
 
-const VERIFY = `import crypto from "node:crypto";
-
-// rawBody: the request body exactly as received, before JSON parsing
-const expected = "sha256=" + crypto.createHmac("sha256", RULE_SECRET).update(rawBody).digest("hex");
-const got = req.headers["x-larika-signature"] ?? "";
-if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+const VERIFY = `// the rule's webhook key, shown in the rule
+if (req.headers["x-larika-webhook-key"] !== process.env.WEBHOOK_KEY) {
   return res.status(401).end();
 }
-const { id, verified, data } = JSON.parse(rawBody); // data.amount = 150000, data.source = "DANA"
+const { id, verified, data } = req.body; // data.amount = 150000, data.source = "DANA"
 // sent at least once: skip an id you have already handled
 res.status(200).end();`;
 
@@ -324,8 +320,8 @@ function QuickStart({ rows, price, onAdd, onOpen }: { rows: Mailbox[]; price: st
 
       <Step n={3} title={t("Receive it in your app with a webhook")}>
         <p className="text-sm text-muted-foreground">
-          {t("Set a webhook URL on the rule. Each matched email is POSTed there as JSON within seconds, signed with the rule's secret in")}{" "}
-          <code className="font-mono text-xs">x-larika-signature</code>. {t("Failed sends are retried for about 9 hours.")}
+          {t("Set a webhook URL on the rule. Each matched email is POSTed there as JSON within seconds, with the rule's webhook key in")}{" "}
+          <code className="font-mono text-xs">x-larika-webhook-key</code>. {t("Failed sends are retried for about 9 hours.")}
         </p>
         <CodeExample examples={[{ label: "Payload", code: PAYLOAD, lang: "json" }, { label: "Node.js", code: VERIFY, lang: "js" }]} />
       </Step>

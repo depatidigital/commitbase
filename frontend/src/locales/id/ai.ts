@@ -3,6 +3,20 @@
 export default {
   // page
   "AI API": "AI API",
+
+  // quick start
+  "Have a balance": "Punya saldo",
+  "Calls are paid per token from the balance, charged every minute. The welcome credit covers the first tries.":
+    "Panggilan dibayar per token dari saldo, ditagih tiap menit. Kredit sambutan cukup untuk percobaan pertama.",
+  "Create an API key": "Buat API key",
+  "One key per app, so one can be revoked without stopping the others. A spending limit per day or month keeps a leaked key or a runaway loop from draining the balance. The key is shown once.":
+    "Satu key per aplikasi, supaya satu bisa dicabut tanpa menghentikan yang lain. Batas belanja per hari atau bulan mencegah key yang bocor atau loop yang lepas kendali menguras saldo. Key hanya ditampilkan sekali.",
+  "Make your first call": "Lakukan panggilan pertama",
+  "It is the OpenAI API: any OpenAI SDK works with the base URL below and a key from here.":
+    "Ini API OpenAI: SDK OpenAI mana pun bisa dipakai dengan base URL di bawah dan key dari sini.",
+  "Pick a model": "Pilih model",
+  "picks the cheapest model good enough for each message, and never costs more than the cheapest top model. Or send any model from the list as `model`.":
+    "memilih model termurah yang cukup bagus untuk tiap pesan, dan tidak pernah lebih mahal dari model teratas termurah. Atau kirim model mana pun dari daftar sebagai `model`.",
   "One OpenAI-compatible API for many models, paid per token from the workspace balance.":
     "Satu API yang kompatibel dengan OpenAI untuk banyak model, dibayar per token dari saldo workspace.",
   "The AI API is not available on this platform yet.": "AI API belum tersedia di platform ini.",

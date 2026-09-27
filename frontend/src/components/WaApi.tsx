@@ -453,7 +453,7 @@ function WebhooksBody({ rows, onSettings, onTest, catalog }: { rows: WaNumber[];
           <p className="text-muted-foreground">
             <Md
               text={t(
-                "Every event of the number is `POST`ed to its webhook URL as JSON, signed in `x-larika-signature` = `sha256=` HMAC-SHA256 of the raw body with the webhook secret. Answer any **2xx**; anything else is retried (5 s doubling, up to 1 h) until delivered, in order. Delivery is at-least-once: skip an `id` you have already handled.",
+                "Every event of the number is `POST`ed to its webhook URL as JSON, with the webhook key in `x-larika-webhook-key`. Answer any **2xx**; anything else is retried (5 s doubling, up to 1 h) until delivered, in order. Delivery is at-least-once: skip an `id` you have already handled.",
               )}
             />
           </p>
@@ -479,7 +479,7 @@ function WebhooksBody({ rows, onSettings, onTest, catalog }: { rows: WaNumber[];
         )}
 
         <div className={`${CARD} space-y-2`}>
-          <h3 className="text-sm font-semibold">{t("Check the signature")}</h3>
+          <h3 className="text-sm font-semibold">{t("Check the key")}</h3>
           <CodeExample
             examples={[
               { label: "cURL", code: simulateCurl(row?.webhookUrl || "https://app.example.com/wa/webhook") },

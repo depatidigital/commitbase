@@ -4,7 +4,7 @@ import { simpleParser } from 'mailparser';
 import { prisma } from '../lib/prisma';
 import { decrypt } from '../lib/secretBox';
 import { sendMail } from '../lib/mailer';
-import { extractFields, Field, firstHeader, headerMatches, isPrivateIp, renderTemplate, ruleMatches, senderVerified, webhookSignature } from '../lib/emailRules';
+import { extractFields, Field, firstHeader, headerMatches, isPrivateIp, renderTemplate, ruleMatches, senderVerified } from '../lib/emailRules';
 import { gateway } from './larikaGatewayService';
 import { EMAIL_WATCHER_RATES, WIB_MS } from './usageMeterService';
 import { billingUserOf, InsufficientBalance, MICRO, spendFromWallet } from './walletService';
@@ -452,7 +452,8 @@ export async function deliver(eventId: string) {
       });
       const response = await fetch(rule.webhookUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-larika-event': ev.id, 'x-larika-signature': webhookSignature(rule.webhookSecret, body) },
+        // the rule's key, as the WhatsApp gateway sends its number's: the app compares it
+        headers: { 'content-type': 'application/json', 'x-larika-event': ev.id, 'x-larika-webhook-key': rule.webhookSecret },
         body,
         redirect: 'manual',
         signal: AbortSignal.timeout(10_000),

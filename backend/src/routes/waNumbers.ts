@@ -323,7 +323,7 @@ router.delete('/:id/keys/:keyId', async (req: AuthenticatedRequest, res: Respons
   }
 });
 
-/** The HMAC secret webhooks are signed with (x-larika-signature); POST makes a new one. */
+/** The key webhooks carry (x-larika-webhook-key); POST makes a new one. */
 router.get('/:id/webhook-secret', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const row = await numberFor(req, req.params.id, true);

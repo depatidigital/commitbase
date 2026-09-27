@@ -403,8 +403,8 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
 
       <Step n={4} done={rows.some((r) => r.webhookUrl)} title={t("Receive messages with a webhook")}>
         <p className="text-sm text-muted-foreground">
-          {t("Set a webhook URL on the number. Incoming messages, receipts and status changes are POSTed there as JSON, signed with the webhook secret in")}{" "}
-          <code className="font-mono text-xs">x-larika-signature</code>.
+          {t("Set a webhook URL on the number. Incoming messages, receipts and status changes are POSTed there as JSON, with the number's webhook key in")}{" "}
+          <code className="font-mono text-xs">x-larika-webhook-key</code>.
         </p>
         <CodeExample examples={[{ label: "Node.js", code: VERIFY_SNIPPET }]} />
         {example?.canManage && (
@@ -443,7 +443,7 @@ function WebhookField({ value, onChange }: { value: string; onChange: (value: st
         Webhook URL <span className="text-muted-foreground">{t("(optional)")}</span>
       </Label>
       <Input id="number-webhook" className="font-mono" placeholder="https://app.example.com/wa/webhook" value={value} onChange={(e) => onChange(e.target.value)} />
-      <p className="text-xs text-muted-foreground">{t("Incoming messages, receipts and status changes are POSTed here, signed with the webhook secret.")}</p>
+      <p className="text-xs text-muted-foreground">{t("Incoming messages, receipts and status changes are POSTed here, with the webhook key.")}</p>
     </div>
   );
 }
@@ -735,7 +735,7 @@ function WebhookTestDialog({ id, onClose, onSettings }: { id: string; onClose: (
           <DialogTitle>
             {t("Test webhook")} — {number?.name ?? ""}
           </DialogTitle>
-          <DialogDescription>{t("Sends a signed test event to the webhook URL, like any other event.")}</DialogDescription>
+          <DialogDescription>{t("Sends a test event to the webhook URL, like any other event.")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {number && !number.webhookUrl ? (
@@ -778,7 +778,7 @@ function WebhookTestDialog({ id, onClose, onSettings }: { id: string; onClose: (
   );
 }
 
-/** Who may call the API, where events go, and the secret they are signed with. */
+/** Who may call the API, where events go, and the key they carry. */
 function AccessDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const { toast } = useToast();
   const { data: number, error, isLoading } = useNumber(id);
@@ -822,19 +822,19 @@ function AccessDialog({ id, onClose }: { id: string; onClose: () => void }) {
             <WebhookField value={values.webhookUrl} onChange={(webhookUrl) => setForm({ ...values, webhookUrl })} />
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <Label>{t("Webhook secret")}</Label>
+                <Label>{t("Webhook key")}</Label>
                 {!secret && (
                   <Button type="button" variant="ghost" size="sm" className="h-7" disabled={showSecret.isPending} onClick={() => showSecret.mutate()}>
                     {t("Show")}
                   </Button>
                 )}
                 <Button type="button" variant="ghost" size="sm" className="h-7" disabled={rotateSecret.isPending} onClick={() => rotateSecret.mutate()}>
-                  {t("New secret")}
+                  {t("New key")}
                 </Button>
               </div>
               {secret && <CopyField value={secret} />}
               <p className="text-xs text-muted-foreground">
-                {t("Each webhook carries")} <code className="font-mono">x-larika-signature: sha256=HMAC(secret, body)</code>.
+                {t("Each webhook carries")} <code className="font-mono">x-larika-webhook-key: {t("<this key>")}</code>. {t("Check it in your app; reject a request without it.")}
               </p>
             </div>
           </form>

@@ -29,6 +29,23 @@ export default {
   "Microsoft 365 only allows sign-in with Microsoft, which is not supported yet":
     "Microsoft 365 hanya mengizinkan login lewat Microsoft, yang belum didukung",
 
+  // quick start
+  Mailboxes: "Mailbox",
+  "Connect the inbox your notifications arrive in": "Hubungkan inbox tempat notifikasi Anda masuk",
+  "Gmail, Yahoo and iCloud need an app password (2-step verification on); email on your own domain uses its normal password. Larika only reads, and never stores an email your rules do not match.":
+    "Gmail, Yahoo, dan iCloud butuh sandi aplikasi (Verifikasi 2 Langkah aktif); email di domain sendiri memakai sandi biasanya. Larika hanya membaca, dan tidak pernah menyimpan email yang tidak cocok dengan rule Anda.",
+  "Make a rule and try it on real emails": "Buat rule dan coba pada email asli",
+  "Pick emails by sender and subject (or start from the BNI Merchant preset), add the fields to read — a regular expression each — and press Try: the last 30 days of your inbox show what the rule would read out.":
+    "Pilih email berdasarkan pengirim dan subjek (atau mulai dari preset BNI Merchant), tambahkan field yang dibaca — masing-masing sebuah regular expression — lalu tekan Coba: email 30 hari terakhir di inbox Anda menunjukkan apa yang akan dibaca rule itu.",
+  "Rules of {email}": "Rule {email}",
+  "Receive it in your app with a webhook": "Terima di aplikasi Anda lewat webhook",
+  "Set a webhook URL on the rule. Each matched email is POSTed there as JSON within seconds, with the rule's webhook key in":
+    "Isi webhook URL pada rule. Setiap email yang cocok dikirim (POST) ke sana sebagai JSON dalam hitungan detik, dengan webhook key rule itu di",
+  "Failed sends are retried for about 9 hours.": "Pengiriman yang gagal dicoba ulang selama sekitar 9 jam.",
+  "Or get it on WhatsApp": "Atau terima di WhatsApp",
+  "With a number on Whatsapp Gateway API, a rule can message you for each match — like “Masuk Rp {amount} dari {source}” — using the fields it read.":
+    "Dengan nomor di Whatsapp Gateway API, rule bisa mengirim pesan untuk setiap email yang cocok — seperti “Masuk Rp {amount} dari {source}” — memakai field yang dibacanya.",
+
   // list page
   "Larika reads new emails in your inbox as they arrive, picks the ones your rules match — like bank transfer notifications — and sends what it reads out to your app or WhatsApp.":
     "Larika membaca email baru di inbox Anda begitu masuk, memilih yang cocok dengan rule Anda — seperti notifikasi transfer bank — lalu mengirim datanya ke aplikasi atau WhatsApp Anda.",
@@ -107,8 +124,8 @@ export default {
   "Anyone can send an email that says it is from your bank. Keep this on for payments: an email whose sender's domain did not pass DKIM/DMARC is logged but not sent on.":
     "Siapa pun bisa mengirim email yang mengaku dari bank Anda. Biarkan aktif untuk pembayaran: email yang domain pengirimnya tidak lolos DKIM/DMARC dicatat, tapi tidak diteruskan.",
   "Webhook URL (optional)": "URL webhook (opsional)",
-  "Signing secret — x-larika-signature is sha256= and the HMAC-SHA256 (hex) of the body:":
-    "Secret penanda tangan — x-larika-signature berisi sha256= diikuti HMAC-SHA256 (hex) dari body:",
+  "Webhook key — sent in x-larika-webhook-key; check it in your app:":
+    "Webhook key — dikirim di x-larika-webhook-key; cek di aplikasi Anda:",
   "WhatsApp (optional)": "WhatsApp (opsional)",
   "Add a number under Whatsapp Gateway API to be notified on WhatsApp.":
     "Tambahkan nomor di Whatsapp Gateway API untuk menerima notifikasi WhatsApp.",

@@ -30,8 +30,8 @@ export default {
   "Allowed IPs": "IP yang diizinkan",
   "The servers allowed to call the API with this number's key, separated by commas. * allows any IP (the key is still required).":
     "Server yang boleh memanggil API dengan key nomor ini, dipisah koma. * mengizinkan semua IP (key tetap wajib).",
-  "Incoming messages, receipts and status changes are POSTed here, signed with the webhook secret.":
-    "Pesan masuk, tanda terima, dan perubahan status dikirim (POST) ke sini, ditandatangani dengan webhook secret.",
+  "Incoming messages, receipts and status changes are POSTed here, with the webhook key.":
+    "Pesan masuk, tanda terima, dan perubahan status dikirim (POST) ke sini, bersama webhook key.",
 
   // quick start
   "Quick start": "Mulai cepat",
@@ -48,8 +48,8 @@ export default {
     "Tulis nomor seperti biasa diketik orang (0812…, +62 812…). Pesan masuk antrean dan dikirim dengan jeda aman.",
   "Send a test message": "Kirim pesan tes",
   "Receive messages with a webhook": "Terima pesan lewat webhook",
-  "Set a webhook URL on the number. Incoming messages, receipts and status changes are POSTed there as JSON, signed with the webhook secret in":
-    "Isi webhook URL pada nomor. Pesan masuk, tanda terima, dan perubahan status dikirim (POST) ke sana sebagai JSON, ditandatangani dengan webhook secret di",
+  "Set a webhook URL on the number. Incoming messages, receipts and status changes are POSTed there as JSON, with the number's webhook key in":
+    "Isi webhook URL pada nomor. Pesan masuk, tanda terima, dan perubahan status dikirim (POST) ke sana sebagai JSON, dengan webhook key nomor itu di",
 
   // scan QR
   Linked: "Tertaut",
@@ -82,9 +82,10 @@ export default {
   "No keys yet.": "Belum ada key.",
 
   // access & webhook
-  "Webhook secret": "Webhook secret",
-  "New secret": "Secret baru",
+  "Webhook key": "Webhook key",
   "Each webhook carries": "Setiap webhook membawa",
+  "<this key>": "<key ini>",
+  "Check it in your app; reject a request without it.": "Cek di aplikasi Anda; tolak request yang tidak membawanya.",
 
   // delete
   "WhatsApp is logged out on the phone, and the number's messages, media and API keys are deleted from the gateway.":
@@ -144,10 +145,10 @@ export default {
   "Failed to retry the webhooks": "Gagal mencoba ulang webhook",
   "Failed to fetch webhook deliveries": "Gagal mengambil riwayat webhook",
   "How webhooks work": "Cara kerja webhook",
-  "Every event of the number is `POST`ed to its webhook URL as JSON, signed in `x-larika-signature` = `sha256=` HMAC-SHA256 of the raw body with the webhook secret. Answer any **2xx**; anything else is retried (5 s doubling, up to 1 h) until delivered, in order. Delivery is at-least-once: skip an `id` you have already handled.":
-    "Setiap event nomor di-`POST` ke webhook URL-nya sebagai JSON, ditandatangani di `x-larika-signature` = `sha256=` HMAC-SHA256 dari body mentah dengan webhook secret. Jawab dengan **2xx** apa pun; selain itu dicoba ulang (5 detik, berlipat, maks. 1 jam) sampai terkirim, berurutan. Pengiriman at-least-once: lewati `id` yang sudah pernah Anda proses.",
+  "Every event of the number is `POST`ed to its webhook URL as JSON, with the webhook key in `x-larika-webhook-key`. Answer any **2xx**; anything else is retried (5 s doubling, up to 1 h) until delivered, in order. Delivery is at-least-once: skip an `id` you have already handled.":
+    "Setiap event nomor di-`POST` ke webhook URL-nya sebagai JSON, dengan webhook key di `x-larika-webhook-key`. Jawab dengan **2xx** apa pun; selain itu dicoba ulang (5 detik, berlipat, maks. 1 jam) sampai terkirim, berurutan. Pengiriman at-least-once: lewati `id` yang sudah pernah Anda proses.",
   Events: "Event",
-  "Check the signature": "Cek tanda tangan",
+  "Check the key": "Cek key",
   "No webhook URL yet: events of this number are not sent anywhere.": "Belum ada webhook URL: event nomor ini tidak dikirim ke mana pun.",
   "Send test event": "Kirim event tes",
   "Retry now ({count})": "Coba ulang sekarang ({count})",
@@ -157,7 +158,7 @@ export default {
   "{count} attempts": "{count} percobaan",
   "next try {time}": "coba lagi {time}",
   "Test webhook": "Tes webhook",
-  "Sends a signed test event to the webhook URL, like any other event.": "Mengirim event tes bertanda tangan ke webhook URL, seperti event lainnya.",
+  "Sends a test event to the webhook URL, like any other event.": "Mengirim event tes ke webhook URL, seperti event lainnya.",
   "Delivered: your app answered 2xx.": "Terkirim: aplikasi Anda menjawab 2xx.",
   "Your app did not take it: {error}": "Aplikasi Anda tidak menerimanya: {error}",
   "The gateway tries again at {time}, in order with the number's other events.": "Gateway mencoba lagi pukul {time}, berurutan dengan event lain nomor ini.",

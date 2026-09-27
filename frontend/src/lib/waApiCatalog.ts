@@ -60,14 +60,10 @@ console.log(res.status, await res.json());`,
 }
 
 /** An app checking a webhook is really from the gateway (Node.js). */
-export const VERIFY_SNIPPET = `import crypto from "node:crypto";
-
-// rawBody: the request body exactly as received, before JSON parsing
-const expected = "sha256=" + crypto.createHmac("sha256", WEBHOOK_SECRET).update(rawBody).digest("hex");
-const got = req.headers["x-larika-signature"] ?? "";
-if (got.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+export const VERIFY_SNIPPET = `// the number's webhook key, from Access & webhook
+if (req.headers["x-larika-webhook-key"] !== process.env.WEBHOOK_KEY) {
   return res.status(401).end();
 }
-const { id, event, data } = JSON.parse(rawBody); // e.g. event = "message.incoming"
+const { id, event, data } = req.body; // e.g. event = "message.incoming"
 // delivery is at-least-once: skip an id you have already handled
 res.status(200).end();`;
