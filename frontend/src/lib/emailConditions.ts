@@ -63,3 +63,49 @@ export const firstSpan = (conditions: Condition[], field: ConditionField, text: 
   }
   return null;
 };
+
+/** An in / not in list: its items, trimmed, empty ones dropped. */
+export const listOf = (value: string) =>
+  value
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+type Mail = { from: string; subject: string; text: string };
+
+/**
+ * Whether a condition holds for an email — the server's rule (conditionHolds in
+ * backend/src/lib/emailRules.ts), kept in step by hand: the page counts with it, the
+ * server decides with its own.
+ */
+export function conditionHolds(c: Condition, m: Mail): boolean {
+  const text = c.field === "from" ? m.from : c.field === "subject" ? m.subject : m.text;
+  const lower = text.toLowerCase();
+  const value = c.value.trim().toLowerCase();
+  const items = listOf(c.value).map((v) => v.toLowerCase());
+  switch (c.op) {
+    case "contains":
+      return lower.includes(value);
+    case "not_contains":
+      return !lower.includes(value);
+    case "equals": {
+      if (c.field !== "from") return lower.trim() === value;
+      const address = /<([^>]+)>/.exec(text)?.[1] ?? text;
+      const name = text.replace(/<[^>]*>/, "").replace(/"/g, "").trim();
+      return [text, address, name].some((v) => v.trim().toLowerCase() === value);
+    }
+    case "in":
+      return items.some((v) => lower.includes(v));
+    case "not_in":
+      return !items.some((v) => lower.includes(v));
+    case "regex":
+      try {
+        return new RegExp(c.value.trim(), "i").test(text);
+      } catch {
+        return false;
+      }
+  }
+}
+
+export const ruleHolds = (match: "all" | "any", conditions: Condition[], m: Mail) =>
+  !conditions.length || (match === "any" ? conditions.some((c) => conditionHolds(c, m)) : conditions.every((c) => conditionHolds(c, m)));

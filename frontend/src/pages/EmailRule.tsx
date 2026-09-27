@@ -1,21 +1,36 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, FlaskConical, Loader2, Mail, Pencil, Plus, Save, ShieldAlert, Trash2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Filter, FlaskConical, ScanText, Loader2, Mail, Pencil, Plus, Save, Send, ShieldAlert, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
 import { useToast } from "@/hooks/use-toast";
-import { deleteRule, getRule, MAILBOXES_KEY, previewRule, RULES_KEY, updateRule, when, type Condition, type ConditionField, type ConditionOp, type PreviewRow, type RuleField, type RuleInput } from "@/lib/emailWatcher";
+import {
+  deleteRule,
+  getRule,
+  MAILBOXES_KEY,
+  previewRule,
+  RULES_KEY,
+  updateRule,
+  when,
+  type Condition,
+  type ConditionField,
+  type ConditionOp,
+  type PreviewRow,
+  type RuleField,
+  type RuleInput,
+} from "@/lib/emailWatcher";
 import { t } from "@/lib/i18n";
-import { conditionInvalid, FIELD_LABEL, firstSpan, OP_LABEL, usable } from "@/lib/emailConditions";
+import { conditionHolds, conditionInvalid, FIELD_LABEL, firstSpan, listOf, OP_LABEL, ruleHolds, usable } from "@/lib/emailConditions";
 
 const NONE = "none";
 const BACK = "/email-watcher?tab=rules";
@@ -66,22 +81,76 @@ function bodyLine(text: string, conditions: Condition[]): { text: string; span: 
   const span = firstSpan(conditions, "body", flat);
   const from = span ? Math.max(0, span[0] - 40) : 0;
   const line = flat.slice(from, from + 140);
-  return { text: `${from > 0 ? "…" : ""}${line}${from + 140 < flat.length ? "…" : ""}`, span: span && [span[0] - from + (from > 0 ? 1 : 0), Math.min(span[1], from + 140) - from + (from > 0 ? 1 : 0)] };
+  return {
+    text: `${from > 0 ? "…" : ""}${line}${from + 140 < flat.length ? "…" : ""}`,
+    span: span && [span[0] - from + (from > 0 ? 1 : 0), Math.min(span[1], from + 140) - from + (from > 0 ? 1 : 0)],
+  };
 }
 
 /**
  * Patterns to start a field from — picked, then edited freely (any edit makes it Custom).
  * The label ones name the word to look after: change it to what the email says.
  */
-type Template = { id: string; label: string; name: string; pattern: string; type: RuleField["type"]; word?: { tail: string; placeholder: string } };
+type Template = {
+  id: string;
+  label: string;
+  name: string;
+  pattern: string;
+  type: RuleField["type"];
+  word?: { tail: string; placeholder: string };
+};
 const TEMPLATES: Template[] = [
-  { id: "amount", label: "Amount (Rp …)", name: "amount", pattern: "Rp\\.?\\s*([\\d.,]+)", type: "amount" },
-  { id: "after-label", label: "Value after a label", name: "destination", pattern: "Tujuan\\s*:?\\s*(.+)", type: "text", word: { tail: "\\s*:?\\s*(.+)", placeholder: "Tujuan" } },
-  { id: "word-after", label: "Word after a word", name: "source", pattern: "dari\\s+(\\S+)", type: "text", word: { tail: "\\s+(\\S+)", placeholder: "dari" } },
-  { id: "date", label: "Date (20/09/2026, 20 Sep 2026)", name: "date", pattern: "(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}|\\d{1,2} [A-Za-z]{3,9} \\d{4})", type: "text" },
-  { id: "reference", label: "Reference number", name: "reference", pattern: "(?:no\\.?\\s*ref(?:erensi)?|ref(?:erence)?|no\\.?\\s*transaksi|trx\\s*id)\\s*[:#]?\\s*([A-Z0-9-]{6,})", type: "text" },
-  { id: "email", label: "Email address", name: "email", pattern: "([\\w.+-]+@[\\w-]+\\.[\\w.]+)", type: "text" },
-  { id: "number", label: "First number", name: "number", pattern: "(\\d[\\d.,]*)", type: "text" },
+  {
+    id: "amount",
+    label: "Amount (Rp …)",
+    name: "amount",
+    pattern: "Rp\\.?\\s*([\\d.,]+)",
+    type: "amount",
+  },
+  {
+    id: "after-label",
+    label: "Value after a label",
+    name: "destination",
+    pattern: "Tujuan\\s*:?\\s*(.+)",
+    type: "text",
+    word: { tail: "\\s*:?\\s*(.+)", placeholder: "Tujuan" },
+  },
+  {
+    id: "word-after",
+    label: "Word after a word",
+    name: "source",
+    pattern: "dari\\s+(\\S+)",
+    type: "text",
+    word: { tail: "\\s+(\\S+)", placeholder: "dari" },
+  },
+  {
+    id: "date",
+    label: "Date (20/09/2026, 20 Sep 2026)",
+    name: "date",
+    pattern: "(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}|\\d{1,2} [A-Za-z]{3,9} \\d{4})",
+    type: "text",
+  },
+  {
+    id: "reference",
+    label: "Reference number",
+    name: "reference",
+    pattern: "(?:no\\.?\\s*ref(?:erensi)?|ref(?:erence)?|no\\.?\\s*transaksi|trx\\s*id)\\s*[:#]?\\s*([A-Z0-9-]{6,})",
+    type: "text",
+  },
+  {
+    id: "email",
+    label: "Email address",
+    name: "email",
+    pattern: "([\\w.+-]+@[\\w-]+\\.[\\w.]+)",
+    type: "text",
+  },
+  {
+    id: "number",
+    label: "First number",
+    name: "number",
+    pattern: "(\\d[\\d.,]*)",
+    type: "text",
+  },
 ];
 const CUSTOM = "custom";
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
@@ -145,7 +214,10 @@ export default function EmailRule() {
     form
       ? {
           match: form.match,
-          conditions: usable(form.conditions).map((c) => ({ ...c, value: c.value.trim() })),
+          conditions: usable(form.conditions).map((c) => ({
+            ...c,
+            value: c.value.trim(),
+          })),
           fields: runnable(form.fields),
           days: Math.min(365, Math.max(1, Number(window.days) || 60)),
           limit: Math.min(100, Math.max(5, Number(window.limit) || 30)),
@@ -165,7 +237,7 @@ export default function EmailRule() {
     retry: false,
   });
   const rows = canPreview ? (preview.data?.rows ?? []) : [];
-  const current = rows.find((r) => r.uid === selected) ?? rows.find((r) => r.matched) ?? rows[0] ?? null;
+  const current = rows.find((r) => r.uid === selected) ?? null;
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: RULES_KEY });
@@ -174,13 +246,23 @@ export default function EmailRule() {
   const save = useMutation({
     mutationFn: () => updateRule(id, form!),
     onSuccess: (r) => {
-      if (r.warning) toast({ title: t("Rule saved"), description: t(r.warning), variant: "destructive" });
+      if (r.warning)
+        toast({
+          title: t("Rule saved"),
+          description: t(r.warning),
+          variant: "destructive",
+        });
       else toast({ title: t("Rule saved") });
       setForm(inputOf(r));
       queryClient.setQueryData(key, (old: typeof saved) => old && { ...old, ...r });
       refresh();
     },
-    onError: (e: Error) => toast({ title: t("Failed to save the rule"), description: e.message, variant: "destructive" }),
+    onError: (e: Error) =>
+      toast({
+        title: t("Failed to save the rule"),
+        description: e.message,
+        variant: "destructive",
+      }),
   });
   // a name is not a filter: renamed on its own, saved at once
   const rename = useMutation({
@@ -191,16 +273,29 @@ export default function EmailRule() {
       queryClient.setQueryData(key, (old: typeof saved) => old && { ...old, name: r.name });
       refresh();
     },
-    onError: (e: Error) => toast({ title: t("Failed to save the rule"), description: e.message, variant: "destructive" }),
+    onError: (e: Error) =>
+      toast({
+        title: t("Failed to save the rule"),
+        description: e.message,
+        variant: "destructive",
+      }),
   });
-  const rotate = useMutation({ mutationFn: () => updateRule(id, { newSecret: true }), onSuccess: (r) => setSecret(r.webhookSecret) });
+  const rotate = useMutation({
+    mutationFn: () => updateRule(id, { newSecret: true }),
+    onSuccess: (r) => setSecret(r.webhookSecret),
+  });
   const remove = useMutation({
     mutationFn: () => deleteRule(id),
     onSuccess: () => {
       refresh();
       navigate(BACK);
     },
-    onError: (e: Error) => toast({ title: t("Failed to delete the rule"), description: e.message, variant: "destructive" }),
+    onError: (e: Error) =>
+      toast({
+        title: t("Failed to delete the rule"),
+        description: e.message,
+        variant: "destructive",
+      }),
   });
 
   if (isLoading || (saved && !form)) return <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />;
@@ -245,169 +340,213 @@ export default function EmailRule() {
         </div>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
-        {/* settings */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t("Filter")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Conditions match={form.match} conditions={form.conditions} onChange={(patch) => set(patch)} />
-              <div className="flex items-start gap-3 pt-1">
-                <Switch id="rule-verified" checked={form.onlyVerified} onCheckedChange={(onlyVerified) => set({ onlyVerified })} />
-                <Label htmlFor="rule-verified" className="font-normal">
-                  {t("Only verified senders")}
-                  <span className="block text-xs text-muted-foreground">{t("Ignores forged emails (DKIM/DMARC).")}</span>
-                </Label>
-              </div>
-            </CardContent>
-          </Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,36rem)_minmax(0,1fr)]">
+        {/* settings, one focus a tab: which emails, what is read out of them, where a match goes */}
+        <Tabs defaultValue="filter" className="min-w-0 space-y-4">
+          <TabsList className="w-full">
+            <TabsTrigger value="filter" className="flex-1">
+              <Filter className="mr-2 h-4 w-4" />
+              {t("Filter")}
+              {!usable(form.conditions).length && <NotSet />}
+            </TabsTrigger>
+            <TabsTrigger value="extract" className="flex-1">
+              <ScanText className="mr-2 h-4 w-4" />
+              {t("Extract")}
+              {!runnable(form.fields).length && <NotSet />}
+            </TabsTrigger>
+            <TabsTrigger value="delivery" className="flex-1">
+              <Send className="mr-2 h-4 w-4" />
+              {t("Delivery")}
+              {!form.webhookUrl && !(form.waNumberId && form.waTo) && <NotSet />}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="filter" className="mt-0 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{t("Filter")}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Conditions match={form.match} conditions={form.conditions} onChange={(patch) => set(patch)} rows={canPreview && preview.data ? rows : null} />
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t("Fields to read")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-xs text-muted-foreground">{t("Its first group (…) is the value.")}</p>
-              {fields.map((f, i) => (
-                <div key={i} className="space-y-2 rounded-md border p-3">
-                  <div className="flex items-end gap-2">
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <Label htmlFor={`field-name-${i}`} className="text-xs">
-                        {t("Field name")}
-                      </Label>
-                      <Input id={`field-name-${i}`} className="font-mono" placeholder="amount" value={f.name} onChange={(e) => setField(i, { name: e.target.value })} />
+          </TabsContent>
+          <TabsContent value="extract" className="mt-0 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{t("Extract")}</CardTitle>
+                <p className="text-xs text-muted-foreground">{t("Values read out of each email and sent as its data. A pattern's first group (…) is the value.")}</p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {fields.length === 0 && (
+                  <div className="space-y-2 rounded-lg border border-dashed p-3 text-center">
+                    <p className="text-xs text-muted-foreground">{t("Nothing extracted yet. Start from a template:")}</p>
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                      {TEMPLATES.slice(0, 4).map((tpl) => (
+                        <Button key={tpl.id} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => set({ fields: [{ name: tpl.name, pattern: tpl.pattern, type: tpl.type }] })}>
+                          <Plus className="mr-1 h-3 w-3" /> {t(tpl.label)}
+                        </Button>
+                      ))}
                     </div>
-                    <Button type="button" variant="ghost" size="sm" aria-label={t("Remove")} onClick={() => set({ fields: fields.filter((_, j) => j !== i) })}>
-                      <X className="h-4 w-4" />
-                    </Button>
                   </div>
-                  {f.name && !/^[a-zA-Z_][a-zA-Z0-9_]{0,39}$/.test(f.name) && <p className="text-xs text-destructive">{t("Letters, digits and _ only, like amount or source")}</p>}
-                  <div className="grid grid-cols-[1fr_7rem] gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t("Template")}</Label>
-                      <Select
-                        value={templateOf(f).id}
-                        onValueChange={(id) => {
-                          const tpl = TEMPLATES.find((x) => x.id === id);
-                          if (tpl) setField(i, { pattern: tpl.pattern, type: tpl.type, name: f.name || tpl.name });
-                        }}
-                      >
-                        <SelectTrigger>
+                )}
+                {fields.map((f, i) => {
+                  const at = templateOf(f);
+                  const tpl = TEMPLATES.find((x) => x.id === at.id);
+                  const badName = !!f.name && !/^[a-zA-Z_][a-zA-Z0-9_]{0,39}$/.test(f.name);
+                  const badPattern = !!f.pattern && !runnable([{ ...f, name: f.name || "x" }]).length;
+                  // found in how many of the emails the rule takes — once the preview has run this field
+                  const taken = rows.filter((r) => r.matched);
+                  const found = preview.data && f.name in (taken[0]?.data ?? {}) ? taken.filter((r) => r.data[f.name] != null).length : null;
+                  return (
+                    <div key={i} className={`space-y-2 rounded-lg border border-l-4 bg-muted/20 p-2.5 ${found === 0 || badName || badPattern ? "border-l-destructive" : "border-l-primary/60"}`}>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`h-3 w-3 shrink-0 rounded-sm ${MARKS[i % MARKS.length]}`} title={t("Its colour in the email")} />
+                        <Input aria-label={t("Field name")} className="h-8 min-w-0 flex-1 font-mono text-xs" placeholder="amount" value={f.name} onChange={(e) => setField(i, { name: e.target.value })} />
+                        <Select value={f.type} onValueChange={(type) => setField(i, { type: type as RuleField["type"] })}>
+                          <SelectTrigger className="h-8 w-auto gap-1 px-2 text-xs" aria-label={t("Type")}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="text">{t("Text")}</SelectItem>
+                            <SelectItem value="amount">{t("Amount")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {found !== null && (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums ${found === 0 ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}
+                            title={t("Emails taken by the rule this field reads a value from")}
+                          >
+                            {found === 0 ? "✕" : "✓"} {found}/{taken.length}
+                          </span>
+                        )}
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2" aria-label={t("Remove")} onClick={() => set({ fields: fields.filter((_, j) => j !== i) })}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {badName && <p className="text-xs text-destructive">{t("Letters, digits and _ only, like amount or source")}</p>}
+                      <div className="flex items-center gap-1.5">
+                        <Select
+                          value={at.id}
+                          onValueChange={(id) => {
+                            const next = TEMPLATES.find((x) => x.id === id);
+                            if (next) setField(i, { pattern: next.pattern, type: next.type, name: f.name || next.name });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-auto min-w-0 gap-1 px-2 text-xs" aria-label={t("Template")}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TEMPLATES.map((x) => (
+                              <SelectItem key={x.id} value={x.id}>
+                                {t(x.label)}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value={CUSTOM}>{t("Custom")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {tpl?.word && (
+                          <Input
+                            aria-label={t("Word")}
+                            className="h-8 min-w-0 flex-1 text-xs"
+                            placeholder={tpl.word.placeholder}
+                            value={at.word}
+                            // an empty word would leave the template; keep the placeholder's then
+                            onChange={(e) => setField(i, { pattern: withWord(tpl, e.target.value || tpl.word!.placeholder) })}
+                          />
+                        )}
+                      </div>
+                      <Input aria-label={t("Pattern (regex)")} className="h-8 font-mono text-xs" placeholder="Rp\s*([\d.,]+)" value={f.pattern} onChange={(e) => setField(i, { pattern: e.target.value })} />
+                      {badPattern && <p className="text-xs text-destructive">{t("Not a valid regular expression")}</p>}
+                    </div>
+                  );
+                })}
+                {fields.length > 0 && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => set({ fields: [...fields, { name: "", pattern: "", type: "text" }] })}>
+                    <Plus className="mr-2 h-4 w-4" /> {t("Add field")}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="delivery" className="mt-0 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{t("Send to")}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="rule-webhook">{t("Webhook URL (optional)")}</Label>
+                  <Input
+                    id="rule-webhook"
+                    type="url"
+                    placeholder="https://tokoanda.com/api/payment-email"
+                    value={form.webhookUrl ?? ""}
+                    onChange={(e) => set({ webhookUrl: e.target.value || null })}
+                  />
+                  {secret && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs text-muted-foreground">{t("Webhook key — sent in x-larika-webhook-key; check it in your app:")}</p>
+                      <CopyField value={secret} />
+                      <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => rotate.mutate()} disabled={rotate.isPending}>
+                        {t("New key")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("WhatsApp (optional)")}</Label>
+                  {saved.waNumbers.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t("Add a number under Whatsapp Gateway API to be notified on WhatsApp.")}</p>
+                  ) : (
+                    <>
+                      <Select value={form.waNumberId ?? NONE} onValueChange={(v) => set({ waNumberId: v === NONE ? null : v })}>
+                        <SelectTrigger aria-label={t("Send from")}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {TEMPLATES.map((tpl) => (
-                            <SelectItem key={tpl.id} value={tpl.id}>
-                              {t(tpl.label)}
+                          <SelectItem value={NONE}>{t("No WhatsApp")}</SelectItem>
+                          {saved.waNumbers.map((n) => (
+                            <SelectItem key={n.id} value={n.id}>
+                              {t("Send from {name}", { name: n.name })}
                             </SelectItem>
                           ))}
-                          <SelectItem value={CUSTOM}>{t("Custom")}</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t("Type")}</Label>
-                      <Select value={f.type} onValueChange={(type) => setField(i, { type: type as RuleField["type"] })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="text">{t("Text")}</SelectItem>
-                          <SelectItem value="amount">{t("Amount")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  {(() => {
-                    const at = templateOf(f);
-                    const tpl = TEMPLATES.find((x) => x.id === at.id);
-                    return tpl?.word ? (
-                      <div className="grid grid-cols-[4.5rem_1fr] items-center gap-2">
-                        <Label htmlFor={`field-word-${i}`} className="text-xs">
-                          {t("Word")}
-                        </Label>
-                        <Input
-                          id={`field-word-${i}`}
-                          placeholder={tpl.word.placeholder}
-                          value={at.word}
-                          // an empty word would leave the template; keep the placeholder's then
-                          onChange={(e) => setField(i, { pattern: withWord(tpl, e.target.value || tpl.word!.placeholder) })}
-                        />
-                      </div>
-                    ) : null;
-                  })()}
-                  <div className="space-y-1">
-                    <Label htmlFor={`field-pattern-${i}`} className="text-xs">
-                      {t("Pattern (regex)")}
-                    </Label>
-                    <Input id={`field-pattern-${i}`} className="font-mono text-xs" placeholder="Rp\s*([\d.,]+)" value={f.pattern} onChange={(e) => setField(i, { pattern: e.target.value })} />
-                    {f.pattern && !runnable([{ ...f, name: f.name || "x" }]).length && <p className="text-xs text-destructive">{t("Not a valid regular expression")}</p>}
-                  </div>
+                      {form.waNumberId && (
+                        <>
+                          <Input aria-label={t("Send to")} placeholder="628123456789" value={form.waTo ?? ""} onChange={(e) => set({ waTo: e.target.value || null })} />
+                          <Textarea
+                            aria-label={t("Message")}
+                            rows={2}
+                            placeholder={t("{rule}: {subject} — or use your fields, like {amount}")}
+                            value={form.waTemplate ?? ""}
+                            onChange={(e) => set({ waTemplate: e.target.value || null })}
+                          />
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={() => set({ fields: [...fields, { name: "", pattern: "", type: "text" }] })}>
-                <Plus className="mr-2 h-4 w-4" /> {t("Add field")}
-              </Button>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t("Send to")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1">
-                <Label htmlFor="rule-webhook">{t("Webhook URL (optional)")}</Label>
-                <Input id="rule-webhook" type="url" placeholder="https://tokoanda.com/api/payment-email" value={form.webhookUrl ?? ""} onChange={(e) => set({ webhookUrl: e.target.value || null })} />
-                {secret && (
-                  <div className="space-y-1 pt-1">
-                    <p className="text-xs text-muted-foreground">{t("Webhook key — sent in x-larika-webhook-key; check it in your app:")}</p>
-                    <CopyField value={secret} />
-                    <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => rotate.mutate()} disabled={rotate.isPending}>
-                      {t("New key")}
-                    </Button>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>{t("WhatsApp (optional)")}</Label>
-                {saved.waNumbers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t("Add a number under Whatsapp Gateway API to be notified on WhatsApp.")}</p>
-                ) : (
-                  <>
-                    <Select value={form.waNumberId ?? NONE} onValueChange={(v) => set({ waNumberId: v === NONE ? null : v })}>
-                      <SelectTrigger aria-label={t("Send from")}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>{t("No WhatsApp")}</SelectItem>
-                        {saved.waNumbers.map((n) => (
-                          <SelectItem key={n.id} value={n.id}>
-                            {t("Send from {name}", { name: n.name })}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {form.waNumberId && (
-                      <>
-                        <Input aria-label={t("Send to")} placeholder="628123456789" value={form.waTo ?? ""} onChange={(e) => set({ waTo: e.target.value || null })} />
-                        <Textarea
-                          aria-label={t("Message")}
-                          rows={2}
-                          placeholder={t("{rule}: {subject} — or use your fields, like {amount}")}
-                          value={form.waTemplate ?? ""}
-                          onChange={(e) => set({ waTemplate: e.target.value || null })}
-                        />
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{t("Security")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-start gap-3">
+                  <Switch id="rule-verified" checked={form.onlyVerified} onCheckedChange={(onlyVerified) => set({ onlyVerified })} />
+                  <Label htmlFor="rule-verified" className="font-normal">
+                    {t("Only verified senders")}
+                    <span className="block text-xs text-muted-foreground">{t("Ignores forged emails (DKIM/DMARC).")}</span>
+                  </Label>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         {/* the mailbox's real emails */}
         <div className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start">
@@ -419,9 +558,7 @@ export default function EmailRule() {
               </span>
               {t("Live matching")}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              {t("Real emails, updated as you type. Saved only with Save.")}
-            </p>
+            <p className="text-sm text-muted-foreground">{t("Real emails, updated as you type. Saved only with Save.")}</p>
           </div>
           <Card>
             <CardHeader className="pb-3">
@@ -432,9 +569,25 @@ export default function EmailRule() {
               </CardTitle>
               <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted-foreground">
                 {t("Last")}
-                <Input aria-label={t("Days")} type="number" min={1} max={365} className="h-7 w-16 text-xs" value={window.days} onChange={(e) => setWindow({ ...window, days: e.target.value })} />
+                <Input
+                  aria-label={t("Days")}
+                  type="number"
+                  min={1}
+                  max={365}
+                  className="h-7 w-16 text-xs"
+                  value={window.days}
+                  onChange={(e) => setWindow({ ...window, days: e.target.value })}
+                />
                 {t("days, up to")}
-                <Input aria-label={t("Emails")} type="number" min={5} max={100} className="h-7 w-16 text-xs" value={window.limit} onChange={(e) => setWindow({ ...window, limit: e.target.value })} />
+                <Input
+                  aria-label={t("Emails")}
+                  type="number"
+                  min={5}
+                  max={100}
+                  className="h-7 w-16 text-xs"
+                  value={window.limit}
+                  onChange={(e) => setWindow({ ...window, limit: e.target.value })}
+                />
                 {t("emails")}
               </div>
               <p className="text-xs text-muted-foreground">
@@ -442,7 +595,10 @@ export default function EmailRule() {
                   ? t("Newest inbox emails. Add a filter to narrow them.")
                   : preview.error
                     ? (preview.error as Error).message
-                    : t("{passed} of {taken} taken by the rule", { taken: rows.length, passed })}
+                    : t("{passed} of {taken} taken by the rule", {
+                        taken: rows.length,
+                        passed,
+                      })}
               </p>
             </CardHeader>
             {canPreview && rows.length > 0 && (
@@ -481,7 +637,10 @@ export default function EmailRule() {
                           <div className="flex flex-wrap gap-1.5 pt-1">
                             {!row.matched && <span className="text-muted-foreground">{t("not taken by the rule")}</span>}
                             {runnable(fields).map((f, i) => (
-                              <span key={f.name} className={`rounded px-1.5 font-mono ${row.data[f.name] == null ? "bg-destructive/10 text-destructive" : MARKS[i % MARKS.length]}`}>
+                              <span
+                                key={f.name}
+                                className={`rounded px-1.5 font-mono ${row.data[f.name] == null ? "bg-destructive/10 text-destructive" : MARKS[i % MARKS.length]}`}
+                              >
                                 {f.name}: {row.data[f.name] == null ? t("not found") : String(row.data[f.name])}
                               </span>
                             ))}
@@ -495,7 +654,9 @@ export default function EmailRule() {
             )}
           </Card>
 
-          {canPreview && current && <EmailView row={current} fields={runnable(fields)} filters={form} />}
+          <Dialog open={!!current} onOpenChange={(o) => !o && setSelected(null)}>
+            <DialogContent className="max-w-3xl">{current && <EmailView row={current} fields={runnable(fields)} filters={form} />}</DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -564,11 +725,20 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
     const subject = firstSpan(filters.conditions, "subject", row.subject);
     if (subject) found.push({ start: subject[0], end: subject[1], field: -1 });
     const body = firstSpan(filters.conditions, "body", row.text);
-    if (body) found.push({ start: row.subject.length + 1 + body[0], end: row.subject.length + 1 + body[1], field: -1 });
+    if (body)
+      found.push({
+        start: row.subject.length + 1 + body[0],
+        end: row.subject.length + 1 + body[1],
+        field: -1,
+      });
     fields.forEach((f, field) => {
       try {
         // "d": match indices (ES2022), not in this project's TS lib yet
-        const m = new RegExp(f.pattern, "id").exec(text) as (RegExpExecArray & { indices?: Array<[number, number] | undefined> }) | null;
+        const m = new RegExp(f.pattern, "id").exec(text) as
+          | (RegExpExecArray & {
+              indices?: Array<[number, number] | undefined>;
+            })
+          | null;
         const at = m?.indices?.[1] ?? m?.indices?.[0];
         if (at && at[1] > at[0]) found.push({ start: at[0], end: at[1], field });
       } catch {
@@ -588,7 +758,11 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
   for (const m of marks) {
     if (m.start > at) parts.push(text.slice(at, m.start));
     parts.push(
-      <mark key={m.start} className={`rounded px-0.5 text-foreground ${m.field < 0 ? FILTER_MARK : MARKS[m.field % MARKS.length]}`} title={m.field < 0 ? t("Filter") : fields[m.field]!.name}>
+      <mark
+        key={m.start}
+        className={`rounded px-0.5 text-foreground ${m.field < 0 ? FILTER_MARK : MARKS[m.field % MARKS.length]}`}
+        title={m.field < 0 ? t("Filter") : fields[m.field]!.name}
+      >
         {text.slice(m.start, m.end)}
       </mark>,
     );
@@ -597,9 +771,9 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
   parts.push(text.slice(at));
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{row.subject}</CardTitle>
+    <>
+      <DialogHeader>
+        <DialogTitle className="pr-6 text-base leading-snug">{row.subject}</DialogTitle>
         <p className="text-xs text-muted-foreground">
           <Marked text={row.from} span={firstSpan(filters.conditions, "from", row.from)} /> · {when(row.date)}
         </p>
@@ -612,86 +786,249 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
             ))}
           </div>
         )}
-      </CardHeader>
-      <CardContent>
-        <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 font-sans text-xs leading-relaxed">{parts}</pre>
+      </DialogHeader>
+      <DialogBody className="space-y-3">
+        <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 font-sans text-xs leading-relaxed">{parts}</pre>
         {fields.length > 0 && (
-          <div className="space-y-1 pt-3">
+          <div className="space-y-1">
             <p className="text-xs font-medium">{t("Output")}</p>
-            <pre className="overflow-auto rounded-md bg-muted/60 p-3 font-mono text-xs">{JSON.stringify(Object.fromEntries(fields.map((f) => [f.name, row.data[f.name] ?? null])), null, 2)}</pre>
+            <pre className="overflow-auto rounded-md bg-muted/60 p-3 font-mono text-xs">
+              {JSON.stringify(Object.fromEntries(fields.map((f) => [f.name, row.data[f.name] ?? null])), null, 2)}
+            </pre>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </DialogBody>
+    </>
   );
 }
 
 const PLACEHOLDER: Record<ConditionOp, string> = {
-  contains: "BNI",
+  contains: "BNI Merchant",
   not_contains: "gagal",
   equals: "noreply@bni.co.id",
-  in: "DANA, OVO, GoPay",
-  not_in: "promo, newsletter",
+  in: "DANA",
+  not_in: "promo",
   regex: "Rp [\\d.,]+ dari (DANA|OVO)",
 };
 
-/** Match all (AND) or any (OR) of a list of conditions, each: [field] [operator] [value]. */
-function Conditions({ match, conditions, onChange }: { match: RuleInput["match"]; conditions: Condition[]; onChange: (patch: Pick<RuleInput, "match" | "conditions">) => void }) {
-  const update = (i: number, patch: Partial<Condition>) => onChange({ match, conditions: conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+const isList = (op: ConditionOp) => op === "in" || op === "not_in";
+
+/** A condition in words: sender contains “BNI Merchant”; subject is one of DANA, OVO. */
+function describe(c: Condition) {
+  const value = isList(c.op) ? listOf(c.value).join(", ") : `“${c.value.trim()}”`;
+  return `${t(FIELD_LABEL[c.field]).toLowerCase()} ${t(OP_LABEL[c.op])} ${value}`;
+}
+
+/**
+ * The rule's conditions, laid out as it reads: each one a card (what it looks at and
+ * how, then its value full width), AND / OR between them — a click swaps it — how many
+ * of the preview's emails each one takes, and the whole rule in one sentence.
+ */
+function Conditions({
+  match,
+  conditions,
+  onChange,
+  rows,
+}: {
+  match: RuleInput["match"];
+  conditions: Condition[];
+  onChange: (patch: Pick<RuleInput, "match" | "conditions">) => void;
+  /** the preview's emails, once loaded: what the counts are out of */
+  rows: PreviewRow[] | null;
+}) {
+  const update = (i: number, patch: Partial<Condition>) =>
+    onChange({
+      match,
+      conditions: conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)),
+    });
+  const joiner = match === "any" ? t("OR") : t("AND");
+  const counted = usable(conditions);
+  const mails = rows?.map((r) => ({ from: r.from, subject: r.subject, text: r.text })) ?? null;
+  const taken = mails && counted.length ? mails.filter((m) => ruleHolds(match, counted, m)).length : null;
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        {t("Take emails matching")}
+        {t("Take an email when")}
         <Select value={match} onValueChange={(m) => onChange({ match: m as RuleInput["match"], conditions })}>
-          <SelectTrigger className="h-8 w-auto gap-1">
+          <SelectTrigger className="h-8 w-auto gap-1 font-medium">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t("all (AND)")}</SelectItem>
-            <SelectItem value="any">{t("any (OR)")}</SelectItem>
+            <SelectItem value="all">{t("all conditions hold")}</SelectItem>
+            <SelectItem value="any">{t("any condition holds")}</SelectItem>
           </SelectContent>
         </Select>
-        {t("of:")}
       </div>
-      {conditions.map((c, i) => (
-        <div key={i} className="space-y-1">
-          <div className="grid grid-cols-[6rem_8.5rem_minmax(0,1fr)_auto] gap-1.5">
-            <Select value={c.field} onValueChange={(field) => update(i, { field: field as ConditionField })}>
-              <SelectTrigger className="h-9 px-2 text-xs" aria-label={t("Field")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(FIELD_LABEL) as ConditionField[]).map((f) => (
-                  <SelectItem key={f} value={f}>
-                    {t(FIELD_LABEL[f])}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={c.op} onValueChange={(op) => update(i, { op: op as ConditionOp })}>
-              <SelectTrigger className="h-9 px-2 text-xs" aria-label={t("Operator")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(OP_LABEL) as ConditionOp[]).map((op) => (
-                  <SelectItem key={op} value={op}>
-                    {t(OP_LABEL[op])}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input className={`h-9 text-xs ${c.op === "regex" ? "font-mono" : ""}`} aria-label={t("Value")} placeholder={PLACEHOLDER[c.op]} value={c.value} onChange={(e) => update(i, { value: e.target.value })} />
-            <Button type="button" variant="ghost" size="sm" className="h-9" aria-label={t("Remove")} onClick={() => onChange({ match, conditions: conditions.filter((_, j) => j !== i) })}>
-              <X className="h-4 w-4" />
-            </Button>
+
+      {conditions.map((c, i) => {
+        const valid = !!c.value.trim() && !conditionInvalid(c);
+        const hits = mails && valid ? mails.filter((m) => conditionHolds(c, m)).length : null;
+        return (
+          <div key={i}>
+            {i > 0 && (
+              <div className="flex justify-center py-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      match: match === "any" ? "all" : "any",
+                      conditions,
+                    })
+                  }
+                  title={t("Swap AND / OR")}
+                  className={`rounded-full px-3 py-0.5 text-[11px] font-semibold tracking-wide ${match === "any" ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"} hover:opacity-80`}
+                >
+                  {joiner}
+                </button>
+              </div>
+            )}
+            <div className={`space-y-2 rounded-lg border-l-4 border bg-muted/20 p-2.5 ${hits === 0 ? "border-l-destructive" : "border-l-primary/60"}`}>
+              <div className="flex items-center gap-1.5">
+                <Select value={c.field} onValueChange={(field) => update(i, { field: field as ConditionField })}>
+                  <SelectTrigger className="h-8 w-auto gap-1 px-2 text-xs font-medium" aria-label={t("Field")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(FIELD_LABEL) as ConditionField[]).map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {t(FIELD_LABEL[f])}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={c.op} onValueChange={(op) => update(i, { op: op as ConditionOp })}>
+                  <SelectTrigger className="h-8 w-auto gap-1 px-2 text-xs" aria-label={t("Operator")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(OP_LABEL) as ConditionOp[]).map((op) => (
+                      <SelectItem key={op} value={op}>
+                        {t(OP_LABEL[op])}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="ml-auto" />
+                {hits !== null && (
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums ${hits === 0 ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}
+                    title={t("Emails in the preview this condition takes")}
+                  >
+                    {hits === 0 ? "✕" : "✓"} {hits}/{mails!.length}
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2"
+                  aria-label={t("Remove")}
+                  onClick={() =>
+                    onChange({
+                      match,
+                      conditions: conditions.filter((_, j) => j !== i),
+                    })
+                  }
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              {isList(c.op) ? (
+                <ChipsInput value={c.value} placeholder={PLACEHOLDER[c.op]} onChange={(value) => update(i, { value })} />
+              ) : (
+                <Input
+                  className={`h-9 ${c.op === "regex" ? "font-mono text-xs" : ""}`}
+                  aria-label={t("Value")}
+                  placeholder={PLACEHOLDER[c.op]}
+                  value={c.value}
+                  onChange={(e) => update(i, { value: e.target.value })}
+                />
+              )}
+              {conditionInvalid(c) && <p className="text-xs text-destructive">{t("Not a valid regular expression")}</p>}
+            </div>
           </div>
-          {conditionInvalid(c) && <p className="text-xs text-destructive">{t("Not a valid regular expression")}</p>}
-        </div>
-      ))}
-      <Button type="button" variant="outline" size="sm" onClick={() => onChange({ match, conditions: [...conditions, { field: conditions.length ? "body" : "from", op: "contains", value: "" }] })}>
+        );
+      })}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          onChange({
+            match,
+            conditions: [
+              ...conditions,
+              {
+                field: conditions.length ? "subject" : "from",
+                op: "contains",
+                value: "",
+              },
+            ],
+          })
+        }
+      >
         <Plus className="mr-2 h-4 w-4" /> {t("Add condition")}
       </Button>
-      {conditions.some((c) => c.op === "in" || c.op === "not_in") && <p className="text-xs text-muted-foreground">{t("One of / none of: a list separated by commas.")}</p>}
+
+      {counted.length > 0 && (
+        <p className="rounded-md bg-muted/50 p-2.5 text-xs leading-relaxed">
+          {t("Takes an email when")} {counted.map(describe).join(` ${joiner.toLowerCase()} `)}.
+          {taken !== null && (
+            <span className={`ml-1 font-medium ${taken === 0 ? "text-destructive" : "text-success"}`}>
+              {t("{taken} of {total} emails in the preview.", {
+                taken,
+                total: mails!.length,
+              })}
+            </span>
+          )}
+        </p>
+      )}
     </div>
   );
+}
+
+/** A comma list edited as chips: type and press Enter (or a comma); Backspace on empty removes the last. */
+function ChipsInput({ value, placeholder, onChange }: { value: string; placeholder: string; onChange: (value: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const items = listOf(value);
+  const add = (text: string) => {
+    const item = text.replace(/,/g, "").trim();
+    if (item && !items.some((x) => x.toLowerCase() === item.toLowerCase())) onChange([...items, item].join(", "));
+    setDraft("");
+  };
+  return (
+    <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-background px-2 py-1 focus-within:ring-2 focus-within:ring-ring">
+      {items.map((item, i) => (
+        <span key={item} className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+          {item}
+          <button type="button" aria-label={t("Remove")} onClick={() => onChange(items.filter((_, j) => j !== i).join(", "))}>
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        className="min-w-[6rem] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        aria-label={t("Value")}
+        placeholder={items.length ? t("add…") : `${placeholder}, …`}
+        value={draft}
+        onChange={(e) => (e.target.value.includes(",") ? add(e.target.value) : setDraft(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add(draft);
+          } else if (e.key === "Backspace" && !draft && items.length) {
+            onChange(items.slice(0, -1).join(", "));
+          }
+        }}
+        onBlur={() => draft && add(draft)}
+      />
+    </div>
+  );
+}
+
+/** On a tab whose settings are still empty. */
+function NotSet() {
+  return <span className="ml-2 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">{t("not set")}</span>;
 }
