@@ -30,13 +30,12 @@ router.get('/config', async (_req, res: Response) => {
 
 router.put('/config', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { baseUrl, adminKey, adminPath, rate, markup, optimaMarkup } = req.body as {
+    const { baseUrl, adminKey, adminPath, rate, markup } = req.body as {
       baseUrl?: string;
       adminKey?: string;
       adminPath?: string;
       rate?: number;
       markup?: number;
-      optimaMarkup?: number;
     };
     if (baseUrl !== undefined) {
       const url = baseUrl.trim().replace(/\/+$/, '');
@@ -49,13 +48,9 @@ router.put('/config', async (req: AuthenticatedRequest, res: Response) => {
     if (markup !== undefined && !(Number(markup) >= 1 && Number(markup) <= 10)) {
       return res.status(400).json({ success: false, error: 'The markup is a factor from 1 (no margin) up, e.g. 1.044' } as ApiResponse);
     }
-    if (optimaMarkup !== undefined && !(Number(optimaMarkup) >= 1 && Number(optimaMarkup) <= 10)) {
-      return res.status(400).json({ success: false, error: 'The larika-optima markup is a factor from 1 up, e.g. 1.15' } as ApiResponse);
-    }
     const before = await aiPricing();
     if (rate !== undefined) await setLarikaAiValue('rate', String(Number(rate)));
     if (markup !== undefined) await setLarikaAiValue('markup', String(Number(markup)));
-    if (optimaMarkup !== undefined) await setLarikaAiValue('optimaMarkup', String(Number(optimaMarkup)));
     // blank keeps the stored secret
     if (adminKey?.trim() || adminPath?.trim()) {
       if (!canEncrypt()) return res.status(500).json({ success: false, error: 'CB_SECRET_KEY is not set, so the key cannot be stored encrypted' } as ApiResponse);
@@ -68,7 +63,7 @@ router.put('/config', async (req: AuthenticatedRequest, res: Response) => {
       .catch((error) => error?.message || 'Gateway request failed');
     // a new price moves what every balance buys
     const after = await aiPricing();
-    if (!check && (after.rate !== before.rate || after.markup !== before.markup || after.optimaMarkup !== before.optimaMarkup)) await syncAllAiCaps();
+    if (!check && (after.rate !== before.rate || after.markup !== before.markup)) await syncAllAiCaps();
     return res.json({ success: true, data: { ...(await status()), check } } as ApiResponse);
   } catch (error) {
     console.error('Error updating AI gateway config:', error);

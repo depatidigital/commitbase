@@ -200,9 +200,9 @@ export const getLarikaGatewayBaseUrl = async () =>
 export const LARIKA_AI_DEFAULT_URL = 'https://ai.larika.id';
 /**
  * rate: IDR per USD (market). markup: one factor over buy price × rate, every model.
- * optimaMarkup: the same for calls larika-optima routed (the routing service). cursor: last billed gateway request id.
+ * cursor: last billed gateway request id.
  */
-export type LarikaAiKey = 'baseUrl' | 'adminKey' | 'adminPath' | 'rate' | 'markup' | 'optimaMarkup' | 'cursor';
+export type LarikaAiKey = 'baseUrl' | 'adminKey' | 'adminPath' | 'rate' | 'markup' | 'cursor';
 export const setLarikaAiValue = (key: LarikaAiKey, value: string) => setIntegrationConfigValue(LARIKA_AI_PROVIDER, key, value);
 export const getLarikaAiValue = (key: LarikaAiKey) => getIntegrationConfigValue(LARIKA_AI_PROVIDER, key);
 

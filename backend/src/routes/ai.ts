@@ -4,7 +4,7 @@ import { ApiResponse } from '../types';
 import { prisma } from '../lib/prisma';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { gatewayFailure } from '../services/larikaGatewayService';
-import { aiAccountOf, aiGateway, aiPricing, buyableWith, capFactorOf, chargeFor, factorOf, sellPerMillion } from '../services/aiGatewayService';
+import { aiAccountOf, aiGateway, aiPricing, buyableWith, chargeFor, factorOf, sellPerMillion } from '../services/aiGatewayService';
 import { billingUserOf } from '../services/walletService';
 import { getLarikaAiConfig } from '../services/integrationConfigService';
 import { WIB_MS } from '../services/usageMeterService';
@@ -54,7 +54,7 @@ async function keyCapOf(limit: unknown): Promise<bigint | null | undefined | fal
   const rupiah = Number(limit);
   if (!Number.isInteger(rupiah) || rupiah < 1_000 || rupiah > 1_000_000_000) return false;
   // at the dearer markup: the limit holds whether the key's calls are routed or not
-  return buyableWith(BigInt(rupiah) * 1_000_000n, capFactorOf(await aiPricing()));
+  return buyableWith(BigInt(rupiah) * 1_000_000n, factorOf(await aiPricing()));
 }
 
 /** A key's limit period: per WIB day or month. */
@@ -117,27 +117,6 @@ router.get('/models', async (_req: AuthenticatedRequest, res: Response) => {
 });
 
 /**
- * larika-optima this month (WIB), for one workspace: what its calls were charged (its
- * `:optima` wallet lines, routing included) against what the same tokens would have cost
- * on the cheapest top-tier model at the normal markup — "you saved". The baseline is
- * priced at today's rate, so it is approximate across a rate change.
- */
-async function optimaThisMonth(organizationId: string, accountId: string, keyIds: string[], factor: bigint) {
-  if (!keyIds.length) return null;
-  const month = new Date(Date.now() + WIB_MS).toISOString().slice(0, 7);
-  const [year, mon] = month.split('-').map(Number) as [number, number];
-  const from = new Date(Date.UTC(year, mon - 1, 1) - WIB_MS);
-  const to = new Date(Date.UTC(year, mon, 1) - WIB_MS);
-  const [lines, usage] = await Promise.all([
-    prisma.walletEntry.findMany({ where: { organizationId, ref: { startsWith: `ai:${organizationId}:${month}`, endsWith: ':optima' } }, select: { amount: true } }),
-    aiGateway<Array<{ baselineCost: string }>>(`/admin/accounts/${accountId}/usage?from=${from.toISOString()}&to=${to.toISOString()}&by=model&keys=${keyIds.join(',')}`),
-  ]);
-  const paid = lines.reduce((n, e) => n - e.amount, 0n);
-  const baseline = chargeFor(usage.reduce((n, u) => n + BigInt(u.baselineCost ?? 0), 0n), factor);
-  return { paid: String(paid), baseline: String(baseline) };
-}
-
-/**
  * Where a workspace's AI stands: its payer (whose wallet and gateway account it uses),
  * that account, and the ids of this workspace's keys in it.
  */
@@ -161,14 +140,11 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     let account: GatewayAccount | null = null;
     let gatewayError: string | null = null;
     if (config && row) account = await aiGateway<GatewayAccount>(`/admin/accounts/${row.accountId}`).catch((error) => ((gatewayError = error.message), null));
-    const pricing = await aiPricing();
-    const factor = factorOf(pricing);
+    const factor = factorOf(await aiPricing());
     const mine = new Set(keyIds);
     return res.json({
       success: true,
       data: {
-        optima: row && config ? await optimaThisMonth(organizationId, row.accountId, keyIds, factor).catch(() => null) : null,
-        optimaSurcharge: pricing.optimaMarkup / pricing.markup - 1,
         configured: !!config,
         baseUrl: config ? `${config.baseUrl}/v1` : null,
         organizationId,

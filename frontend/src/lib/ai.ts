@@ -46,10 +46,6 @@ export interface AiOverview {
   suspended: boolean;
   keys: AiKey[];
   gatewayError: string | null;
-  /** larika-optima this month, micro-IDR: what its calls cost, and the same on the cheapest top model */
-  optima: { paid: string; baseline: string } | null;
-  /** larika-optima's markup over the normal one, e.g. 0.10 */
-  optimaSurcharge: number;
 }
 
 /** IDR per 1M tokens; a tier covers prompts up to `upTo` tokens (null = the rest). */
@@ -82,8 +78,6 @@ export interface AiGatewayConfig {
   rate: number;
   /** one factor over buy price × rate */
   markup: number;
-  /** the same for calls larika-optima routed: the model's price plus the routing service */
-  optimaMarkup: number;
   /** after a save: null when the gateway took the key, else why not */
   check?: string | null;
 }
@@ -99,7 +93,7 @@ export interface WalletRow {
 }
 
 export const getAiGatewayConfig = async () => unwrap(await apiRequest<AiGatewayConfig>('/ai-gateway/config'), t('Failed to fetch the AI gateway settings'));
-export const saveAiGatewayConfig = async (body: { baseUrl?: string; adminKey?: string; adminPath?: string; rate?: number; markup?: number; optimaMarkup?: number }) =>
+export const saveAiGatewayConfig = async (body: { baseUrl?: string; adminKey?: string; adminPath?: string; rate?: number; markup?: number }) =>
   unwrap(await apiRequest<AiGatewayConfig>('/ai-gateway/config', { method: 'PUT', body: JSON.stringify(body) }), t('Failed to save the AI gateway settings'));
 export const getWallets = async () => unwrap(await apiRequest<WalletRow[]>('/ai-gateway/wallets'), t('Failed to fetch the wallets'));
 export const creditWallet = async (body: { userId: string; amount: number; note: string }) =>

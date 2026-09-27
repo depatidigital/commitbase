@@ -150,7 +150,6 @@ export default function Ai() {
                 </p>
                 {data.payer && <p className="text-xs text-muted-foreground">{t("Paid from {name}'s balance, shared by the workspaces they pay for.", { name: data.payer.name || data.payer.email })}</p>}
                 {data.suspended && <p className="text-sm text-destructive">{t("The AI API of this workspace is suspended.")}</p>}
-                <OptimaSaved optima={data.optima} />
               </CardContent>
             </Card>
             <Card>
@@ -165,7 +164,7 @@ export default function Ai() {
                 <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
                   {`curl ${data.baseUrl}/chat/completions \\
   -H "Authorization: Bearer lk_…" -H "content-type: application/json" \\
-  -d '{"model":"larika-optima","messages":[{"role":"user","content":"Halo!"}]}'`}
+  -d '{"model":"deepseek-flash","messages":[{"role":"user","content":"Halo!"}]}'`}
                 </pre>
               </CardContent>
             </Card>
@@ -223,7 +222,7 @@ export default function Ai() {
                 <UsageTab />
               </TabsContent>
               <TabsContent value="models">
-                <ModelsTable optimaSurcharge={data.optimaSurcharge} />
+                <ModelsTable />
               </TabsContent>
             </Tabs>
           )}
@@ -362,27 +361,8 @@ function UsageTab() {
   );
 }
 
-/**
- * What larika-optima saved this month: its calls (routing included) against the same
- * tokens on the cheapest top model. Only once it has saved something.
- */
-function OptimaSaved({ optima }: { optima: AiOverview["optima"] }) {
-  if (!optima) return null;
-  const paid = fromMicro(optima.paid);
-  const baseline = fromMicro(optima.baseline);
-  if (baseline <= paid) return null;
-  return (
-    <p className="rounded-md bg-success/10 p-2 text-xs text-success">
-      {t("larika-optima saved you ≈ {amount} this month ({pct}% less than always using a top model).", {
-        amount: rupiah(baseline - paid, baseline - paid < 100),
-        pct: Math.round(((baseline - paid) / baseline) * 100),
-      })}
-    </p>
-  );
-}
-
 /** What each model costs here, per 1M tokens. Shared with the Pricing page. */
-export function ModelsTable({ optimaSurcharge }: { optimaSurcharge?: number } = {}) {
+export function ModelsTable() {
   const query = useTableQuery(25);
   const { data = [], isFetching } = useQuery({ queryKey: ["ai-models"], queryFn: getAiModels, staleTime: 10 * 60_000 });
   const price = (m: AiModelPrice, k: "input" | "cacheRead" | "output") =>
@@ -410,12 +390,6 @@ export function ModelsTable({ optimaSurcharge }: { optimaSurcharge?: number } = 
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{t("Rupiah per 1 million tokens. Send the model name as `model`.")}</p>
-      <p className="rounded-md bg-primary/5 p-3 text-sm">
-        <code className="font-mono text-xs">larika-optima</code> —{" "}
-        {optimaSurcharge
-          ? t("picks the cheapest model good enough for each message. Its fee, up to {pct}%, comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.", { pct: Math.round(optimaSurcharge * 100) })
-          : t("picks the cheapest model good enough for each message. Its fee comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.")}
-      </p>
       <DataTable
         columns={columns}
         rows={data}
@@ -480,7 +454,7 @@ function QuickStart({ baseUrl, balance, hasKey, onCreate, onModels }: { baseUrl:
               lang: "bash",
               code: `curl ${baseUrl}/chat/completions \
   -H "Authorization: Bearer lk_…" -H "content-type: application/json" \
-  -d '{"model":"larika-optima","messages":${message}}'`,
+  -d '{"model":"deepseek-flash","messages":${message}}'`,
             },
             {
               label: "Node.js",
@@ -489,7 +463,7 @@ function QuickStart({ baseUrl, balance, hasKey, onCreate, onModels }: { baseUrl:
 
 const ai = new OpenAI({ baseURL: "${baseUrl}", apiKey: process.env.LARIKA_AI_KEY });
 const res = await ai.chat.completions.create({
-  model: "larika-optima",
+  model: "deepseek-flash",
   messages: ${message},
 });
 console.log(res.choices[0].message.content);`,
@@ -501,7 +475,7 @@ console.log(res.choices[0].message.content);`,
 import os
 
 ai = OpenAI(base_url="${baseUrl}", api_key=os.environ["LARIKA_AI_KEY"])
-res = ai.chat.completions.create(model="larika-optima", messages=${message})
+res = ai.chat.completions.create(model="deepseek-flash", messages=${message})
 print(res.choices[0].message.content)`,
             },
           ]}
@@ -510,8 +484,7 @@ print(res.choices[0].message.content)`,
 
       <Step n={4} title={t("Pick a model")}>
         <p className="text-sm text-muted-foreground">
-          <code className="font-mono text-xs">larika-optima</code>{" "}
-          {t("picks the cheapest model good enough for each message, and never costs more than the cheapest top model. Or send any model from the list as `model`.")}
+          {t("Send any model from the list as `model`.")}
         </p>
         <Button variant="outline" size="sm" onClick={onModels}>
           <Boxes className="mr-2 h-4 w-4" />
