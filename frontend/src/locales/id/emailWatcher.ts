@@ -85,7 +85,6 @@ export default {
   "Search rules…": "Cari rule…",
   "No rules yet. A rule picks emails by sender and subject and reads values out of them.":
     "Belum ada rule. Rule memilih email berdasarkan pengirim dan subjek, lalu membaca nilai dari email itu.",
-  "Fields to read": "Field yang dibaca",
   "Field name": "Nama field",
   Text: "Teks",
   "Add field": "Tambah field",
@@ -134,7 +133,6 @@ export default {
   Filter: "Filter",
   Sender: "Pengirim",
   "Ignores forged emails (DKIM/DMARC).": "Abaikan email palsu (DKIM/DMARC).",
-  "Its first group (…) is the value.": "Grup pertamanya (…) menjadi nilainya.",
   "Letters, digits and _ only, like amount or source": "Hanya huruf, angka, dan _, seperti amount atau source",
   Template: "Template",
   "Pattern (regex)": "Pola (regex)",
@@ -147,23 +145,16 @@ export default {
   Body: "Isi",
   "First number": "Angka pertama",
   "Live matching": "Pencocokan langsung",
-  "Real emails, updated as you type. Saved only with Save.": "Email asli, diperbarui saat Anda mengetik. Tersimpan hanya lewat Simpan.",
   Emails: "Email",
   Last: "Terakhir",
   Days: "Hari",
   "days, up to": "hari, maksimal",
   emails: "email",
-  "Newest inbox emails. Add a filter to narrow them.": "Email terbaru di inbox. Tambahkan filter untuk menyaringnya.",
 
   // conditions
-  "Take emails matching": "Ambil email yang cocok dengan",
-  "all (AND)": "semua (AND)",
-  "any (OR)": "salah satu (OR)",
-  "of:": "kondisi:",
   Field: "Bagian",
   Operator: "Operator",
   "Add condition": "Tambah kondisi",
-  "One of / none of: a list separated by commas.": "Salah satu dari / bukan salah satu dari: daftar dipisah koma.",
   contains: "mengandung",
   "does not contain": "tidak mengandung",
   equals: "sama dengan",
@@ -173,6 +164,35 @@ export default {
   or: "atau",
   "{passed} of {taken} taken by the rule": "{passed} dari {taken} diambil rule ini",
   "not taken by the rule": "tidak diambil rule ini",
+
+  // editor tabs, conditions as cards, extract
+  Extract: "Ekstrak",
+  Delivery: "Pengiriman",
+  "Values read out of each email and sent as its data. A pattern's first group (…) is the value.":
+    "Nilai yang dibaca dari tiap email dan dikirim sebagai datanya. Grup pertama (…) pola menjadi nilainya.",
+  "Nothing extracted yet. Start from a template:": "Belum ada yang diekstrak. Mulai dari template:",
+  "Its colour in the email": "Warnanya di email",
+  "Emails taken by the rule this field reads a value from": "Email yang diambil rule dan berhasil dibaca field ini",
+  OR: "ATAU",
+  AND: "DAN",
+  "Take an email when": "Ambil email jika",
+  "all conditions hold": "semua kondisi terpenuhi",
+  "any condition holds": "salah satu kondisi terpenuhi",
+  "Swap AND / OR": "Tukar DAN / ATAU",
+  "Emails in the preview this condition takes": "Email di preview yang memenuhi kondisi ini",
+  "Takes an email when": "Mengambil email jika",
+  "{taken} of {total} emails in the preview.": "{taken} dari {total} email di preview.",
+  "add…": "tambah…",
+
+  // security, field source
+  "This rule does not check the sender's email address. Anyone can send an email named “BNI Merchant”: check the address the bank sends from.":
+    "Rule ini tidak memeriksa alamat email pengirim. Siapa pun bisa mengirim email bernama “BNI Merchant”: periksa alamat yang dipakai bank.",
+  "Sender equals {address}": "Pengirim sama dengan {address}",
+  "Off: a forged email that copies the bank's address is sent on too. Keep it on for payments.":
+    "Mati: email palsu yang meniru alamat bank ikut diteruskan. Biarkan aktif untuk pembayaran.",
+  "Read from": "Baca dari",
+  "Subject + body": "Subjek + isi",
+  "Add a filter to narrow them.": "Tambah filter untuk menyaring.",
 
   // events
   Received: "Diterima",

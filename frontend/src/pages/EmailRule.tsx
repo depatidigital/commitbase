@@ -25,6 +25,7 @@ import {
   type Condition,
   type ConditionField,
   type ConditionOp,
+  type FieldSource,
   type PreviewRow,
   type RuleField,
   type RuleInput,
@@ -153,6 +154,7 @@ const TEMPLATES: Template[] = [
   },
 ];
 const CUSTOM = "custom";
+const SOURCE_LABEL: Record<FieldSource, string> = { all: "Subject + body", subject: "Subject", body: "Body", from: "Sender" };
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const unescapeRegex = (pattern: string) => pattern.replace(/\\(.)/g, "$1");
 /** A template's pattern around its word: "dari" → dari\s+(\S+). */
@@ -238,6 +240,18 @@ export default function EmailRule() {
   });
   const rows = canPreview ? (preview.data?.rows ?? []) : [];
   const current = rows.find((r) => r.uid === selected) ?? null;
+
+  // a sender condition naming an address (…@…) checks who sent it; a display name does not
+  const senderChecked = !!form?.conditions.some((c) => c.field === "from" && !["not_contains", "not_in"].includes(c.op) && c.value.includes("@"));
+  // the address most of the emails the rule takes come from
+  const suggestedSender = (() => {
+    const counts = new Map<string, number>();
+    for (const r of rows.filter((r) => r.matched && r.verified)) {
+      const address = /<([^>]+)>/.exec(r.from)?.[1]?.toLowerCase();
+      if (address) counts.set(address, (counts.get(address) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  })();
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: RULES_KEY });
@@ -370,6 +384,46 @@ export default function EmailRule() {
               </CardContent>
             </Card>
 
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{t("Security")}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* a display name ("BNI Merchant") is typed by whoever sends: only the address, checked by DKIM/DMARC, is the bank's */}
+                {!senderChecked && (
+                  <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+                    <p className="flex items-start gap-2 font-medium text-warning">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      {t("This rule does not check the sender's email address. Anyone can send an email named “BNI Merchant”: check the address the bank sends from.")}
+                    </p>
+                    {suggestedSender && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => set({ conditions: [...form.conditions, { field: "from", op: "equals", value: suggestedSender }] })}
+                      >
+                        <Plus className="mr-1 h-3 w-3" /> {t("Sender equals {address}", { address: suggestedSender })}
+                      </Button>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-start gap-3">
+                  <Switch id="rule-verified" checked={form.onlyVerified} onCheckedChange={(onlyVerified) => set({ onlyVerified })} />
+                  <Label htmlFor="rule-verified" className="font-normal">
+                    {t("Only verified senders")}
+                    <span className="block text-xs text-muted-foreground">{t("Ignores forged emails (DKIM/DMARC).")}</span>
+                  </Label>
+                </div>
+                {!form.onlyVerified && (
+                  <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-2.5 text-xs text-destructive">
+                    <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    {t("Off: a forged email that copies the bank's address is sent on too. Keep it on for payments.")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
           <TabsContent value="extract" className="mt-0 space-y-4">
             <Card>
@@ -426,6 +480,18 @@ export default function EmailRule() {
                       </div>
                       {badName && <p className="text-xs text-destructive">{t("Letters, digits and _ only, like amount or source")}</p>}
                       <div className="flex items-center gap-1.5">
+                        <Select value={f.source ?? "all"} onValueChange={(source) => setField(i, { source: source as FieldSource })}>
+                          <SelectTrigger className="h-8 w-auto gap-1 px-2 text-xs" aria-label={t("Read from")}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(SOURCE_LABEL) as FieldSource[]).map((source) => (
+                              <SelectItem key={source} value={source}>
+                                {t(SOURCE_LABEL[source])}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <Select
                           value={at.id}
                           onValueChange={(id) => {
@@ -531,20 +597,6 @@ export default function EmailRule() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">{t("Security")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-start gap-3">
-                  <Switch id="rule-verified" checked={form.onlyVerified} onCheckedChange={(onlyVerified) => set({ onlyVerified })} />
-                  <Label htmlFor="rule-verified" className="font-normal">
-                    {t("Only verified senders")}
-                    <span className="block text-xs text-muted-foreground">{t("Ignores forged emails (DKIM/DMARC).")}</span>
-                  </Label>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
 
@@ -558,7 +610,6 @@ export default function EmailRule() {
               </span>
               {t("Live matching")}
             </h2>
-            <p className="text-sm text-muted-foreground">{t("Real emails, updated as you type. Saved only with Save.")}</p>
           </div>
           <Card>
             <CardHeader className="pb-3">
@@ -592,7 +643,7 @@ export default function EmailRule() {
               </div>
               <p className="text-xs text-muted-foreground">
                 {!filtered
-                  ? t("Newest inbox emails. Add a filter to narrow them.")
+                  ? t("Add a filter to narrow them.")
                   : preview.error
                     ? (preview.error as Error).message
                     : t("{passed} of {taken} taken by the rule", {
@@ -602,7 +653,13 @@ export default function EmailRule() {
               </p>
             </CardHeader>
             {canPreview && rows.length > 0 && (
-              <CardContent className="p-0">
+              <CardContent className="relative p-0">
+                {/* reloading: the old list stays visible but cannot be clicked until the new one is in */}
+                {preview.isFetching && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-[1px]" aria-busy="true">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                )}
                 {/* one compact block per email, one line each: sender · date, subject, body, what the fields read */}
                 <div className="max-h-[26rem] divide-y overflow-y-auto border-t">
                   {rows.map((row) => {
@@ -732,15 +789,20 @@ function EmailView({ row, fields, filters }: { row: PreviewRow; fields: RuleFiel
         field: -1,
       });
     fields.forEach((f, field) => {
+      const source = f.source ?? "all";
+      if (source === "from") return;
+      // the part it reads, and where that part starts in the text shown (subject line, then body)
+      const part = source === "subject" ? row.subject : source === "body" ? row.text : text;
+      const offset = source === "body" ? row.subject.length + 1 : 0;
       try {
         // "d": match indices (ES2022), not in this project's TS lib yet
-        const m = new RegExp(f.pattern, "id").exec(text) as
+        const m = new RegExp(f.pattern, "id").exec(part) as
           | (RegExpExecArray & {
               indices?: Array<[number, number] | undefined>;
             })
           | null;
         const at = m?.indices?.[1] ?? m?.indices?.[0];
-        if (at && at[1] > at[0]) found.push({ start: at[0], end: at[1], field });
+        if (at && at[1] > at[0]) found.push({ start: offset + at[0], end: offset + at[1], field });
       } catch {
         // an invalid pattern marks nothing
       }

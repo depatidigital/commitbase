@@ -1,6 +1,6 @@
 // npx tsx src/lib/emailRules.check.ts — Email Watcher's matching, parsing and sender check.
 import assert from 'node:assert/strict';
-import { type Condition, extractFields, firstHeader, headerMayMatch, isPrivateIp, parseAmount, picksEmails, renderTemplate, ruleMatches, searchTerms, senderVerified, validConditions, validFields } from './emailRules';
+import { type Condition, type Field, extractFields, firstHeader, headerMayMatch, isPrivateIp, parseAmount, picksEmails, renderTemplate, ruleMatches, searchTerms, senderVerified, validConditions, validFields } from './emailRules';
 
 // amounts as banks write them
 assert.equal(parseAmount('150,000.00'), 150000);
@@ -63,14 +63,20 @@ const fields = validFields([
   { name: 'source', pattern: 'dari (\\S+) telah berhasil' },
 ]);
 assert.ok(Array.isArray(fields));
-assert.deepEqual(extractFields(fields, subject), { amount: 150000, source: 'DANA' });
-assert.deepEqual(extractFields(fields, 'nothing here'), { amount: null, source: null });
+assert.deepEqual(extractFields(fields, bni), { amount: 150000, source: 'DANA' });
+assert.deepEqual(extractFields(fields, { from: '', subject: 'nothing here', text: '' }), { amount: null, source: null });
+// a field reads where it is told: the subject, the body or the sender line
+const reference = { name: 'ref', pattern: 'Referensi: (\\S+)', type: 'text' as const };
+assert.deepEqual(extractFields([{ ...reference, source: 'body' }], bni), { ref: 'F1260PIQ9P' });
+assert.deepEqual(extractFields([{ ...reference, source: 'subject' }], bni), { ref: null });
+assert.deepEqual(extractFields([{ name: 'bank', pattern: '@([\\w.]+)>', type: 'text', source: 'from' }], bni), { bank: 'bni.co.id' });
+assert.deepEqual((validFields([{ name: 'x', pattern: 'a', source: 'nowhere' }]) as Field[])[0]!.source, 'all');
 assert.equal(typeof validFields([{ name: 'x', pattern: '(' }]), 'string');
 assert.equal(typeof validFields([{ name: 'bad name', pattern: 'a' }]), 'string');
 
 // a catastrophic pattern times out instead of hanging the process
 const started = Date.now();
-assert.deepEqual(extractFields([{ name: 'x', pattern: '(a+)+$', type: 'text' }], `${'a'.repeat(40)}!`), { x: null });
+assert.deepEqual(extractFields([{ name: 'x', pattern: '(a+)+$', type: 'text' }], { from: '', subject: `${'a'.repeat(40)}!`, text: '' }), { x: null });
 assert.ok(Date.now() - started < 2_000);
 
 assert.equal(renderTemplate('Masuk Rp {amount} dari {source} {nope}', { amount: 150000, source: 'DANA' }), 'Masuk Rp 150000 dari DANA {nope}');

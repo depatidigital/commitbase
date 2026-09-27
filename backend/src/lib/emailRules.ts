@@ -8,7 +8,13 @@ import * as vm from 'vm';
  */
 
 export type FieldType = 'text' | 'amount';
-export type Field = { name: string; pattern: string; type: FieldType };
+/** Where a field reads: all = the subject line then the body (the default); or one of them, or the sender line. */
+export type FieldSource = 'all' | 'subject' | 'body' | 'from';
+export type Field = { name: string; pattern: string; type: FieldType; source?: FieldSource };
+
+/** The text a field's pattern runs on. */
+export const sourceText = (m: Message, source: FieldSource = 'all') =>
+  source === 'subject' ? m.subject : source === 'body' ? m.text : source === 'from' ? m.from : `${m.subject}\n${m.text}`;
 export type Message = { from: string; subject: string; text: string };
 
 /** What a condition looks at, and how. `in`/`not_in`: a comma-separated list, any of which may appear. */
@@ -154,13 +160,13 @@ export function parseAmount(raw: string): number | null {
  * vm with a time limit — a pattern is the user's, and a catastrophic one must not stall
  * the process every watcher shares.
  */
-export function extractFields(fields: Field[], text: string): Record<string, string | number | null> {
+export function extractFields(fields: Field[], m: Message): Record<string, string | number | null> {
   if (!fields.length) return {};
   let raw: Array<string | null>;
   try {
     raw = vm.runInNewContext(
-      'fields.map(function (f) { var m = new RegExp(f.pattern, "i").exec(text); return m ? (m[1] !== undefined ? m[1] : m[0]) : null; })',
-      { fields: fields.map((f) => ({ pattern: f.pattern })), text: text.slice(0, 20_000) },
+      'fields.map(function (f) { var m = new RegExp(f.pattern, "i").exec(f.text); return m ? (m[1] !== undefined ? m[1] : m[0]) : null; })',
+      { fields: fields.map((f) => ({ pattern: f.pattern, text: sourceText(m, f.source).slice(0, 20_000) })) },
       { timeout: 200 },
     );
   } catch {
@@ -189,7 +195,8 @@ export function validFields(input: unknown): Field[] | string {
       return `Field "${name}": the pattern is not a valid regular expression`;
     }
     if (fields.some((x) => x.name === name)) return `Field "${name}" is listed twice`;
-    fields.push({ name, pattern, type: f?.type === 'amount' ? 'amount' : 'text' });
+    const source: FieldSource = ['subject', 'body', 'from'].includes(f?.source) ? f.source : 'all';
+    fields.push({ name, pattern, type: f?.type === 'amount' ? 'amount' : 'text', source });
   }
   return fields;
 }

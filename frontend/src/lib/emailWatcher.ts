@@ -38,10 +38,13 @@ export interface Mailbox {
 }
 
 export type FieldType = 'text' | 'amount';
+/** Where a field reads: all = the subject line then the body (the default). */
+export type FieldSource = 'all' | 'subject' | 'body' | 'from';
 export interface RuleField {
   name: string;
   pattern: string;
   type: FieldType;
+  source?: FieldSource;
 }
 
 export type ConditionField = 'from' | 'subject' | 'body';

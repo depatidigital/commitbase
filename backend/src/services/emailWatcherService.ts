@@ -170,8 +170,6 @@ async function parse(source: Buffer, fallbackId: string): Promise<Parsed> {
 const envelopeFrom = (env: { from?: Array<{ name?: string | undefined; address?: string | undefined }> | undefined } | undefined) =>
   (env?.from ?? []).map((a) => `${a.name ?? ''} <${a.address ?? ''}>`).join(', ');
 
-const textOf = (m: Pick<Parsed, 'subject' | 'text'>) => `${m.subject}\n${m.text}`;
-
 
 /**
  * The rule editor's emails: the newest of the last days whose header the conditions may
@@ -230,7 +228,7 @@ export async function previewRule(cacheKey: string, s: ImapSettings, rule: RuleF
       verified: m.verified,
       matched: ruleMatches(rule, m),
       text: m.text.slice(0, 5_000),
-      data: extractFields(fields, textOf(m)),
+      data: extractFields(fields, m),
     })),
   };
 }
@@ -449,7 +447,7 @@ async function record(rules: Rule[], m: Parsed) {
           snippet: m.text.slice(0, 500),
           receivedAt: m.date,
           verified: m.verified,
-          data: extractFields(rule.fields as Field[], textOf(m)),
+          data: extractFields(rule.fields as Field[], m),
           status,
           nextAttemptAt: status === 'PENDING' ? new Date() : null,
           ...(status === 'SKIPPED' && { error: 'The sender could not be verified (no DKIM/DMARC pass for its domain)' }),
