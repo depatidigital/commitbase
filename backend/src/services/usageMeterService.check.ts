@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { COLLECT_SCRIPT, heldBetween, meterOrgArgs, parseMeterLog, priceOf, spreadHours, usageSince, wibDayStart, RATES } from './usageMeterService';
+import { COLLECT_SCRIPT, daysInMonthOf, heldBetween, meterOrgArgs, parseMeterLog, priceOf, spreadHours, usageSince, wibDayStart, RATES } from './usageMeterService';
 
 const GiB = 1024 ** 3;
 
@@ -97,5 +97,10 @@ for (const script of [COLLECT_SCRIPT, sampler]) {
   const parsed = spawnSync('sh', ['-n'], { input: script, encoding: 'utf8' });
   if (!parsed.error) assert.strictEqual(parsed.status, 0, parsed.stderr);
 }
+
+// a day's storage is priced over its own month's days
+assert.strictEqual(daysInMonthOf('2026-02-10'), 28);
+assert.strictEqual(daysInMonthOf('2028-02-29'), 29);
+assert.strictEqual(daysInMonthOf('2026-12-31'), 31);
 
 console.log('usageMeterService: ok');

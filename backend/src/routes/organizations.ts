@@ -5,10 +5,11 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, requireRole, AuthenticatedRequest } from '../middleware/auth';
-import { canManageOrg, getMemberships, getOrgIds, isPlatformAdmin } from '../lib/scope';
+import { canManageOrg, getMemberships, getOrgIds, getOrgRole, isPlatformAdmin } from '../lib/scope';
 import { paging, contains } from '../lib/paging';
 import { sendMail } from '../lib/mailer';
 import { queueOrgNode, orgNodesInclude } from '../services/orgProvisionService';
+import { billingUserOf, grantWelcomeCredit } from '../services/walletService';
 
 const router: Router = Router();
 
@@ -33,6 +34,10 @@ const MemberRoleSchema = z.object({
 const AddMemberSchema = z.object({
   email: z.string().email(),
   role: z.enum(['OWNER', 'ADMIN', 'MEMBER']).optional(),
+});
+
+const BillingUserSchema = z.object({
+  userId: z.string().min(1),
 });
 
 const PlacementSchema = z.object({
@@ -195,9 +200,12 @@ router.post(
           postgresServerId: from?.postgresServerId ?? null,
           mysqlServerId: from?.mysqlServerId ?? null,
           members: { create: { userId: req.user!.userId, role: 'OWNER' } },
+          billingUserId: req.user!.userId,
         },
         select: { id: true },
       });
+      // a user's first workspace starts with credit, so it can deploy at once
+      await grantWelcomeCredit(created.id, req.user!.userId).catch((error) => console.error('Welcome credit failed:', error));
 
       // Nothing to provision yet: an org is provisioned on a node when its
       // first app lands there (or when a default server is set).
@@ -491,6 +499,37 @@ router.delete('/:id/members/:userId', authenticateToken, async (req: Authenticat
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
+
+// Who pays the workspace: one of its OWNERs, and only an OWNER may change it.
+router.get('/:id/billing-user', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const id = req.params.id as string;
+  if (!(await canManageOrg(req, id))) return forbidden(res);
+  return res.json({ success: true, data: await billingUserOf(id) } as ApiResponse);
+});
+
+router.put(
+  '/:id/billing-user',
+  authenticateToken,
+  validateRequest(BillingUserSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { userId } = BillingUserSchema.parse(req.body);
+      if (!isPlatformAdmin(req) && (await getOrgRole(req, id)) !== 'OWNER') {
+        return res.status(403).json({ success: false, error: 'Only an owner may change who pays' } as ApiResponse);
+      }
+      const target = await prisma.membership.findUnique({ where: { userId_organizationId: { userId, organizationId: id } } });
+      if (target?.role !== 'OWNER') {
+        return res.status(400).json({ success: false, error: 'Who pays must be an owner of the workspace' } as ApiResponse);
+      }
+      await prisma.organization.update({ where: { id }, data: { billingUserId: userId } });
+      return res.json({ success: true, data: await billingUserOf(id), message: 'Billing owner changed' } as ApiResponse);
+    } catch (error) {
+      console.error('Error changing the billing owner:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
 
 // --- Invites -----------------------------------------------------------------
 

@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse } from '../types';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, isPlatformAdmin, listMemberships } from '../lib/scope';
-import { backfillStorageDays, currentRate, heldBetween, priceOf, RATES, WA_RATES, WIB_MS, wibDayStart, type Use } from '../services/usageMeterService';
+import { currentRate, priceOf, RATES, usageByDay, WA_RATES, WIB_MS } from '../services/usageMeterService';
 
 const router: Router = Router();
 
@@ -36,51 +36,9 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
     const start = new Date(Date.UTC(year, mon - 1, 1) - WIB_MS);
     const end = new Date(Date.UTC(year, mon, 1) - WIB_MS);
 
-    const hours = await prisma.usageHour.findMany({
-      where: { organizationId, hour: { gte: start, lt: end } },
-      orderBy: { hour: 'asc' },
-    });
     const monthDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-    const now = Date.now();
-    const running = now >= start.getTime() && now < end.getTime();
-    const dayKey = (at: number) => new Date(at + WIB_MS).toISOString().slice(0, 10);
-
-    const days = new Map<string, Use>();
-    // storage by the day, at what was held that day — read, or backfilled for days before metering began
-    await backfillStorageDays(organizationId);
-    const stored = await prisma.storageDay.findMany({ where: { organizationId, day: { gte: start, lt: end } } });
-    const GiB = 1024 ** 3;
-    const bill = (day: number, held: { diskBytes: number; journalBytes: number; objectBytes: number }) => {
-      // today: so far
-      const seconds = (Math.min(day + 86_400_000, now) - day) / 1000;
-      days.set(dayKey(day), {
-        cpuSeconds: 0,
-        memGbSeconds: 0,
-        storageGbSeconds: ((held.diskBytes + held.journalBytes) / GiB) * seconds,
-        objectGbSeconds: (held.objectBytes / GiB) * seconds,
-      });
-    };
-    for (const row of stored) {
-      bill(row.day.getTime(), { diskBytes: Number(row.diskBytes), journalBytes: Number(row.journalBytes), objectBytes: Number(row.objectBytes) });
-    }
-    // today before the meter's first reading of it: the sizes known now
-    const today = wibDayStart(now);
-    if (running && !days.has(dayKey(today))) {
-      const [apps, org, journal] = await Promise.all([
-        prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true, type: true, staticBucket: true } }),
-        prisma.organization.findUnique({ where: { id: organizationId }, select: { createdAt: true } }),
-        prisma.orgNode.aggregate({ where: { organizationId }, _sum: { meterJournalBytes: true } }),
-      ]);
-      const held = heldBetween(apps, { bytes: Number(journal._sum.meterJournalBytes ?? 0), since: org?.createdAt ?? new Date(today) }, today, now);
-      if (apps.length) bill(today, held);
-    }
-    for (const row of hours) {
-      const day = dayKey(row.hour.getTime());
-      const sum = days.get(day) ?? { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 0 };
-      days.set(day, { ...sum, cpuSeconds: sum.cpuSeconds + row.cpuSeconds, memGbSeconds: sum.memGbSeconds + row.memGbSeconds });
-    }
-    // in date order, for the chart
-    const sorted = new Map([...days.entries()].sort(([a], [b]) => a.localeCompare(b)));
+    const running = Date.now() >= start.getTime() && Date.now() < end.getTime();
+    const sorted = await usageByDay(organizationId, start, end);
     const total = [...sorted.values()].reduce(
       (acc, d) => ({
         cpuSeconds: acc.cpuSeconds + d.cpuSeconds,
@@ -94,7 +52,7 @@ router.get('/usage', authenticateToken, async (req: AuthenticatedRequest, res: R
 
     // the month so far, then what is held now for the hours left — only while the month runs
     const rate = running ? await currentRate(organizationId, monthDays) : null;
-    const projected = rate ? cost.total + rate.perHour * ((end.getTime() - now) / 3_600_000) : null;
+    const projected = rate ? cost.total + rate.perHour * ((end.getTime() - Date.now()) / 3_600_000) : null;
 
     return res.json({
       success: true,

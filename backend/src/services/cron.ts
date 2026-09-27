@@ -12,6 +12,7 @@ import { setupQueuedServers } from './serverSetupService';
 import { measureAllAppDisks } from './appDiskService';
 import { backfillStorageDays, meterUsage } from './usageMeterService';
 import { billAiUsage } from './aiGatewayService';
+import { billHosting } from './walletService';
 
 /**
  * Internal scheduler for integration sync jobs.
@@ -152,6 +153,13 @@ const jobs: Job[] = [
     // a past day nothing was read on gets its storage from the sizes known now, once — then it stays
     schedule: process.env.CRON_STORAGE_DAYS || '7 * * * *',
     run: () => backfillStorageDays(),
+  },
+  {
+    name: 'hosting-billing',
+    // each workspace's hosting charged to its wallet by the day — after storage-days
+    // has filled in the past days, so they are charged once, at what was held
+    schedule: process.env.CRON_HOSTING_BILLING || '37 * * * *',
+    run: billHosting,
   },
   {
     name: 'app-disk',

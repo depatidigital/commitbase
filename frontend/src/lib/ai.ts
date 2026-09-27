@@ -50,7 +50,7 @@ export interface AiModelPrice {
 
 export interface WalletEntry {
   id: string;
-  /** TOPUP | ADJUST | AI_USAGE */
+  /** TOPUP | ADJUST | WELCOME | AI_USAGE | HOSTING_USAGE */
   kind: string;
   /** micro-IDR, signed */
   amount: string;

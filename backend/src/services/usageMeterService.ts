@@ -286,6 +286,57 @@ export async function currentRate(organizationId: string, monthDays = AVG_MONTH_
   return { storageGb, objectGb, journalGb, memGb, cpuCores, perHour: perHour.total };
 }
 
+const dayKey = (at: number) => new Date(at + WIB_MS).toISOString().slice(0, 10);
+
+/**
+ * A workspace's use in [start, end), by WIB day (YYYY-MM-DD, in date order):
+ * CPU and memory from its hours, storage from what it held each day — today so
+ * far. What the Usage page shows and the wallet is charged, so they agree.
+ */
+export async function usageByDay(organizationId: string, start: Date, end: Date): Promise<Map<string, Use>> {
+  const now = Date.now();
+  const days = new Map<string, Use>();
+  // storage by the day, at what was held that day — read, or backfilled for days before metering began
+  await backfillStorageDays(organizationId);
+  const [hours, stored] = await Promise.all([
+    prisma.usageHour.findMany({ where: { organizationId, hour: { gte: start, lt: end } } }),
+    prisma.storageDay.findMany({ where: { organizationId, day: { gte: start, lt: end } } }),
+  ]);
+  const bill = (day: number, held: Held) => {
+    // today: so far
+    const seconds = Math.max(0, Math.min(day + DAY_MS, now) - day) / 1000;
+    days.set(dayKey(day), {
+      cpuSeconds: 0,
+      memGbSeconds: 0,
+      storageGbSeconds: ((held.diskBytes + held.journalBytes) / GiB) * seconds,
+      objectGbSeconds: (held.objectBytes / GiB) * seconds,
+    });
+  };
+  for (const row of stored) {
+    bill(row.day.getTime(), { diskBytes: Number(row.diskBytes), journalBytes: Number(row.journalBytes), objectBytes: Number(row.objectBytes) });
+  }
+  // today before the meter's first reading of it: the sizes known now
+  const today = wibDayStart(now);
+  if (today >= start.getTime() && today < end.getTime() && !days.has(dayKey(today))) {
+    const [apps, org, journal] = await Promise.all([
+      prisma.application.findMany({ where: { organizationId }, select: { diskBytes: true, createdAt: true, type: true, staticBucket: true } }),
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { createdAt: true } }),
+      prisma.orgNode.aggregate({ where: { organizationId }, _sum: { meterJournalBytes: true } }),
+    ]);
+    const held = heldBetween(apps, { bytes: Number(journal._sum.meterJournalBytes ?? 0), since: org?.createdAt ?? new Date(today) }, today, now);
+    if (apps.length) bill(today, held);
+  }
+  for (const row of hours) {
+    const day = dayKey(row.hour.getTime());
+    const sum = days.get(day) ?? { cpuSeconds: 0, memGbSeconds: 0, storageGbSeconds: 0, objectGbSeconds: 0 };
+    days.set(day, { ...sum, cpuSeconds: sum.cpuSeconds + row.cpuSeconds, memGbSeconds: sum.memGbSeconds + row.memGbSeconds });
+  }
+  return new Map([...days.entries()].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Days in the WIB month of a YYYY-MM-DD day: what its storage is priced over. */
+export const daysInMonthOf = (day: string) => new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate();
+
 /** The cron's run: read every provisioned workspace on every node, add what was used to its hours' rows, and today's storage. */
 export async function meterUsage(): Promise<string> {
   const nodes = await prisma.orgNode.findMany({

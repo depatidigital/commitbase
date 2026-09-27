@@ -6,7 +6,8 @@ import { prisma } from '../lib/prisma';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 import { getLarikaAiValue, LARIKA_AI_DEFAULT_URL, setLarikaAiValue } from '../services/integrationConfigService';
 import { gatewayFailure } from '../services/larikaGatewayService';
-import { addWalletEntry, aiGateway, aiPricing, syncAllAiCaps } from '../services/aiGatewayService';
+import { aiGateway, aiPricing, syncAllAiCaps } from '../services/aiGatewayService';
+import { addWalletEntry } from '../services/walletService';
 
 // Mounted superadmin-only in index.ts: the AI gateway's credentials, how its buy
 // prices are sold (rate × markup), and wallets credited by hand until top-ups by

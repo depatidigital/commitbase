@@ -33,6 +33,7 @@ model User {
   sourcesCreated   Source[]         @relation("SourceCreator")
   projectMembers   ProjectMember[]
   databasesCreated Database[]       @relation("DatabaseCreator")
+  billingFor       Organization[]   @relation("OrgBillingUser")
 
   @@map("users")
 }
@@ -55,6 +56,11 @@ model Organization {
   /// their owner when an app is copied or moved between nodes. Assigned on the
   /// org's first provisioning (adopted from the node when the user already exists).
   uid Int? @unique
+
+  /// Who pays: an OWNER, sent its statements and balance warnings. Null, or no
+  /// longer an OWNER, means its longest-standing OWNER (walletService.billingUserOf).
+  billingUserId String?
+  billingUser   User?   @relation("OrgBillingUser", fields: [billingUserId], references: [id], onDelete: SetNull)
 
   // Which database server this org's databases are created on, per engine.
   // Same rule as serverId: null means "not placed", and creating a database
@@ -1074,7 +1080,7 @@ model AiAccount {
 }
 
 /// A workspace's rupiah balance. `balance` is the sum of its entries, kept in the
-/// same transaction that writes one. AI charges it now; WhatsApp and hosting can later.
+/// same transaction that writes one. AI and hosting charge it; WhatsApp can later.
 model Wallet {
   organizationId String       @id
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1090,12 +1096,13 @@ model WalletEntry {
   id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  /// TOPUP | ADJUST | AI_USAGE
+  /// TOPUP | ADJUST | WELCOME | AI_USAGE | HOSTING_USAGE
   kind           String
   /// micro-IDR, signed
   amount         BigInt
   /// what makes it once-only: TOPUP the payment id, ADJUST its own id,
-  /// AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry a day per model, added to as calls are billed
+  /// WELCOME `welcome:<userId>` — once per user, AI_USAGE `ai:<org>:<WIB day>:<model>` — one entry
+  /// a day per model, added to as calls are billed, HOSTING_USAGE `host:<org>:<WIB day>` — the day's cost, rewritten as it grows
   ref            String       @unique
   note           String?
   createdById    String?

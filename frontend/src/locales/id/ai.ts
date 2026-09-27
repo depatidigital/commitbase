@@ -61,6 +61,8 @@ export default {
   Output: "Output",
   "Rupiah per 1 million tokens. Send the model name as `model`.": "Rupiah per 1 juta token. Kirim nama model sebagai `model`.",
   "Search models…": "Cari model…",
+  "picks the cheapest model good enough for each message, and is charged as that model plus a small routing fee. Add :cheap, :best or :max2 to steer it.":
+    "memilih model termurah yang cukup mampu untuk setiap pesan, dan ditagih sebagai model itu ditambah biaya routing kecil. Tambahkan :cheap, :best, atau :max2 untuk mengarahkannya.",
   "No models yet.": "Belum ada model.",
 
   // AI Gateway integration page (superadmin)

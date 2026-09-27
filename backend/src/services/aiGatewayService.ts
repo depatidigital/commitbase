@@ -42,29 +42,7 @@ export const buyableWith = (balanceMicroIdr: bigint, factor: bigint) => (balance
 /** A buy price (USD per 1M tokens) as we sell it (IDR per 1M tokens). */
 export const sellPerMillion = (usdPerMillion: number, p: AiPricing) => usdPerMillion * p.rate * p.markup;
 
-// ── Wallet ──
-
-/**
- * Money in or out: one entry, and the balance moved in the same transaction.
- * Once per ref — a repeated ref (a payment webhook sent twice) changes nothing and returns false.
- */
-export async function addWalletEntry(entry: { organizationId: string; kind: 'TOPUP' | 'ADJUST'; amount: bigint; ref: string; note?: string; createdById?: string }) {
-  try {
-    await prisma.$transaction([
-      prisma.walletEntry.create({ data: entry }),
-      prisma.wallet.upsert({
-        where: { organizationId: entry.organizationId },
-        create: { organizationId: entry.organizationId, balance: entry.amount },
-        update: { balance: { increment: entry.amount } },
-      }),
-    ]);
-  } catch (error: any) {
-    if (error?.code === 'P2002') return false;
-    throw error;
-  }
-  await syncAiCap(entry.organizationId).catch((error) => console.error('AI spend cap sync failed:', error));
-  return true;
-}
+// ── Spend cap ──
 
 /**
  * Tell the gateway how far the workspace may go: what was billed so far plus what
@@ -116,7 +94,9 @@ export async function billAiUsage(): Promise<string> {
       if (!organizationId || cost === 0n) continue;
       const day = new Date(new Date(r.createdAt).getTime() + WIB_MS).toISOString().slice(0, 10);
       const ref = `ai:${organizationId}:${day}:${r.model}`;
-      const entry = entries.get(ref) ?? { organizationId, amount: 0n, note: `AI · ${r.model} · ${day}` };
+      // larika-optima's classifier call: its own line, "routing"
+      const label = r.model.endsWith(':router') ? `routing (${r.model.slice(0, -':router'.length)})` : r.model;
+      const entry = entries.get(ref) ?? { organizationId, amount: 0n, note: `AI · ${label} · ${day}` };
       entry.amount += chargeFor(cost, factor);
       entries.set(ref, entry);
       spent.set(organizationId, (spent.get(organizationId) ?? 0n) + cost);

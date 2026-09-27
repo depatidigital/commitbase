@@ -123,7 +123,7 @@ export default function Ai() {
                 <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
                   {`curl ${data.baseUrl}/chat/completions \\
   -H "Authorization: Bearer lk_…" -H "content-type: application/json" \\
-  -d '{"model":"deepseek-flash","messages":[{"role":"user","content":"Halo!"}]}'`}
+  -d '{"model":"larika-optima","messages":[{"role":"user","content":"Halo!"}]}'`}
                 </pre>
               </CardContent>
             </Card>
@@ -253,7 +253,7 @@ export default function Ai() {
   );
 }
 
-const KIND: Record<string, string> = { TOPUP: "Top-up", ADJUST: "Adjustment", AI_USAGE: "AI usage" };
+const KIND: Record<string, string> = { TOPUP: "Top-up", ADJUST: "Adjustment", WELCOME: "Welcome credit", AI_USAGE: "AI usage", HOSTING_USAGE: "Hosting" };
 
 /** The balance's entries this month: AI use by day and model, top-ups, adjustments. */
 function UsageTab() {
@@ -321,6 +321,10 @@ export function ModelsTable() {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{t("Rupiah per 1 million tokens. Send the model name as `model`.")}</p>
+      <p className="rounded-md bg-primary/5 p-3 text-sm">
+        <code className="font-mono text-xs">larika-optima</code> —{" "}
+        {t("picks the cheapest model good enough for each message, and is charged as that model plus a small routing fee. Add :cheap, :best or :max2 to steer it.")}
+      </p>
       <DataTable
         columns={columns}
         rows={data}
