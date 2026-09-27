@@ -5,6 +5,8 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships } from '../lib/scope';
 import { currentRate, priceOf, RATES, usageByDay, WA_RATES, WIB_MS } from '../services/usageMeterService';
 import { billingUserOf, daysOf, hostingBillingFrom, negativeLimit, perDayOf } from '../services/walletService';
+import { ArusniagaError, createTopUp, TOPUP_MAX, TOPUP_MIN, topUpView } from '../services/arusniagaService';
+import { getArusniagaConfig } from '../services/integrationConfigService';
 
 const router: Router = Router();
 
@@ -145,6 +147,45 @@ router.get('/entries', authenticateToken, async (req: AuthenticatedRequest, res:
     return res.json({ success: true, data: { month, entries: rows.map((e) => ({ ...e, amount: String(e.amount) })) } } as ApiResponse);
   } catch (error) {
     console.error('Error reading wallet entries:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+// ── Top-ups: an invoice in ArusNiaga, credited when it is paid there (arusniagaService) ──
+
+/** The workspace's top-ups, newest first, and whether top-ups are open at all. */
+router.get('/topups', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const organizationId = await orgFor(req, res);
+    if (!organizationId) return;
+    const [rows, config] = await Promise.all([
+      prisma.topUp.findMany({ where: { organizationId, invoiceId: { not: null } }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      getArusniagaConfig(),
+    ]);
+    return res.json({ success: true, data: { enabled: !!config, min: TOPUP_MIN, max: TOPUP_MAX, topUps: rows.map(topUpView) } } as ApiResponse);
+  } catch (error) {
+    console.error('Error listing top-ups:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
+/** A top-up of `amount` rupiah: its invoice, to pay on ArusNiaga's invoice page. Owners and admins. */
+router.post('/topups', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const organizationId = await orgFor(req, res);
+    if (!organizationId) return;
+    const amount = Number(req.body?.amount);
+    if (!Number.isInteger(amount) || amount < TOPUP_MIN || amount > TOPUP_MAX) {
+      return res.status(400).json({ success: false, error: `Top up between Rp ${TOPUP_MIN.toLocaleString('id-ID')} and Rp ${TOPUP_MAX.toLocaleString('id-ID')}` } as ApiResponse);
+    }
+    const topUp = await createTopUp(organizationId, amount, req.user!.userId);
+    return res.json({ success: true, data: topUpView(topUp) } as ApiResponse);
+  } catch (error) {
+    if (error instanceof ArusniagaError) {
+      console.error('Top-up invoice failed:', error.message);
+      return res.status(502).json({ success: false, error: `The invoice could not be issued: ${error.message}` } as ApiResponse);
+    }
+    console.error('Error creating a top-up:', error);
     return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });

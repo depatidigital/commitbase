@@ -25,7 +25,8 @@ import IntegrationCardPage from "./pages/IntegrationCardPage";
 import { t } from "./lib/i18n";
 import { SearchConsoleSettingsCard } from "./components/SearchConsoleSettingsCard";
 import { GitOAuthSettingsCard } from "./components/GitOAuthSettingsCard";
-import { AI_GATEWAY_GUIDE, GIT_GUIDE, GOOGLE_GUIDE, LARIKA_GATEWAY_GUIDE } from "./components/IntegrationSteps";
+import { AI_GATEWAY_GUIDE, ARUSNIAGA_GUIDE, GIT_GUIDE, GOOGLE_GUIDE, LARIKA_GATEWAY_GUIDE } from "./components/IntegrationSteps";
+import { ArusniagaSettingsCard, TopUpsCard } from "./components/ArusniagaSettingsCard";
 import { LarikaGatewaySettingsCard } from "./components/LarikaGatewaySettingsCard";
 import { AiGatewaySettingsCard, WalletsCard } from "./components/AiGatewaySettingsCard";
 import Ai from "./pages/Ai";
@@ -270,6 +271,17 @@ const App = () => (
             />
             <Route path="wa-gateway" element={<WaGateway />} />
             <Route path="ai" element={<Ai />} />
+            <Route
+              path="integrations/arusniaga"
+              element={
+                <SuperAdminRoute>
+                  <IntegrationCardPage title="ArusNiaga" description={t("The ERP that issues Larika's invoices: workspace top-ups are invoiced and paid there.")} guide={ARUSNIAGA_GUIDE}>
+                    <ArusniagaSettingsCard />
+                    <TopUpsCard />
+                  </IntegrationCardPage>
+                </SuperAdminRoute>
+              }
+            />
             <Route
               path="integrations/ai-gateway"
               element={

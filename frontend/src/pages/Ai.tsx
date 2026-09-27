@@ -142,7 +142,7 @@ export default function Ai() {
                 <p className={`text-3xl font-semibold tabular-nums ${balance <= 0 ? "text-destructive" : ""}`}>{rupiah(balance, balance < 100)}</p>
                 <p className="text-xs text-muted-foreground">
                   {balance <= 0 ? t("Calls are refused until the balance is topped up.") : t("Each call is charged from it, every minute.")}{" "}
-                  {t("To top up, contact support.")}
+                  <a href="/usage" className="text-primary hover:underline">{t("Top up on the Usage page.")}</a>
                 </p>
                 {data.suspended && <p className="text-sm text-destructive">{t("The AI API of this workspace is suspended.")}</p>}
                 <OptimaSaved optima={data.optima} />

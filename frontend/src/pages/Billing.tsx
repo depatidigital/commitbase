@@ -8,6 +8,7 @@ import { PageLayout } from "@/components/PageLayout";
 import { useToast } from "@/hooks/use-toast";
 import { fromMicro, rupiah as rupiahFine } from "@/lib/ai";
 import { getUsage, getWallet, getWalletEntries, setBillingUser, type WalletEntry } from "@/lib/billing";
+import { TopUpButton } from "@/components/TopUpDialog";
 import { locale, t } from "@/lib/i18n";
 
 const rupiah = (value: number) =>
@@ -207,7 +208,7 @@ const days = (n: number | null) => (n === null ? "—" : t("{n} days", { n: amou
 /**
  * The workspace's balance: how long it lasts at today's pace, what happens when
  * it runs out — below zero down to 7 days of spend, then the apps stop — and
- * who pays. Top-ups go through support for now.
+ * who pays; top up (an invoice in ArusNiaga).
  */
 function WalletCard() {
   const { toast } = useToast();
@@ -232,7 +233,7 @@ function WalletCard() {
             {t("Balance")}
           </p>
           <p className={`text-3xl font-semibold tabular-nums ${balance < 0 ? "text-destructive" : ""}`}>{rupiahFine(balance, Math.abs(balance) < 100)}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t("To top up, contact support.")}</p>
+          <TopUpButton />
         </div>
         <div className="text-sm">
           <p className="text-muted-foreground">{t("At the current pace")}</p>

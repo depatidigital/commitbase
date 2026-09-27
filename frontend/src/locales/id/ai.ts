@@ -61,6 +61,7 @@ export default {
   Output: "Output",
   "Rupiah per 1 million tokens. Send the model name as `model`.": "Rupiah per 1 juta token. Kirim nama model sebagai `model`.",
   "Search models…": "Cari model…",
+  "Top up on the Usage page.": "Isi ulang di halaman Pemakaian.",
   "picks the cheapest model good enough for each message. Its fee, up to {pct}%, comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.":
     "memilih model termurah yang cukup mampu untuk setiap pesan. Biayanya, maksimal {pct}%, hanya diambil dari yang dihemat: satu pesan tidak pernah lebih mahal daripada di model teratas termurah. Tambahkan :cheap, :best, atau :max2 untuk mengarahkannya.",
   "picks the cheapest model good enough for each message. Its fee comes only out of what it saves: a message never costs more than on the cheapest top model. Add :cheap, :best or :max2 to steer it.":

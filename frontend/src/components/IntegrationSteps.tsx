@@ -202,3 +202,20 @@ export const AI_GATEWAY_GUIDE: StepGroup[] = [
     ],
   },
 ];
+
+export const ARUSNIAGA_GUIDE: StepGroup[] = [
+  {
+    steps: [
+      <>
+        {t('In ArusNiaga, open')} <Code>Admin → Pengaturan → API Keys</Code> {t('and create a key scoped to the business that invoices.')}
+      </>,
+      t('Paste it here and save: the panel checks it by reading that business.'),
+    ],
+  },
+  {
+    steps: [
+      t('Workspaces top up from their Usage page: each top-up is an invoice in ArusNiaga, paid on its invoice page.'),
+      t('When ArusNiaga shows it paid, the balance is credited within a minute. Unpaid invoices stop being checked after 14 days.'),
+    ],
+  },
+];

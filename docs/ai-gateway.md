@@ -103,13 +103,16 @@ Changing the rate or markup recomputes every cap.
   Needs Larika to be PKP and a tax invoice per top-up; being PKP is also what
   lets the PPN on the providers' bills be credited (gateway concern 1).
   **Confirm with the tax consultant** before launch.
-- **To build — bank transfer with a unique code, through ArusNiaga** (no payment
-  gateway, no per-transaction fee): ArusNiaga issues the invoice, recognises the
-  transfer by its exact amount and sends `invoice.paid`; Larika's webhook writes a
-  `TOPUP` entry (`addWalletEntry`, `ref: topup:<id>` — a repeated webhook credits once)
-  and the cap follows. Task list, both sides:
-  `arusniaga/docs/plans/bank-transfer-unique-code.md`. QRIS through a gateway can be
-  added later as the instant, paid option.
+- **Top-ups are invoices in ArusNiaga** (erp.depatidigital.com; superadmin →
+  Integrations → ArusNiaga: URL and API key). Usage page → Top up → `TopUp` row →
+  `POST /api/public/sales-invoices` (idempotency key `larika-topup:<id>`, the workspace
+  as one ArusNiaga contact) → the user pays on the invoice page. Cron `topups` (every
+  minute) reads each pending invoice; paid in full → `addWalletEntry` TOPUP,
+  `ref: topup:<id>` (credits once), and the caps follow. `backend/src/services/arusniagaService.ts`.
+- **Next, in ArusNiaga:** bank transfer with a unique code — no payment gateway, no
+  per-transaction fee — and an `invoice.paid` webhook to replace the polling:
+  `arusniaga/docs/plans/bank-transfer-unique-code.md`. Larika already sends
+  `paymentMethod: BANK_TRANSFER`; it is ignored until then.
 
 ## Screens
 

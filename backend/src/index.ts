@@ -59,6 +59,7 @@ import larikaGatewayRoutes from './routes/larikaGateway';
 import waNumbersRoutes from './routes/waNumbers';
 import aiGatewayRoutes from './routes/aiGateway';
 import aiRoutes from './routes/ai';
+import arusniagaRoutes from './routes/arusniaga';
 import gitOAuthRoutes from './routes/gitOAuth';
 import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
@@ -155,6 +156,7 @@ app.use('/api/larika-gateway', authenticateToken, requireRole(['SUPERADMIN']), l
 // a workspace's WhatsApp numbers on that gateway: scoped per org in the router
 app.use('/api/wa-numbers', waNumbersRoutes);
 app.use('/api/ai-gateway', authenticateToken, requireRole(['SUPERADMIN']), aiGatewayRoutes);
+app.use('/api/arusniaga', authenticateToken, requireRole(['SUPERADMIN']), arusniagaRoutes);
 // a workspace's AI API and wallet: scoped per org in the router
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);

@@ -12,6 +12,7 @@ import { setupQueuedServers } from './serverSetupService';
 import { measureAllAppDisks } from './appDiskService';
 import { backfillStorageDays, meterUsage } from './usageMeterService';
 import { billAiUsage } from './aiGatewayService';
+import { checkTopUps } from './arusniagaService';
 import { billHosting, guardWallets } from './walletService';
 
 /**
@@ -133,6 +134,13 @@ const jobs: Job[] = [
     // Same shape: kicked in-process, swept for what a restart cut short.
     schedule: process.env.CRON_SERVER_SETUP || '* * * * *',
     run: setupQueuedServers,
+  },
+  {
+    name: 'topups',
+    // Every minute: top-up invoices paid in ArusNiaga credit their wallet. Quiet (no
+    // calls) when nothing is pending.
+    schedule: process.env.CRON_TOPUPS || '* * * * *',
+    run: checkTopUps,
   },
   {
     name: 'ai-billing',

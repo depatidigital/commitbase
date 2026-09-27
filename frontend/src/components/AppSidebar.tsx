@@ -99,6 +99,7 @@ export function AppSidebar() {
     { title: "GitHub & GitLab", url: "/integrations/git" },
     { title: "Larika Gateway", url: "/integrations/larika-gateway" },
     { title: "AI Gateway", url: "/integrations/ai-gateway" },
+    { title: "ArusNiaga", url: "/integrations/arusniaga" },
   ];
 
   return (
