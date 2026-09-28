@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ArrowRightLeft, CornerUpRight, ExternalLink, GitBranch, HardDrive, Layers, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Rocket, RotateCw, Server as ServerIcon, Upload } from "lucide-react";
+import { AlertCircle, ArrowRightLeft, CornerUpRight, ExternalLink, GitBranch, Layers, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Rocket, RotateCw, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -141,13 +141,6 @@ export default function Projects() {
   const redirectsTo = (project: Project, host: string) =>
     project.applications.flatMap((app) => app.domains.filter((d) => d.redirectTo === host).map((d) => `${d.host}${d.path ?? ""}`));
 
-  const originOf = (project: Project) =>
-    project.repository
-      ? { icon: GitBranch, text: `${repoName(project.repository)} · ${project.branch || "main"}` }
-      : project.kind !== "IMPORTED"
-        ? { icon: Upload, text: t("Uploaded files") }
-        : { icon: HardDrive, text: project.path && superAdmin ? project.path : t("Server folder (not git)") };
-
   const columns: Column<Project>[] = [
     ...(superAdmin
       ? [
@@ -175,7 +168,6 @@ export default function Projects() {
       cell: (project) => {
         // what it is at a glance: one mark per kind of service in it
         const types = [...new Set(project.applications.map((app) => app.type))];
-        const origin = originOf(project);
         return (
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex shrink-0 -space-x-1">
@@ -206,10 +198,13 @@ export default function Projects() {
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
               </span>
-              <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground" title={superAdmin ? project.path ?? undefined : undefined}>
-                <origin.icon className="h-3 w-3 shrink-0" />
-                <span className="truncate">{origin.text}</span>
-              </span>
+              {/* the repo it builds from; a server folder or an upload shows nothing */}
+              {project.repository && (
+                <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground">
+                  <GitBranch className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{repoName(project.repository)} · {project.branch || "main"}</span>
+                </span>
+              )}
             </div>
           </div>
         );
