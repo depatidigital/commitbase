@@ -565,6 +565,18 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
       });
     }
 
+    // Astro builds a static site unless the Node adapter gives it a server (dist/server/entry.mjs).
+    if (fw.framework === 'astro' && !('@astrojs/node' in deps)) {
+      return base({
+        ...common,
+        type: 'STATIC',
+        framework: 'astro-static',
+        label: 'Astro (static)',
+        buildCommand: scripts.build ? buildOf(pm, scripts.build) : 'npx --no-install astro build',
+        outputDir: 'dist',
+      });
+    }
+
     // A start script that is only `next start` is run as Next itself, bound to
     // loopback on the platform's port; one that does more is the app's to keep.
     const plainNextStart = fw.framework === 'nextjs' && /^\s*next\s+start\s*$/.test(String(scripts.start || ''));

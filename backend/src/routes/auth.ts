@@ -7,84 +7,58 @@ import { prisma } from '../lib/prisma';
 import { CreateUserSchema, LoginSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { grantWelcomeCredit } from '../services/walletService';
+import { freeSlug } from './organizations';
 
 const router: Router = Router();
 
-// Bootstrap the first (ADMIN) account. Once any user exists this endpoint is closed —
-// further accounts are created by an admin via POST /api/admin/users.
+/**
+ * A new account plus its first workspace, named after them, which they own.
+ * The very first account on an install owns the platform (SUPERADMIN).
+ */
+async function createAccount(email: string, name: string | undefined, password: string) {
+  const first = (await prisma.user.count()) === 0;
+  const orgName = name || email.split('@')[0] || email;
+  const user = await prisma.user.create({
+    data: {
+      email,
+      name: name || null,
+      password: await bcrypt.hash(password, 12),
+      role: first ? 'SUPERADMIN' : 'CLIENT',
+      memberships: {
+        create: { role: 'OWNER', organization: { create: { name: orgName, slug: await freeSlug(orgName) } } },
+      },
+    },
+  });
+  // ponytail: open sign-up hands this credit to anyone with an email; add email verification or a captcha if it gets farmed
+  await grantWelcomeCredit(user.id).catch((error) => console.error('Welcome credit failed:', error));
+  return user;
+}
+
+const publicUser = (user: { id: string; email: string; name: string | null; role: string }) => ({
+  id: user.id,
+  email: user.email,
+  name: user.name,
+  role: user.role,
+});
+
+// Public sign-up with email and password
 router.post('/register', validateRequest(CreateUserSchema), async (req: Request, res: Response) => {
   try {
-    const { email, name, password } = req.body;
+    const email = String(req.body.email).trim().toLowerCase();
 
-    const userCount = await prisma.user.count();
-    if (userCount > 0) {
-      return res.status(403).json({
-        success: false,
-        error: 'Public registration is disabled. Ask an administrator for an account.',
-      } as ApiResponse);
-    }
-
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
+    if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) {
       return res.status(400).json({
         success: false,
         error: 'User with this email already exists',
       } as ApiResponse);
     }
 
-    // Hash password
-    const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    // Create the first user plus their organization; they own both
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name,
-        password: hashedPassword,
-        role: 'SUPERADMIN', // first account owns the platform
-        memberships: {
-          create: {
-            role: 'OWNER',
-            organization: {
-              create: {
-                name: name || 'Default Organization',
-                slug: 'default',
-              },
-            },
-          },
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-      },
-    });
-
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-      process.env.JWT_SECRET as any,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
-    );
+    const user = await createAccount(email, req.body.name?.trim(), req.body.password);
 
     return res.status(201).json({
       success: true,
-      data: {
-        user,
-        token,
-      },
+      data: { user: publicUser(user), token: signToken(user) },
       message: 'User registered successfully',
     } as ApiResponse);
   } catch (error) {
@@ -93,6 +67,53 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
       success: false,
       error: 'Internal server error',
     } as ApiResponse);
+  }
+});
+
+// Which sign-in buttons the login page shows
+router.get('/providers', (_req: Request, res: Response) => {
+  return res.json({ success: true, data: { googleClientId: process.env.GOOGLE_CLIENT_ID || null } } as ApiResponse);
+});
+
+const GoogleSchema = z.object({ credential: z.string().min(1) });
+
+/**
+ * Sign in or sign up with Google: the page gets an ID token from Google's
+ * button, we check it and log in the account with that email, creating it
+ * (with its first workspace) the first time.
+ */
+router.post('/google', validateRequest(GoogleSchema), async (req: Request, res: Response) => {
+  try {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return res.status(404).json({ success: false, error: 'Google sign-in is not set up' } as ApiResponse);
+    }
+
+    // ponytail: Google's tokeninfo endpoint checks the signature and expiry for us (one HTTP call per sign-in);
+    // verify locally with google-auth-library if sign-in volume grows
+    const check = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(req.body.credential)}`);
+    const info = check.ok ? ((await check.json()) as { aud?: string; email?: string; email_verified?: string | boolean; name?: string }) : null;
+    if (!info?.email || info.aud !== clientId || String(info.email_verified) !== 'true') {
+      return res.status(400).json({ success: false, error: 'Google sign-in failed' } as ApiResponse);
+    }
+
+    const email = info.email.toLowerCase();
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // they sign in with Google; the random password only fills the column
+      user = await createAccount(email, info.name, crypto.randomBytes(32).toString('hex'));
+    } else if (!user.isActive) {
+      return res.status(403).json({ success: false, error: 'Account is disabled' } as ApiResponse);
+    }
+
+    return res.json({
+      success: true,
+      data: { user: { ...publicUser(user), mustChangePassword: user.mustChangePassword }, token: signToken(user) },
+      message: 'Login successful',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Google sign-in error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
   }
 });
 

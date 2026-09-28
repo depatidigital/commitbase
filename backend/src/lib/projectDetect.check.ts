@@ -46,6 +46,15 @@ const nextExport = detectFromFiles({
 assert.strictEqual(nextExport.type, 'STATIC');
 assert.strictEqual(nextExport.outputDir, 'out');
 
+// Astro is static unless the Node adapter is there to give it a server entry
+const astro = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { astro: '5' }, scripts: { build: 'astro build' } }), 'pnpm-lock.yaml': '' });
+assert.strictEqual(astro.type, 'STATIC');
+assert.strictEqual(astro.outputDir, 'dist');
+assert.strictEqual(astro.buildCommand, 'pnpm run build');
+const astroSsr = detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { astro: '5', '@astrojs/node': '9' } }) });
+assert.strictEqual(astroSsr.type, 'NODEJS');
+assert.strictEqual(astroSsr.startCommand, 'node ./dist/server/entry.mjs');
+
 const vite = detectFromFiles({ 'package.json': JSON.stringify({ devDependencies: { vite: '5' }, scripts: { build: 'vite build' } }), 'yarn.lock': '' });
 assert.strictEqual(vite.type, 'STATIC');
 assert.strictEqual(vite.buildCommand, 'yarn run build');

@@ -105,7 +105,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: 'Too many failed sign-in attempts — wait 15 minutes, then try again.' },
 });
-app.use(['/api/auth/login', '/api/auth/register', '/api/auth/accept-invite'], authLimiter);
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/google', '/api/auth/accept-invite'], authLimiter);
 
 // Compression middleware
 app.use(compression());

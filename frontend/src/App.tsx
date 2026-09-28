@@ -121,6 +121,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Login mode="register" />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
           <Route path="/change-password" element={<ChangePassword />} />
           <Route

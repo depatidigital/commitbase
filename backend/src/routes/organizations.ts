@@ -61,6 +61,15 @@ const slugify = (name: string) => {
   return slug.length >= 3 ? slug : `ws-${slug || 'org'}`.replace(/-+$/, '');
 };
 
+/** A free slug made from the name: two users may both call theirs "Toko", the second gets toko-2. */
+export async function freeSlug(name: string) {
+  let slug = slugify(name);
+  for (let n = 2; await prisma.organization.findUnique({ where: { slug }, select: { id: true } }); n++) {
+    slug = `${slugify(name).slice(0, 25).replace(/-+$/, '')}-${n}`;
+  }
+  return slug;
+}
+
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
 /**
@@ -167,14 +176,11 @@ router.post(
     try {
       const { name } = req.body;
       const given = req.body.slug as string | undefined;
-      let slug = given || slugify(name);
-
-      // a slug someone typed must be theirs as typed; one made from the name
-      // just takes the next free number — two users may both call theirs "Toko"
-      for (let n = 2; await prisma.organization.findUnique({ where: { slug }, select: { id: true } }); n++) {
-        if (given) return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
-        slug = `${slugify(name).slice(0, 25).replace(/-+$/, '')}-${n}`;
+      // a slug someone typed must be theirs as typed; one made from the name takes the next free number
+      if (given && (await prisma.organization.findUnique({ where: { slug: given }, select: { id: true } }))) {
+        return res.status(400).json({ success: false, error: 'Slug already in use' } as ApiResponse);
       }
+      const slug = given || (await freeSlug(name));
 
       // Where it runs: the same servers as the workspace it was opened from (the
       // switch's X-Organization-Id, if the caller is in it), else their first

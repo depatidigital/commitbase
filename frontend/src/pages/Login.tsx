@@ -1,78 +1,112 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import { useEffect, useRef, useState } from 'react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useLogin } from '@/hooks/useAuth';
-import { LoginCredentials } from '@/lib/auth';
+import { useLogin, useRegister } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
+import apiRequest, { setAuthToken } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-import { Loader2 } from 'lucide-react';
+import { APP_NAME } from '@/lib/branding';
 import { lang, setLang, t } from '@/lib/i18n';
 
-const loginSchema = z.object({
-  email: z.string().email(t('Invalid email address')),
-  password: z.string().min(1, t('Password is required')),
-});
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
-type LoginForm = z.infer<typeof loginSchema>;
-
-const Login = () => {
+/**
+ * Google's own button (Google Identity Services). It hands us an ID token,
+ * the backend checks it and signs in — or signs up — that email.
+ * Renders nothing while the backend has no GOOGLE_CLIENT_ID.
+ */
+function GoogleButton({ text }: { text: 'signin_with' | 'signup_with' }) {
+  const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const login = useLogin();
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
+  const { toast } = useToast();
+  const { data: clientId } = useQuery({
+    queryKey: ['auth-providers'],
+    queryFn: async () =>
+      (await apiRequest<{ googleClientId: string | null }>('/auth/providers')).data?.googleClientId ?? null,
+    staleTime: Infinity,
   });
 
-  // Check if user is already authenticated
   useEffect(() => {
-    const checkAuth = () => {
-      if (isAuthenticated()) {
-        navigate('/');
-      } else {
-        setIsCheckingAuth(false);
-      }
+    if (!clientId) return;
+    const render = () => {
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async ({ credential }: { credential: string }) => {
+          try {
+            const res = await apiRequest<{ token: string }>('/auth/google', {
+              method: 'POST',
+              body: JSON.stringify({ credential }),
+            });
+            setAuthToken(res.data!.token);
+            navigate('/');
+          } catch (error) {
+            toast({ title: t('Error'), description: (error as Error).message, variant: 'destructive' });
+          }
+        },
+      });
+      window.google.accounts.id.renderButton(ref.current, {
+        text,
+        size: 'large',
+        width: ref.current?.offsetWidth,
+        locale: lang,
+      });
     };
+    if (window.google?.accounts) return render();
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = render;
+    document.head.appendChild(script);
+  }, [clientId, text, navigate, toast]);
 
-    checkAuth();
-  }, [navigate]);
+  if (!clientId) return null;
+  return (
+    <>
+      <div ref={ref} className="flex h-10 w-full justify-center" />
+      <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="h-px flex-1 bg-border" />
+        {t('or')}
+        <div className="h-px flex-1 bg-border" />
+      </div>
+    </>
+  );
+}
 
-  const onSubmit = async (data: LoginForm) => {
+/** Sign in (/login) and sign up (/register): one page, Google first, email as the fallback. */
+const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
+  const navigate = useNavigate();
+  const login = useLogin();
+  const signup = useRegister();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const isRegister = mode === 'register';
+  const pending = login.isPending || signup.isPending;
+
+  if (isAuthenticated()) return <Navigate to="/" replace />;
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      const credentials: LoginCredentials = {
-        email: data.email,
-        password: data.password,
-      };
-      await login.mutateAsync(credentials);
+      if (isRegister) await signup.mutateAsync({ name, email, password });
+      else await login.mutateAsync({ email, password });
       navigate('/');
-    } catch (error) {
-      // Error is handled by the mutation
+    } catch {
+      // the mutation shows the error
     }
   };
 
-  // Show loading while checking authentication
-  if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/40">
-        <div className="flex flex-col items-center space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">{t('Checking authentication...')}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-muted/40">
+    <div className="relative min-h-screen flex items-center justify-center bg-muted/40 p-4">
       {/* language: a reload applies it, see lib/i18n */}
       <div className="absolute right-4 top-4 flex items-center rounded-full border border-border p-0.5 text-xs font-medium">
         {(["id", "en"] as const).map((code) => (
@@ -89,56 +123,59 @@ const Login = () => {
           </button>
         ))}
       </div>
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">
-            {t('Sign In')}
+      <Card className="w-full max-w-sm">
+        <CardHeader className="space-y-1 text-center">
+          <img src="/favicon.svg" alt="" className="mx-auto mb-2 h-10 w-10" />
+          <CardTitle className="text-2xl font-bold">
+            {isRegister ? t('Create your account') : t('Sign In')}
           </CardTitle>
-          <CardDescription className="text-center">
-            {t('Enter your credentials to access your dashboard')}
+          <CardDescription>
+            {isRegister ? t('Start using {app} in a minute', { app: APP_NAME }) : t('Welcome back to {app}', { app: APP_NAME })}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <GoogleButton text={isRegister ? 'signup_with' : 'signin_with'} />
+
+          <form onSubmit={onSubmit} className="space-y-4">
+            {isRegister && (
+              <div className="space-y-2">
+                <Label htmlFor="name">{t('Name')}</Label>
+                <Input id="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">{t('Email')}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder={t('Enter your email')}
-                {...register('email')}
-                className={errors.email ? 'border-red-500' : ''}
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
               />
-              {errors.email && (
-                <p className="text-sm text-red-500">{errors.email.message}</p>
-              )}
             </div>
-            
             <div className="space-y-2">
               <Label htmlFor="password">{t('Password')}</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder={t('Enter your password')}
-                {...register('password')}
-                className={errors.password ? 'border-red-500' : ''}
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
+                minLength={isRegister ? 8 : undefined}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
               />
-              {errors.password && (
-                <p className="text-sm text-red-500">{errors.password.message}</p>
-              )}
             </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={login.isPending}
-            >
-              {login.isPending ? t('Signing in...') : t('Sign In')}
+            <Button type="submit" className="w-full" disabled={pending}>
+              {pending ? t('Please wait...') : isRegister ? t('Sign up') : t('Sign In')}
             </Button>
           </form>
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            {t('Accounts are created by an administrator or through a workspace invite link.')}
+            {isRegister ? t('Already have an account?') : t("Don't have an account?")}{' '}
+            <Link to={isRegister ? '/login' : '/register'} className="font-medium text-primary hover:underline">
+              {isRegister ? t('Sign In') : t('Sign up')}
+            </Link>
           </p>
         </CardContent>
       </Card>
@@ -146,4 +183,4 @@ const Login = () => {
   );
 };
 
-export default Login; 
+export default Login;
