@@ -239,8 +239,21 @@ async function streamFollows(res: Response, server: SshTarget, follows: Follow[]
   const send = (text: string) => res.write(`data: ${JSON.stringify(text)}\n\n`);
 
   const controller = new AbortController();
+  // the slot is freed when the stream ends, not when SSH confirms the channel
+  // closed: a channel that never answers the close would hold it for good
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    openStreams.set(server.id, Math.max(0, (openStreams.get(server.id) ?? 0) - follows.length));
+  };
+  controller.signal.addEventListener('abort', release, { once: true });
   res.on('close', () => controller.abort());
-  const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
+  // heartbeat: a client gone without a clean close (sleeping laptop, dropped
+  // network) shows up as a dead or backed-up socket here, and its stream ends
+  const heartbeat = setInterval(() => {
+    if (res.destroyed || res.writableEnded || !res.write(': ping\n\n')) controller.abort();
+  }, 25_000);
   const cap = setTimeout(() => controller.abort(), STREAM_MAX_MS);
 
   try {
@@ -254,7 +267,7 @@ async function streamFollows(res: Response, server: SshTarget, follows: Follow[]
   } finally {
     clearInterval(heartbeat);
     clearTimeout(cap);
-    openStreams.set(server.id, (openStreams.get(server.id) ?? follows.length) - follows.length);
+    release();
   }
   return res.end();
 }
