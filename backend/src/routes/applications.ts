@@ -275,7 +275,7 @@ router.post('/detect', authenticateToken, async (req: AuthenticatedRequest, res:
       }
       // a root page by another name (index.htm, a lone .html): by presence, for static detection
       for (const name of Object.keys(files).slice(0, 50)) {
-        if (!name.includes('/') && /\.html?$/i.test(name)) input[name] = '';
+        if (!name.includes('/') && /\.html?$/i.test(name)) input[name as `${string}.html`] = '';
       }
       return res.json({ success: true, data: detectFromFiles(input) } as ApiResponse);
     }

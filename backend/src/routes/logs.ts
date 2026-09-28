@@ -11,7 +11,8 @@ import { followPm2Logs } from '../services/appSyncService';
 import * as systemd from '../services/systemdService';
 import * as compose from '../services/composeService';
 import { logsDirFor } from '../lib/appPaths';
-import type { SshTarget } from '../lib/runner';
+import { execRoot, type SshTarget } from '../lib/runner';
+import { ACCESS_LOG, ensureAccessLog } from '../services/caddyService';
 
 const router: Router = Router();
 const deploymentService = new DeploymentService();
@@ -198,7 +199,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
         return res.status(400).json({ success: false, error: 'Live logs are only available for apps on a node' } as ApiResponse);
       }
       server = node;
-      follow = (send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, send, signal);
+      follow = (send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, stampLines(send), signal);
     } else {
       return res.status(400).json({ success: false, error: 'Live logs are not available for this app' } as ApiResponse);
     }
@@ -268,6 +269,64 @@ function tagLines(name: string, send: (text: string) => void) {
   };
 }
 
+/**
+ * A plain log file's lines have no time: each line that comes in live gets
+ * its arrival time (UTC), like pm2's --timestamp. The backlog tail sends first
+ * is left as written — when it was written is not known.
+ */
+// ponytail: "backlog" = the first second of the stream; a file's own timestamps would be exact
+function stampLines(send: (text: string) => void) {
+  const liveFrom = Date.now() + 1_000;
+  let partial = '';
+  return (text: string) => {
+    const lines = (partial + text).split('\n');
+    partial = lines.pop() ?? '';
+    if (!lines.length) return;
+    if (Date.now() < liveFrom) return send(lines.map((line) => `${line}\n`).join(''));
+    const at = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    send(lines.map((line) => `${at} ${line}\n`).join(''));
+  };
+}
+
+/**
+ * Caddy's access log for `hosts`, followed: the last `lines` requests to them,
+ * then each new one. One file holds every host's, so it is grepped for theirs;
+ * root, as the file is Caddy's.
+ */
+function followAccess(node: SshTarget, hosts: string[], lines: number, send: (text: string) => void, signal: AbortSignal) {
+  // hosts go in as arguments, never into the script
+  const script = 'f=$1; n=$2; shift 2; { grep -hF "$@" "$f" 2>/dev/null | tail -n "$n"; tail -n0 -F "$f" 2>/dev/null | grep --line-buffered -F "$@"; }';
+  const patterns = hosts.flatMap((host) => ['-e', `"host":"${host}"`]);
+  return execRoot(node, ['sh', '-c', script, 'sh', ACCESS_LOG, String(lines), ...patterns], {
+    onOutput: send,
+    signal,
+    maxBuffer: 0,
+    // backstop only: the route aborts well before this
+    timeout: 2 * 60 * 60_000,
+  });
+}
+
+/** Caddy's JSON access lines as one readable line each: time (UTC), status, method, address, duration, visitor. */
+function formatAccess(send: (text: string) => void) {
+  let partial = '';
+  return (text: string) => {
+    const lines = (partial + text).split('\n');
+    partial = lines.pop() ?? '';
+    const out = lines.flatMap((line) => {
+      try {
+        const entry = JSON.parse(line);
+        const request = entry.request ?? {};
+        const at = new Date((entry.ts ?? 0) * 1000).toISOString().replace('T', ' ').slice(0, 19);
+        const ms = Math.round((entry.duration ?? 0) * 1000);
+        return [`${at}  ${entry.status ?? '-'}  ${request.method ?? '-'}  ${request.host ?? ''}${request.uri ?? ''}  ${ms} ms  ${entry.client_ip ?? request.remote_ip ?? ''}\n`];
+      } catch {
+        return line.trim() ? [`${line}\n`] : [];
+      }
+    });
+    if (out.length) send(out.join(''));
+  };
+}
+
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -289,6 +348,16 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
     if (apps.length === 0) return res.status(404).json({ success: false, error: 'Project not found' } as ApiResponse);
     const wanted = req.query.app ? apps.filter((app) => app.id === req.query.app) : apps;
 
+    // ?kind=access: the requests to their hosts, from Caddy — a static site's only log
+    if (req.query.kind === 'access') {
+      const domains = await prisma.appDomain.findMany({ where: { applicationId: { in: wanted.map((app) => app.id) } }, select: { host: true } });
+      const hosts = [...new Set(domains.map((d) => d.host))];
+      if (!hosts.length) return res.status(400).json({ success: false, error: 'No host yet — requests are logged once it has one' } as ApiResponse);
+      const node = await serverForApplication(wanted[0]!.id);
+      await ensureAccessLog(node);
+      return await streamFollows(res, node, [(send, signal) => followAccess(node, hosts, lines, formatAccess(send), signal)]);
+    }
+
     const pm2Apps = wanted.filter((app) => app.runtime === 'PM2' && app.processName && app.serverId);
     const unitApps = wanted.filter((app) => !app.runtime && systemd.needsUnit(app.type));
     const follows: Follow[] = [];
@@ -308,7 +377,7 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
       if (!afs.node) continue;
       server ??= afs.node;
       const node = afs.node;
-      follows.push((send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, tagLines(app.name, send), signal));
+      follows.push((send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, tagLines(app.name, stampLines(send)), signal));
     }
     // a stack's containers write to the engine, not log files: `compose logs`, which
     // prefixes each line with its service already. No out/error split there.

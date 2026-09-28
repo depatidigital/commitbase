@@ -2,7 +2,7 @@
  * Self-check for where a new route lands: npx tsx src/services/caddyService.check.ts
  */
 import assert from 'assert';
-import { buildRoute, ensureHttpServer, withHostBeside, withoutHosts, withRoute } from './caddyService';
+import { ACCESS_LOG, buildRoute, ensureHttpServer, withAccessLog, withHostBeside, withoutHosts, withRoute } from './caddyService';
 
 const site = (host: string) => ({ match: [{ host: [host] }], handle: [], terminal: true });
 const route = buildRoute('new.example.com', { type: 'runtime', upstreamPort: 3000 });
@@ -50,4 +50,12 @@ assert.deepStrictEqual(listenOf({ srv0: { listen: [':80'], routes: [] } }), { sr
 assert.deepStrictEqual(listenOf({ srv0: { listen: [':80'] }, srv1: { listen: [':443'] } }), { srv0: [':80'], srv1: [':443'] });
 assert.deepStrictEqual(listenOf({}), { larika: [':80', ':443'] });
 
-console.log('caddyService: withRoute + withoutHosts + withHostBeside + ensureHttpServer OK');
+// access log: every block logs, into the file, not into Caddy's own log; twice is once
+const logged = withAccessLog({ apps: { http: { servers: { a: { routes: [] }, b: { logs: { skip_hosts: ['x'] } } } } } });
+assert.strictEqual(logged.logging.logs.larika_access.writer.filename, ACCESS_LOG);
+assert.deepStrictEqual(logged.logging.logs.default.exclude, ['http.log.access']);
+assert.deepStrictEqual(logged.apps.http.servers.a.logs, {});
+assert.deepStrictEqual(logged.apps.http.servers.b.logs, { skip_hosts: ['x'] });
+assert.deepStrictEqual(withAccessLog(JSON.parse(JSON.stringify(logged))), logged);
+
+console.log('caddyService: withRoute + withoutHosts + withHostBeside + ensureHttpServer + withAccessLog OK');

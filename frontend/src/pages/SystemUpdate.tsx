@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpCircle, Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2, Loader2, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import { PageLayout } from "@/components/PageLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +66,12 @@ export default function SystemUpdate() {
   const running = !!data?.running;
   // unanswered during the restart: expected, not an error to show
   const restarting = startedAt !== null && status.isError;
+  // how the last run ended, from larika-upgrade.sh's own last words: say "==> Done…", die "larika-upgrade: …"
+  const lastLine = data?.log?.trim().split("
+").pop() ?? "";
+  const outcome = running || restarting || !data?.log ? null
+    : /^==> (Done|Already on)/.test(lastLine) ? "ok" as const
+    : "failed" as const;
 
   return (
     <PageLayout
@@ -171,6 +177,16 @@ export default function SystemUpdate() {
           {(running || restarting || data.log) && (
             <Card>
               <CardHeader>
+                {outcome && (
+                  <div className={`mb-2 flex items-start gap-2 rounded-md border p-3 text-sm ${outcome === "ok" ? "border-green-600/40 text-green-700 dark:text-green-400" : "border-destructive/50 text-destructive"}`}>
+                    {outcome === "ok" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+                    <span>
+                      <span className="font-medium">{outcome === "ok" ? t("Last update succeeded") : t("Last update failed")}</span>
+                      {" — "}
+                      {lastLine.replace(/^(==> |larika-upgrade: )/, "")}
+                    </span>
+                  </div>
+                )}
                 <CardTitle className="flex items-center gap-2 text-base">
                   {(running || restarting) && <Loader2 className="h-4 w-4 animate-spin" />}
                   {restarting ? t("Larika is restarting…") : running ? t("Update log") : t("Last update log")}

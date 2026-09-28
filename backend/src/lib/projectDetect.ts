@@ -139,7 +139,8 @@ export const COMPOSE_FILES = [
   'docker/docker-compose.yml',
 ] as const;
 
-export type DetectInput = Partial<Record<(typeof DETECT_FILES)[number], string>>;
+// plus root pages by any name (index.htm, a lone .html): by presence, for static detection
+export type DetectInput = Partial<Record<(typeof DETECT_FILES)[number] | `${string}.htm` | `${string}.html` | `${string}.HTM` | `${string}.HTML`, string>>;
 
 // Next's own entry file, run by the Node run.sh selected: not a bare `next`
 // (node_modules/.bin is not on PATH there) nor the .bin shim, which pnpm

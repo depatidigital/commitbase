@@ -1165,7 +1165,8 @@ export function followPm2Logs(
   const only = type === 'out' ? ['--out'] : type === 'error' ? ['--err'] : [];
   // Not --raw: keep pm2's `0|name |` prefix, green for stdout and red for
   // stderr, as in a terminal. FORCE_COLOR because pm2 goes plain without a TTY.
-  return exec(node, ['env', 'FORCE_COLOR=1', ...pm2(['logs', processName, '--lines', String(lines), ...only])], {
+  // --timestamp: each new line says when (the backlog only if the app wrote one).
+  return exec(node, ['env', 'FORCE_COLOR=1', ...pm2(['logs', processName, '--lines', String(lines), '--timestamp', 'YYYY-MM-DD HH:mm:ss', ...only])], {
     onOutput,
     signal,
     maxBuffer: 0,

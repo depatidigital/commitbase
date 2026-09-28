@@ -325,7 +325,8 @@ export function followLogs(
   onOutput: (text: string) => void,
   signal: AbortSignal
 ): Promise<unknown> {
-  return run(application, ['logs', '--follow', '--tail', String(lines)], { onOutput, timeout: 2 * 60 * 60_000 }).then(
+  // --timestamps: the engine keeps each line's time, the backlog's too
+  return run(application, ['logs', '--follow', '--timestamps', '--tail', String(lines)], { onOutput, timeout: 2 * 60 * 60_000 }).then(
     () => undefined,
     (error: any) => {
       if (signal.aborted) return undefined;

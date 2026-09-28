@@ -820,6 +820,8 @@ export default {
   "Redirects": "Pengalihan",
   "Add a redirect": "Tambah Pengalihan",
   "Add another domain": "Tambah Domain Lain",
+  Application: "Aplikasi",
+  "Access log": "Log akses",
   "Add a host first — a redirect sends visitors to one.": "Tambahkan host dulu — pengalihan mengarahkan pengunjung ke host itu.",
   "to the host on the right, same path, 301": "ke host di kanan, path sama, 301",
   "Visitors are sent on to {target}, with the same path.": "Pengunjung dialihkan ke {target}, dengan path yang sama.",

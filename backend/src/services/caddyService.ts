@@ -1,5 +1,5 @@
 import * as http from 'http';
-import { forwardTcp, type SshTarget } from '../lib/runner';
+import { execRoot, forwardTcp, type SshTarget } from '../lib/runner';
 
 /**
  * Caddy's admin API has no authentication of its own — its whole security model
@@ -704,6 +704,46 @@ export const ensureHttpsListener = (node: SshTarget) =>
     await keepBefore(node, existing, 'listen on :443');
     await writeCaddy(node, 'PATCH', `/config/apps/http/servers/${encodeURIComponent(name)}/listen`, config.apps.http.servers[name].listen);
     await keepAfter(node, 'listen on :443', await (await snapshots()).coversCheckpoint(node.id, existing, []));
+    return true;
+  });
+
+/** Where Caddy writes every host's access log on a node, one JSON object a line — the Logs tab's "Access". */
+export const ACCESS_LOG = '/var/log/caddy/access.log';
+
+/**
+ * The access log in a config, in place: every server block logs its requests,
+ * into one file Caddy rolls itself (20 MB, 3 kept), and out of Caddy's own log.
+ * Pure — the check covers it.
+ */
+export function withAccessLog(config: any): any {
+  config.logging ??= {};
+  config.logging.logs ??= {};
+  config.logging.logs.larika_access ??= {
+    writer: { output: 'file', filename: ACCESS_LOG, roll_size_mb: 20, roll_keep: 3 },
+    encoder: { format: 'json' },
+    include: ['http.log.access'],
+  };
+  const own = (config.logging.logs.default ??= {});
+  if (!(own.exclude ?? []).includes('http.log.access')) own.exclude = [...(own.exclude ?? []), 'http.log.access'];
+  for (const server of Object.values<any>(config.apps?.http?.servers ?? {})) server.logs ??= {};
+  return config;
+}
+
+/**
+ * Turn a node's access log on, once: its folder made (Caddy's user writes it),
+ * then the config loaded with it. Route writes keep it after that — they load
+ * the config they read. true when it changed anything.
+ */
+export const ensureAccessLog = (node: SshTarget) =>
+  withNodeLock(node, async () => {
+    const existing = await readCaddyConfig(node);
+    const config = withAccessLog(JSON.parse(JSON.stringify(existing ?? {})));
+    if (JSON.stringify(config) === JSON.stringify(existing ?? {})) return false;
+    // a missing folder would fail the whole load — routes and all
+    await execRoot(node, ['sh', '-c', 'mkdir -p /var/log/caddy && (chown caddy: /var/log/caddy 2>/dev/null || true)'], { timeout: 20_000 });
+    await keepBefore(node, existing, 'access log on');
+    await loadCaddyConfig(node, config);
+    await keepAfter(node, 'access log on', await (await snapshots()).coversCheckpoint(node.id, existing, []));
     return true;
   });
 
