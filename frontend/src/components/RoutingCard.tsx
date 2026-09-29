@@ -186,6 +186,9 @@ export function RoutingCard({
                 // the first host has nothing to go back to
                 onCancel={serving.length > 0 ? () => setAddingHost(false) : undefined}
                 onAdded={async () => {
+                  // the first host is what the dialog was opened for: done, back to deploy.
+                  // Later ones keep it open — a redirect to the new host may come next.
+                  if (serving.length === 0) setEditOpen(false);
                   setAddingHost(false);
                   await refresh();
                 }}

@@ -579,7 +579,11 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
 
     // A start script that is only `next start` is run as Next itself, bound to
     // loopback on the platform's port; one that does more is the app's to keep.
-    const plainNextStart = fw.framework === 'nextjs' && /^\s*next\s+start\s*$/.test(String(scripts.start || ''));
+    // Its own host and port (`next start -H 0.0.0.0 -p 3002`) are local habits,
+    // replaced by the platform's rather than kept to fail the health check.
+    const plainNextStart =
+      fw.framework === 'nextjs' &&
+      /^\s*next\s+start(?:\s+(?:-H|--hostname|-p|--port)(?:=|\s+)\S+)*\s*$/.test(String(scripts.start || ''));
     return base({
       ...common,
       type: 'NODEJS',

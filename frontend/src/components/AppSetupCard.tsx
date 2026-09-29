@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -237,6 +237,18 @@ export function AppSetupCard({ application, detected, detecting, env, dbCheck, f
     />
   );
   const ready = hostsDone && envDone && webDone;
+  // A site deploys itself when its first host is added: nothing else to set up for
+  // most, so the click after it only waited. Env unconfirmed counts as fine when
+  // the repo expects none. Only on that host's arrival — never later by surprise.
+  const armed = useRef(!hostsDone);
+  const nothingExpected = !detected?.env.example?.vars.length && !detected?.env.needsDatabase;
+  useEffect(() => {
+    if (!armed.current || !hostsDone) return;
+    armed.current = false;
+    const envOk = !detecting && env.missing.length === 0 && (!unconfirmed || nothingExpected);
+    if (application.type === "STATIC" && envOk && !failure && !starting) onDeploy();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the host's arrival alone
+  }, [hostsDone]);
   const envLine = detecting
     ? t("Reading the repository…")
     : env.missing.length > 0

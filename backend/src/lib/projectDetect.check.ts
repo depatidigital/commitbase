@@ -33,8 +33,13 @@ const nextStart = (start: string) =>
 const migrating = nextStart('prisma migrate deploy && next start');
 assert.strictEqual(migrating.startCommand, 'npm start');
 assert.deepStrictEqual(migrating.warnings, [{ code: 'start-binds-all' }]);
-assert.deepStrictEqual(nextStart('next start -p 3000').warnings, [{ code: 'start-fixed-port', port: '3000' }, { code: 'start-binds-all' }]);
-assert.deepStrictEqual(nextStart('next start --port=4000 -H 127.0.0.1').warnings, [{ code: 'start-fixed-port', port: '4000' }]);
+// `next start` with only its own host/port is run as Next on the platform's
+for (const start of ['next start -p 3000', 'next start --port=4000 -H 127.0.0.1', 'next start -H 0.0.0.0 -p 3002']) {
+  assert.strictEqual(nextStart(start).startCommand, NEXT_START, start);
+  assert.deepStrictEqual(nextStart(start).warnings, [], start);
+}
+assert.deepStrictEqual(nextStart('prisma migrate deploy && next start -p 3000').warnings, [{ code: 'start-fixed-port', port: '3000' }, { code: 'start-binds-all' }]);
+assert.deepStrictEqual(nextStart('next start --keepAliveTimeout 5000 --port=4000 -H 127.0.0.1').warnings, [{ code: 'start-fixed-port', port: '4000' }]);
 assert.deepStrictEqual(nextStart('node server.js').warnings, [], 'a custom server is not next start');
 // only Next: other frameworks read PORT/HOST themselves
 assert.deepStrictEqual(detectFromFiles({ 'package.json': JSON.stringify({ dependencies: { express: '4' }, scripts: { start: 'node index.js -p 3000' } }) }).warnings, []);
