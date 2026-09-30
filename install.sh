@@ -266,6 +266,16 @@ cat > /etc/logrotate.d/larika <<'EOF'
 EOF
 chmod 0644 /etc/logrotate.d/larika
 
+# The system's own logs are bounded too: the distro rotates syslog weekly and
+# btmp monthly by date alone, so a chatty service or an SSH brute force fills
+# the disk in between. A global maxsize applies to every stanza that sets none
+# (logrotate runs daily). Above the includes, so logrotate.d/* inherit it.
+grep -q '^maxsize' /etc/logrotate.conf 2>/dev/null || sed -i '1i # Added by install.sh: rotate any log past 100M at the daily run\nmaxsize 100M' /etc/logrotate.conf
+# The journal keeps up to 10% of the disk by default: capped instead.
+mkdir -p /etc/systemd/journald.conf.d
+printf '# Written by install.sh.\n[Journal]\nSystemMaxUse=500M\n' > /etc/systemd/journald.conf.d/larika.conf
+systemctl restart systemd-journald 2>/dev/null || true
+
 # Left over from when the scripts were installed; a stale copy would only mislead.
 rm -f /usr/local/bin/cb-provision-org /usr/local/bin/cb-app-unit
 # Caddy serves PHP tenants' files and FPM sockets, both group-only.

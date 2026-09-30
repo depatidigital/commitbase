@@ -35,7 +35,7 @@ console.log('systemCleanupService: ok');
   writeFileSync(join(files, 'unused'), Buffer.alloc(300));
   writeFileSync(join(files, 'x-index.json'), Buffer.alloc(7));
   writeFileSync(join(root, '.npm/_cacache/blob'), Buffer.alloc(50));
-  const sh = (script: string) => execFileSync('sh', ['-c', script.replaceAll('/root/', `${root}/`)], { encoding: 'utf8' }).trim();
+  const sh = (script: string) => execFileSync('sh', ['-c', script.split('/root/').join(`${root}/`)], { encoding: 'utf8' }).trim();
   const { measure, clean } = SYSTEM_TARGETS.packageCaches;
   assert.ok(Number(sh(measure)) >= 350 && Number(sh(measure)) < 5000, `measured ${sh(measure)}`);
   sh(clean);

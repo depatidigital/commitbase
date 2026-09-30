@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma';
 import { recordBeat } from './heartbeatService';
 import { exec, execRoot, RemoteExecError, type SshTarget } from '../lib/runner';
 import { nodeDisk } from './appDiskService';
+import { sendMail } from '../lib/mailer';
 
 /**
  * Node heartbeat.
@@ -83,8 +84,41 @@ command -v pm2 >/dev/null 2>&1 && echo "pm2 installed"
 command -v node >/dev/null 2>&1 && echo "node installed $(node -v 2>/dev/null)"
 true`;
 
+/** Below this share of the disk free, the platform's admins are mailed. */
+const DISK_ALERT_PERCENT = Number(process.env.DISK_ALERT_PERCENT) || 10;
+const DAY_MS = 24 * 60 * 60_000;
+// ponytail: in memory — a panel restart can mail once more; a column if that ever annoys
+const diskAlertedAt = new Map<string, number>();
+
+/** Low disk or not; a full disk fails deploys and stops databases, so it is said before it happens. Pure. */
+export const diskLow = (disk: { size: number; avail: number }, percent = DISK_ALERT_PERCENT) => disk.avail < (disk.size * percent) / 100;
+
+/** Mails the platform's admins when a node runs low, at most once a day per node; re-armed once it recovers. */
+async function alertLowDisk(server: SshTarget & { name: string }, disk: { size: number; avail: number }): Promise<void> {
+  if (!diskLow(disk)) {
+    diskAlertedAt.delete(server.id);
+    return;
+  }
+  if (Date.now() - (diskAlertedAt.get(server.id) ?? 0) < DAY_MS) return;
+  diskAlertedAt.set(server.id, Date.now());
+  const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+  const admins = await prisma.user.findMany({ where: { role: 'SUPERADMIN' }, select: { email: true } });
+  const url = process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/servers/${server.id}` : null;
+  for (const { email } of admins) {
+    await sendMail({
+      to: email,
+      subject: `Disk almost full on ${server.name}: ${gb(disk.avail)} left`,
+      text: [
+        `${server.name} (${server.hostname}) has ${gb(disk.avail)} free of ${gb(disk.size)}.`,
+        'Deploys fail and databases stop once it is full. Clean up on the server page, or grow the disk.',
+        ...(url ? ['', url] : []),
+      ].join('\n'),
+    });
+  }
+}
+
 /** Record what runs on the node, and how full its disk is. Best effort: a failed probe keeps the last answer. */
-async function detectRuntimes(server: SshTarget): Promise<void> {
+async function detectRuntimes(server: SshTarget & { name: string }): Promise<void> {
   try {
     const [{ stdout }, disk] = await Promise.all([
       exec(server, ['sh', '-c', DETECT_SCRIPT], { timeout: PING_TIMEOUT_MS }),
@@ -105,6 +139,7 @@ async function detectRuntimes(server: SshTarget): Promise<void> {
         return all;
       }, []);
     await prisma.server.update({ where: { id: server.id }, data: { runtimes, ...(disk && { disk }) } });
+    if (disk) await alertLowDisk(server, disk).catch((error) => console.warn(`disk alert ${server.name}: ${error?.message ?? error}`));
   } catch (error: any) {
     console.error(`Could not detect runtimes on ${server.hostname}:`, error?.message);
   }
