@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, BookOpen, Boxes, Code2, Gauge, KeyRound, List, Loader2, Plus, Power, Sparkles, Trash2, Wallet, Zap } from "lucide-react";
+import { AlertCircle, BarChart3, BookOpen, Boxes, Code2, Gauge, KeyRound, List, Loader2, Plus, Power, Sparkles, Trash2, Wallet, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -155,9 +155,13 @@ export default function Ai() {
                 <Code2 className="mr-2 h-4 w-4" />
                 API
               </TabsTrigger>
+              <TabsTrigger value="by-model">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                {t("Usage")}
+              </TabsTrigger>
               <TabsTrigger value="usage">
                 <List className="mr-2 h-4 w-4" />
-                {t("Usage")}
+                {t("Log")}
               </TabsTrigger>
               <TabsTrigger value="models">
                 <Boxes className="mr-2 h-4 w-4" />
@@ -184,6 +188,9 @@ export default function Ai() {
             </TabsContent>
             <TabsContent value="api">
               <AiPlayground baseUrl={data.baseUrl ?? ""} onCreateKey={data.hasAccount ? startCreating : undefined} />
+            </TabsContent>
+            <TabsContent value="by-model">
+              <UsageByModel />
             </TabsContent>
             <TabsContent value="usage">
               <UsageTab />
@@ -310,6 +317,72 @@ export default function Ai() {
         </DialogContent>
       </Dialog>
     </PageLayout>
+  );
+}
+
+type ModelUsage = { model: string; cost: number; days: number };
+
+/**
+ * A month's AI use by model: what each cost, on how many days, and its share.
+ * Summed from the wallet's AI lines (one per day and model) — the Log tab's
+ * rows, added up.
+ * ponytail: cost only — tokens and request counts are not kept here, the gateway meters them; a per-model feed from it if they are wanted
+ */
+function UsageByModel() {
+  const query = useTableQuery(25);
+  const [month, setMonth] = useState("");
+  const { data, isFetching } = useQuery({ queryKey: ["billing", "entries", month], queryFn: () => getWalletEntries(month || undefined), refetchInterval: 60_000 });
+  const byModel = new Map<string, ModelUsage>();
+  for (const e of data?.entries ?? []) {
+    if (e.kind !== "AI_USAGE") continue;
+    // the line's note: "AI · <model> · <day>"
+    const model = /^AI · (.+) · \d{4}-\d{2}-\d{2}$/.exec(e.note ?? "")?.[1] ?? t("Other");
+    const row = byModel.get(model) ?? { model, cost: 0, days: 0 };
+    row.cost -= fromMicro(e.amount);
+    row.days += 1;
+    byModel.set(model, row);
+  }
+  const rows = [...byModel.values()].sort((a, b) => b.cost - a.cost);
+  const total = rows.reduce((n, r) => n + r.cost, 0);
+
+  const columns: Column<ModelUsage>[] = [
+    { header: t("Model"), cell: (r) => <span className="font-mono text-xs">{r.model}</span> },
+    { header: t("Days used"), className: "w-28 text-right", cell: (r) => <span className="tabular-nums">{r.days}</span> },
+    { header: t("Cost"), className: "w-36 text-right", cell: (r) => <span className="tabular-nums">{rupiah(r.cost, r.cost < 100)}</span> },
+    {
+      header: t("Share"),
+      className: "w-56",
+      cell: (r) => {
+        const pct = total > 0 ? (r.cost / total) * 100 : 0;
+        return (
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{pct.toFixed(pct < 10 ? 1 : 0)}%</span>
+          </div>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        {t("AI use by model in {month}: {amount} across {count} model(s).", { month: data?.month ?? "…", amount: rupiah(total, total < 100), count: rows.length })}
+      </p>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.model}
+        query={query}
+        filter={(r, search) => r.model.toLowerCase().includes(search.toLowerCase())}
+        isLoading={isFetching && !data}
+        searchPlaceholder={t("Search models…")}
+        empty={t("No AI use in this month.")}
+        toolbar={<Input type="month" className="w-44" value={month || data?.month || ""} onChange={(e) => setMonth(e.target.value)} />}
+      />
+    </div>
   );
 }
 

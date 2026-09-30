@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { BookOpen, CheckCircle2, Code2, KeyRound, List, Loader2, MessageCircle, Plus, QrCode, RefreshCw, RotateCcw, Send, Settings2, Trash2, Webhook, Zap } from "lucide-react";
+import { BookOpen, CheckCircle2, Code2, KeyRound, List, Loader2, MessageCircle, Plus, QrCode, RefreshCw, RotateCcw, ScrollText, Send, Settings2, Trash2, Webhook, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +25,7 @@ import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
 import { ApiPlayground } from "@/components/WaApi";
+import { WaLogTab } from "@/components/WaLog";
 import { CodeExample } from "@/components/CodeExample";
 import { codeExamples, VERIFY_SNIPPET } from "@/lib/waApiCatalog";
 import { Step } from "@/components/QuickStartStep";
@@ -228,6 +229,10 @@ export default function WaGateway() {
             <Code2 className="mr-2 h-4 w-4" />
             Playground
           </TabsTrigger>
+          <TabsTrigger value="log">
+            <ScrollText className="mr-2 h-4 w-4" />
+            {t("Log")}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="start">
           <QuickStart rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} onOpen={(kind, row) => setOpen({ kind, row })} onApi={() => setTab("api")} />
@@ -246,6 +251,9 @@ export default function WaGateway() {
         </TabsContent>
         <TabsContent value="api">
           <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} onTest={(row) => setOpen({ kind: "webhook", row })} />
+        </TabsContent>
+        <TabsContent value="log">
+          <WaLogTab rows={rows} />
         </TabsContent>
       </Tabs>
 

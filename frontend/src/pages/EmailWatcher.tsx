@@ -212,7 +212,7 @@ export default function EmailWatcher() {
           </TabsTrigger>
           <TabsTrigger value="events">
             <ScrollText className="mr-2 h-4 w-4" />
-            {t("Events")}
+            {t("Log")}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="start">
