@@ -181,30 +181,33 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     const direction = req.query.order === 'desc' ? -1 : 1;
     const SEVERITY: Record<string, number> = { DEPLOYING: 0, ERROR: 1, PARTIAL: 2, STOPPED: 3, RUNNING: 4, EMPTY: 5, DISABLED: 6 };
     const byDescription = (a: (typeof rows)[number], b: (typeof rows)[number]) => a.description.localeCompare(b.description);
+    // ties break on what nobody edits: newest first. By description, renaming a row moved it
+    const newest = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || a.id.localeCompare(b.id);
     rows.sort((a, b) => {
       switch (req.query.sort) {
         case 'description':
           return direction * byDescription(a, b);
         case 'organization':
-          return direction * (a.organization?.name ?? '').localeCompare(b.organization?.name ?? '') || byDescription(a, b);
+          return direction * (a.organization?.name ?? '').localeCompare(b.organization?.name ?? '') || newest(a, b);
         case 'server':
-          return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || byDescription(a, b);
+          return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || newest(a, b);
         case 'createdAt':
-          return direction * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || byDescription(a, b);
+          return direction * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || newest(a, b);
         case 'apps':
-          return direction * (a.applications.length - b.applications.length) || byDescription(a, b);
+          return direction * (a.applications.length - b.applications.length) || newest(a, b);
         case 'restartedAt': {
           // its most recently restarted service; never restarted sorts as oldest
           const at = (row: (typeof rows)[number]) => Math.max(0, ...row.applications.map((app) => app.restartedAt?.getTime() ?? 0));
-          return direction * (at(a) - at(b)) || byDescription(a, b);
+          return direction * (at(a) - at(b)) || newest(a, b);
         }
         case 'disk': {
           const bytes = (row: (typeof rows)[number]) => row.applications.reduce((sum, app) => sum + Number(app.diskBytes ?? 0), 0);
-          return direction * (bytes(a) - bytes(b)) || byDescription(a, b);
+          return direction * (bytes(a) - bytes(b)) || newest(a, b);
         }
         default:
           // what needs attention leads: a problem chip first, then work in flight, broken, stopped
-          return Number(b.bucket === 'problem') - Number(a.bucket === 'problem') || (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byDescription(a, b);
+          return Number(b.bucket === 'problem') - Number(a.bucket === 'problem') || (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || newest(a, b);
       }
     });
 
