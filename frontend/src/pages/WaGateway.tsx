@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
-import { ApiPlayground, WebhooksTab } from "@/components/WaApi";
+import { ApiPlayground } from "@/components/WaApi";
 import { CodeExample } from "@/components/CodeExample";
 import { codeExamples, VERIFY_SNIPPET } from "@/lib/waApiCatalog";
 import { Step } from "@/components/QuickStartStep";
@@ -226,11 +226,7 @@ export default function WaGateway() {
           </TabsTrigger>
           <TabsTrigger value="api">
             <Code2 className="mr-2 h-4 w-4" />
-            API
-          </TabsTrigger>
-          <TabsTrigger value="webhooks">
-            <Webhook className="mr-2 h-4 w-4" />
-            Webhook
+            Playground
           </TabsTrigger>
         </TabsList>
         <TabsContent value="start">
@@ -249,10 +245,7 @@ export default function WaGateway() {
           />
         </TabsContent>
         <TabsContent value="api">
-          <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} />
-        </TabsContent>
-        <TabsContent value="webhooks">
-          <WebhooksTab rows={rows} onSettings={(row) => setOpen({ kind: "api", row })} onTest={(row) => setOpen({ kind: "webhook", row })} />
+          <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} onTest={(row) => setOpen({ kind: "webhook", row })} />
         </TabsContent>
       </Tabs>
 

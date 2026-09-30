@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Play, Plus, RotateCw, Send, Settings2 } from "lucide-react";
+import { AlertTriangle, Loader2, Play, Plus, RotateCw, Send, Webhook } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,10 +110,11 @@ export function EndpointDoc({ e }: { e: Endpoint }) {
   );
 }
 
-/** Left column: every Client API call, grouped; picking one shows it on the right. */
-export function CatalogList({ endpoints, selected, onSelect }: { endpoints: Endpoint[]; selected: Endpoint; onSelect: (id: string) => void }) {
+/** Left column: every Client API call, grouped; picking one shows it on the right. `lead` goes above the groups. */
+export function CatalogList({ endpoints, selectedId, onSelect, lead }: { endpoints: Endpoint[]; selectedId: string; onSelect: (id: string) => void; lead?: ReactNode }) {
   return (
     <div className="space-y-4">
+      {lead}
       {[...new Set(endpoints.map((e) => e.group))].map((group) => (
         <section key={group} className="space-y-1">
           <h3 className="px-2 text-xs font-medium uppercase text-muted-foreground">{group}</h3>
@@ -125,7 +126,7 @@ export function CatalogList({ endpoints, selected, onSelect }: { endpoints: Endp
                 type="button"
                 title={e.title}
                 onClick={() => onSelect(e.id)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${e.id === selected.id ? "bg-primary/10 font-medium text-primary" : "hover:bg-muted/60"}`}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${e.id === selectedId ? "bg-primary/10 font-medium text-primary" : "hover:bg-muted/60"}`}
               >
                 <Method method={e.method} />
                 <span className="min-w-0 flex-1 truncate">{e.title}</span>
@@ -179,10 +180,44 @@ type Result = { ok: boolean; status?: number; ms: number; body: string };
  * panel makes the call with the gateway's admin key, so no API key is pasted
  * here; the code uses the app's own key.
  */
-export function ApiPlayground(props: { rows: WaNumber[]; gatewayUrl: string; onAdd?: () => void }) {
+export function ApiPlayground({ onTest, ...props }: { rows: WaNumber[]; gatewayUrl: string; onAdd?: () => void; onTest: (row: WaNumber) => void }) {
   const [endpointId, setEndpointId] = useState("send-text");
-  return <CatalogState>{(catalog) => <PlaygroundBody {...props} endpointId={endpointId} onEndpoint={setEndpointId} endpoints={catalog.endpoints} />}</CatalogState>;
+  // the webhook leads the list: what the gateway sends the app, above what the app sends it
+  const lead = (
+    <section className="space-y-1">
+      <h3 className="px-2 text-xs font-medium uppercase text-muted-foreground">Webhook</h3>
+      <button
+        type="button"
+        onClick={() => setEndpointId(WEBHOOKS)}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${endpointId === WEBHOOKS ? "bg-primary/10 font-medium text-primary" : "hover:bg-muted/60"}`}
+      >
+        <Webhook className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("Events & deliveries")}</span>
+      </button>
+    </section>
+  );
+  return (
+    <CatalogState>
+      {(catalog) =>
+        endpointId === WEBHOOKS ? (
+          <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+            <nav className={`${CARD} p-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto`}>
+              <CatalogList endpoints={catalog.endpoints} selectedId={endpointId} onSelect={setEndpointId} lead={lead} />
+            </nav>
+            <div className="min-w-0">
+              <WebhooksBody rows={props.rows} onTest={onTest} catalog={catalog} />
+            </div>
+          </div>
+        ) : (
+          <PlaygroundBody {...props} endpointId={endpointId} onEndpoint={setEndpointId} endpoints={catalog.endpoints} lead={lead} />
+        )
+      }
+    </CatalogState>
+  );
 }
+
+/** The list's entry that is no API call: the number's webhook. */
+const WEBHOOKS = "webhooks";
 
 function PlaygroundBody({
   rows,
@@ -191,6 +226,7 @@ function PlaygroundBody({
   endpointId,
   onEndpoint,
   endpoints,
+  lead,
 }: {
   rows: WaNumber[];
   gatewayUrl: string;
@@ -198,6 +234,7 @@ function PlaygroundBody({
   endpointId: string;
   onEndpoint: (id: string) => void;
   endpoints: Endpoint[];
+  lead?: ReactNode;
 }) {
   const numbers = rows.filter((r) => r.canManage);
   const [picked, setNumberId] = useState("");
@@ -292,7 +329,7 @@ function PlaygroundBody({
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
       <nav className={`${CARD} p-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto`}>
-        <CatalogList endpoints={endpoints} selected={ep} onSelect={onEndpoint} />
+        <CatalogList endpoints={endpoints} selectedId={ep.id} onSelect={onEndpoint} lead={lead} />
       </nav>
 
       {/* explanation left; the same call as code, and tried for real, right */}
@@ -423,11 +460,7 @@ curl -X POST '${url}' \\
  * The Webhook tab: what a number POSTs to its app (left), and per number its
  * URL, a test event and the last 24 hours of deliveries (right).
  */
-export function WebhooksTab(props: { rows: WaNumber[]; onSettings: (row: WaNumber) => void; onTest: (row: WaNumber) => void }) {
-  return <CatalogState>{(catalog) => <WebhooksBody {...props} catalog={catalog} />}</CatalogState>;
-}
-
-function WebhooksBody({ rows, onSettings, onTest, catalog }: { rows: WaNumber[]; onSettings: (row: WaNumber) => void; onTest: (row: WaNumber) => void; catalog: Catalog }) {
+function WebhooksBody({ rows, onTest, catalog }: { rows: WaNumber[]; onTest: (row: WaNumber) => void; catalog: Catalog }) {
   const { toast } = useToast();
   const numbers = rows.filter((r) => r.canManage);
   const [picked, setPicked] = useState("");
@@ -512,14 +545,10 @@ function WebhooksBody({ rows, onSettings, onTest, catalog }: { rows: WaNumber[];
                 {row.webhookUrl ? (
                   <code className="block break-all rounded-md bg-muted/60 px-3 py-2 font-mono text-xs">{row.webhookUrl}</code>
                 ) : (
-                  <p className="text-sm text-warning">{t("No webhook URL yet: events of this number are not sent anywhere.")}</p>
+                  <p className="text-sm text-warning">{t("No webhook URL yet: events of this number are not sent anywhere. Set one from the number's key button.")}</p>
                 )}
               </Row>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={() => onSettings(row)}>
-                  <Settings2 className="mr-2 h-3.5 w-3.5" />
-                  {t("Access & webhook")}
-                </Button>
                 <Button size="sm" disabled={!row.webhookUrl} onClick={() => onTest(row)}>
                   <Send className="mr-2 h-3.5 w-3.5" />
                   {t("Test webhook")}

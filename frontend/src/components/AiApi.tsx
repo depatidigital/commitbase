@@ -100,7 +100,7 @@ function PlaygroundBody({ catalog, origin, endpointId, onEndpoint, onCreateKey }
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
       <nav className={`${CARD} p-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto`}>
-        <CatalogList endpoints={catalog.endpoints} selected={ep} onSelect={onEndpoint} />
+        <CatalogList endpoints={catalog.endpoints} selectedId={ep.id} onSelect={onEndpoint} />
       </nav>
 
       {/* explanation left; the same call as code, and tried for real, right */}
