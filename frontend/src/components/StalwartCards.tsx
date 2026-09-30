@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, FolderOpen, HardDrive, Loader2, Lock, MoreHorizontal, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Column, DataTable, useTableQuery } from '@/components/DataTable';
@@ -373,7 +375,7 @@ export function LogSendersCard() {
 
 /** Every mailbox: how much disk its mail takes, whether it can still log in, what it has waiting to go out. */
 export function MailboxesCard() {
-  const query = useTableQuery(25);
+  const query = useTableQuery(25, { sort: 'disk', order: 'desc' });
   const { data: config } = useQuery({ queryKey: CONFIG_KEY, queryFn: getStalwartConfig });
   const connected = !!config?.passwordSet && !config.error;
   const { data = [], isFetching, refetch, error } = useQuery({ queryKey: MAILBOX_KEY, queryFn: getMailboxes, enabled: connected });
@@ -382,10 +384,21 @@ export function MailboxesCard() {
   const queued = new Map((queue?.senders ?? []).map((s) => [s.sender.toLowerCase(), s.messages]));
   const total = data.reduce((sum, m) => sum + m.usedBytes, 0);
   const locked = data.filter((m) => m.credentials.length === 0).length;
+  // the whole list is here: sorted in the browser, by the header clicked
+  const { sort, order } = query.params;
+  const sortValue = (m: Mailbox): number | string =>
+    sort === 'disk' ? m.usedBytes : sort === 'queued' ? queued.get(m.email.toLowerCase()) ?? 0 : m.email;
+  const rows = [...data].sort((a, b) => {
+    const x = sortValue(a);
+    const y = sortValue(b);
+    const cmp = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
+    return order === 'desc' ? -cmp : cmp;
+  });
 
   const columns: Column<Mailbox>[] = [
     {
       header: t('Mailbox'),
+      sortKey: 'email',
       className: 'w-[36%]',
       cell: (m) => (
         <div className="min-w-0">
@@ -400,6 +413,8 @@ export function MailboxesCard() {
     },
     {
       header: t('Disk'),
+      sortKey: 'disk',
+      sortFirst: 'desc',
       className: 'w-36 text-right',
       cell: (m) => (
         <span className={`tabular-nums ${m.quotaBytes && m.usedBytes >= m.quotaBytes ? 'text-destructive' : ''}`}>
@@ -423,6 +438,8 @@ export function MailboxesCard() {
     },
     {
       header: t('Queued'),
+      sortKey: 'queued',
+      sortFirst: 'desc',
       className: 'w-24 text-right',
       cell: (m) => {
         const n = queued.get(m.email.toLowerCase()) ?? 0;
@@ -459,7 +476,7 @@ export function MailboxesCard() {
         {error && <p className="mb-3 text-sm text-destructive">{(error as Error).message}</p>}
         <DataTable
           columns={columns}
-          rows={data}
+          rows={rows}
           rowKey={(m) => m.id}
           query={query}
           filter={(m, search) => `${m.email} ${m.description ?? ''}`.toLowerCase().includes(search.toLowerCase())}
@@ -669,5 +686,45 @@ function MailboxMore({ mailbox }: { mailbox: Mailbox }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** The Stalwart page: a tab each, the choice kept in the URL (?tab=). Settings first until it is connected. */
+export function StalwartTabs() {
+  const [params, setParams] = useSearchParams();
+  const { data: config, isLoading } = useQuery({ queryKey: CONFIG_KEY, queryFn: getStalwartConfig });
+  const { data: queue } = useQuery({ queryKey: QUEUE_KEY, queryFn: getMailQueue, enabled: !!config?.passwordSet && !config.error });
+  const connected = !!config?.passwordSet && !config.error;
+  const tab = params.get('tab') ?? (isLoading || connected ? 'mailboxes' : 'settings');
+  const floods = (queue?.senders ?? []).filter((s) => s.messages >= (config?.alertThreshold ?? 500)).length;
+
+  return (
+    <Tabs value={tab} onValueChange={(next) => setParams({ tab: next }, { replace: true })} className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="mailboxes">{t('Mailboxes')}</TabsTrigger>
+        <TabsTrigger value="queue" className="gap-1.5">
+          {t('Outgoing queue')}
+          {queue && queue.total > 0 && (
+            <span className={`rounded px-1.5 text-xs tabular-nums ${floods ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground'}`}>
+              {queue.total.toLocaleString(locale)}
+            </span>
+          )}
+        </TabsTrigger>
+        <TabsTrigger value="log">{t('Log')}</TabsTrigger>
+        <TabsTrigger value="settings">{t('Settings')}</TabsTrigger>
+      </TabsList>
+      <TabsContent value="mailboxes">
+        <MailboxesCard />
+      </TabsContent>
+      <TabsContent value="queue">
+        <MailQueueCard />
+      </TabsContent>
+      <TabsContent value="log">
+        <LogSendersCard />
+      </TabsContent>
+      <TabsContent value="settings">
+        <StalwartSettingsCard />
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -59,19 +59,24 @@ export async function checkStalwart(): Promise<string | null> {
 
 type Queued = { id: string; returnPath: string; receivedFromIp: string | null; recipients: Record<string, unknown> | null; createdAt: string };
 
-/** Every message waiting to go out, a page at a time. */
-async function queued(c: Config): Promise<Queued[]> {
-  const all: Queued[] = [];
-  const limit = 500;
-  for (let position = 0; ; position += limit) {
-    const r = await jmap(c, [
-      ['x:QueuedMessage/query', { position, limit }, 'q'],
-      ['x:QueuedMessage/get', { '#ids': { resultOf: 'q', name: 'x:QueuedMessage/query', path: '/ids' }, properties: ['returnPath', 'receivedFromIp', 'recipients', 'createdAt'] }, 'g'],
-    ]);
-    all.push(...(r[1][1]?.list ?? []));
-    if ((r[0][1]?.ids ?? []).length < limit) return all;
+/**
+ * Every object of a kind: all ids in one query, then read 500 at a time.
+ * Not paged by `position`: Stalwart answers every page from position 0 in no
+ * fixed order, so pages overlap and miss objects.
+ */
+async function getAll(c: Config, kind: string, properties: string[]): Promise<any[]> {
+  const q = await jmap(c, [[`${kind}/query`, {}, 'q']]);
+  const ids: string[] = [...new Set<string>(q[0][1]?.ids ?? [])];
+  const all: any[] = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const r = await jmap(c, [[`${kind}/get`, { ids: ids.slice(i, i + 500), properties }, 'g']]);
+    all.push(...(r[0][1]?.list ?? []));
   }
+  return all;
 }
+
+/** Every message waiting to go out. */
+const queued = (c: Config): Promise<Queued[]> => getAll(c, 'x:QueuedMessage', ['returnPath', 'receivedFromIp', 'recipients', 'createdAt']);
 
 export type QueueSender = { sender: string; messages: number; recipients: number; ips: Array<{ ip: string; messages: number }>; oldest: string };
 
@@ -256,17 +261,8 @@ export type Mailbox = {
 export async function listMailboxes(): Promise<Mailbox[]> {
   const c = await config();
   const all: Mailbox[] = [];
-  const limit = 500;
-  for (let position = 0; ; position += limit) {
-    const r = await jmap(c, [
-      ['x:Account/query', { position, limit }, 'q'],
-      [
-        'x:Account/get',
-        { '#ids': { resultOf: 'q', name: 'x:Account/query', path: '/ids' }, properties: ['@type', 'name', 'emailAddress', 'description', 'roles', 'usedDiskQuota', 'quotas', 'credentials', 'createdAt'] },
-        'g',
-      ],
-    ]);
-    for (const a of r[1][1]?.list ?? []) {
+  {
+    for (const a of await getAll(c, 'x:Account', ['@type', 'name', 'emailAddress', 'description', 'roles', 'usedDiskQuota', 'quotas', 'credentials', 'createdAt'])) {
       all.push({
         id: a.id,
         email: a.emailAddress || a.name,
@@ -279,7 +275,6 @@ export async function listMailboxes(): Promise<Mailbox[]> {
         createdAt: a.createdAt ?? null,
       });
     }
-    if ((r[0][1]?.ids ?? []).length < limit) break;
   }
   return all.sort((a, b) => b.usedBytes - a.usedBytes);
 }

@@ -323,7 +323,7 @@ export default function Dashboard() {
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Mail className="h-4 w-4" />
-              <Link to="/integrations/stalwart" className="hover:text-primary">{t("Mail queue")}</Link>
+              <Link to="/integrations/stalwart?tab=queue" className="hover:text-primary">{t("Mail queue")}</Link>
             </CardTitle>
             <p className={`text-2xl font-semibold ${floods.length ? "text-destructive" : ""}`} title={t("Messages waiting to go out")}>
               {mailQueue ? mailQueue.total.toLocaleString(locale) : "—"}
@@ -338,7 +338,7 @@ export default function Dashboard() {
               <ul className="divide-y">
                 {(mailQueue?.senders ?? []).slice(0, 5).map((s) => (
                   <li key={s.sender}>
-                    <Link to="/integrations/stalwart" className="flex items-center gap-2 py-2 text-sm hover:text-primary">
+                    <Link to="/integrations/stalwart?tab=queue" className="flex items-center gap-2 py-2 text-sm hover:text-primary">
                       <span className="min-w-0 flex-1 truncate font-medium">{s.sender}</span>
                       {s.messages >= (stalwart?.alertThreshold ?? 500) && <span className="shrink-0 rounded bg-destructive px-1.5 text-xs text-destructive-foreground">{t("Flood")}</span>}
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.messages.toLocaleString(locale)}</span>

@@ -27,7 +27,7 @@ import { t } from "./lib/i18n";
 import { SearchConsoleSettingsCard } from "./components/SearchConsoleSettingsCard";
 import { GitOAuthSettingsCard } from "./components/GitOAuthSettingsCard";
 import { AI_GATEWAY_GUIDE, ARUSNIAGA_GUIDE, GIT_GUIDE, GOOGLE_GUIDE, LARIKA_GATEWAY_GUIDE, STALWART_GUIDE } from "./components/IntegrationSteps";
-import { LogSendersCard, MailboxesCard, MailQueueCard, StalwartSettingsCard } from "./components/StalwartCards";
+import { StalwartTabs } from "./components/StalwartCards";
 import { ArusniagaSettingsCard, TopUpsCard } from "./components/ArusniagaSettingsCard";
 import { LarikaGatewaySettingsCard } from "./components/LarikaGatewaySettingsCard";
 import { AiGatewaySettingsCard, WalletsCard } from "./components/AiGatewaySettingsCard";
@@ -297,10 +297,7 @@ const App = () => (
               element={
                 <SuperAdminRoute>
                   <IntegrationCardPage title="Stalwart" description={t("The mail server: who fills its outgoing queue, locking a leaked account, and its log per day.")} guide={STALWART_GUIDE}>
-                    <StalwartSettingsCard />
-                    <MailQueueCard />
-                    <MailboxesCard />
-                    <LogSendersCard />
+                    <StalwartTabs />
                   </IntegrationCardPage>
                 </SuperAdminRoute>
               }
