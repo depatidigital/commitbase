@@ -35,7 +35,7 @@ const LABELS: Record<SystemTarget, { title: string; path: string; note: string }
   packageCaches: {
     title: "Package caches",
     path: "npm, Yarn, pnpm, pip, Composer, Bun — root, users, build user",
-    note: "The next install downloads again.",
+    note: "The next install downloads again. Of pnpm's store only packages no app uses — the size is what is really freed.",
   },
   docker: { title: "Docker leftovers", path: "dangling images, build cache", note: "Containers and tagged images are kept." },
   podman: {
@@ -133,6 +133,19 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
                     <span className="font-medium">{t(LABELS[id].title)}</span>
                     <span className="block truncate font-mono text-xs text-muted-foreground">{LABELS[id].path}</span>
                     {LABELS[id].note && <span className="block text-xs text-muted-foreground">{t(LABELS[id].note)}</span>}
+                    {/* which log keeps growing: fixed at its source, or it fills up again */}
+                    {id === "rotatedLogs" && !!data.rotatedTop?.length && (
+                      <span className="mt-1 block space-y-0.5 text-xs text-muted-foreground">
+                        {data.rotatedTop.map((group) => (
+                          <span key={group.log} className="flex justify-between gap-3">
+                            <span className="truncate font-mono">
+                              {group.log} <span className="font-sans">({t("{count} files", { count: group.files })})</span>
+                            </span>
+                            <span className="shrink-0">{bytes(group.bytes)}</span>
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </span>
                   <span className="w-20 text-right font-medium">{bytes(data.targets[id])}</span>
                 </label>

@@ -23,7 +23,9 @@
     "check:usage-meter": "tsx src/services/usageMeterService.check.ts",
     "check:ai-money": "tsx src/services/aiGatewayService.check.ts",
     "check:wallet": "tsx src/services/walletService.check.ts",
-    "check:email-rules": "tsx src/lib/emailRules.check.ts"
+    "check:email-rules": "tsx src/lib/emailRules.check.ts",
+    "check:app-disk": "tsx src/services/appDiskService.check.ts",
+    "check:system-cleanup": "tsx src/services/systemCleanupService.check.ts"
   },
   "keywords": [
     "api",

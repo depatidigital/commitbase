@@ -20,9 +20,13 @@ const ROTATED_LOGS = `find /var/log -type f \\( -name '*.gz' -o -name '*.[0-9]' 
 // the apps' logs, and pm2's own (pm2.log, the daemon's)
 const PM2_LOGS = `find /root/.pm2/logs /home/*/.pm2/logs /root/.pm2/pm2.log /home/*/.pm2/pm2.log -type f -name '*.log'`;
 // every package manager's download cache, in root's home, the users' and the build user's (/var/lib/larika-build)
-const CACHE_DIRS = ['.npm/_cacache', '.cache/yarn', '.local/share/pnpm/store', '.cache/pnpm', '.cache/pip', '.cache/composer', '.composer/cache', '.bun/install/cache'];
+const CACHE_DIRS = ['.npm/_cacache', '.cache/yarn', '.cache/pnpm', '.cache/pip', '.cache/composer', '.composer/cache', '.bun/install/cache'];
 const HOMES = ['/root', '/home/*', '/var/lib/*'];
 const PKG_CACHES = HOMES.flatMap((home) => CACHE_DIRS.map((dir) => `${home}/${dir}`)).join(' ');
+// pnpm's store is not emptied: node_modules everywhere are hardlinks into it. Like `pnpm store prune`
+// (which needs a pnpm on root's PATH), only content files nothing else links go; the index stays,
+// and a package whose files went is fetched again by the next install that wants it
+const PNPM_UNLINKED = `find ${HOMES.map((home) => `${home}/.local/share/pnpm/store`).join(' ')} -path '*/files/*' -type f -links 1 ! -name '*-index.json'`;
 // other toolchains' download and build caches — rebuilt on the next build. Not the headless
 // browsers (puppeteer, playwright): a running app may launch Chromium from there
 const BUILD_DIRS = ['.cache/node-gyp', '.cache/go-build', 'go/pkg/mod', '.gradle/caches', '.m2/repository', '.cargo/registry', '.nvm/.cache', '.cache/typescript'];
@@ -56,8 +60,8 @@ export const SYSTEM_TARGETS = {
     clean: 'apt-get clean',
   },
   packageCaches: {
-    measure: du(PKG_CACHES),
-    clean: `rm -rf -- ${PKG_CACHES}`,
+    measure: `{ ${du(PKG_CACHES)}; ${sum(PNPM_UNLINKED)}; } | awk '{s+=$1} END{print s+0}'`,
+    clean: `rm -rf -- ${PKG_CACHES}; ${PNPM_UNLINKED} -delete 2>/dev/null; true`,
   },
   buildCaches: {
     measure: du(BUILD_CACHES),
@@ -213,6 +217,31 @@ export async function measureSystem(node: SshTarget): Promise<Partial<Record<Sys
     if (id in SYSTEM_TARGETS && value && /^\d+$/.test(value.trim())) out[id as SystemTarget] = Number(value);
   }
   return out;
+}
+
+/**
+ * `<bytes>\t<path>` lines grouped by the log they were rotated from
+ * (syslog.1, syslog.2.gz → /var/log/syslog), biggest first. Pure.
+ */
+export function groupRotated(stdout: string, limit = 5): Array<{ log: string; bytes: number; files: number }> {
+  const groups = new Map<string, { log: string; bytes: number; files: number }>();
+  for (const line of stdout.split('\n')) {
+    const tab = line.indexOf('\t');
+    if (tab < 1) continue;
+    // name.1, name.2.gz, name.old, name-20260901.gz
+    const log = line.slice(tab + 1).replace(/(\.gz|\.xz)$/, '').replace(/(\.\d+|\.old|-\d{8})$/, '');
+    const group = groups.get(log) ?? { log, bytes: 0, files: 0 };
+    group.bytes += Number(line.slice(0, tab)) || 0;
+    group.files += 1;
+    groups.set(log, group);
+  }
+  return [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, limit);
+}
+
+/** Which logs the rotated files come from — so the one that grows is named, not only summed. */
+export async function rotatedLogsTop(node: SshTarget) {
+  const { stdout } = await execRoot(node, ['sh', '-c', `${ROTATED_LOGS} -printf '%s\\t%p\\n' 2>/dev/null; true`], { timeout: 120_000 });
+  return groupRotated(stdout);
 }
 
 /** Clean the chosen targets, one after the other; one that fails is reported, not fatal. */

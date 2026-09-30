@@ -31,9 +31,11 @@ export interface CreateDatabaseData {
   /** the part after the org prefix: lowercase letters, digits, underscores */
   name: string;
   /** the engine; taken from the server when one is chosen */
-  type?: 'POSTGRESQL' | 'MYSQL';
+  type?: 'POSTGRESQL' | 'MYSQL' | 'REDIS';
   /** the server to create it on — else the organization's server for the engine */
   databaseServerId?: string;
+  /** REDIS: the node the workspace's Redis runs on — else the app's node, else the workspace default */
+  serverId?: string;
   login?: LoginChoice;
   /** owner — or leave it to the app's organization */
   organizationId?: string;

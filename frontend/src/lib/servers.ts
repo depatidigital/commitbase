@@ -226,6 +226,8 @@ export type SystemTarget = (typeof SYSTEM_TARGETS)[number];
 export interface SystemCleanup {
   targets: Partial<Record<SystemTarget, number>>;
   disk: ServerDisk['disk'];
+  /** the logs the rotated files come from, biggest first */
+  rotatedTop?: Array<{ log: string; bytes: number; files: number }>;
 }
 
 export const getSystemCleanup = async (id: string): Promise<SystemCleanup> =>

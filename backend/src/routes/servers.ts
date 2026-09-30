@@ -16,7 +16,7 @@ import { canEncrypt, encrypt } from '../lib/secretBox';
 import { appsOnServer, syncNodeIpsToCloudflare } from '../lib/servers';
 import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
-import { cleanSystem, measureSystem, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
+import { cleanSystem, measureSystem, rotatedLogsTop, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
 import { growDisk, inspectDisk } from '../services/diskGrowService';
 import { dockerView, importDockerContainer } from '../services/dockerAdoptService';
 import { caddyHostsOf, logSsl, provisionCertificates, provisionInBackground, sslRunning } from '../services/sslProvisionService';
@@ -581,11 +581,16 @@ router.get('/:id/disk', authenticateToken, requireRole(['SUPERADMIN']), async (r
       select: { id: true, name: true, domains: { select: { host: true }, orderBy: { host: 'asc' } } },
       orderBy: { name: 'asc' },
     });
-    const rows = [];
-    for (const app of apps) {
-      const disk = await appDiskUsage(app.id).catch(() => null);
-      rows.push({ ...app, totalBytes: disk?.totalBytes ?? null, reclaimableBytes: disk?.reclaimableBytes ?? 0, cacheBytes: disk?.cacheBytes ?? 0 });
-    }
+    // four apps at a time: each is several SSH round trips, mostly waiting; more would crowd the disk with du
+    const rows: Array<(typeof apps)[number] & { totalBytes: number | null; reclaimableBytes: number; cacheBytes: number }> = [];
+    const queue = [...apps];
+    const worker = async () => {
+      for (let app = queue.shift(); app; app = queue.shift()) {
+        const disk = await appDiskUsage(app.id).catch(() => null);
+        rows.push({ ...app, totalBytes: disk?.totalBytes ?? null, reclaimableBytes: disk?.reclaimableBytes ?? 0, cacheBytes: disk?.cacheBytes ?? 0 });
+      }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
     rows.sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0));
     return res.json({ success: true, data: { disk: await nodeDisk(server), apps: rows } } as ApiResponse);
   } catch (error: any) {
@@ -631,7 +636,8 @@ router.get('/:id/system-cleanup', authenticateToken, requireRole(['SUPERADMIN'])
   try {
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
-    return res.json({ success: true, data: { targets: await measureSystem(server), disk: await nodeDisk(server) } } as ApiResponse);
+    const [targets, disk, rotatedTop] = await Promise.all([measureSystem(server), nodeDisk(server), rotatedLogsTop(server).catch(() => [])]);
+    return res.json({ success: true, data: { targets, disk, rotatedTop } } as ApiResponse);
   } catch (error: any) {
     console.error('Error measuring system cleanup:', error);
     return res.status(502).json({ success: false, error: error?.stderr || error?.message || 'Could not measure the node' } as ApiResponse);

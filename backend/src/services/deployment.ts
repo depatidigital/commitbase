@@ -23,7 +23,7 @@ import { forwardTcp } from '../lib/runner';
 import * as systemd from './systemdService';
 import * as compose from './composeService';
 import * as http from 'http';
-import { cleanupAppReleases } from './appDiskService';
+import { cleanupAppReleases, pruneNextCache } from './appDiskService';
 import { buildKeyOf, groupBuildKey } from '../lib/buildKey';
 import { restoreSnapshot, snapshotDatabase, type Snapshot } from './databaseSnapshotService';
 import { resetDatabase } from './databaseProvisionService';
@@ -1569,7 +1569,8 @@ export class DeploymentService {
       const snapshots: Snapshot[] = [];
       if ((application.preDeployCommand && !config.skipPreDeploy) || config.resetDatabase) {
         const databases = await prisma.database.findMany({
-          where: { applicationId: application.id, discovered: false, status: 'RUNNING' },
+          // Redis has no snapshot and is no migration's target
+          where: { applicationId: application.id, discovered: false, status: 'RUNNING', type: { not: 'REDIS' } },
           select: { id: true, dbName: true },
         });
         for (const db of databases) {
@@ -1767,6 +1768,7 @@ export class DeploymentService {
 
       // the new release is live and recorded: whatever fell out of the rollback window goes
       await cleanupAppReleases(afs, application.id).catch(() => {});
+      await pruneNextCache(afs).catch(() => {});
 
       await prisma.application.update({
         where: { id: application.id },

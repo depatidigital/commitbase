@@ -124,6 +124,10 @@ model OrgNode {
   meterJournalBytes BigInt?
   meterAt           DateTime?
 
+  /// The org's own Redis on this node (cb-org-redis): its password, AES-256-GCM
+  /// (secretBox). Null until the first Redis database here. Port: redisPortFor(uid).
+  redisPasswordEnc  String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -1953,7 +1953,7 @@ router.get('/:id/disk', authenticateToken, async (req: AuthenticatedRequest, res
       select: { id: true },
     });
     if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
-    const disk = await appDiskUsage(application.id);
+    const disk = await appDiskUsage(application.id, undefined, true);
     // the Storage card's Refresh is also "measure now" for the project list
     if (disk) await prisma.application.update({ where: { id: application.id }, data: { diskBytes: BigInt(disk.totalBytes), diskMeasuredAt: new Date() } });
     else void measureAppDisk(application.id).catch(() => {});

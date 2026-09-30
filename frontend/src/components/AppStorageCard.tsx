@@ -128,6 +128,29 @@ export function AppStorageCard({ appId, deploying, title }: { appId: string; dep
                   </span>
                 </div>
               ))}
+              {/* what the live release is made of: the five biggest, the rest together */}
+              {!!disk.liveParts?.length && (
+                <div className="space-y-1 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  {[
+                    ...disk.liveParts.slice(0, 5),
+                    ...(disk.liveParts.length > 5
+                      ? [{ name: t("Other"), bytes: disk.liveParts.slice(5).reduce((sum, part) => sum + part.bytes, 0) }]
+                      : []),
+                  ].map((part) => (
+                    <div key={part.name} className="flex justify-between pl-4">
+                      <span className="font-mono">{part.name}</span>
+                      <span>{bytes(part.bytes)}</span>
+                    </div>
+                  ))}
+                  {!!disk.liveSharedBytes && (
+                    <p className="pl-4 pt-1">
+                      {t("{size} of it is hardlinked (pnpm's store or the previous release): counted here, stored once.", {
+                        size: bytes(disk.liveSharedBytes),
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
               {/* only a Next.js app has one — elsewhere a 0 B row just confuses */}
               {disk.cacheBytes > 0 && (
                 <div className="flex justify-between px-3 py-2 text-muted-foreground">

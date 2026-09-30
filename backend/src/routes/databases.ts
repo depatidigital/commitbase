@@ -19,6 +19,7 @@ import {
   databaseName,
   dropDatabase,
   grantAccess,
+  DB_NAME_RE,
   ownerRoleName,
   provisionDatabase,
   resolveAccount,
@@ -34,6 +35,7 @@ import {
 } from '../services/databaseImportService';
 import { streamBackup } from '../services/databaseBackupService';
 import { listSnapshots, restoreSnapshot } from '../services/databaseSnapshotService';
+import { freeRedisIndex, redisCredentials } from '../services/redisService';
 
 const router: Router = Router();
 
@@ -379,7 +381,7 @@ router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Res
 // Create new database
 router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, type: requestedType, databaseServerId, login, organizationId: requestedOrg, applicationId } =
+    const { name, type: requestedType, databaseServerId, serverId: requestedNode, login, organizationId: requestedOrg, applicationId } =
       CreateDatabaseSchema.parse(req.body);
 
     // The owner is the app's organization, or the one asked for. Either way the
@@ -406,9 +408,46 @@ router.post('/', authenticateToken, validateRequest(CreateDatabaseSchema), async
 
     const organization = await prisma.organization.findUnique({
       where: { id: organizationId },
-      select: { id: true, slug: true, postgresServerId: true, mysqlServerId: true },
+      select: { id: true, slug: true, postgresServerId: true, mysqlServerId: true, defaultServerId: true },
     });
     if (!organization) return res.status(404).json({ success: false, error: 'Organization not found' } as ApiResponse);
+
+    // Redis: a numbered database in the workspace's own Redis on one node
+    if (requestedType === 'REDIS') {
+      const appNode = applicationId ? await serverForApplication(applicationId).catch(() => null) : null;
+      const onlyNode = await prisma.orgNode.findMany({ where: { organizationId, state: 'DONE' }, select: { serverId: true }, take: 2 });
+      const serverId = appNode?.id ?? requestedNode ?? organization.defaultServerId ?? (onlyNode.length === 1 ? onlyNode[0]!.serverId : null);
+      if (!serverId) return res.status(400).json({ success: false, error: 'Choose the node the Redis runs on' } as ApiResponse);
+      if (!DB_NAME_RE.test(name)) {
+        return res.status(400).json({ success: false, error: 'Database names use lowercase letters, digits and underscores, and start with a letter' } as ApiResponse);
+      }
+      const dbName = `${organization.slug.replace(/-/g, '_')}_${name}`;
+      if (await prisma.database.findFirst({ where: { organizationId, type: 'REDIS', dbName } })) {
+        return res.status(409).json({ success: false, error: `A Redis database named ${dbName} already exists` } as ApiResponse);
+      }
+      const index = await freeRedisIndex(organizationId, serverId);
+      const database = await prisma.database.create({
+        data: {
+          name,
+          type: 'REDIS',
+          status: 'CREATING',
+          dbName,
+          organizationId,
+          createdById: req.user!.userId,
+          config: { serverId, index },
+          ...(applicationId && { applicationId }),
+        },
+      });
+      const result = await provisionDatabase(database.id);
+      const fresh = await prisma.database.findUnique({ where: { id: database.id } });
+      return res.status(result.ok ? 201 : 502).json({
+        success: result.ok,
+        data: fresh,
+        ...(result.ok
+          ? { message: `Redis database ${dbName} created` }
+          : { error: `The database was recorded but Redis could not be started on the node: ${result.error}` }),
+      } as ApiResponse);
+    }
 
     // Any server may be chosen; without one, the organization's server for the
     // engine. The engine then comes from the server.
@@ -538,6 +577,14 @@ const DB_ENV: Record<string, (c: Credentials) => string | null> = {
   POSTGRES_PASSWORD: (c) => (c.engine === 'POSTGRESQL' ? c.password : null),
 };
 
+/** Redis' names beside REDIS_URL: Laravel's REDIS_*, and REDIS_DB for most Node clients. */
+const REDIS_ENV: Record<string, (c: { host: string; port: number; password: string; database: string }) => string> = {
+  REDIS_HOST: (c) => c.host,
+  REDIS_PORT: (c) => String(c.port),
+  REDIS_PASSWORD: (c) => c.password,
+  REDIS_DB: (c) => c.database,
+};
+
 /**
  * Loopback seen from a container is the container itself: a stack on the
  * database's own node reaches the host as host.containers.internal (Podman's
@@ -575,6 +622,31 @@ router.post('/:id/attach', authenticateToken, async (req: AuthenticatedRequest, 
     const ownerOrg = database.organizationId ?? database.application?.organizationId ?? null;
     if (ownerOrg && application.organizationId !== ownerOrg) {
       return res.status(400).json({ success: false, error: 'That database belongs to another organization' } as ApiResponse);
+    }
+
+    if (database.type === 'REDIS') {
+      const appNode = await serverForApplication(application.id).catch(() => null);
+      const reached = await redisCredentials(database, appNode?.id ?? null);
+      const credentials = application.type === 'COMPOSE' ? forContainers(reached) : reached;
+      const redisKey = req.body?.envKey ? envKey : 'REDIS_URL';
+      // the names Laravel, BullMQ and friends read, when the app asked for them
+      const also = (Array.isArray(req.body?.alsoKeys) ? req.body.alsoKeys : []).map(String).filter((key: string) => key in REDIS_ENV && key !== redisKey);
+      const filled: Record<string, string> = { [redisKey]: credentials.url };
+      for (const key of also) filled[key] = REDIS_ENV[key]!(credentials);
+      await prisma.$transaction([
+        ...(database.applicationId ? [] : [prisma.database.update({ where: { id: database.id }, data: { applicationId: application.id } })]),
+        prisma.application.update({ where: { id: application.id }, data: { envVars: sealEnv({ ...readEnv(application.envVars), ...filled }) } }),
+        prisma.log.create({
+          data: {
+            level: 'INFO',
+            message: `Credentials of Redis database ${database.dbName} written to ${Object.keys(filled).join(', ')}`,
+            userId: req.user!.userId,
+            applicationId: application.id,
+            metadata: { databaseId: database.id, keys: Object.keys(filled) },
+          },
+        }),
+      ]);
+      return res.json({ success: true, data: { envKey: redisKey, keys: Object.keys(filled), database: database.dbName } } as ApiResponse);
     }
 
     // Which login the app connects as: the one asked for — else the organization's
@@ -717,6 +789,7 @@ async function importable(req: AuthenticatedRequest, id: string) {
   if (database.discovered && !database.applicationId) {
     return { status: 400, error: 'This database was imported from its server — attach it to its app first, so its login is known' } as const;
   }
+  if (database.type === 'REDIS') return { status: 400, error: 'Backups and imports are for PostgreSQL and MySQL databases' } as const;
   if (database.status !== 'RUNNING' || !database.dbName) return { status: 400, error: 'The database is not ready yet' } as const;
   return { database };
 }

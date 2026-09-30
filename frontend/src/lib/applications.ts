@@ -821,6 +821,10 @@ export type ReleaseState = 'live' | 'rollback' | 'unused';
 /** What an app's tree on its node costs. Shared files are counted once, on the live release. */
 export interface AppDisk {
   releases: Array<{ name: string; bytes: number; state: ReleaseState }>;
+  /** the live release by top-level entry, biggest first */
+  liveParts?: Array<{ name: string; bytes: number }>;
+  /** of the live release, files hardlinked elsewhere too (pnpm's store, the previous release) */
+  liveSharedBytes?: number;
   cacheBytes: number;
   logsBytes: number;
   sourcesBytes: number;

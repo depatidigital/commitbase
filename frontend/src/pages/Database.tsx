@@ -76,7 +76,7 @@ const STATUS_LABEL: Record<string, string> = {
   ERROR: t("Error"),
 };
 
-const ENGINE_LABEL: Record<string, string> = { POSTGRESQL: "PostgreSQL", MYSQL: "MySQL" };
+const ENGINE_LABEL: Record<string, string> = { POSTGRESQL: "PostgreSQL", MYSQL: "MySQL", REDIS: "Redis" };
 
 const NAME_RE = /^[a-z][a-z0-9_]{0,40}$/;
 
@@ -286,13 +286,13 @@ export default function Database() {
                 {t("Credentials")}
               </DropdownMenuItem>
             )}
-            {!db.discovered && db.status === "RUNNING" && (
+            {!db.discovered && db.status === "RUNNING" && db.type !== "REDIS" && (
               <DropdownMenuItem disabled={backupMutation.isPending} onClick={() => backupMutation.mutate(db)}>
                 <Download className="mr-2 h-4 w-4" />
                 {t("Download backup")}
               </DropdownMenuItem>
             )}
-            {!db.discovered && db.status === "RUNNING" && (
+            {!db.discovered && db.status === "RUNNING" && db.type !== "REDIS" && (
               <DropdownMenuItem onClick={() => setImporting(db)}>
                 <FileUp className="mr-2 h-4 w-4" />
                 {t("Restore DB (.sql)")}
@@ -341,6 +341,8 @@ export default function Database() {
   }
 
   const nameValid = NAME_RE.test(form.name);
+  // Redis runs on a node the workspace is provisioned on
+  const redisNodes = (chosenOrg?.nodes ?? []).filter((node) => node.state === "DONE");
   const preview = chosenOrg && nameValid ? `${chosenOrg.slug.replace(/-/g, "_")}_${form.name}` : null;
 
   return (
@@ -399,9 +401,32 @@ export default function Database() {
                   <SelectContent>
                     <SelectItem value="POSTGRESQL">PostgreSQL</SelectItem>
                     <SelectItem value="MYSQL">MySQL</SelectItem>
+                    <SelectItem value="REDIS">Redis</SelectItem>
                   </SelectContent>
                 </Select>
+                {form.type === "REDIS" && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("One of the 16 databases of the workspace's own Redis on the node, started the first time. Apps on that node only.")}
+                  </p>
+                )}
               </div>
+              {form.type === "REDIS" && redisNodes.length > 1 && (
+                <div className="space-y-2">
+                  <Label htmlFor="db-node">{t("Node")}</Label>
+                  <Select value={form.serverId ?? chosenOrg?.defaultServer?.id ?? ""} onValueChange={(v) => setForm({ ...form, serverId: v })}>
+                    <SelectTrigger id="db-node">
+                      <SelectValue placeholder={t("Choose a node")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {redisNodes.map((node) => (
+                        <SelectItem key={node.serverId} value={node.serverId}>
+                          {node.server.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="db-name">{t("Name")}</Label>
                 <Input

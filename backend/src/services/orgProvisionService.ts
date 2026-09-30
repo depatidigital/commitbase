@@ -36,9 +36,10 @@ import { ORG_SLUG_RE, APP_ID_RE, osUserFor } from '../lib/appPaths';
 
 // Same depth from src/services (tsx) and dist/services (node): backend/<x>/services → repo root.
 const RUNNER_DIR = path.resolve(__dirname, '../../../runner');
+type RunnerScript = 'cb-provision-org' | 'cb-app-unit' | 'cb-org-redis';
 const scripts = new Map<string, string>();
 
-function script(name: 'cb-provision-org' | 'cb-app-unit'): string {
+function script(name: RunnerScript): string {
   let text = scripts.get(name);
   if (!text) {
     // LF only: a checkout on Windows (git autocrlf) has CRLF, and bash on the node
@@ -69,13 +70,13 @@ function assertSlug(slug: string) {
 }
 
 /** Run one runner script as root on the node, its text sent inline. $0 is the script name. */
-function runScript(server: SshTarget, name: 'cb-provision-org' | 'cb-app-unit', args: string[], opts: ExecOptions = {}) {
+function runScript(server: SshTarget, name: RunnerScript, args: string[], opts: ExecOptions = {}) {
   return execRoot(server, ['bash', '-c', script(name), name, ...args], opts);
 }
 
 async function sudo(
   server: SshTarget,
-  name: 'cb-provision-org' | 'cb-app-unit',
+  name: RunnerScript,
   args: string[],
   timeout = 60_000,
   onOutput?: (text: string) => void,
@@ -148,6 +149,17 @@ export async function provisionOrgOnNode(
   const uid = await uidFor(org, node);
   // minutes on a fresh node: the group, users, quota and PHP-FPM pool — a minute is not enough
   return sudo(node, 'cb-provision-org', [org.slug, diskQuota, cpuQuota, memoryMax, String(uid)], 10 * 60_000, opts.onOutput);
+}
+
+/**
+ * Start (or repair) the org's own Redis on a node it is provisioned on. The
+ * password is made on the node and read back by the caller (redisService).
+ */
+export async function orgRedisOnNode(slug: string, node: SshTarget, port: number, maxMemory: string): Promise<string> {
+  assertSlug(slug);
+  if (!QUOTA_RE.test(maxMemory)) throw new Error(`Invalid Redis memory cap: ${maxMemory}`);
+  // a fresh node installs the package first
+  return sudo(node, 'cb-org-redis', [slug, String(port), maxMemory], 5 * 60_000);
 }
 
 export type AppUnitAction = 'install' | 'start' | 'stop' | 'restart' | 'remove' | 'status' | 'chown' | 'cancel-build';

@@ -27,6 +27,10 @@ export type ReleaseState = 'live' | 'rollback' | 'unused';
 
 export interface AppDisk {
   releases: Array<{ name: string; bytes: number; state: ReleaseState }>;
+  /** the live release by top-level entry (node_modules, .next, …), biggest first */
+  liveParts: Array<{ name: string; bytes: number }>;
+  /** of the live release, files with other hardlinks (pnpm's store, the previous release): counted in it, stored once */
+  liveSharedBytes: number;
   /** Next.js build cache, shared by every release — rebuilt on the next build if removed */
   cacheBytes: number;
   logsBytes: number;
@@ -57,6 +61,25 @@ async function sizes(afs: AppFs, paths: string[]): Promise<Map<string, number>> 
   return out;
 }
 
+/**
+ * The live release ($1) by top-level entry, then "--", then the bytes of its
+ * files that have other hardlinks, each inode once. Positional args only.
+ */
+export const PARTS_DU =
+  `cd -- "$1" 2>/dev/null || exit 0; du -sb -- * .[!.]* 2>/dev/null; echo --; ` +
+  `find . -type f -links +1 -printf '%i %s\\n' 2>/dev/null | awk '!seen[$1]++ {s+=$2} END{print s+0}'`;
+
+/** Parses PARTS_DU's output. Pure. */
+export function parseParts(stdout: string): { parts: Array<{ name: string; bytes: number }>; shared: number } {
+  const [du = '', shared = '0'] = stdout.split(/^--$/m);
+  const parts = du
+    .split('\n')
+    .map((line) => ({ bytes: Number(line.split('\t')[0]) || 0, name: line.slice(line.indexOf('\t') + 1) }))
+    .filter((part) => part.name && part.bytes > 0)
+    .sort((a, b) => b.bytes - a.bytes);
+  return { parts, shared: Number(shared.trim()) || 0 };
+}
+
 /** Every release directory with its state, the live one first. */
 async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
   const dir = releasesDirFor(afs.appDir);
@@ -79,8 +102,10 @@ async function releasesOf(afs: AppFs, applicationId: string, keep: number) {
   return { releases, ready };
 }
 
-/** The disk use of the app's tree on its node. Null for a static site — its files are in R2. */
-export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES): Promise<AppDisk | null> {
+/**
+ * The disk use of the app's tree on its node. Null for a static site — its files are in R2.
+ * withParts: also what the live release is made of — a second walk of it, so only for the storage card. */
+export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES, withParts = false): Promise<AppDisk | null> {
   const app = await prisma.application.findUnique({ where: { id: applicationId }, include: { organization: { select: { slug: true } } } });
   if (!app) return null;
   if (app.runtime) return importedDisk(app);
@@ -99,9 +124,15 @@ export async function appDiskUsage(applicationId: string, keep = KEEP_RELEASES):
   const sourcesBytes = measured.get(sources) ?? 0;
   // most of a compose app lives outside its folder: what its stack takes in Podman. A node that cannot say leaves it out
   const stack = app.type === 'COMPOSE' ? await stackUsage(app).catch(() => null) : null;
+  const live = releases.find((r) => r.state === 'live');
+  const { parts, shared } = live && withParts
+    ? parseParts((await afs.run(['sh', '-c', PARTS_DU, 'sh', live.path], { timeout: 300_000 }).catch(() => ({ stdout: '' }))).stdout)
+    : { parts: [], shared: 0 };
   const stackBytes = stack ? stack.imagesBytes + stack.containersBytes + stack.volumesBytes + stack.logsBytes : 0;
   return {
     releases: rows,
+    liveParts: parts,
+    liveSharedBytes: shared,
     cacheBytes,
     logsBytes,
     sourcesBytes,
@@ -141,7 +172,7 @@ async function importedDisk(app: { id: string; rootPath: string | null; processN
   const [folder = '0', logs = '0'] = stdout.trim().split('\n');
   const sourcesBytes = Number(folder) || 0;
   const logsBytes = Number(logs) || 0;
-  return { releases: [], cacheBytes: 0, logsBytes, sourcesBytes, stack: null, imported: true, totalBytes: sourcesBytes + logsBytes, reclaimableBytes: 0 };
+  return { releases: [], liveParts: [], liveSharedBytes: 0, cacheBytes: 0, logsBytes, sourcesBytes, stack: null, imported: true, totalBytes: sourcesBytes + logsBytes, reclaimableBytes: 0 };
 }
 
 /**
@@ -180,6 +211,23 @@ export async function cleanupAppReleases(
     removed.push('next-cache');
   }
   return { removed };
+}
+
+/** Days a Next build-cache file may go unwritten before it is pruned. */
+export const NEXT_CACHE_DAYS = Math.max(1, Number(process.env.NEXT_CACHE_DAYS) || 7);
+
+/**
+ * Next's build cache never shrinks by itself: files not written for
+ * NEXT_CACHE_DAYS go, after a deploy (no build of this app is running then).
+ * Not images/ — the running site serves its optimized images from there.
+ * ponytail: by age, so a stale-but-still-referenced pack can go too; the next
+ * build then misses that part and rebuilds it, nothing breaks.
+ */
+export async function pruneNextCache(afs: AppFs): Promise<void> {
+  await afs.run(
+    ['sh', '-c', `find "$1"/next-cache* -type f -mtime +${NEXT_CACHE_DAYS} ! -path '*/images/*' -delete 2>/dev/null; true`, 'sh', sharedDirFor(afs.appDir)],
+    { timeout: 120_000 },
+  );
 }
 
 /** Measured before and after, so what was freed is a fact, not an estimate. */

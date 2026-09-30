@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { decrypt, encrypt } from '../lib/secretBox';
 import { withAdmin, type AdminSession, type DbServerRow } from './databaseServerService';
 import { readEnv } from '../lib/appEnv';
+import { flushRedisDatabase, provisionRedisDatabase, redisCredentials } from './redisService';
 
 /**
  * Creating and dropping tenant databases, and the logins that reach them.
@@ -285,6 +286,7 @@ export async function grantAccess(databaseId: string, accountId: string): Promis
 export async function provisionDatabase(id: string): Promise<{ ok: boolean; error?: string }> {
   const db = await loadDatabase(id);
   if (!db) throw new ProvisionError('Database not found');
+  if (db.type === 'REDIS') return provisionRedisDatabase(id);
   const { dbs, dbName } = requireParts(db);
   if (db.grants.length === 0) throw new ProvisionError('No login has access to this database yet');
 
@@ -361,6 +363,7 @@ export async function provisionDatabase(id: string): Promise<{ ok: boolean; erro
 export async function resetDatabase(id: string): Promise<void> {
   const db = await loadDatabase(id);
   if (!db) throw new ProvisionError('Database not found');
+  if (db.type === 'REDIS') return flushRedisDatabase(db);
   if (db.discovered) throw new ProvisionError("A database the sync found is not the panel's to reset");
   const { dbs, dbName } = requireParts(db);
   await withAdmin(dbs, async (session) => {
@@ -385,6 +388,14 @@ export async function resetDatabase(id: string): Promise<void> {
 export async function dropDatabase(id: string): Promise<void> {
   const db = await loadDatabase(id);
   if (!db) throw new ProvisionError('Database not found');
+  if (db.type === 'REDIS') {
+    await flushRedisDatabase(db).catch(async (error: any) => {
+      const message = String(error?.message ?? error ?? 'flush failed').slice(0, 500);
+      await prisma.database.update({ where: { id }, data: { lastError: `Could not empty: ${message}` } }).catch(() => {});
+      throw new Error(message);
+    });
+    return;
+  }
   if (db.discovered || !db.databaseServer || !db.dbName) return;
   const { dbs, dbName } = requireParts(db);
 
@@ -460,6 +471,7 @@ export function loginFromEnv(env: Record<string, string>, dbName: string): { use
 export async function databaseCredentials(id: string, accountId?: string, appNodeId?: string | null) {
   const db = await loadDatabase(id);
   if (!db) throw new ProvisionError('Database not found');
+  if (db.type === 'REDIS') return redisCredentials(db, appNodeId);
   if (db.discovered) {
     // Not ours: no login of the panel's. The app it is attached to says in its
     // .env (mirrored by the app sync) which one it uses — that one, so a

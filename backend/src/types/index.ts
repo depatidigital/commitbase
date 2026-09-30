@@ -178,6 +178,8 @@ export const CreateDatabaseSchema = z.object({
   type: z.enum(['POSTGRESQL', 'MYSQL', 'MONGODB', 'REDIS', 'SQLITE']).optional(),
   // the server to create it on; else the organization's server for the engine
   databaseServerId: z.string().min(1).optional(),
+  // REDIS: the node its workspace Redis runs on; else the app's node, else the workspace's default
+  serverId: z.string().min(1).optional(),
   // the login that reaches it: one the org has, a new named one, or the org's default
   login: z
     .union([z.object({ accountId: z.string().min(1) }), z.object({ username: z.string().trim().min(1).max(31) })])
