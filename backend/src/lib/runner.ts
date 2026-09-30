@@ -209,6 +209,27 @@ export function connect(server: SshTarget): Promise<Client> {
 }
 
 /**
+ * Open an exec channel on the pooled connection. sshd caps the channels one
+ * connection may hold (MaxSessions, 10 by default) and refuses the next with
+ * "open failed"; a page that measures a node starts more than that at once.
+ * The refused one waits for another to close and tries again.
+ * ponytail: a retry, not a per-node queue — a long log follow would hold a queue slot for hours
+ */
+async function openChannel(client: Client, command: string, hostname: string): Promise<ClientChannel> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await new Promise<ClientChannel>((resolve, reject) => client.exec(command, (err, stream) => (err ? reject(err) : resolve(stream))));
+    } catch (err: any) {
+      // about 30s of retries, then it is a real problem
+      if (!/open failed|open failure/i.test(err?.message ?? '') || attempt >= 60) {
+        throw new Error(`SSH exec on ${hostname} failed: ${err?.message || err}`);
+      }
+      await new Promise((r) => setTimeout(r, 250 + Math.random() * 500));
+    }
+  }
+}
+
+/**
  * Run a command on a node and resolve with its output.
  *
  * `argv` is an argument array, not a shell string, exactly as execFile took —
@@ -223,9 +244,9 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
   const client = await connect(server);
   const command = buildCommand(argv);
 
+  const stream = await openChannel(client, command, server.hostname);
   return new Promise<ExecResult>((resolve, reject) => {
-    client.exec(command, (err, stream: ClientChannel) => {
-      if (err) return reject(new Error(`SSH exec on ${server.hostname} failed: ${err.message}`));
+    {
 
       let stdout = '';
       let stderr = '';
@@ -290,7 +311,7 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
         }
         resolve({ stdout, stderr });
       });
-    });
+    }
   });
 }
 

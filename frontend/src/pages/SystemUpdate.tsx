@@ -66,11 +66,17 @@ export default function SystemUpdate() {
   const running = !!data?.running;
   // unanswered during the restart: expected, not an error to show
   const restarting = startedAt !== null && status.isError;
-  // how the last run ended, from larika-upgrade.sh's own last words: say "==> Done…", die "larika-upgrade: …"
-  const lastLine = data?.log?.trim().split("\n").pop() ?? "";
+  // how the last run ended, from larika-upgrade.sh's own last words (say "==> Done…", die "larika-upgrade: …"),
+  // not the log's last line: npm and friends print after it (a notice box) and would read as a failure
+  const lines = data?.log?.trim().split("\n") ?? [];
+  const marker = [...lines].reverse().find((line) => /^(==> |larika-upgrade: )/.test(line)) ?? "";
+  // the release this run built is the one live now: it went through, whatever the log ends with
+  const built = lines.map((line) => /^==> (?:Building|Switching to) ([0-9a-f]{7})/.exec(line)?.[1]).filter(Boolean).pop();
+  const isLive = !!built && !!data?.current?.sha?.startsWith(built);
   const outcome = running || restarting || !data?.log ? null
-    : /^==> (Done|Already on)/.test(lastLine) ? "ok" as const
+    : isLive || /^==> (Done|Already on)/.test(marker) ? "ok" as const
     : "failed" as const;
+  const lastLine = isLive && !/^==> (Done|Already on)/.test(marker) ? t("{sha} is live", { sha: built! }) : marker;
 
   return (
     <PageLayout

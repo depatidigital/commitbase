@@ -209,7 +209,9 @@ async function cleanPodman(node: SshTarget, id: PodmanTarget): Promise<void> {
 /** Bytes per target; a target missing from the node is left out. */
 export async function measureSystem(node: SshTarget): Promise<Partial<Record<SystemTarget, number>>> {
   const ids = Object.keys(SYSTEM_TARGETS) as (keyof typeof SYSTEM_TARGETS)[];
-  const script = ids.map((id) => `printf '${id}\\t%s\\n' "$(${SYSTEM_TARGETS[id].measure})"`).join('\n');
+  // all at once, so the whole takes as long as the slowest (the pnpm store walk, docker df), not their sum;
+  // each answer is one short printf, a single write that does not interleave with another's
+  const script = ids.map((id) => `( printf '${id}\\t%s\\n' "$(${SYSTEM_TARGETS[id].measure})" ) &`).join('\n') + '\nwait';
   const [{ stdout }, podman] = await Promise.all([execRoot(node, ['sh', '-c', script], { timeout: 300_000 }), measurePodman(node)]);
   const out: Partial<Record<SystemTarget, number>> = { ...podman };
   for (const line of stdout.split('\n')) {

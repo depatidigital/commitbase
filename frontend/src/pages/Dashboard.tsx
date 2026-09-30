@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ChevronRight, CornerUpRight, Globe, HardDrive, Loader2, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CornerUpRight, Globe, HardDrive, Loader2, Mail, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
@@ -19,6 +19,7 @@ import { formatBytes } from "@/lib/utils";
 import { DiskBar } from "@/components/DiskBar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Favicon } from "@/components/Favicon";
+import { getMailQueue, getStalwartConfig } from "@/lib/stalwart";
 
 const TONE_TEXT: Record<Tone, string> = {
   up: "text-success",
@@ -82,6 +83,12 @@ export default function Dashboard() {
   // every server's disk, fullest first — which one wants a cleanup (superadmin)
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: getServers, enabled: superAdmin, refetchInterval: 60_000 });
   const disks = servers.filter((server) => server.disk).sort((a, b) => diskUsedPct(b.disk) - diskUsedPct(a.disk));
+
+  // the mail server's outgoing queue: a leaked mailbox shows as one sender with thousands (superadmin, once Stalwart is connected)
+  const { data: stalwart } = useQuery({ queryKey: ["integrations", "stalwart"], queryFn: getStalwartConfig, enabled: superAdmin, retry: false });
+  const mailOn = superAdmin && !!stalwart?.passwordSet;
+  const { data: mailQueue, error: mailError } = useQuery({ queryKey: ["stalwart", "queue"], queryFn: getMailQueue, enabled: mailOn, refetchInterval: 5 * 60_000, retry: false });
+  const floods = (mailQueue?.senders ?? []).filter((s) => s.messages >= (stalwart?.alertThreshold ?? 500));
 
   // what the workspace stores, largest app first — disk, R2 and (for its owners) its journal logs
   // ponytail: the first 100 apps (the API's page cap) make the total; a summary endpoint past that
@@ -311,6 +318,38 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+      {mailOn && (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Mail className="h-4 w-4" />
+              <Link to="/integrations/stalwart" className="hover:text-primary">{t("Mail queue")}</Link>
+            </CardTitle>
+            <p className={`text-2xl font-semibold ${floods.length ? "text-destructive" : ""}`} title={t("Messages waiting to go out")}>
+              {mailQueue ? mailQueue.total.toLocaleString(locale) : "—"}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {mailError ? (
+              <p className="text-sm text-destructive">{(mailError as Error).message}</p>
+            ) : mailQueue && mailQueue.total === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("Nothing waiting to go out.")}</p>
+            ) : (
+              <ul className="divide-y">
+                {(mailQueue?.senders ?? []).slice(0, 5).map((s) => (
+                  <li key={s.sender}>
+                    <Link to="/integrations/stalwart" className="flex items-center gap-2 py-2 text-sm hover:text-primary">
+                      <span className="min-w-0 flex-1 truncate font-medium">{s.sender}</span>
+                      {s.messages >= (stalwart?.alertThreshold ?? 500) && <span className="shrink-0 rounded bg-destructive px-1.5 text-xs text-destructive-foreground">{t("Flood")}</span>}
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.messages.toLocaleString(locale)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {superAdmin && disks.length > 0 && (
         <Card>

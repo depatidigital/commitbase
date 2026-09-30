@@ -49,3 +49,39 @@ export const lockMailAccount = async (email: string) =>
   unwrap(await apiRequest<{ id: string; email: string }>('/stalwart/accounts/lock', { method: 'POST', body: JSON.stringify({ email }) }), t('Could not lock the account'));
 export const getLogSenders = async (day: string) =>
   unwrap(await apiRequest<LogSender[]>(`/stalwart/log-senders?day=${encodeURIComponent(day)}`), t('Could not read the log'));
+
+export interface Mailbox {
+  id: string;
+  email: string;
+  description: string | null;
+  type: string;
+  role: string | null;
+  /** bytes its mail takes */
+  usedBytes: number;
+  /** the cap on it, null when none */
+  quotaBytes: number | null;
+  /** how it can log in (Password, AppPassword, ApiKey); empty = locked */
+  credentials: string[];
+  createdAt: string | null;
+}
+
+export const getMailboxes = async () => unwrap(await apiRequest<Mailbox[]>('/stalwart/accounts'), t('Could not list the mailboxes'));
+
+export interface Folder {
+  id: string;
+  name: string;
+  role: string | null;
+  emails: number;
+  /** a running (or finished) empty of this folder */
+  emptying: { deleted: number; running: boolean; error: string | null } | null;
+}
+
+const post = (path: string, body: unknown, method = 'POST') => apiRequest(path, { method, body: JSON.stringify(body) });
+export const setMailboxQuota = async (email: string, bytes: number | null) =>
+  unwrap(await post('/stalwart/accounts/quota', { email, bytes }, 'PUT'), t('Could not set the quota'));
+export const deleteMailbox = async (email: string, confirm: string) =>
+  unwrap(await post('/stalwart/accounts/delete', { email, confirm }), t('Could not delete the mailbox'));
+export const getMailboxFolders = async (email: string) =>
+  unwrap(await apiRequest<Folder[]>(`/stalwart/accounts/folders?email=${encodeURIComponent(email)}`), t('Could not read the folders'));
+export const emptyMailboxFolder = async (email: string, folderId: string) =>
+  unwrap(await post('/stalwart/accounts/folders/empty', { email, folderId }), t('Could not empty the folder'));

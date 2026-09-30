@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma';
 import { canEncrypt, encrypt } from '../lib/secretBox';
 import { getStalwartValue, setStalwartValue, STALWART_ALERT_THRESHOLD, STALWART_LOG_DIR } from '../services/integrationConfigService';
 import { syncNodeIpAllowlists } from '../lib/servers';
-import { cancelQueue, checkStalwart, getQueue, lockAccount, logSenders, StalwartError } from '../services/stalwartService';
+import { cancelQueue, checkStalwart, deleteMailbox, emptyFolder, getQueue, listMailboxes, lockAccount, logSenders, mailboxFolders, setDiskQuota, StalwartError } from '../services/stalwartService';
 
 // Mounted superadmin-only in index.ts: the Stalwart mail server — who fills its
 // outgoing queue, cancelling that mail, locking the account, its log per day.
@@ -100,6 +100,15 @@ router.post('/queue/cancel', async (req: AuthenticatedRequest, res: Response) =>
   }
 });
 
+/** Every mailbox with its disk use and whether it can still log in. */
+router.get('/accounts', async (_req, res: Response) => {
+  try {
+    return res.json({ success: true, data: await listMailboxes() } as ApiResponse);
+  } catch (error) {
+    return fail(res, error, 'list the mailboxes');
+  }
+});
+
 router.post('/accounts/lock', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const locked = await lockAccount(String(req.body?.email ?? ''));
@@ -107,6 +116,56 @@ router.post('/accounts/lock', async (req: AuthenticatedRequest, res: Response) =
     return res.json({ success: true, data: locked } as ApiResponse);
   } catch (error) {
     return fail(res, error, 'lock the account');
+  }
+});
+
+/** A disk quota in bytes; 0 or null lifts it. */
+router.put('/accounts/quota', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const bytes = req.body?.bytes === null ? null : Number(req.body?.bytes);
+    if (bytes !== null && !(bytes >= 0)) return res.status(400).json({ success: false, error: 'The quota is a number of bytes' } as ApiResponse);
+    await setDiskQuota(String(req.body?.email ?? ''), bytes || null);
+    console.log(`Stalwart: ${req.user!.email} set the quota of ${req.body?.email} to ${bytes || 'none'}`);
+    return res.json({ success: true } as ApiResponse);
+  } catch (error) {
+    return fail(res, error, 'set the quota');
+  }
+});
+
+/** Deletes the mailbox and its mail for good: `confirm` must repeat the address. */
+router.post('/accounts/delete', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (!email || String(req.body?.confirm ?? '').trim().toLowerCase() !== email) {
+      return res.status(400).json({ success: false, error: 'Type the address to confirm' } as ApiResponse);
+    }
+    await deleteMailbox(email);
+    console.log(`Stalwart: ${req.user!.email} deleted the mailbox ${email}`);
+    return res.json({ success: true } as ApiResponse);
+  } catch (error) {
+    return fail(res, error, 'delete the mailbox');
+  }
+});
+
+/** A mailbox's folders and their message counts. ?email= */
+router.get('/accounts/folders', async (req, res: Response) => {
+  try {
+    return res.json({ success: true, data: await mailboxFolders(String(req.query.email ?? '')) } as ApiResponse);
+  } catch (error) {
+    return fail(res, error, 'read the folders');
+  }
+});
+
+/** Starts deleting every message in one folder, in the background; the folders list shows how far it got. */
+router.post('/accounts/folders/empty', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const folderId = String(req.body?.folderId ?? '');
+    if (!folderId) return res.status(400).json({ success: false, error: 'Which folder?' } as ApiResponse);
+    await emptyFolder(String(req.body?.email ?? ''), folderId);
+    console.log(`Stalwart: ${req.user!.email} started emptying folder ${folderId} of ${req.body?.email}`);
+    return res.status(202).json({ success: true } as ApiResponse);
+  } catch (error) {
+    return fail(res, error, 'empty the folder');
   }
 });
 

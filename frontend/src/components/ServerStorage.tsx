@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,9 +16,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { cleanupServerDisk, diskTone, diskUsedPct, getServerDisk } from "@/lib/servers";
+import { cleanupServerDisk, diskTone, diskUsedPct, getServerDisk, useMeasured } from "@/lib/servers";
 import { locale, t } from "@/lib/i18n";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, timeAgo } from "@/lib/utils";
 import { ServerSystemCleanup } from "@/components/ServerSystemCleanup";
 
 /**
@@ -34,11 +34,7 @@ export function ServerStorage({ serverId }: { serverId: string }) {
   const [withCache, setWithCache] = useState(false);
   const bytes = (value: number | null | undefined) => formatBytes(value, locale);
 
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: ["servers", serverId, "disk"],
-    queryFn: () => getServerDisk(serverId),
-    staleTime: 60_000,
-  });
+  const { data, isLoading, isFetching, error, refetch, updating } = useMeasured(["servers", serverId, "disk"], (cached) => getServerDisk(serverId, cached));
 
   const cleanup = useMutation({
     mutationFn: () => cleanupServerDisk(serverId, withCache),
@@ -70,6 +66,13 @@ export function ServerStorage({ serverId }: { serverId: string }) {
           <p className="text-sm text-destructive">{(error as Error).message}</p>
         ) : data ? (
           <>
+            {/* the last measurement, shown while a fresh one runs */}
+            {updating && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("Measured {time} · measuring again…", { time: timeAgo(data.measuredAt) })}
+              </p>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-1">
                 {data.disk ? (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Loader2, Lock, RefreshCw, Search } from 'lucide-react';
+import { Ban, FolderOpen, HardDrive, Loader2, Lock, MoreHorizontal, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,24 +18,34 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Column, DataTable, useTableQuery } from '@/components/DataTable';
 import { useToast } from '@/hooks/use-toast';
 import { getServers } from '@/lib/servers';
 import {
   cancelMailQueue,
+  deleteMailbox,
+  emptyMailboxFolder,
+  getMailboxFolders,
+  setMailboxQuota,
+  type Folder,
   getLogSenders,
   getMailQueue,
+  getMailboxes,
   getStalwartConfig,
   lockMailAccount,
   saveStalwartConfig,
   type LogSender,
+  type Mailbox,
   type QueueSender,
   type StalwartConfig,
 } from '@/lib/stalwart';
-import { t } from '@/lib/i18n';
+import { locale, t } from '@/lib/i18n';
+import { formatBytes } from '@/lib/utils';
 
 const CONFIG_KEY = ['integrations', 'stalwart'];
 const QUEUE_KEY = ['stalwart', 'queue'];
+const MAILBOX_KEY = ['stalwart', 'mailboxes'];
 
 type Form = { baseUrl: string; username: string; password: string; serverId: string; logDir: string; alertThreshold: string };
 
@@ -196,7 +206,10 @@ function SenderActions({ sender }: { sender: string }) {
   const [confirm, setConfirm] = useState<'lock' | 'cancel' | null>(null);
   const lock = useMutation({
     mutationFn: () => lockMailAccount(sender),
-    onSuccess: () => toast({ title: t('{email} is locked', { email: sender }), description: t('Nothing can log in as it any more. Its mail stays.') }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: MAILBOX_KEY });
+      toast({ title: t('{email} is locked', { email: sender }), description: t('Nothing can log in as it any more. Its mail stays.') });
+    },
     onError: (error: Error) => toast({ title: t('Could not lock the account'), description: error.message, variant: 'destructive' }),
   });
   const cancel = useMutation({
@@ -355,5 +368,306 @@ export function LogSendersCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Every mailbox: how much disk its mail takes, whether it can still log in, what it has waiting to go out. */
+export function MailboxesCard() {
+  const query = useTableQuery(25);
+  const { data: config } = useQuery({ queryKey: CONFIG_KEY, queryFn: getStalwartConfig });
+  const connected = !!config?.passwordSet && !config.error;
+  const { data = [], isFetching, refetch, error } = useQuery({ queryKey: MAILBOX_KEY, queryFn: getMailboxes, enabled: connected });
+  // shares the queue card's fetch: what each mailbox has waiting
+  const { data: queue } = useQuery({ queryKey: QUEUE_KEY, queryFn: getMailQueue, enabled: connected });
+  const queued = new Map((queue?.senders ?? []).map((s) => [s.sender.toLowerCase(), s.messages]));
+  const total = data.reduce((sum, m) => sum + m.usedBytes, 0);
+  const locked = data.filter((m) => m.credentials.length === 0).length;
+
+  const columns: Column<Mailbox>[] = [
+    {
+      header: t('Mailbox'),
+      className: 'w-[36%]',
+      cell: (m) => (
+        <div className="min-w-0">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-medium">{m.email}</span>
+            {m.role && m.role !== 'User' && <Badge variant="secondary">{m.role}</Badge>}
+            {m.type !== 'User' && <Badge variant="outline">{m.type}</Badge>}
+          </span>
+          {m.description && <span className="block truncate text-xs text-muted-foreground">{m.description}</span>}
+        </div>
+      ),
+    },
+    {
+      header: t('Disk'),
+      className: 'w-36 text-right',
+      cell: (m) => (
+        <span className={`tabular-nums ${m.quotaBytes && m.usedBytes >= m.quotaBytes ? 'text-destructive' : ''}`}>
+          {formatBytes(m.usedBytes, locale)}
+          {m.quotaBytes && <span className="text-muted-foreground"> / {formatBytes(m.quotaBytes, locale)}</span>}
+        </span>
+      ),
+    },
+    {
+      header: t('Login'),
+      className: 'w-40',
+      cell: (m) =>
+        m.credentials.length === 0 ? (
+          <Badge variant="outline" className="text-muted-foreground">
+            <Lock className="mr-1 h-3 w-3" />
+            {t('Locked')}
+          </Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">{[...new Set(m.credentials)].join(', ')}</span>
+        ),
+    },
+    {
+      header: t('Queued'),
+      className: 'w-24 text-right',
+      cell: (m) => {
+        const n = queued.get(m.email.toLowerCase()) ?? 0;
+        return <span className={`tabular-nums ${n >= (config?.alertThreshold ?? 500) ? 'font-medium text-destructive' : n ? '' : 'text-muted-foreground'}`}>{n.toLocaleString(locale)}</span>;
+      },
+    },
+    // an ordinary user only: an admin's credentials are never touched from here
+    {
+      header: <span className="sr-only">{t('Actions')}</span>,
+      className: 'w-72',
+      cell: (m) =>
+        m.type === 'User' && (!m.role || m.role === 'User') ? (
+          <div className="flex items-center justify-end gap-1">
+            <SenderActions sender={m.email} />
+            <MailboxMore mailbox={m} />
+          </div>
+        ) : null,
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          {t('Mailboxes')}
+          {data.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              {t('{count} · {size} · {locked} locked', { count: data.length.toLocaleString(locale), size: formatBytes(total, locale), locked })}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && <p className="mb-3 text-sm text-destructive">{(error as Error).message}</p>}
+        <DataTable
+          columns={columns}
+          rows={data}
+          rowKey={(m) => m.id}
+          query={query}
+          filter={(m, search) => `${m.email} ${m.description ?? ''}`.toLowerCase().includes(search.toLowerCase())}
+          isLoading={isFetching && !data.length}
+          searchPlaceholder={t('Search mailboxes…')}
+          empty={connected ? t('No mailboxes.') : t('Connect Stalwart first.')}
+          toolbar={
+            <Button size="sm" variant="outline" onClick={() => void refetch()} disabled={isFetching || !connected}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} /> {t('Refresh')}
+            </Button>
+          }
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+type MailboxDialog = 'quota' | 'folders' | 'delete' | null;
+
+/** Quota, folders (and emptying one), delete — each in its own dialog, each confirmed. */
+function MailboxMore({ mailbox }: { mailbox: Mailbox }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState<MailboxDialog>(null);
+  const [quotaGb, setQuotaGb] = useState('');
+  const [typed, setTyped] = useState('');
+  const [emptyTarget, setEmptyTarget] = useState<Folder | null>(null);
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: MAILBOX_KEY });
+
+  const folders = useQuery({
+    queryKey: ['stalwart', 'folders', mailbox.email],
+    queryFn: () => getMailboxFolders(mailbox.email),
+    enabled: open === 'folders',
+    // while one empties, watch it go down
+    refetchInterval: (query) => (query.state.data?.some((f) => f.emptying?.running) ? 3000 : false),
+  });
+
+  const quota = useMutation({
+    mutationFn: (gb: number | null) => setMailboxQuota(mailbox.email, gb ? Math.round(gb * 1024 ** 3) : null),
+    onSuccess: () => {
+      refresh();
+      setOpen(null);
+      toast({ title: t('Quota saved') });
+    },
+    onError: (error: Error) => toast({ title: t('Could not set the quota'), description: error.message, variant: 'destructive' }),
+  });
+  const remove = useMutation({
+    mutationFn: () => deleteMailbox(mailbox.email, typed),
+    onSuccess: () => {
+      refresh();
+      setOpen(null);
+      toast({ title: t('{email} deleted', { email: mailbox.email }) });
+    },
+    onError: (error: Error) => toast({ title: t('Could not delete the mailbox'), description: error.message, variant: 'destructive' }),
+  });
+  const empty = useMutation({
+    mutationFn: (folder: Folder) => emptyMailboxFolder(mailbox.email, folder.id),
+    onSuccess: () => {
+      setEmptyTarget(null);
+      void folders.refetch();
+      toast({ title: t('Emptying started'), description: t('It runs in the background; the count goes down as it works.') });
+    },
+    onError: (error: Error) => toast({ title: t('Could not empty the folder'), description: error.message, variant: 'destructive' }),
+  });
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" aria-label={t('More actions')}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setOpen('folders')}>
+            <FolderOpen className="mr-2 h-4 w-4" /> {t('Folders')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              setQuotaGb(mailbox.quotaBytes ? String(+(mailbox.quotaBytes / 1024 ** 3).toFixed(2)) : '');
+              setOpen('quota');
+            }}
+          >
+            <HardDrive className="mr-2 h-4 w-4" /> {t('Disk quota')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => {
+              setTyped('');
+              setOpen('delete');
+            }}
+          >
+            <Trash2 className="mr-2 h-4 w-4" /> {t('Delete mailbox')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={open === 'quota'} onOpenChange={(o) => !o && setOpen(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('Disk quota')}</DialogTitle>
+            <DialogDescription>
+              {t('{email} uses {size}. Empty for no limit; past the quota, new mail is refused.', { email: mailbox.email, size: formatBytes(mailbox.usedBytes, locale) })}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            id="mailbox-quota"
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              quota.mutate(quotaGb.trim() ? Number(quotaGb) : null);
+            }}
+          >
+            <Input type="number" min={0} step="0.1" value={quotaGb} onChange={(e) => setQuotaGb(e.target.value)} placeholder={t('No limit')} autoFocus />
+            <span className="text-sm text-muted-foreground">GB</span>
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(null)}>
+              {t('Cancel')}
+            </Button>
+            <Button type="submit" form="mailbox-quota" disabled={quota.isPending || (quotaGb.trim() !== '' && !(Number(quotaGb) >= 0))}>
+              {quota.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t('Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={open === 'folders'} onOpenChange={(o) => !o && setOpen(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('Folders of {email}', { email: mailbox.email })}</DialogTitle>
+            <DialogDescription>{t('Emptying deletes every message in the folder for good; they do not go to the trash.')}</DialogDescription>
+          </DialogHeader>
+          {folders.isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : folders.error ? (
+            <p className="text-sm text-destructive">{(folders.error as Error).message}</p>
+          ) : (
+            <ul className="divide-y rounded-md border text-sm">
+              {(folders.data ?? []).map((f) => (
+                <li key={f.id} className="flex items-center gap-3 px-3 py-2">
+                  <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{f.emails.toLocaleString(locale)}</span>
+                  {f.emptying?.running ? (
+                    <span className="flex w-40 shrink-0 items-center justify-end gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {t('{count} deleted…', { count: f.emptying.deleted.toLocaleString(locale) })}
+                    </span>
+                  ) : (
+                    <Button size="sm" variant="outline" className="w-40 shrink-0 text-destructive" disabled={!f.emails} onClick={() => setEmptyTarget(f)}>
+                      {t('Empty')}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {(folders.data ?? []).some((f) => f.emptying?.error) && (
+            <p className="text-xs text-destructive">{folders.data!.find((f) => f.emptying?.error)!.emptying!.error}</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!emptyTarget} onOpenChange={(o) => !o && setEmptyTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Empty {folder}?', { folder: emptyTarget?.name ?? '' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('All {count} messages in {folder} of {email} are deleted for good. This cannot be undone.', {
+                count: (emptyTarget?.emails ?? 0).toLocaleString(locale),
+                folder: emptyTarget?.name ?? '',
+                email: mailbox.email,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => emptyTarget && empty.mutate(emptyTarget)}>
+              {t('Empty folder')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={open === 'delete'} onOpenChange={(o) => !o && setOpen(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('Delete {email}?', { email: mailbox.email })}</DialogTitle>
+            <DialogDescription>
+              {t('The mailbox and all its mail ({size}) are deleted for good. An app that provisions mailboxes may create it again at its next sync. Type the address to confirm.', {
+                size: formatBytes(mailbox.usedBytes, locale),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={mailbox.email} autoComplete="off" autoFocus />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(null)}>
+              {t('Cancel')}
+            </Button>
+            <Button variant="destructive" disabled={remove.isPending || typed.trim().toLowerCase() !== mailbox.email.toLowerCase()} onClick={() => remove.mutate()}>
+              {remove.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t('Delete mailbox')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

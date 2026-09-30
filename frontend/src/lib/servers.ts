@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import apiRequest from './api';
 import { ListParams, listQuery } from './admin';
 import type { Paginated } from '@/components/DataTable';
@@ -206,8 +207,9 @@ export interface ServerDisk {
   apps: Array<{ id: string; name: string; domains: Array<{ host: string }>; totalBytes: number | null; reclaimableBytes: number; cacheBytes: number }>;
 }
 
-export const getServerDisk = async (id: string): Promise<ServerDisk> =>
-  unwrap(await apiRequest<ServerDisk>(`/servers/${id}/disk`), t('Could not read the disk usage'));
+/** `cached`: the node's last measurement at once (null when none yet), not a new one. */
+export const getServerDisk = async (id: string, cached = false): Promise<Measured<ServerDisk> | null> =>
+  unwrap(await apiRequest<Measured<ServerDisk> | null>(`/servers/${id}/disk${cached ? '?cached=1' : ''}`), t('Could not read the disk usage'));
 
 /** Clean up every panel app on the node; apps mid-deploy are skipped. */
 export const cleanupServerDisk = async (
@@ -230,8 +232,30 @@ export interface SystemCleanup {
   rotatedTop?: Array<{ log: string; bytes: number; files: number }>;
 }
 
-export const getSystemCleanup = async (id: string): Promise<SystemCleanup> =>
-  unwrap(await apiRequest<SystemCleanup>(`/servers/${id}/system-cleanup`), t('Could not read the disk usage'));
+export const getSystemCleanup = async (id: string, cached = false): Promise<Measured<SystemCleanup> | null> =>
+  unwrap(await apiRequest<Measured<SystemCleanup> | null>(`/servers/${id}/system-cleanup${cached ? '?cached=1' : ''}`), t('Could not read the disk usage'));
+
+export type Measured<T> = T & { measuredAt: string };
+
+/**
+ * A slow measurement shown the lazy way: the last one at once, a fresh one
+ * under way (`updating`), which replaces it when it lands.
+ */
+export function useMeasured<T>(queryKey: unknown[], measure: (cached: boolean) => Promise<Measured<T> | null>) {
+  const last = useQuery({ queryKey: [...queryKey, 'last'], queryFn: () => measure(true), staleTime: Infinity });
+  const live = useQuery({ queryKey, queryFn: () => measure(false), staleTime: 60_000 });
+  const data = live.data ?? last.data ?? undefined;
+  return {
+    data,
+    error: live.error,
+    refetch: live.refetch,
+    isFetching: live.isFetching,
+    // nothing to show yet: neither a last nor a fresh measurement
+    isLoading: !data && (live.isLoading || last.isLoading),
+    // what is shown is the last measurement, a fresh one is running
+    updating: live.isFetching && !!data && data !== live.data,
+  };
+}
 
 export const runSystemCleanup = async (id: string, targets: SystemTarget[]): Promise<{ freedBytes: number; failed: string[] }> =>
   unwrap(

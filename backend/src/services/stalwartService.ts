@@ -29,7 +29,8 @@ async function jmap(c: Config, methodCalls: MethodCall[]): Promise<any[]> {
   const res = await fetch(`${c.baseUrl}/jmap`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Basic ${Buffer.from(`${c.username}:${c.password}`).toString('base64')}` },
-    body: JSON.stringify({ using: ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap'], methodCalls }),
+    // mail too: the admin reads and empties any account's folders with the standard methods
+    body: JSON.stringify({ using: ['urn:ietf:params:jmap:core', 'urn:stalwart:jmap', 'urn:ietf:params:jmap:mail'], methodCalls }),
     // a flooded server answers slowly
     signal: AbortSignal.timeout(60_000),
   }).catch((error) => {
@@ -124,28 +125,163 @@ export async function cancelQueue(sender: string): Promise<number> {
 // ── Accounts ──
 
 /**
- * Lock a mailbox: every credential removed (password, app passwords, API
- * keys), so nothing logs in as it any more. The mailbox and its mail stay.
- * Only ordinary users: an admin's credentials are never touched from here.
+ * The ordinary user account with exactly this address. Every action here goes
+ * through it: an admin or a group is never changed from here.
  */
-export async function lockAccount(email: string): Promise<{ id: string; email: string }> {
-  const c = await config();
+async function findUser(c: Config, email: string): Promise<{ id: string; email: string; quotas: Record<string, number> }> {
   const address = email.trim().toLowerCase();
   const local = address.split('@')[0];
   if (!local || !address.includes('@')) throw new StalwartError('Not an email address');
   const r = await jmap(c, [
     ['x:Account/query', { filter: { name: local } }, 'q'],
-    ['x:Account/get', { '#ids': { resultOf: 'q', name: 'x:Account/query', path: '/ids' }, properties: ['@type', 'name', 'emailAddress', 'roles'] }, 'g'],
+    ['x:Account/get', { '#ids': { resultOf: 'q', name: 'x:Account/query', path: '/ids' }, properties: ['@type', 'name', 'emailAddress', 'roles', 'quotas'] }, 'g'],
   ]);
   // the filter is a search: the exact address decides
   const account = (r[1][1]?.list ?? []).find((a: any) => String(a.emailAddress ?? '').toLowerCase() === address);
   if (!account) throw new StalwartError(`No account ${address}`);
   if (account['@type'] !== 'User' || (account.roles?.['@type'] && account.roles['@type'] !== 'User')) {
-    throw new StalwartError(`${address} is not an ordinary user; lock it in Stalwart itself`);
+    throw new StalwartError(`${address} is not an ordinary user; change it in Stalwart itself`);
   }
-  const s = await jmap(c, [['x:Account/set', { update: { [account.id]: { credentials: {} } } }, 's']]);
-  if (!s[0][1]?.updated || !(account.id in s[0][1].updated)) throw new StalwartError(`Stalwart did not lock ${address}`);
-  return { id: account.id, email: address };
+  return { id: account.id, email: address, quotas: account.quotas ?? {} };
+}
+
+async function updateUser(c: Config, id: string, patch: Record<string, unknown>, what: string) {
+  const s = await jmap(c, [['x:Account/set', { update: { [id]: patch } }, 's']]);
+  if (!s[0][1]?.updated || !(id in s[0][1].updated)) {
+    const e = s[0][1]?.notUpdated?.[id];
+    throw new StalwartError(`Stalwart did not ${what}${e ? `: ${e.type}${e.description ? ` — ${e.description}` : ''}` : ''}`);
+  }
+}
+
+/**
+ * Lock a mailbox: every credential removed (password, app passwords, API
+ * keys), so nothing logs in as it any more. The mailbox and its mail stay.
+ */
+export async function lockAccount(email: string): Promise<{ id: string; email: string }> {
+  const c = await config();
+  const account = await findUser(c, email);
+  await updateUser(c, account.id, { credentials: {} }, `lock ${account.email}`);
+  return { id: account.id, email: account.email };
+}
+
+/** Cap what a mailbox's mail may take (bytes); null lifts the cap. Its other quotas stay as they are. */
+export async function setDiskQuota(email: string, bytes: number | null): Promise<void> {
+  const c = await config();
+  const account = await findUser(c, email);
+  const { maxDiskQuota: _old, ...others } = account.quotas;
+  await updateUser(c, account.id, { quotas: bytes ? { ...others, maxDiskQuota: Math.floor(bytes) } : others }, `set the quota of ${account.email}`);
+}
+
+/**
+ * Delete a mailbox and all its mail, for good. Nothing to undo it with: the
+ * caller confirms by typing the address. An app that provisions mailboxes may
+ * create it again at its next sync.
+ */
+export async function deleteMailbox(email: string): Promise<void> {
+  const c = await config();
+  const account = await findUser(c, email);
+  const r = await jmap(c, [['x:Account/set', { destroy: [account.id] }, 'd']]);
+  if (!(r[0][1]?.destroyed ?? []).includes(account.id)) {
+    const e = r[0][1]?.notDestroyed?.[account.id];
+    throw new StalwartError(`Stalwart did not delete ${account.email}${e ? `: ${e.type}` : ''}`);
+  }
+}
+
+// ── Folders ──
+
+// an empty running per folder, with how far it got
+// ponytail: in memory — a panel restart stops it; starting it again goes on where it stopped
+const emptying = new Map<string, { deleted: number; running: boolean; error: string | null }>();
+
+export type Folder = { id: string; name: string; role: string | null; emails: number; emptying: { deleted: number; running: boolean; error: string | null } | null };
+
+/** A mailbox's folders with how many messages each holds, and any empty running on them. */
+export async function mailboxFolders(email: string): Promise<Folder[]> {
+  const c = await config();
+  const account = await findUser(c, email);
+  const r = await jmap(c, [['Mailbox/get', { accountId: account.id, properties: ['name', 'role', 'totalEmails'] }, 'm']]);
+  return (r[0][1]?.list ?? [])
+    .map((m: any) => ({ id: m.id, name: m.name, role: m.role ?? null, emails: Number(m.totalEmails) || 0, emptying: emptying.get(`${account.id}/${m.id}`) ?? null }))
+    .sort((a: Folder, b: Folder) => b.emails - a.emails);
+}
+
+/**
+ * Delete every message in one folder, in the background: a flooded inbox
+ * holds hundreds of thousands, far more than one request waits for. The
+ * messages are gone for good, not moved to the trash.
+ */
+export async function emptyFolder(email: string, folderId: string): Promise<void> {
+  const c = await config();
+  const account = await findUser(c, email);
+  const key = `${account.id}/${folderId}`;
+  if (emptying.get(key)?.running) return;
+  const state = { deleted: 0, running: true, error: null as string | null };
+  emptying.set(key, state);
+  void (async () => {
+    try {
+      for (;;) {
+        const r = await jmap(c, [
+          ['Email/query', { accountId: account.id, filter: { inMailbox: folderId }, limit: 500 }, 'q'],
+          ['Email/set', { accountId: account.id, '#destroy': { resultOf: 'q', name: 'Email/query', path: '/ids' } }, 'd'],
+        ]);
+        const destroyed = (r[1][1]?.destroyed ?? []).length;
+        state.deleted += destroyed;
+        if (!(r[0][1]?.ids ?? []).length || !destroyed) break;
+      }
+    } catch (error: any) {
+      state.error = error?.message || String(error);
+    } finally {
+      state.running = false;
+      console.log(`Stalwart: emptied ${state.deleted} message(s) from ${account.email} folder ${folderId}${state.error ? ` (stopped: ${state.error})` : ''}`);
+    }
+  })();
+}
+
+export type Mailbox = {
+  id: string;
+  email: string;
+  description: string | null;
+  type: string;
+  role: string | null;
+  /** bytes its mail takes */
+  usedBytes: number;
+  /** the cap on it, null when none */
+  quotaBytes: number | null;
+  /** how it can log in — password, app password, API key; none means locked */
+  credentials: string[];
+  createdAt: string | null;
+};
+
+/** Every account, most disk first. Credentials by kind only: their secrets never leave this function. */
+export async function listMailboxes(): Promise<Mailbox[]> {
+  const c = await config();
+  const all: Mailbox[] = [];
+  const limit = 500;
+  for (let position = 0; ; position += limit) {
+    const r = await jmap(c, [
+      ['x:Account/query', { position, limit }, 'q'],
+      [
+        'x:Account/get',
+        { '#ids': { resultOf: 'q', name: 'x:Account/query', path: '/ids' }, properties: ['@type', 'name', 'emailAddress', 'description', 'roles', 'usedDiskQuota', 'quotas', 'credentials', 'createdAt'] },
+        'g',
+      ],
+    ]);
+    for (const a of r[1][1]?.list ?? []) {
+      all.push({
+        id: a.id,
+        email: a.emailAddress || a.name,
+        description: a.description && a.description !== a.name ? a.description : null,
+        type: a['@type'] ?? 'User',
+        role: a.roles?.['@type'] ?? null,
+        usedBytes: Number(a.usedDiskQuota) || 0,
+        quotaBytes: Number(a.quotas?.maxDiskQuota) || null,
+        credentials: Object.values(a.credentials ?? {}).map((cred: any) => String(cred?.['@type'] ?? 'Password')),
+        createdAt: a.createdAt ?? null,
+      });
+    }
+    if ((r[0][1]?.ids ?? []).length < limit) break;
+  }
+  return all.sort((a, b) => b.usedBytes - a.usedBytes);
 }
 
 // ── Allowed IPs ──

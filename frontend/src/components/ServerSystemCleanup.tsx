@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,9 +14,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getSystemCleanup, runSystemCleanup, SYSTEM_TARGETS, type SystemTarget } from "@/lib/servers";
+import { getSystemCleanup, runSystemCleanup, SYSTEM_TARGETS, useMeasured, type SystemTarget } from "@/lib/servers";
 import { locale, t } from "@/lib/i18n";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, timeAgo } from "@/lib/utils";
 
 const LABELS: Record<SystemTarget, { title: string; path: string; note: string }> = {
   journal: { title: "Systemd journal", path: "/var/log/journal", note: "Entries older than 7 days are removed." },
@@ -62,11 +62,7 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
   const bytes = (value: number | null | undefined) => formatBytes(value, locale);
   const queryKey = ["servers", serverId, "system-cleanup"];
 
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey,
-    queryFn: () => getSystemCleanup(serverId),
-    staleTime: 60_000,
-  });
+  const { data, isLoading, isFetching, error, refetch, updating } = useMeasured(queryKey, (cached) => getSystemCleanup(serverId, cached));
 
   const cleanup = useMutation({
     mutationFn: () => runSystemCleanup(serverId, [...picked]),
@@ -120,6 +116,13 @@ export function ServerSystemCleanup({ serverId }: { serverId: string }) {
           <p className="text-sm text-destructive">{(error as Error).message}</p>
         ) : data ? (
           <>
+            {/* the last measurement, shown while a fresh one runs */}
+            {updating && (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("Measured {time} · measuring again…", { time: timeAgo(data.measuredAt) })}
+              </p>
+            )}
             <div className="divide-y rounded-md border text-sm">
               {present.map((id) => (
                 <label key={id} className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-muted/40">
