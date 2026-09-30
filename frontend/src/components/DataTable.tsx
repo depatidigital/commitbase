@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
 import { t } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,8 @@ export interface Column<T> {
   sortKey?: string;
   /** the direction a first click sorts in — "desc" for dates, so newest comes first */
   sortFirst?: "asc" | "desc";
+  /** more lines of this cell, each on its own table row under the row (e.g. an app's other hosts); the other columns span them all */
+  subRows?: (row: T) => ReactNode[];
 }
 
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -256,46 +258,49 @@ export function DataTable<T>({
               ))}
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {isLoading ? (
+          {isLoading || visible.length === 0 ? (
+            <TableBody>
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="py-8 text-center"
-                >
-                  <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                <TableCell colSpan={columns.length} className={`py-8 text-center ${isLoading ? "" : "text-muted-foreground"}`}>
+                  {isLoading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : empty}
                 </TableCell>
               </TableRow>
-            ) : visible.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  {empty}
-                </TableCell>
-              </TableRow>
-            ) : (
-              visible.map((row) => (
-                <TableRow
-                  key={rowKey(row)}
-                  className={onRowClick ? "group cursor-pointer" : "group"}
-                  onClick={
-                    onRowClick &&
-                    ((event) => {
-                      if (!(event.target as HTMLElement).closest(INTERACTIVE)) onRowClick(row);
-                    })
-                  }
-                >
-                  {columns.map((c, ci) => (
-                    <TableCell key={ci} className={c.className}>
-                      {c.cell(row)}
-                    </TableCell>
+            </TableBody>
+          ) : (
+            visible.map((row) => {
+              const click =
+                onRowClick &&
+                ((event: MouseEvent) => {
+                  if (!(event.target as HTMLElement).closest(INTERACTIVE)) onRowClick(row);
+                });
+              const subs = columns.map((c) => c.subRows?.(row) ?? []);
+              const more = Array.from({ length: Math.max(0, ...subs.map((s) => s.length)) });
+              // a row and its sub rows are one block, a tbody of its own: one line under it, lit as one on hover
+              return (
+                <tbody key={rowKey(row)} className={`group border-b transition-colors last:border-b-0 hover:bg-muted/50 ${onRowClick ? "cursor-pointer" : ""}`}>
+                  <tr onClick={click}>
+                    {/* a column without sub rows spans them: one cell for the whole block */}
+                    {columns.map((c, ci) => (
+                      <TableCell key={ci} className={c.className} rowSpan={c.subRows ? undefined : 1 + more.length}>
+                        {c.cell(row)}
+                      </TableCell>
+                    ))}
+                  </tr>
+                  {more.map((_, i) => (
+                    <tr key={i} onClick={click}>
+                      {columns.map((c, ci) =>
+                        c.subRows ? (
+                          <TableCell key={ci} className={`${c.className ?? ""} !pt-0`}>
+                            {subs[ci][i]}
+                          </TableCell>
+                        ) : null,
+                      )}
+                    </tr>
                   ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
+                </tbody>
+              );
+            })
+          )}
         </Table>
       </div>
 

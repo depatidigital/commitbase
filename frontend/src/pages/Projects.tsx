@@ -33,6 +33,21 @@ const ALL = "__all__";
  * Beside the name, and only when something is off — health as such is the
  * dashboard's: in flight, or the reason it needs a look.
  */
+/** As on the dashboard: the hosts redirecting to this one, under it. */
+function Redirects({ project, host }: { project: Project; host: string }) {
+  const from = project.applications.flatMap((app) => app.domains.filter((d) => d.redirectTo === host).map((d) => `${d.host}${d.path ?? ""}`));
+  return (
+    <>
+      {from.map((source) => (
+        <span key={source} className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={t("Redirects to {target}", { target: host })}>
+          <CornerUpRight className="h-3 w-3 shrink-0" />
+          {source}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function ProblemBadge({ project }: { project: Project }) {
   if (project.status === "DEPLOYING")
     return (
@@ -139,8 +154,6 @@ export default function Projects() {
   // redirects left out too: they are listed under the host they send visitors to
   const hostsOf = (project: Project) =>
     [...new Set(project.applications.flatMap((app) => app.domains.filter((d) => !d.path && !d.redirectTo && isPublicHost(d.host)).map((d) => d.host)))].sort();
-  const redirectsTo = (project: Project, host: string) =>
-    project.applications.flatMap((app) => app.domains.filter((d) => d.redirectTo === host).map((d) => `${d.host}${d.path ?? ""}`));
 
   const columns: Column<Project>[] = [
     ...(superAdmin
@@ -190,7 +203,7 @@ export default function Projects() {
           </span>
         );
         // the site's favicon leads, its kinds small on the corner
-        const [host, ...rest] = hostsOf(project);
+        const host = hostsOf(project)[0];
         // the frame is on the image itself, so a missing favicon leaves only the kinds
         const icon = host ? (
           <Favicon host={host} className="h-8 w-8 rounded-md border bg-card p-1.5" fallback={typeMarks} badge={badge(types)} />
@@ -216,25 +229,33 @@ export default function Projects() {
                 ) : (
                   <span className="truncate font-medium">{project.description}</span>
                 )}
-                {rest.length > 0 && (
-                  <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
-                    +{rest.length}
-                  </span>
-                )}
                 <ProblemBadge project={project} />
               </span>
-              {/* as on the dashboard: the hosts redirecting to it, under it */}
-              {host &&
-                redirectsTo(project, host).map((from) => (
-                  <span key={from} className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={t("Redirects to {target}", { target: host })}>
-                    <CornerUpRight className="h-3 w-3 shrink-0" />
-                    {from}
-                  </span>
-                ))}
+              {host && <Redirects project={project} host={host} />}
             </div>
           </div>
         );
       },
+      // every other host on a row of its own, with its own favicon
+      subRows: (project) =>
+        hostsOf(project).slice(1).map((other) => (
+          <div className="flex min-w-0 items-center gap-3">
+            <Favicon host={other} className="h-8 w-8 rounded-md border bg-card p-1.5" />
+            <div className="min-w-0">
+              <a
+                href={`https://${other}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex min-w-0 items-center gap-1 font-medium hover:text-primary hover:underline"
+              >
+                <span className="truncate">{other}</span>
+                <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+              </a>
+              <Redirects project={project} host={other} />
+            </div>
+          </div>
+        )),
     },
     {
       // its name, renamed here (the App column is its address); the repo only on hover, the branch only when unusual
