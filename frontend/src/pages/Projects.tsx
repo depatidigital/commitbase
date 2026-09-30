@@ -115,7 +115,7 @@ export default function Projects() {
     },
     onSuccess: (_, project) => {
       refresh();
-      toast({ title: t("Restarted"), description: project.name });
+      toast({ title: t("Restarted"), description: project.description });
     },
     onError: (err: Error) => toast({ variant: "destructive", title: t("Failed to restart service"), description: err.message }),
   });
@@ -156,7 +156,7 @@ export default function Projects() {
             className: "w-10",
             cell: (project: Project) => (
               <div onClick={(e) => e.stopPropagation()}>
-                <Checkbox checked={selectedIds.includes(project.id)} onCheckedChange={() => toggleOne(project.id)} aria-label={t("Select {name}", { name: project.name })} />
+                <Checkbox checked={selectedIds.includes(project.id)} onCheckedChange={() => toggleOne(project.id)} aria-label={t("Select {name}", { name: project.description })} />
               </div>
             ),
           },
@@ -214,7 +214,7 @@ export default function Projects() {
                     <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
                   </a>
                 ) : (
-                  <span className="truncate font-medium">{project.name}</span>
+                  <span className="truncate font-medium">{project.description}</span>
                 )}
                 {rest.length > 0 && (
                   <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
@@ -245,7 +245,7 @@ export default function Projects() {
         return (
             <div className="flex min-w-0 items-center gap-1">
               <span className="max-w-[calc(100%-1.5rem)] shrink-0 truncate text-sm" title={project.repository ? `${repoName(project.repository)} · ${branch}` : undefined}>
-                {project.name}
+                {project.description}
               </span>
               {project.repository && branch !== "main" && branch !== "master" && (
                 <span className="flex min-w-0 items-center gap-0.5 rounded border px-1 font-mono text-xs text-muted-foreground" title={branch}>
@@ -354,7 +354,7 @@ export default function Projects() {
           <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t("Actions for {name}", { name: project.name })}>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t("Actions for {name}", { name: project.description })}>
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -491,7 +491,7 @@ export default function Projects() {
       <AlertDialog open={!!deployTarget} onOpenChange={(open) => !open && setDeployTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Deploy {name}?", { name: deployTarget?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Deploy {name}?", { name: deployTarget?.description ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>{t("The new release builds beside the running one and takes over once it answers.")}</AlertDialogDescription>
           </AlertDialogHeader>
           {migrating.length > 0 && <MigrationChoices apps={migrating} skip={skipMigrations} onChange={setSkipMigrations} />}
@@ -505,7 +505,7 @@ export default function Projects() {
       <AlertDialog open={!!restartTarget} onOpenChange={(open) => !open && setRestartTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Restart {name}?", { name: restartTarget?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Restart {name}?", { name: restartTarget?.description ?? "" })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("Its running services restart one after the other: {services}. The site may not answer for a few seconds.", {
                 services: restartTarget ? restartable(restartTarget).map((app) => app.name).join(", ") : "",
@@ -524,7 +524,7 @@ export default function Projects() {
           <DialogHeader>
             <DialogTitle>{t("Move workspace")}</DialogTitle>
             <DialogDescription>
-              {t("Choose which workspace owns {name}. Every service of the app goes with it.", { name: moveTarget?.name ?? "" })}
+              {t("Choose which workspace owns {name}. Every service of the app goes with it.", { name: moveTarget?.description ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

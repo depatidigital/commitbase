@@ -29,15 +29,15 @@ export default function ProjectSetup() {
   const { data: project, isLoading, refetch } = useQuery({ queryKey: ["project", id], queryFn: () => getProject(id), enabled: !!id });
   // null: untouched — the name it was created with
   const [name, setName] = useState<string | null>(null);
-  const shown = name ?? project?.name ?? "";
+  const shown = name ?? project?.description ?? "";
   const apps = project?.applications ?? [];
   const missing = apps.filter((app) => app.domains.length === 0).length;
 
   const save = useMutation({
     mutationFn: async () => {
       const next = shown.trim();
-      if (project && next !== project.name) {
-        await updateProject(id, { name: next });
+      if (project && next !== project.description) {
+        await updateProject(id, { description: next });
         // one service: it is the app, so it carries the same name
         if (apps.length === 1) await updateApplication(apps[0].id, { name: next });
       }

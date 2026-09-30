@@ -128,7 +128,7 @@ export function SourcePanel({ projectId, onDeploy, starting, deploying, actionSl
   // apps with migrations: each asked before a deploy, on by default (DeployConfirmDialog) — of the ones picked
   const migrating = picked.filter((app) => app.preDeployCommand);
   const [skipMigrations, setSkipMigrations] = useState<Set<string>>(new Set());
-  const confirmDeploy = useMigrationsConfirm(t("Deploy {name}?", { name: project?.name ?? "" }), apps, (skipFor) => onDeploy(skipFor));
+  const confirmDeploy = useMigrationsConfirm(t("Deploy {name}?", { name: project?.description ?? "" }), apps, (skipFor) => onDeploy(skipFor));
   const pull = useMutation({
     mutationFn: async ({ redeploy, skipFor, only }: { redeploy: boolean; skipFor: string[]; only?: string[] }) => {
       const pulled = await pullProject(projectId);

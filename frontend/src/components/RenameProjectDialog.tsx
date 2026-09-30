@@ -88,17 +88,17 @@ export function RenameProjectDialog({
   project,
   onlyServiceId,
   ...controlled
-}: { project: Pick<Project, "id" | "name" | "customName">; onlyServiceId?: string } & Controlled) {
+}: { project: Pick<Project, "id" | "description" | "customDescription">; onlyServiceId?: string } & Controlled) {
   const queryClient = useQueryClient();
   return (
     <RenameDialog
       {...controlled}
-      value={project.customName ?? project.name}
+      value={project.customDescription ?? project.description}
       title={t("Edit description")}
       description={t("Leave it empty to name it after its folder or repository again.")}
       done={t("App renamed")}
       rename={async (name) => {
-        await updateProject(project.id, { name });
+        await updateProject(project.id, { description: name });
         if (onlyServiceId && name) {
           await updateApplication(onlyServiceId, { name });
           void queryClient.invalidateQueries({ queryKey: ["application", onlyServiceId] });

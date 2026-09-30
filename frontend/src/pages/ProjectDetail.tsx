@@ -212,7 +212,7 @@ export default function ProjectDetail() {
       backTo="/apps"
       title={
         <span className="flex items-center gap-2">
-          {project.name}
+          {project.description}
           <RenameProjectDialog project={project} onlyServiceId={apps.length === 1 ? apps[0].id : undefined} />
         </span>
       }
@@ -549,7 +549,7 @@ export default function ProjectDetail() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Redeploy every service of {name}?", { name: project.name })}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Redeploy every service of {name}?", { name: project.description })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("Each service is installed and built in its folder on the server, one after the other: the sites' files first, then the processes, which pm2 restarts. They build in the folders that are serving, so the sites may show errors meanwhile.")}
             </AlertDialogDescription>
@@ -588,7 +588,7 @@ export default function ProjectDetail() {
       <AlertDialog open={confirmDelete} onOpenChange={(open) => !deleting && setConfirmDelete(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("Delete {name}?", { name: project.name })}</AlertDialogTitle>
+            <AlertDialogTitle>{t("Delete {name}?", { name: project.description })}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>{t("Every service of this app is deleted, one after the other:")}</p>
@@ -609,7 +609,7 @@ export default function ProjectDetail() {
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <Input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={project.name} disabled={!!deleting} />
+          <Input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={project.description} disabled={!!deleting} />
           {apps.some((app) => app.type === "COMPOSE") && (
             <label className="flex items-start gap-2 text-sm">
               <Checkbox checked={removeVolumes} onCheckedChange={(checked) => setRemoveVolumes(checked === true)} disabled={!!deleting} className="mt-0.5" />
@@ -618,7 +618,7 @@ export default function ProjectDetail() {
           )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={!!deleting}>{t("Cancel")}</AlertDialogCancel>
-            <Button variant="destructive" disabled={typed.trim() !== project.name || !!deleting} onClick={() => void deleteAll()}>
+            <Button variant="destructive" disabled={typed.trim() !== project.description || !!deleting} onClick={() => void deleteAll()}>
               {deleting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -113,7 +113,7 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<keyof typeof FILTERS | null>(null);
   const search = query.search.toLowerCase();
   const shown = (filter ? rows.filter(FILTERS[filter].test) : rows).filter(
-    (row) => !search || `${row.id} ${row.redirects?.join(" ") ?? ""} ${row.app?.name ?? ""} ${row.service.name}`.toLowerCase().includes(search),
+    (row) => !search || `${row.id} ${row.redirects?.join(" ") ?? ""} ${row.app?.description ?? ""} ${row.service.name}`.toLowerCase().includes(search),
   );
   // hosts grouped by app, worst app first (rows are already worst first); a search opens every group
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -126,7 +126,7 @@ export default function Dashboard() {
   const groups = new Map<string, { name: string; hosts: Row[] }>();
   for (const row of shown) {
     const key = row.app ? `app:${row.app.id}` : `service:${row.service.id}`;
-    const group = groups.get(key) ?? { name: row.app?.name ?? row.service.name, hosts: [] };
+    const group = groups.get(key) ?? { name: row.app?.description ?? row.service.name, hosts: [] };
     group.hosts.push(row);
     groups.set(key, group);
   }

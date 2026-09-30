@@ -172,14 +172,14 @@ export default function AddProject() {
     () =>
       slugify(
         projectId
-          ? rootDirectory.split("/").filter(Boolean).pop() || joining?.name
+          ? rootDirectory.split("/").filter(Boolean).pop() || joining?.description
           : sourceMode === "git"
           ? rootDirectory.split("/").filter(Boolean).pop() || formData.repository.split(/[/:]/).pop()?.replace(/\.git$/, "")
           : uploadFiles[0]?.path.includes("/")
             ? uploadFiles[0].path.split("/")[0]
             : undefined,
       ),
-    [sourceMode, formData.repository, uploadFiles, projectId, rootDirectory, joining?.name],
+    [sourceMode, formData.repository, uploadFiles, projectId, rootDirectory, joining?.description],
   );
 
   // An upload's page title — what the site calls itself — read from its root
@@ -398,7 +398,7 @@ export default function AddProject() {
     let createdId: string;
     try {
       createdId = (
-        await createApp.mutateAsync(first ? { ...applicationData, ...fromDraft(first), projectName: formData.name } : applicationData)
+        await createApp.mutateAsync(first ? { ...applicationData, ...fromDraft(first), projectDescription: formData.name } : applicationData)
       ).id;
     } catch {
       return; // createApp reports its own failure
@@ -534,7 +534,7 @@ export default function AddProject() {
     <PageLayout
       backTo={projectId ? `/apps/${projectId}` : "/apps"}
       // without ?project=, this makes a project: its source, and its first app
-      title={joining ? t("Add a service to {name}", { name: joining.name }) : t("Add app or website")}
+      title={joining ? t("Add a service to {name}", { name: joining.description }) : t("Add app or website")}
       description={
         projectId
           ? t("It is built from the app's repository with its other services, and deployed with them.")
@@ -550,7 +550,7 @@ export default function AddProject() {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <FolderGit2 className="h-5 w-5 text-primary" />
-                <span>{joining?.name ?? t("App")}</span>
+                <span>{joining?.description ?? t("App")}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
