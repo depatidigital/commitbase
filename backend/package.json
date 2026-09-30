@@ -28,7 +28,8 @@
     "check:system-cleanup": "tsx src/services/systemCleanupService.check.ts",
     "check:favicon": "tsx src/routes/favicon.check.ts",
     "check:stalwart": "tsx src/services/stalwartService.check.ts",
-    "check:logs": "tsx src/routes/logs.check.ts"
+    "check:logs": "tsx src/routes/logs.check.ts",
+    "check:wa-nodes": "tsx src/services/larikaGatewayService.check.ts"
   },
   "keywords": [
     "api",

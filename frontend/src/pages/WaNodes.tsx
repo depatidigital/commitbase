@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpCircle, KeyRound, Link2, Loader2, MoreVertical, Plus, ShieldOff, Smartphone, Trash2 } from "lucide-react";
+import { ArrowUpCircle, CirclePause, CirclePlay, KeyRound, Link2, Loader2, MoreVertical, Plus, ShieldOff, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Column, DataTable, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { CopyField } from "@/components/CopyField";
-import { deleteWaNode, getWaNodeConnect, getWaNodes, pairWaNode, revokeWaNode, updateWaNodes, type PairResult, type WaNode } from "@/lib/waGateway";
+import { deleteWaNode, getWaNodeConnect, getWaNodes, pairWaNode, revokeWaNode, setWaNodeEnabled, updateWaNodes, type PairResult, type WaNode } from "@/lib/waGateway";
 import { formatBytes } from "@/lib/utils";
 import { locale, t } from "@/lib/i18n";
 
@@ -59,6 +59,14 @@ export default function WaNodes() {
     onSuccess: setPaired,
     onError: failed(t("Failed to fetch the connect string")),
   });
+  const toggle = useMutation({
+    mutationFn: (node: WaNode) => setWaNodeEnabled(node.id, !node.enabled),
+    onSuccess: (_, node) => {
+      refresh();
+      toast({ title: node.enabled ? t("{name} disabled: no new numbers go to it", { name: node.name }) : t("{name} enabled", { name: node.name }) });
+    },
+    onError: failed(t("That did not work")),
+  });
   const act = useMutation({
     mutationFn: ({ node, action }: { node: WaNode; action: "revoke" | "delete" }) => (action === "revoke" ? revokeWaNode(node.id) : deleteWaNode(node.id)),
     onSuccess: (_, { action }) => {
@@ -90,6 +98,7 @@ export default function WaNodes() {
         <span className="flex items-center gap-2 text-sm">
           <span className={`h-2 w-2 shrink-0 rounded-full ${node.online ? "bg-success" : "bg-muted-foreground/40"}`} />
           {node.online ? t("Online") : !node.paired ? t("Waiting to be paired") : t("Offline")}
+          {!node.enabled && <span className="rounded border px-1.5 text-xs text-muted-foreground">{t("Disabled")}</span>}
         </span>
       ),
     },
@@ -120,6 +129,10 @@ export default function WaNodes() {
               <KeyRound className="mr-2 h-4 w-4" />
               {t("Pair again")}
             </DropdownMenuItem>
+            <DropdownMenuItem disabled={toggle.isPending} onClick={() => toggle.mutate(node)}>
+              {node.enabled ? <CirclePause className="mr-2 h-4 w-4" /> : <CirclePlay className="mr-2 h-4 w-4" />}
+              {node.enabled ? t("Disable for new numbers") : t("Enable")}
+            </DropdownMenuItem>
             <DropdownMenuItem disabled={!node.online || update.isPending} onClick={() => update.mutate(node.id)}>
               <ArrowUpCircle className="mr-2 h-4 w-4" />
               {t("Check for update")}
@@ -143,7 +156,7 @@ export default function WaNodes() {
     <PageLayout
       icon={Smartphone}
       title="WA Node"
-      description={t("The PCs that run WhatsApp for the Larika gateway. Each one dials out to the gateway; new numbers go to the least-loaded online node.")}
+      description={t("The PCs that run WhatsApp for the Larika gateway. Each one dials out to the gateway; new numbers go to the least-loaded online node that is enabled.")}
       actions={
         <div className="flex gap-2">
           <Button variant="outline" disabled={update.isPending || !nodes.some((n) => n.online)} onClick={() => update.mutate(undefined)}>

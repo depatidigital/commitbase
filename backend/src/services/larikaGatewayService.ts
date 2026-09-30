@@ -79,6 +79,33 @@ export type GatewayStats = {
 
 export const gatewayStats = () => gateway<GatewayStats>('/admin/stats');
 
+type Agent = GatewayStats['agents'][number];
+
+/** The nodes a new number may go to — online, enabled, with room — least loaded first. Pure. */
+export const eligibleNodes = (agents: Agent[], disabled: Set<string>): Agent[] =>
+  agents
+    .filter((a) => a.online && !disabled.has(a.id) && a.instances < a.capacity)
+    .sort((x, y) => x.instances / x.capacity - y.instances / y.capacity);
+
+/**
+ * The node for a new number: the one asked for when it may take one, else the
+ * least loaded. Throws the gateway's own words when there is none. Pure.
+ */
+export function pickNode(agents: Agent[], disabled: Set<string>, wanted?: string | null): string {
+  const eligible = eligibleNodes(agents, disabled);
+  if (wanted) {
+    if (eligible.some((a) => a.id === wanted)) return wanted;
+    const node = agents.find((a) => a.id === wanted);
+    throw new GatewayError(
+      !node ? GATEWAY_ERRORS.agent_not_found! : disabled.has(wanted) ? `${node.name} is disabled for new numbers` : !node.online ? `${node.name} is offline` : `${node.name} is at capacity`,
+      409,
+    );
+  }
+  if (eligible[0]) return eligible[0].id;
+  const enabled = agents.filter((a) => !disabled.has(a.id));
+  throw new GatewayError(enabled.some((a) => a.online) ? GATEWAY_ERRORS.agents_full! : GATEWAY_ERRORS.no_agent_online!, 409);
+}
+
 /**
  * Express reply for a failed gateway call. Its 401/403 (our admin key) become
  * 502: passed on, the panel would read them as the user's own session failing.

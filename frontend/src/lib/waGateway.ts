@@ -32,6 +32,16 @@ export interface WaNode {
   permanent: boolean;
   instances: number;
   online: boolean;
+  /** off: no new number is placed on it; the ones it runs keep running */
+  enabled: boolean;
+}
+
+/** A node a new number can go to: online, enabled, with room. */
+export interface WaNodeChoice {
+  id: string;
+  name: string;
+  instances: number;
+  capacity: number;
 }
 
 export interface PairResult {
@@ -93,6 +103,10 @@ export const pairWaNode = async (body: { name: string; permanent: boolean; agent
 export const getWaNodeConnect = async (id: string) =>
   unwrap(await apiRequest<{ connect: string }>(`/larika-gateway/nodes/${id}/connect`), t('Failed to fetch the connect string'));
 export const revokeWaNode = async (id: string) => unwrap(await apiRequest(`/larika-gateway/nodes/${id}/revoke`, post()), t('Failed to revoke the node'));
+export const setWaNodeEnabled = async (id: string, enabled: boolean) =>
+  unwrap(await apiRequest(`/larika-gateway/nodes/${id}/enabled`, post({ enabled })), t('Failed to switch the node'));
+/** The nodes to choose from when adding a number, the default first. Empty for anyone but the platform admin. */
+export const getWaNodeChoices = async () => unwrap(await apiRequest<WaNodeChoice[]>('/wa-numbers/nodes'), t('Failed to fetch WA nodes'));
 export const deleteWaNode = async (id: string) => unwrap(await apiRequest(`/larika-gateway/nodes/${id}`, { method: 'DELETE' }), t('Failed to delete the node'));
 export const updateWaNodes = async (agentId?: string) => unwrap(await apiRequest('/larika-gateway/nodes/update', post({ agentId })), t('Failed to ask the nodes to update'));
 
@@ -101,7 +115,7 @@ export const getWaNumbers = async () => {
   // the list comes back even when the gateway is down; error says why the status is missing
   return { rows: unwrap(res, t('Failed to fetch WhatsApp numbers')), gatewayError: res.error ?? null };
 };
-export const createWaNumber = async (body: { name: string; organizationId?: string; ipAllowlist: string; webhookUrl?: string }) =>
+export const createWaNumber = async (body: { name: string; organizationId?: string; nodeId?: string; ipAllowlist: string; webhookUrl?: string }) =>
   unwrap(await apiRequest<{ id: string; apiKey: string | null }>('/wa-numbers', post(body)), t('Failed to add the number'));
 export const getWaGatewayUrl = async () =>
   unwrap(await apiRequest<{ gatewayUrl: string }>('/wa-numbers/gateway-url'), t('Failed to fetch the gateway URL')).gatewayUrl;

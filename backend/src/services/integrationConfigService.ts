@@ -174,7 +174,7 @@ export const setGitOAuthConfigValue = (provider: GitOAuthProvider, key: GitOAuth
   setIntegrationConfigValue(gitOAuthRow(provider), key, value);
 
 export const LARIKA_GATEWAY_DEFAULT_URL = 'https://gateway.larika.id';
-export type LarikaGatewayKey = 'baseUrl' | 'adminKey' | 'adminPath';
+export type LarikaGatewayKey = 'baseUrl' | 'adminKey' | 'adminPath' | 'disabledNodes';
 
 /**
  * The WhatsApp gateway's management credentials. adminKey (x-admin-key) and
@@ -196,6 +196,27 @@ export async function getLarikaGatewayConfig() {
 }
 
 export const setLarikaGatewayValue = (key: LarikaGatewayKey, value: string) => setIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, key, value);
+
+/**
+ * WA nodes switched off for new numbers. Kept here, not on the gateway: the
+ * panel names the node for every number it adds (larikaGatewayService.pickNode),
+ * so it never lands on one of these. Numbers already on such a node keep running.
+ */
+export async function getDisabledWaNodes(): Promise<Set<string>> {
+  const raw = await getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'disabledNodes');
+  try {
+    const ids = JSON.parse(raw || '[]');
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+export async function setWaNodeEnabled(id: string, enabled: boolean): Promise<void> {
+  const disabled = await getDisabledWaNodes();
+  if (enabled) disabled.delete(id);
+  else disabled.add(id);
+  await setLarikaGatewayValue('disabledNodes', JSON.stringify([...disabled]));
+}
 export const getLarikaGatewayBaseUrl = async () =>
   ((await getIntegrationConfigValue(LARIKA_GATEWAY_PROVIDER, 'baseUrl')) || LARIKA_GATEWAY_DEFAULT_URL).replace(/\/+$/, '');
 

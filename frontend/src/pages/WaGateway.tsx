@@ -36,6 +36,7 @@ import {
   createWaNumber,
   deleteWaNumber,
   getWaGatewayUrl,
+  getWaNodeChoices,
   getWaKeys,
   getWaNumber,
   getWaNumbers,
@@ -86,7 +87,7 @@ export default function WaGateway() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const query = useTableQuery(25);
-  const [adding, setAdding] = useState<{ name: string; organizationId: string; ipAllowlist: string; webhookUrl: string } | null>(null);
+  const [adding, setAdding] = useState<{ name: string; organizationId: string; nodeId: string; ipAllowlist: string; webhookUrl: string } | null>(null);
   const [open, setOpen] = useState<Open | null>(null);
   // the key made with a new number, shown once in its API dialog
   const [firstKey, setFirstKey] = useState<{ id: string; apiKey: string } | null>(null);
@@ -96,10 +97,12 @@ export default function WaGateway() {
   const { data, isFetching } = useQuery({ queryKey: LIST_KEY, queryFn: getWaNumbers, refetchInterval: 30_000 });
   const rows = data?.rows ?? [];
   const { data: orgs = [] } = useQuery({ queryKey: ["organizations"], queryFn: getOrganizations, enabled: !!adding });
+  // the nodes a new number can go to (online, enabled, with room), the default first; empty unless platform admin
+  const { data: nodeChoices = [] } = useQuery({ queryKey: ["wa-node-choices"], queryFn: getWaNodeChoices, enabled: !!adding, staleTime: 0 });
   // who may add: platform admins, or owners/admins of a workspace
   const manageable = orgs.filter((org) => isAdmin() || org.myRole === "OWNER" || org.myRole === "ADMIN");
   const showWorkspace = isAdmin() || new Set(rows.map((r) => r.organization.id)).size > 1;
-  const startAdding = () => setAdding({ name: "", organizationId: getActiveOrg() ?? "", ipAllowlist: "*", webhookUrl: "" });
+  const startAdding = () => setAdding({ name: "", organizationId: getActiveOrg() ?? "", nodeId: "", ipAllowlist: "*", webhookUrl: "" });
   const close = () => {
     setOpen(null);
     void queryClient.invalidateQueries({ queryKey: LIST_KEY });
@@ -268,7 +271,7 @@ export default function WaGateway() {
               className="space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                create.mutate({ ...adding, organizationId: adding.organizationId || undefined, webhookUrl: adding.webhookUrl.trim() || undefined });
+                create.mutate({ ...adding, organizationId: adding.organizationId || undefined, nodeId: adding.nodeId || nodeChoices[0]?.id, webhookUrl: adding.webhookUrl.trim() || undefined });
               }}
             >
               <div className="space-y-1">
@@ -290,6 +293,24 @@ export default function WaGateway() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+              {nodeChoices.length > 0 && (
+                <div className="space-y-1">
+                  <Label>{t("WA node")}</Label>
+                  <Select value={adding.nodeId || nodeChoices[0]!.id} onValueChange={(nodeId) => setAdding({ ...adding, nodeId })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {nodeChoices.map((node) => (
+                        <SelectItem key={node.id} value={node.id}>
+                          {node.name} <span className="text-muted-foreground">({node.instances} / {node.capacity})</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t("The PC that runs this number. Only nodes that are online and enabled are listed.")}</p>
                 </div>
               )}
               <IpAllowlistField value={adding.ipAllowlist} onChange={(ipAllowlist) => setAdding({ ...adding, ipAllowlist })} />
@@ -617,7 +638,37 @@ function TestDialog({ row, onClose }: { row: Pick<WaNumber, "id" | "name">; onCl
   );
 }
 
-/** How an app calls it: base URL, an example, and the keys. */
+/** The key every webhook of a number carries: shown on request, or replaced. */
+function WebhookKeySection({ id }: { id: string }) {
+  const { toast } = useToast();
+  const [secret, setSecret] = useState<string | null>(null);
+  const show = useMutation({ mutationFn: () => getWebhookSecret(id), onSuccess: (r) => setSecret(r.webhookSecret), onError: failedToast(toast, t("Failed to fetch the webhook secret")) });
+  const rotate = useMutation({ mutationFn: () => rotateWebhookSecret(id), onSuccess: (r) => setSecret(r.webhookSecret), onError: failedToast(toast, t("Failed to rotate the webhook secret")) });
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label>{t("Webhook key")}</Label>
+        <div className="flex gap-1">
+          {!secret && (
+            <Button type="button" variant="outline" size="sm" disabled={show.isPending} onClick={() => show.mutate()}>
+              {t("Show")}
+            </Button>
+          )}
+          <Button type="button" variant="outline" size="sm" disabled={rotate.isPending} onClick={() => rotate.mutate()}>
+            <RotateCcw className="mr-2 h-3.5 w-3.5" />
+            {t("New key")}
+          </Button>
+        </div>
+      </div>
+      {secret && <CopyField value={secret} />}
+      <p className="text-xs text-muted-foreground">
+        {t("Each webhook carries")} <code className="font-mono">x-larika-webhook-key: {t("<this key>")}</code>. {t("Check it in your app; reject a request without it.")}
+      </p>
+    </section>
+  );
+}
+
+/** How an app calls it: base URL, an example, and the keys — its API keys, and the key its webhooks carry. */
 function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: string | null; onClose: () => void; onApi: () => void }) {
   const { toast } = useToast();
   const [shownKey, setShownKey] = useState<string | null>(firstKey);
@@ -631,7 +682,18 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
     },
     onError: failedToast(toast, t("Failed to create an API key")),
   });
-  const revoke = useMutation({ mutationFn: (keyId: string) => revokeWaKey(id, keyId), onSuccess: () => void keys.refetch(), onError: failedToast(toast, t("Failed to revoke the key")) });
+  const revoke = useMutation({
+    mutationFn: (keyId: string) => revokeWaKey(id, keyId),
+    onSuccess: () => {
+      setRevoking(null);
+      void keys.refetch();
+    },
+    onError: failedToast(toast, t("Failed to revoke the key")),
+  });
+  // asked first: an app still using the key stops working at once
+  const [revoking, setRevoking] = useState<{ id: string; prefix: string } | null>(null);
+  // a revoked key is of no more use to anyone: left out
+  const liveKeys = (keys.data ?? []).filter((key) => !key.revokedAt);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -679,24 +741,22 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
                   </div>
                 )}
                 <div className="divide-y rounded-md border text-sm">
-                  {(keys.data ?? []).map((key) => (
+                  {liveKeys.map((key) => (
                     <div key={key.id} className="flex items-center justify-between gap-3 px-3 py-2">
                       <span className="font-mono text-xs">{key.prefix}…</span>
                       <span className="flex-1 text-xs text-muted-foreground">
                         {key.lastUsedAt ? t("Last used {date}", { date: new Date(key.lastUsedAt).toLocaleString(locale) }) : t("Never used")}
                       </span>
-                      {key.revokedAt ? (
-                        <Badge variant="outline">{t("Revoked")}</Badge>
-                      ) : (
-                        <Button variant="ghost" size="sm" className="text-destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(key.id)}>
-                          {t("Revoke")}
-                        </Button>
-                      )}
+                      <Button variant="ghost" size="sm" className="text-destructive" disabled={revoke.isPending} onClick={() => setRevoking({ id: key.id, prefix: key.prefix })}>
+                        {t("Revoke")}
+                      </Button>
                     </div>
                   ))}
-                  {keys.data?.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">{t("No keys yet.")}</p>}
+                  {keys.data && liveKeys.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">{t("No keys yet.")}</p>}
                 </div>
               </section>
+
+              <WebhookKeySection id={id} />
             </>
           ) : null}
         </DialogBody>
@@ -706,6 +766,28 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
           </Button>
         </DialogFooter>
       </DialogContent>
+      <AlertDialog open={!!revoking} onOpenChange={(o) => !o && setRevoking(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Revoke {key}…?", { key: revoking?.prefix ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>{t("An app still using this key stops working at once. It cannot be undone; make a new key instead.")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={revoke.isPending}
+              onClick={(e) => {
+                // stays open until the gateway answers
+                e.preventDefault();
+                if (revoking) revoke.mutate(revoking.id);
+              }}
+            >
+              {t("Revoke")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
@@ -778,12 +860,11 @@ function WebhookTestDialog({ id, onClose, onSettings }: { id: string; onClose: (
   );
 }
 
-/** Who may call the API, where events go, and the key they carry. */
+/** Who may call the API and where events go. The keys — API and webhook — are in ApiDialog. */
 function AccessDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const { toast } = useToast();
   const { data: number, error, isLoading } = useNumber(id);
   const [form, setForm] = useState<{ ipAllowlist: string; webhookUrl: string } | null>(null);
-  const [secret, setSecret] = useState<string | null>(null);
   // the form fills once the number has loaded
   const values = form ?? (number ? { ipAllowlist: number.ipAllowlist.join(", "), webhookUrl: number.webhookUrl ?? "" } : null);
   const save = useMutation({
@@ -794,8 +875,6 @@ function AccessDialog({ id, onClose }: { id: string; onClose: () => void }) {
     },
     onError: failedToast(toast, t("Failed to save the number")),
   });
-  const showSecret = useMutation({ mutationFn: () => getWebhookSecret(id), onSuccess: (r) => setSecret(r.webhookSecret), onError: failedToast(toast, t("Failed to fetch the webhook secret")) });
-  const rotateSecret = useMutation({ mutationFn: () => rotateWebhookSecret(id), onSuccess: (r) => setSecret(r.webhookSecret), onError: failedToast(toast, t("Failed to rotate the webhook secret")) });
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -820,23 +899,6 @@ function AccessDialog({ id, onClose }: { id: string; onClose: () => void }) {
           >
             <IpAllowlistField value={values.ipAllowlist} onChange={(ipAllowlist) => setForm({ ...values, ipAllowlist })} />
             <WebhookField value={values.webhookUrl} onChange={(webhookUrl) => setForm({ ...values, webhookUrl })} />
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Label>{t("Webhook key")}</Label>
-                {!secret && (
-                  <Button type="button" variant="ghost" size="sm" className="h-7" disabled={showSecret.isPending} onClick={() => showSecret.mutate()}>
-                    {t("Show")}
-                  </Button>
-                )}
-                <Button type="button" variant="ghost" size="sm" className="h-7" disabled={rotateSecret.isPending} onClick={() => rotateSecret.mutate()}>
-                  {t("New key")}
-                </Button>
-              </div>
-              {secret && <CopyField value={secret} />}
-              <p className="text-xs text-muted-foreground">
-                {t("Each webhook carries")} <code className="font-mono">x-larika-webhook-key: {t("<this key>")}</code>. {t("Check it in your app; reject a request without it.")}
-              </p>
-            </div>
           </form>
         ) : null}
         <DialogFooter>

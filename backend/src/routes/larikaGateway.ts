@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { ApiResponse } from '../types';
 import { canEncrypt, encrypt } from '../lib/secretBox';
-import { getLarikaGatewayBaseUrl, getLarikaGatewayConfig, setLarikaGatewayValue } from '../services/integrationConfigService';
+import { getDisabledWaNodes, getLarikaGatewayBaseUrl, getLarikaGatewayConfig, setLarikaGatewayValue, setWaNodeEnabled } from '../services/integrationConfigService';
 import { gateway, gatewayFailure, gatewayStats } from '../services/larikaGatewayService';
 
 // Mounted superadmin-only in index.ts: the gateway's credentials and its WA nodes
@@ -56,8 +56,8 @@ router.put('/config', async (req: AuthenticatedRequest, res: Response) => {
 /** The WA nodes, with how many numbers each runs. */
 router.get('/nodes', async (_req, res: Response) => {
   try {
-    const stats = await gatewayStats();
-    return res.json({ success: true, data: stats.agents } as ApiResponse);
+    const [stats, disabled] = await Promise.all([gatewayStats(), getDisabledWaNodes()]);
+    return res.json({ success: true, data: stats.agents.map((a) => ({ ...a, enabled: !disabled.has(a.id) })) } as ApiResponse);
   } catch (error) {
     const { status, body } = gatewayFailure(error);
     return res.status(status).json(body);
@@ -92,6 +92,18 @@ router.get('/nodes/:id/connect', async (req, res: Response) => {
   } catch (error) {
     const { status, body } = gatewayFailure(error);
     return res.status(status).json(body);
+  }
+});
+
+/** Enable or disable a node for new numbers. The numbers on it keep running either way. */
+router.post('/nodes/:id/enabled', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ success: false, error: 'enabled is true or false' } as ApiResponse);
+    await setWaNodeEnabled(String(req.params.id), req.body.enabled);
+    return res.json({ success: true } as ApiResponse);
+  } catch (error) {
+    console.error('Error switching a WA node:', error);
+    return res.status(500).json({ success: false, error: 'Failed to switch the node' } as ApiResponse);
   }
 });
 

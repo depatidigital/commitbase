@@ -3,8 +3,8 @@ import { AuthenticatedRequest, authenticateToken } from '../middleware/auth';
 import { ApiResponse } from '../types';
 import { prisma } from '../lib/prisma';
 import { canManageOrg, getOrgRole, isPlatformAdmin, listMemberships, orgScope } from '../lib/scope';
-import { gateway, GatewayError, gatewayFailure, gatewayStats } from '../services/larikaGatewayService';
-import { getLarikaGatewayBaseUrl } from '../services/integrationConfigService';
+import { eligibleNodes, gateway, GatewayError, gatewayFailure, gatewayStats, pickNode } from '../services/larikaGatewayService';
+import { getDisabledWaNodes, getLarikaGatewayBaseUrl } from '../services/integrationConfigService';
 
 // A workspace's WhatsApp numbers on the Larika gateway ("WA Gateway"):
 // any member sees them; owners and admins add, link, delete and hold the API keys.
@@ -94,9 +94,13 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(404).json({ success: false, error: 'Workspace not found' } as ApiResponse);
     }
 
+    // the node is named here, never left to the gateway: a disabled one must not get it.
+    // Choosing it is the platform admin's; anyone else gets the least loaded
+    const [stats, disabled] = await Promise.all([gatewayStats(), getDisabledWaNodes()]);
+    const agentId = pickNode(stats.agents, disabled, isPlatformAdmin(req) && req.body?.nodeId ? String(req.body.nodeId) : null);
     const instance = await gateway<{ id: string }>('/admin/instances', {
       method: 'POST',
-      body: { name, ipAllowlist, ...(webhook(req.body?.webhookUrl) && { webhookUrl: webhook(req.body.webhookUrl) }) },
+      body: { name, ipAllowlist, agentId, ...(webhook(req.body?.webhookUrl) && { webhookUrl: webhook(req.body.webhookUrl) }) },
     });
     const row = await prisma.waNumber.create({ data: { instanceId: instance.id, name, organizationId, createdById: req.user!.userId } });
     // its first key, shown once: a number without one is no use to an app
@@ -108,6 +112,22 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 /** One number as the gateway has it now: status, QR (raw string, rendered by the page), usage. */
+/**
+ * The nodes a new number can go to — online, enabled, with room — the least
+ * loaded first (the default). For the platform admin, who may choose; anyone
+ * else gets an empty list and the default. Before /:id so it is not read as an id.
+ */
+router.get('/nodes', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!isPlatformAdmin(req)) return res.json({ success: true, data: [] } as ApiResponse);
+    const [stats, disabled] = await Promise.all([gatewayStats(), getDisabledWaNodes()]);
+    const nodes = eligibleNodes(stats.agents, disabled).map((a) => ({ id: a.id, name: a.name, instances: a.instances, capacity: a.capacity }));
+    return res.json({ success: true, data: nodes } as ApiResponse);
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
 // the gateway's base URL, which apps call; before /:id so it is not read as an id
 router.get('/gateway-url', async (_req: AuthenticatedRequest, res: Response) => {
   try {
