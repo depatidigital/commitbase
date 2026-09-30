@@ -18,6 +18,7 @@ import { getUsage } from "@/lib/billing";
 import { formatBytes } from "@/lib/utils";
 import { DiskBar } from "@/components/DiskBar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Favicon } from "@/components/Favicon";
 
 const TONE_TEXT: Record<Tone, string> = {
   up: "text-success",
@@ -33,17 +34,6 @@ type Line = { kind: "app"; key: string; name: string; hosts: Row[]; top: Row } |
 const rowOf = (line: Line) => (line.kind === "app" ? line.top : line.row);
 
 /** A count; coloured only when it is not zero, so a calm day looks calm. */
-/** The site's own /favicon.ico, straight from it; a globe when it has none or is down. */
-function Favicon({ host }: { host: string }) {
-  const [failed, setFailed] = useState(false);
-  // ponytail: /favicon.ico only; a site that declares its icon elsewhere (<link rel=icon>) shows the globe
-  return failed ? (
-    <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
-  ) : (
-    <img src={`https://${host}/favicon.ico`} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-4 w-4 shrink-0 rounded-sm" />
-  );
-}
-
 function Tile({ label, value, icon: Icon, tone = "", hint }: { label: string; value: number | string; icon: typeof Globe; tone?: string; hint?: string }) {
   const lit = value !== 0 && value !== "—" ? tone : "";
   return (

@@ -52,6 +52,7 @@ import deploymentsRoutes from './routes/deployments';
 import logsRoutes from './routes/logs';
 import metricsRoutes from './routes/metrics';
 import domainsRoutes from './routes/domains';
+import faviconRoutes from './routes/favicon';
 import rdashRoutes from './routes/rdash';
 import cloudflareRoutes from './routes/cloudflare';
 import googleRoutes from './routes/google';
@@ -149,6 +150,8 @@ app.use('/api/deployments', deploymentsRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/domains', domainsRoutes);
+// public: an <img> carries no token. Only hosts an app answers on (see the route)
+app.use('/api/favicon', faviconRoutes);
 // Admin-only: shared infra + provider credentials, never tenant-scoped
 // Integration credentials are platform-owner only
 app.use('/api/rdash', authenticateToken, requireRole(['SUPERADMIN']), rdashRoutes);

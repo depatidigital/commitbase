@@ -24,6 +24,7 @@ import { isPublicHost, repoName, restartApplication } from "@/lib/applications";
 import { getServers } from "@/lib/servers";
 import { assignProjects, deployProject, getProjects, projectPath, type Project } from "@/lib/projects";
 import { RenameProjectDialog } from "@/components/RenameProjectDialog";
+import { Favicon } from "@/components/Favicon";
 
 /** Radix Select cannot hold an empty value, so "no filter" needs a stand-in. */
 const ALL = "__all__";
@@ -164,25 +165,68 @@ export default function Projects() {
     {
       header: t("App"),
       sortKey: "name",
-      className: "w-[32%]",
+      className: "w-[44%]",
       cell: (project) => {
         // what it is at a glance: one mark per kind of service in it
-        const types = [...new Set(project.applications.map((app) => app.type))];
+        const types = [...new Set(project.applications.map((app) => app.type))].slice(0, 2).map(
+          (type) => TYPES[type] ?? { label: type, icon: Layers, className: "text-muted-foreground" },
+        );
+        const typeMarks = (
+          <span className="flex shrink-0 -space-x-1">
+            {types.map((meta) => (
+              <span key={meta.label} title={meta.label} className="flex h-8 w-8 items-center justify-center rounded-md border bg-card">
+                <meta.icon className={`h-4 w-4 ${meta.className}`} />
+              </span>
+            ))}
+          </span>
+        );
+        // the site's favicon leads, its kinds small on the corner; without one, the kinds as before
+        const [host, ...rest] = hostsOf(project);
+        // the frame is on the image itself, so a missing favicon leaves only the kinds
+        const icon = host ? (
+          <Favicon
+              host={host}
+              className="h-8 w-8 rounded-md border bg-card p-1.5"
+              fallback={typeMarks}
+              badge={
+                <span className="flex -space-x-0.5">
+                  {types.map((meta) => (
+                    <span key={meta.label} title={meta.label} className="flex h-4 w-4 items-center justify-center rounded border bg-card">
+                      <meta.icon className={`h-2.5 w-2.5 ${meta.className}`} />
+                    </span>
+                  ))}
+                </span>
+              }
+            />
+        ) : (
+          typeMarks
+        );
+        // by its address when it has one; the name under it, unless it only repeats the host
+        const subName = host && project.name !== host ? project.name : null;
         return (
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex shrink-0 -space-x-1">
-              {types.slice(0, 2).map((type) => {
-                const meta = TYPES[type] ?? { label: type, icon: Layers, className: "text-muted-foreground" };
-                return (
-                  <span key={type} title={meta.label} className="flex h-8 w-8 items-center justify-center rounded-md border bg-card">
-                    <meta.icon className={`h-4 w-4 ${meta.className}`} />
-                  </span>
-                );
-              })}
-            </span>
+            {icon}
             <div className="min-w-0">
               <span className="flex min-w-0 items-center gap-1">
-                <span className="truncate font-medium">{project.name}</span>
+                {host ? (
+                  <a
+                    href={`https://${host}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex min-w-0 items-center gap-1 font-medium hover:text-primary hover:underline"
+                  >
+                    <span className="truncate">{host}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  </a>
+                ) : (
+                  <span className="truncate font-medium">{project.name}</span>
+                )}
+                {rest.length > 0 && (
+                  <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
+                    +{rest.length}
+                  </span>
+                )}
                 <ProblemBadge project={project} />
                 {/* rename in place: shown on row hover (always on touch), and it must not open the row */}
                 <button
@@ -198,44 +242,28 @@ export default function Projects() {
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
               </span>
-              {/* the repo it builds from; a server folder or an upload shows nothing */}
-              {project.repository && (
-                <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-muted-foreground">
-                  <GitBranch className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{repoName(project.repository)} · {project.branch || "main"}</span>
+              {/* the name, and the repo it builds from; a server folder or an upload has no repo */}
+              {(subName || project.repository) && (
+                <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                  {subName && <span className="shrink-0 truncate">{subName}</span>}
+                  {subName && project.repository && <span>·</span>}
+                  {project.repository && (
+                    <span className="flex min-w-0 items-center gap-1 font-mono">
+                      <GitBranch className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{repoName(project.repository)} · {project.branch || "main"}</span>
+                    </span>
+                  )}
                 </span>
               )}
+              {/* as on the dashboard: the hosts redirecting to it, under it */}
+              {host &&
+                redirectsTo(project, host).map((from) => (
+                  <span key={from} className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={t("Redirects to {target}", { target: host })}>
+                    <CornerUpRight className="h-3 w-3 shrink-0" />
+                    {from}
+                  </span>
+                ))}
             </div>
-          </div>
-        );
-      },
-    },
-    {
-      header: t("Domain"),
-      className: "w-[26%]",
-      cell: (project) => {
-        const [first, ...rest] = hostsOf(project);
-        if (!first) return <span className="text-muted-foreground">—</span>;
-        return (
-          <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
-            <div className="flex min-w-0 items-center gap-1.5">
-              <a href={`https://${first}`} target="_blank" rel="noreferrer" className="truncate hover:text-primary hover:underline">
-                {first}
-              </a>
-              <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-              {rest.length > 0 && (
-                <span className="shrink-0 text-xs text-muted-foreground" title={rest.join("\n")}>
-                  +{rest.length}
-                </span>
-              )}
-            </div>
-            {/* as on the dashboard: the hosts redirecting to it, under it */}
-            {redirectsTo(project, first).map((from) => (
-              <span key={from} className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={t("Redirects to {target}", { target: first })}>
-                <CornerUpRight className="h-3 w-3 shrink-0" />
-                {from}
-              </span>
-            ))}
           </div>
         );
       },
