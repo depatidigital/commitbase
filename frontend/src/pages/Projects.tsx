@@ -63,7 +63,7 @@ export default function Projects() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const superAdmin = isSuperAdmin();
-  const query = useTableQuery(25, { sort: "createdAt", order: "desc" });
+  const query = useTableQuery(25, { sort: "restartedAt", order: "desc" });
   const syncApps = useSyncServerApps();
   const [serverFilter, setServerFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -163,46 +163,40 @@ export default function Projects() {
         ]
       : []),
     {
-      header: t("App"),
-      sortKey: "name",
-      className: "w-[44%]",
+      header: t("Host"),
+      className: "w-[36%]",
       cell: (project) => {
         // what it is at a glance: one mark per kind of service in it
         const types = [...new Set(project.applications.map((app) => app.type))].slice(0, 2).map(
           (type) => TYPES[type] ?? { label: type, icon: Layers, className: "text-muted-foreground" },
         );
-        const typeMarks = (
-          <span className="flex shrink-0 -space-x-1">
-            {types.map((meta) => (
-              <span key={meta.label} title={meta.label} className="flex h-8 w-8 items-center justify-center rounded-md border bg-card">
-                <meta.icon className={`h-4 w-4 ${meta.className}`} />
+        const badge = (marks: typeof types) => (
+          <span className="flex -space-x-0.5">
+            {marks.map((meta) => (
+              <span key={meta.label} title={meta.label} className="flex h-4 w-4 items-center justify-center rounded border bg-card">
+                <meta.icon className={`h-2.5 w-2.5 ${meta.className}`} />
               </span>
             ))}
           </span>
         );
-        // the site's favicon leads, its kinds small on the corner; without one, the kinds as before
+        // no favicon: one mark in the same square, the other kind small on its corner
+        const [main, ...others] = types;
+        const typeMarks = main && (
+          <span className="relative inline-flex shrink-0">
+            <span title={main.label} className="flex h-8 w-8 items-center justify-center rounded-md border bg-card">
+              <main.icon className={`h-4 w-4 ${main.className}`} />
+            </span>
+            {others.length > 0 && <span className="absolute -bottom-1.5 -right-1.5">{badge(others)}</span>}
+          </span>
+        );
+        // the site's favicon leads, its kinds small on the corner
         const [host, ...rest] = hostsOf(project);
         // the frame is on the image itself, so a missing favicon leaves only the kinds
         const icon = host ? (
-          <Favicon
-              host={host}
-              className="h-8 w-8 rounded-md border bg-card p-1.5"
-              fallback={typeMarks}
-              badge={
-                <span className="flex -space-x-0.5">
-                  {types.map((meta) => (
-                    <span key={meta.label} title={meta.label} className="flex h-4 w-4 items-center justify-center rounded border bg-card">
-                      <meta.icon className={`h-2.5 w-2.5 ${meta.className}`} />
-                    </span>
-                  ))}
-                </span>
-              }
-            />
+          <Favicon host={host} className="h-8 w-8 rounded-md border bg-card p-1.5" fallback={typeMarks} badge={badge(types)} />
         ) : (
           typeMarks
         );
-        // by its address when it has one; the name under it, unless it only repeats the host
-        const subName = host && project.name !== host ? project.name : null;
         return (
           <div className="flex min-w-0 items-center gap-3">
             {icon}
@@ -228,33 +222,7 @@ export default function Projects() {
                   </span>
                 )}
                 <ProblemBadge project={project} />
-                {/* rename in place: shown on row hover (always on touch), and it must not open the row */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRenameTarget(project);
-                  }}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-primary focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                  aria-label={t("Rename app")}
-                  title={t("Rename app")}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
               </span>
-              {/* the name, and the repo it builds from; a server folder or an upload has no repo */}
-              {(subName || project.repository) && (
-                <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                  {subName && <span className="shrink-0 truncate">{subName}</span>}
-                  {subName && project.repository && <span>·</span>}
-                  {project.repository && (
-                    <span className="flex min-w-0 items-center gap-1 font-mono">
-                      <GitBranch className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{repoName(project.repository)} · {project.branch || "main"}</span>
-                    </span>
-                  )}
-                </span>
-              )}
               {/* as on the dashboard: the hosts redirecting to it, under it */}
               {host &&
                 redirectsTo(project, host).map((from) => (
@@ -265,6 +233,40 @@ export default function Projects() {
                 ))}
             </div>
           </div>
+        );
+      },
+    },
+    {
+      // its name, renamed here (the App column is its address); the repo only on hover, the branch only when unusual
+      header: t("Description"),
+      className: "hidden w-[26%] md:table-cell",
+      cell: (project) => {
+        const branch = project.branch || "main";
+        return (
+            <div className="flex min-w-0 items-center gap-1">
+              <span className="max-w-[calc(100%-1.5rem)] shrink-0 truncate text-sm" title={project.repository ? `${repoName(project.repository)} · ${branch}` : undefined}>
+                {project.name}
+              </span>
+              {project.repository && branch !== "main" && branch !== "master" && (
+                <span className="flex min-w-0 items-center gap-0.5 rounded border px-1 font-mono text-xs text-muted-foreground" title={branch}>
+                  <GitBranch className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{branch}</span>
+                </span>
+              )}
+              {/* rename in place: shown on row hover, and it must not open the row */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRenameTarget(project);
+                }}
+                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-primary focus-visible:opacity-100 group-hover:opacity-100"
+                aria-label={t("Edit description")}
+                title={t("Edit description")}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
         );
       },
     },
@@ -387,7 +389,7 @@ export default function Projects() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setRenameTarget(project)}>
                   <Pencil className="mr-2 h-4 w-4" />
-                  {t("Rename app")}
+                  {t("Edit description")}
                 </DropdownMenuItem>
                 {/* ponytail: platform admins only — a deployed app's files and process stay under the old workspace's user until a redeploy */}
                 {superAdmin && (

@@ -17,8 +17,8 @@ import { getProject, updateProject, type ProjectApp } from "@/lib/projects";
 import { t } from "@/lib/i18n";
 
 /**
- * Right after "Create now": the new app's name (filled in for it) and a host
- * for each of its services — nothing else. Every service needs one before it
+ * Right after "Create now": the new app's host for each of its services, then
+ * its name (filled in for it) — nothing else. Every service needs one before it
  * goes on; the rest (env, build, deploy) is the app page's setup checklist.
  */
 export default function ProjectSetup() {
@@ -50,7 +50,7 @@ export default function ProjectSetup() {
   });
 
   return (
-    <PageLayout title={t("Almost done")} description={t("Give it a name and an address — then it can go online.")}>
+    <PageLayout title={t("Almost done")} description={t("Give it an address and a name — then it can go online.")}>
       <div className="mx-auto w-full max-w-2xl space-y-8">
         <Stepper steps={[t("Upload & pick the source"), t("Finish")]} current={1} />
         <Card className="bg-gradient-card border-border/50 shadow-elegant">
@@ -62,12 +62,6 @@ export default function ProjectSetup() {
               </p>
             ) : (
               <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="name">{t("Name")}</Label>
-                  <Input id="name" value={shown} onChange={(e) => setName(e.target.value)} required />
-                  <p className="text-xs text-muted-foreground">{t("Filled in for you. You can change it.")}</p>
-                </div>
-
                 <div className="space-y-2">
                   <Label>{apps.length > 1 ? t("Address for each service") : t("Address")}</Label>
                   <div className="divide-y rounded-md border border-border/60 bg-card">
@@ -75,6 +69,12 @@ export default function ProjectSetup() {
                       <ServiceHost key={app.id} app={app} showName={apps.length > 1} onChange={() => void refetch()} />
                     ))}
                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="name">{t("Name")}</Label>
+                  <Input id="name" value={shown} onChange={(e) => setName(e.target.value)} required />
+                  <p className="text-xs text-muted-foreground">{t("Filled in for you. You can change it.")}</p>
                 </div>
               </>
             )}

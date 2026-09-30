@@ -8,7 +8,7 @@ import { paging, contains } from '../lib/paging';
 import { exec } from '../lib/runner';
 import { gitAuthFor } from '../lib/gitCredentials';
 import { listRemoteBranches, missingFromHistory, parseLsRemote } from '../lib/projectDetect';
-import { isBranchName, setSourceOrganization, sourceBucket, sourceName } from '../lib/sources';
+import { isBranchName, setSourceOrganization, sourceBucket, sourceDescription } from '../lib/sources';
 import { healthFor, isServing } from '../services/heartbeatService';
 import { launchDeploy } from '../services/deployLaunch';
 import { buildProject, notOwner } from '../services/pm2DeployService';
@@ -106,10 +106,10 @@ async function findSource(req: AuthenticatedRequest, res: Response) {
   return { ...source, activeRelease };
 }
 
-const present = <T extends { name: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
+const present = <T extends { description: string | null; repository: string | null; path: string | null; applications: Instance[] }>(source: T) => ({
   ...source,
-  name: sourceName(source, source.applications[0]?.domains[0]?.host),
-  customName: source.name,
+  description: sourceDescription(source, source.applications[0]?.domains[0]?.host),
+  customDescription: source.description,
   kind: kindOf(source),
   status: rollupStatus(source.applications),
 });
@@ -133,7 +133,7 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
       ...(serverId && { serverId }),
       ...(search && {
         OR: [
-          { name: contains(search) },
+          { description: contains(search) },
           { repository: contains(search) },
           { path: contains(search) },
           { applications: { some: { OR: [{ domains: { some: { host: contains(search) } } }, { name: contains(search) }] } } },
@@ -180,31 +180,31 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
     });
     const direction = req.query.order === 'desc' ? -1 : 1;
     const SEVERITY: Record<string, number> = { DEPLOYING: 0, ERROR: 1, PARTIAL: 2, STOPPED: 3, RUNNING: 4, EMPTY: 5, DISABLED: 6 };
-    const byName = (a: (typeof rows)[number], b: (typeof rows)[number]) => a.name.localeCompare(b.name);
+    const byDescription = (a: (typeof rows)[number], b: (typeof rows)[number]) => a.description.localeCompare(b.description);
     rows.sort((a, b) => {
       switch (req.query.sort) {
-        case 'name':
-          return direction * byName(a, b);
+        case 'description':
+          return direction * byDescription(a, b);
         case 'organization':
-          return direction * (a.organization?.name ?? '').localeCompare(b.organization?.name ?? '') || byName(a, b);
+          return direction * (a.organization?.name ?? '').localeCompare(b.organization?.name ?? '') || byDescription(a, b);
         case 'server':
-          return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || byName(a, b);
+          return direction * (a.server?.name ?? '').localeCompare(b.server?.name ?? '') || byDescription(a, b);
         case 'createdAt':
-          return direction * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || byName(a, b);
+          return direction * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || byDescription(a, b);
         case 'apps':
-          return direction * (a.applications.length - b.applications.length) || byName(a, b);
+          return direction * (a.applications.length - b.applications.length) || byDescription(a, b);
         case 'restartedAt': {
           // its most recently restarted service; never restarted sorts as oldest
           const at = (row: (typeof rows)[number]) => Math.max(0, ...row.applications.map((app) => app.restartedAt?.getTime() ?? 0));
-          return direction * (at(a) - at(b)) || byName(a, b);
+          return direction * (at(a) - at(b)) || byDescription(a, b);
         }
         case 'disk': {
           const bytes = (row: (typeof rows)[number]) => row.applications.reduce((sum, app) => sum + Number(app.diskBytes ?? 0), 0);
-          return direction * (bytes(a) - bytes(b)) || byName(a, b);
+          return direction * (bytes(a) - bytes(b)) || byDescription(a, b);
         }
         default:
           // what needs attention leads: a problem chip first, then work in flight, broken, stopped
-          return Number(b.bucket === 'problem') - Number(a.bucket === 'problem') || (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byName(a, b);
+          return Number(b.bucket === 'problem') - Number(a.bucket === 'problem') || (SEVERITY[a.status] ?? 9) - (SEVERITY[b.status] ?? 9) || byDescription(a, b);
       }
     });
 
@@ -328,7 +328,7 @@ router.patch('/:id', authenticateToken, async (req: AuthenticatedRequest, res: R
   try {
     const source = await findSource(req, res);
     if (!source) return;
-    const { name, branch, gitAccountId, organizationId } = req.body ?? {};
+    const { description, branch, gitAccountId, organizationId } = req.body ?? {};
 
     const code = branch !== undefined || gitAccountId !== undefined;
     if (code && source.path) {
@@ -356,8 +356,8 @@ router.patch('/:id', authenticateToken, async (req: AuthenticatedRequest, res: R
     await prisma.source.update({
       where: { id: source.id },
       data: {
-        // '' goes back to the derived name
-        ...(name !== undefined && { name: String(name ?? '').trim() || null }),
+        // '' goes back to the derived description
+        ...(description !== undefined && { description: String(description ?? '').trim() || null }),
         ...(branch !== undefined && { branch: String(branch ?? '').trim() || 'main' }),
         ...(gitAccountId !== undefined && { gitAccountId: gitAccountId || null }),
       },

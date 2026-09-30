@@ -171,7 +171,7 @@ export interface CreateApplicationData {
   /** add it to this project instead of starting a new one */
   sourceId?: string;
   /** a new project's name, when its first app is named apart from it */
-  projectName?: string;
+  projectDescription?: string;
   /** COMPOSE: the compose files, in -f order; omitted = what detection found */
   composeFiles?: string[];
 }

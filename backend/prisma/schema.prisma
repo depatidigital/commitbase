@@ -563,9 +563,9 @@ model AppDomain {
 /// the app's own directory; removed with its last app (dropOrphanSources).
 model Source {
   id              String          @id @default(cuid())
-  /// What the UI calls it (a "Proyek"). null = derived: the repository's name,
-  /// else the checkout folder's, else its first app's hostname (lib/sources sourceName).
-  name            String?
+  /// What the UI calls it (its "Keterangan"). null = derived: the checkout folder's
+  /// name, else the repository's, else its first app's hostname (lib/sources sourceDescription).
+  description     String?
   /// Owner. Its apps follow it — an org is assigned per source, never per app.
   organizationId  String?
   organization    Organization?   @relation(fields: [organizationId], references: [id], onDelete: SetNull)

@@ -71,7 +71,7 @@ export interface HostHealth {
   redirects?: string[];
   service: { id: string; name: string; status: string; disabled: boolean };
   /** the app (API: source) it belongs to */
-  app: { id: string; name: string } | null;
+  app: { id: string; description: string } | null;
   health: Health;
 }
 

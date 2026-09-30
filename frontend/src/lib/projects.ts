@@ -37,10 +37,10 @@ export interface ProjectApp {
 
 export interface Project {
   id: string;
-  /** what to show: its own name, else derived (repository, folder, first hostname) */
-  name: string;
-  /** the name someone gave it; null = derived */
-  customName: string | null;
+  /** what to show: its own description, else derived (folder, repository, first hostname) */
+  description: string;
+  /** the description someone gave it; null = derived */
+  customDescription: string | null;
   /** IMPORTED: checked out on its server, pulled there. MANAGED: built and deployed by the panel. */
   kind: 'IMPORTED' | 'MANAGED';
   status: ProjectStatus;
@@ -117,7 +117,7 @@ export const getProject = async (id: string): Promise<Project> => {
 
 export const updateProject = async (
   id: string,
-  data: Partial<{ name: string; branch: string; gitAccountId: string | null; organizationId: string | null }>,
+  data: Partial<{ description: string; branch: string; gitAccountId: string | null; organizationId: string | null }>,
 ): Promise<Project> => {
   const response = await apiRequest<Project>(`/sources/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   if (response.success && response.data) return response.data;

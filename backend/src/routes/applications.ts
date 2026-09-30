@@ -41,7 +41,7 @@ import { exec } from '../lib/runner';
 import { gitAuthFor, providerOf } from '../lib/gitCredentials';
 import { getGitOAuthConfig } from '../services/integrationConfigService';
 import { readEnv, readEnvFiles, sealEnv, sealEnvFiles } from '../lib/appEnv';
-import { createApplicationWithSource, dropOrphanSources, setSourceOrganization, sourceName, withSourceFields } from '../lib/sources';
+import { createApplicationWithSource, dropOrphanSources, setSourceOrganization, sourceDescription, withSourceFields } from '../lib/sources';
 import { launchDeploy } from '../services/deployLaunch';
 import { syncServerApps, scanServerApps, controlPm2Process } from '../services/appSyncService';
 import { healCaddyRoutes, snapshotCaddyConfig, restoreCaddyConfig } from '../services/caddySnapshotService';
@@ -584,7 +584,7 @@ router.get('/health/hosts', authenticateToken, async (req: AuthenticatedRequest,
         runtime: true,
         serve: true,
         sourceId: true,
-        source: { select: { name: true, repository: true, path: true } },
+        source: { select: { description: true, repository: true, path: true } },
         domains: { select: { host: true, path: true, redirectTo: true }, orderBy: [{ host: 'asc' }, { path: 'asc' }] },
       },
     });
@@ -599,7 +599,7 @@ router.get('/health/hosts', authenticateToken, async (req: AuthenticatedRequest,
           path: d.path,
           redirects: d.path ? [] : app.domains.filter((r) => r.redirectTo === d.host).map((r) => `${r.host}${r.path}`),
           service: { id: app.id, name: app.name, status: app.status, disabled: app.disabled },
-          app: app.sourceId && app.source ? { id: app.sourceId, name: sourceName(app.source, app.domains[0]?.host) } : null,
+          app: app.sourceId && app.source ? { id: app.sourceId, description: sourceDescription(app.source, app.domains[0]?.host) } : null,
           serving: isServing(app),
         })),
     );
@@ -891,7 +891,7 @@ router.post('/', authenticateToken, validateRequest(CreateApplicationSchema), as
       joining
         ? await prisma.application.create({ data: { ...fields, sourceId: joining.id }, include: { source: true } })
         : // a new project: the name typed is the project's (its first app starts with it too, unless named apart)
-          await createApplicationWithSource(fields, { repository, gitAccountId, branch, name: String(req.body.projectName || name).trim() || null }),
+          await createApplicationWithSource(fields, { repository, gitAccountId, branch, description: String(req.body.projectDescription || name).trim() || null }),
     );
 
     // Provision the org on that node now, so the first deploy does not wait

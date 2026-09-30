@@ -55,8 +55,8 @@ export async function backfillSources(): Promise<number> {
 export const dropOrphanSources = () => prisma.source.deleteMany({ where: { applications: { none: {} } } });
 
 export type SourceFields = {
-  /** what the UI calls it; null = derived (lib/sources sourceName) */
-  name?: string | null;
+  /** what the UI calls it; null = derived (sourceDescription) */
+  description?: string | null;
   repository?: string | null;
   branch?: string | null;
   gitAccountId?: string | null;
@@ -115,12 +115,12 @@ const folderName = (value: string) =>
  * per site, and the folder is what tells those apart — else its repository,
  * else its first app's hostname. Pure.
  */
-export function sourceName(
-  source: { name: string | null; repository: string | null; path: string | null },
+export function sourceDescription(
+  source: { description: string | null; repository: string | null; path: string | null },
   firstDomain?: string | null,
 ): string {
   return (
-    source.name?.trim() ||
+    source.description?.trim() ||
     (source.path && folderName(source.path)) ||
     (source.repository && lastSegment(source.repository)) ||
     firstDomain ||

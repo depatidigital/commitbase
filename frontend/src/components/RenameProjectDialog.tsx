@@ -94,7 +94,7 @@ export function RenameProjectDialog({
     <RenameDialog
       {...controlled}
       value={project.customName ?? project.name}
-      title={t("Rename app")}
+      title={t("Edit description")}
       description={t("Leave it empty to name it after its folder or repository again.")}
       done={t("App renamed")}
       rename={async (name) => {

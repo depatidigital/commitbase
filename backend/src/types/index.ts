@@ -147,7 +147,7 @@ export const CreateApplicationSchema = z.object({
   // add it to this project (a Source) instead of starting a new one
   sourceId: z.string().min(1).optional(),
   // a new project's own name, when its first app is named apart from it (a monorepo's drafts)
-  projectName: z.string().optional(),
+  projectDescription: z.string().optional(),
   ...composeFields,
 });
 

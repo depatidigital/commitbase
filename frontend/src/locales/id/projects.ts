@@ -18,7 +18,7 @@ export default {
   "Upload & pick the source": "Upload & Pilih Sumber",
   Finish: "Selesaikan",
   "Almost done": "Hampir selesai",
-  "Give it a name and an address — then it can go online.": "Beri nama dan alamat — setelah itu bisa online.",
+  "Give it an address and a name — then it can go online.": "Beri alamat dan nama — setelah itu bisa online.",
   "Filled in for you. You can change it.": "Sudah diisi otomatis. Boleh diganti.",
   "Address for each service": "Alamat untuk tiap layanan",
   Address: "Alamat",
@@ -93,7 +93,7 @@ export default {
   "folder not detected": "folder tidak terdeteksi",
   "Show its services": "Tampilkan aplikasinya",
   "Hide its services": "Sembunyikan aplikasinya",
-  "Rename app": "Ganti nama aplikasi",
+  "Edit description": "Ganti keterangan",
   "App renamed": "Nama aplikasi diganti",
   "Could not rename the app": "Gagal mengganti nama aplikasi",
   "Leave it empty to name it after its folder or repository again.":

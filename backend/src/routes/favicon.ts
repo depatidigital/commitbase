@@ -78,6 +78,8 @@ async function findIcon(host: string): Promise<{ type: string; body: Buffer } | 
 }
 
 router.get('/:host', async (req: Request, res: Response) => {
+  // helmet's same-origin default would block even the 404 on the frontend's origin
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
   const host = String(req.params.host).toLowerCase();
   const apps = await prisma.appDomain.findMany({ where: { host }, select: { application: { select: { updatedAt: true } } } });
   if (!apps.length) return res.status(404).end();
@@ -95,7 +97,6 @@ router.get('/:host', async (req: Request, res: Response) => {
     'Cache-Control': 'public, max-age=300',
     'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
     'X-Content-Type-Options': 'nosniff',
-    'Cross-Origin-Resource-Policy': 'cross-origin',
   });
   return res.send(entry.icon.body);
 });
