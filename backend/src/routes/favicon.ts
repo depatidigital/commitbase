@@ -79,9 +79,12 @@ async function findIcon(host: string): Promise<{ type: string; body: Buffer } | 
 
 router.get('/:host', async (req: Request, res: Response) => {
   const host = String(req.params.host).toLowerCase();
+  const apps = await prisma.appDomain.findMany({ where: { host }, select: { application: { select: { updatedAt: true } } } });
+  if (!apps.length) return res.status(404).end();
+  // a deploy, restart, upload or start writes the app's status, so updatedAt moves: its icon may have changed
+  const changed = Math.max(...apps.map((d) => d.application.updatedAt.getTime()));
   let entry = cache.get(host);
-  if (!entry || Date.now() - entry.at > (entry.icon ? HIT_MS : MISS_MS)) {
-    if (!(await prisma.appDomain.findFirst({ where: { host }, select: { id: true } }))) return res.status(404).end();
+  if (!entry || entry.at < changed || Date.now() - entry.at > (entry.icon ? HIT_MS : MISS_MS)) {
     entry = { at: Date.now(), icon: await findIcon(host).catch(() => null) };
     cache.set(host, entry);
   }
@@ -89,7 +92,7 @@ router.get('/:host', async (req: Request, res: Response) => {
   // an SVG opened directly must not run as a page of the panel's origin
   res.set({
     'Content-Type': entry.icon.type,
-    'Cache-Control': 'public, max-age=86400',
+    'Cache-Control': 'public, max-age=300',
     'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
     'X-Content-Type-Options': 'nosniff',
     'Cross-Origin-Resource-Policy': 'cross-origin',
