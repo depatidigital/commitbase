@@ -76,7 +76,7 @@ function StatusDot({ status }: { status: NumberStatus | null }) {
 }
 
 /** Which dialog is open, for which number. */
-type Open = { kind: "connect" | "test" | "webhook" | "api" | "access" | "delete"; row: Pick<WaNumber, "id" | "name"> };
+type Open = { kind: "connect" | "test" | "webhook" | "api" | "delete"; row: Pick<WaNumber, "id" | "name"> };
 
 /**
  * A workspace's WhatsApp numbers on the Larika gateway: link one by QR, then an
@@ -184,7 +184,7 @@ export default function WaGateway() {
                 {t("Test")}
               </Button>
             )}
-            <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("API & keys")} aria-label={t("API & keys")} onClick={() => setOpen({ kind: "api", row })}>
+            <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("API, keys & webhook")} aria-label={t("API, keys & webhook")} onClick={() => setOpen({ kind: "api", row })}>
               <KeyRound className="h-3.5 w-3.5" />
             </Button>
             {row.webhookUrl && (
@@ -192,9 +192,6 @@ export default function WaGateway() {
                 <Webhook className="h-3.5 w-3.5" />
               </Button>
             )}
-            <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("Access & webhook")} aria-label={t("Access & webhook")} onClick={() => setOpen({ kind: "access", row })}>
-              <Settings2 className="h-3.5 w-3.5" />
-            </Button>
             <Button variant="outline" size="sm" className="h-8 w-8 p-0" title={t("Delete")} aria-label={t("Delete")} onClick={() => setOpen({ kind: "delete", row })}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -255,7 +252,7 @@ export default function WaGateway() {
           <ApiPlayground rows={rows} gatewayUrl={gatewayUrl} onAdd={startAdding} />
         </TabsContent>
         <TabsContent value="webhooks">
-          <WebhooksTab rows={rows} onSettings={(row) => setOpen({ kind: "access", row })} onTest={(row) => setOpen({ kind: "webhook", row })} />
+          <WebhooksTab rows={rows} onSettings={(row) => setOpen({ kind: "api", row })} onTest={(row) => setOpen({ kind: "webhook", row })} />
         </TabsContent>
       </Tabs>
 
@@ -345,8 +342,7 @@ export default function WaGateway() {
           }}
         />
       )}
-      {open?.kind === "access" && <AccessDialog id={open.row.id} onClose={close} />}
-      {open?.kind === "webhook" && <WebhookTestDialog id={open.row.id} onClose={close} onSettings={() => setOpen({ kind: "access", row: open.row })} />}
+      {open?.kind === "webhook" && <WebhookTestDialog id={open.row.id} onClose={close} onSettings={() => setOpen({ kind: "api", row: open.row })} />}
       {open?.kind === "delete" && <DeleteDialog row={open.row} onClose={close} />}
     </PageLayout>
   );
@@ -430,7 +426,7 @@ function QuickStart({ rows, gatewayUrl, onAdd, onOpen, onApi }: { rows: WaNumber
         <CodeExample examples={[{ label: "Node.js", code: VERIFY_SNIPPET }]} />
         {example?.canManage && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpen("access", hooked ?? example)}>
+            <Button variant="outline" size="sm" onClick={() => onOpen("api", hooked ?? example)}>
               <Settings2 className="mr-2 h-4 w-4" />
               {t("Access & webhook")}
             </Button>
@@ -668,7 +664,7 @@ function WebhookKeySection({ id }: { id: string }) {
   );
 }
 
-/** How an app calls it: base URL, an example, and the keys — its API keys, and the key its webhooks carry. */
+/** Everything about how an app uses a number, in one dialog: base URL and an example, its API keys, the key its webhooks carry, and who may call it and where events go. */
 function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: string | null; onClose: () => void; onApi: () => void }) {
   const { toast } = useToast();
   const [shownKey, setShownKey] = useState<string | null>(firstKey);
@@ -700,7 +696,7 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {t("API & keys")} — {number?.name ?? ""}
+            {t("API, keys & webhook")} — {number?.name ?? ""}
           </DialogTitle>
         </DialogHeader>
         <DialogBody className="space-y-5">
@@ -757,6 +753,10 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
               </section>
 
               <WebhookKeySection id={id} />
+
+              <section className="space-y-2 border-t pt-4">
+                <AccessSection id={id} number={number} />
+              </section>
             </>
           ) : null}
         </DialogBody>
@@ -860,58 +860,40 @@ function WebhookTestDialog({ id, onClose, onSettings }: { id: string; onClose: (
   );
 }
 
-/** Who may call the API and where events go. The keys — API and webhook — are in ApiDialog. */
-function AccessDialog({ id, onClose }: { id: string; onClose: () => void }) {
+/** Who may call the API and where events go: saved on their own, inside the number's one dialog. */
+function AccessSection({ id, number }: { id: string; number: { ipAllowlist: string[]; webhookUrl: string | null } }) {
   const { toast } = useToast();
-  const { data: number, error, isLoading } = useNumber(id);
+  const queryClient = useQueryClient();
   const [form, setForm] = useState<{ ipAllowlist: string; webhookUrl: string } | null>(null);
-  // the form fills once the number has loaded
-  const values = form ?? (number ? { ipAllowlist: number.ipAllowlist.join(", "), webhookUrl: number.webhookUrl ?? "" } : null);
+  const values = form ?? { ipAllowlist: number.ipAllowlist.join(", "), webhookUrl: number.webhookUrl ?? "" };
   const save = useMutation({
     mutationFn: (s: { ipAllowlist: string; webhookUrl: string }) => updateWaNumber(id, s),
     onSuccess: () => {
+      setForm(null);
+      void queryClient.invalidateQueries({ queryKey: ["wa-number", id] });
+      void queryClient.invalidateQueries({ queryKey: LIST_KEY });
       toast({ title: t("Saved") });
-      onClose();
     },
     onError: failedToast(toast, t("Failed to save the number")),
   });
-
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {t("Access & webhook")} — {number?.name ?? ""}
-          </DialogTitle>
-        </DialogHeader>
-        {isLoading ? (
-          <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-        ) : error ? (
-          <p className="text-sm text-destructive">{(error as Error).message}</p>
-        ) : values ? (
-          <form
-            id="number-access"
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              save.mutate(values);
-            }}
-          >
-            <IpAllowlistField value={values.ipAllowlist} onChange={(ipAllowlist) => setForm({ ...values, ipAllowlist })} />
-            <WebhookField value={values.webhookUrl} onChange={(webhookUrl) => setForm({ ...values, webhookUrl })} />
-          </form>
-        ) : null}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={save.isPending}>
-            {t("Cancel")}
-          </Button>
-          <Button type="submit" form="number-access" disabled={save.isPending || !values?.ipAllowlist.trim()}>
-            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {t("Save")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate(values);
+      }}
+    >
+      <IpAllowlistField value={values.ipAllowlist} onChange={(ipAllowlist) => setForm({ ...values, ipAllowlist })} />
+      <WebhookField value={values.webhookUrl} onChange={(webhookUrl) => setForm({ ...values, webhookUrl })} />
+      <div className="flex justify-end">
+        {/* lit only once something changed */}
+        <Button type="submit" size="sm" disabled={save.isPending || !form || !values.ipAllowlist.trim()}>
+          {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t("Save")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
