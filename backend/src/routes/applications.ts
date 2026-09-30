@@ -2091,6 +2091,41 @@ router.post('/:id/exec', authenticateToken, async (req: AuthenticatedRequest, re
  * build on the node is stopped, and a deploy between steps stops at the next
  * one. What served before keeps serving. 409 when nothing is deploying.
  */
+/**
+ * The package.json scripts of the app's live release (read on every call, so
+ * a deploy's new script shows at once), the last one run, and its output.
+ */
+router.get('/:id/scripts', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) } });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const imported = refuseImported(application, res);
+    if (imported) return imported;
+    const [list, log] = await Promise.all([deploymentService.listScripts(application.id), deploymentService.scriptLog(application.id)]);
+    return res.json({ success: true, data: { ...list, log } } as ApiResponse);
+  } catch (error: any) {
+    return res.status(409).json({ success: false, error: error?.message || 'Could not read the scripts' } as ApiResponse);
+  }
+});
+
+/** Run one of them on the node, in the background; GET /:id/scripts follows it. */
+router.post('/:id/scripts/run', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const application = await prisma.application.findFirst({ where: { id: req.params.id as string, ...(await appScope(req)) } });
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' } as ApiResponse);
+    const imported = refuseImported(application, res);
+    if (imported) return imported;
+    const name = String(req.body?.name ?? '');
+    await deploymentService.runScript(application.id, name);
+    await prisma.log.create({
+      data: { level: 'INFO', message: `Script "${name}" of ${application.name} started`, userId: req.user!.userId, applicationId: application.id },
+    });
+    return res.status(202).json({ success: true, message: 'Script started' } as ApiResponse);
+  } catch (error: any) {
+    return res.status(409).json({ success: false, error: error?.message || 'Could not run the script' } as ApiResponse);
+  }
+});
+
 router.post('/:id/deploy/cancel', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const application = await prisma.application.findFirst({

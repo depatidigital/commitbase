@@ -944,3 +944,33 @@ export const bulkAssignApplications = async (
   if (response.success && response.data) return response.data.count;
   throw new Error(response.error || t("Failed to assign services"));
 };
+
+/** A package.json script of an app: the one running, or the last one run. */
+export interface ScriptRun {
+  name: string;
+  startedAt: string;
+  finishedAt: string | null;
+  /** null while it runs */
+  ok: boolean | null;
+}
+
+export interface AppScripts {
+  /** name → command, from the live release's package.json */
+  scripts: Record<string, string>;
+  run: ScriptRun | null;
+  /** a deploy or a script is running for the app: nothing else can start */
+  busy: boolean;
+  /** what the last script printed */
+  log: string;
+}
+
+export const getAppScripts = async (id: string): Promise<AppScripts> => {
+  const response = await apiRequest<AppScripts>(`/applications/${id}/scripts`);
+  if (response.success && response.data) return response.data;
+  throw new Error(response.error || t('Could not read the scripts'));
+};
+
+export const runAppScript = async (id: string, name: string): Promise<void> => {
+  const response = await apiRequest(`/applications/${id}/scripts/run`, { method: 'POST', body: JSON.stringify({ name }) });
+  if (!response.success) throw new Error(response.error || t('Could not run the script'));
+};

@@ -39,6 +39,7 @@ import { SiteFilesCard } from "@/components/SiteFilesCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AppDatabasesTab } from "@/components/AppDatabasesTab";
 import { ProjectLogs } from "@/components/ProjectLogs";
+import { AppScripts } from "@/components/AppScripts";
 import { RestartDialog } from "@/components/RestartDialog";
 import { AppTroubleshoot } from "@/components/AppTroubleshoot";
 import { AppStorageCard } from "@/components/AppStorageCard";
@@ -155,6 +156,8 @@ export default function ProjectDetail() {
   const sites = [...new Set(apps.flatMap((app) => app.domains.filter((d) => !d.path && !d.redirectTo).map((d) => d.host)))];
   // uploaded static files only: nothing is built and there is no env — those tabs say nothing
   const filesOnly = !project.repository && apps.length > 0 && apps.every((app) => app.type === "STATIC");
+  // what may have a package.json the panel runs: not a static site's files, not a compose stack
+  const scriptApps = apps.filter((app) => app.type !== "STATIC" && app.type !== "COMPOSE");
   const shown = (filesOnly && ["env", "build"].includes(tab)) || (tab === "database" && !hasDatabase) ? "apps" : tab;
   // one uploaded static site: its row and its files as one card
   const single = filesOnly && apps.length === 1;
@@ -282,6 +285,7 @@ export default function ProjectDetail() {
           {apps.some(needsPackages) && <TabsTrigger value="requirements">{t("System Package")}</TabsTrigger>}
           {!filesOnly && <TabsTrigger value="env">{t("Environment")}</TabsTrigger>}
           {!filesOnly && <TabsTrigger value="build">{t("Build")}</TabsTrigger>}
+          {!filesOnly && !imported && scriptApps.length > 0 && <TabsTrigger value="scripts">{t("Scripts")}</TabsTrigger>}
           <TabsTrigger value="deployments">{t("Deployments")}</TabsTrigger>
           {apps.some((app) => app.type === "COMPOSE") && <TabsTrigger value="stack">{t("Stack")}</TabsTrigger>}
           {hasDatabase && <TabsTrigger value="database">{t("Database")}</TabsTrigger>}
@@ -373,6 +377,13 @@ export default function ProjectDetail() {
 
         {/* every service's log in one live stream, or one service's — followed only while this tab is open */}
         {/* every deploy of the app, newest first — each names its service when there are several */}
+        {/* each built service's package.json scripts, run on its server */}
+        <TabsContent value="scripts" className={scriptApps.length > 1 ? "grid items-start gap-4 xl:grid-cols-2" : "space-y-4"}>
+          {scriptApps.map((app) => (
+            <AppScripts key={app.id} appId={app.id} title={scriptApps.length > 1 ? app.name : undefined} />
+          ))}
+        </TabsContent>
+
         <TabsContent value="deployments">{apps[0] && <AppDeployments appId={apps[0].id} showApp={apps.length > 1} />}</TabsContent>
 
         {/* a compose service's own services (web, db, solr…), as its compose files define them */}

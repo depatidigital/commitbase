@@ -46,6 +46,13 @@ const syncing = new Map<string, Promise<string>>();
 // deploys a user asked to stop; checked between steps (cancelDeploy)
 const cancelling = new Set<string>();
 
+/** A package.json script of an app: the one running, or the last one run. */
+export type ScriptRun = { name: string; startedAt: string; finishedAt: string | null; ok: boolean | null };
+// ponytail: in memory — a panel restart forgets the last run's outcome; its output stays in logs/script.log
+const scriptRuns = new Map<string, ScriptRun>();
+/** A script name as package.json may spell it; anything else never reaches the shell. */
+export const SCRIPT_NAME = /^[\w:.-]{1,80}$/;
+
 /** A deploy stopped on request — recorded as CANCELLED, not FAILED. */
 class CancelledError extends Error {}
 /** What the locks are held on: the app — each deploys on its own, in its own tree. */
@@ -1165,6 +1172,114 @@ export class DeploymentService {
   /** Deploys in flight or waiting for a build slot, on every server — 0 is what an upgrade drain waits for. */
   busy(): number {
     return deploying.size;
+  }
+
+  /** The live release of an app the panel deploys: its tree, where its package.json is, and the app with its workspace. */
+  private async liveRelease(applicationId: string) {
+    const app = await prisma.application.findUniqueOrThrow({ where: { id: applicationId }, include: { organization: { select: { slug: true } } } });
+    const afs = await sourceFsFor(app.id);
+    // the release `current` points at, by its own path: what the last deploy made live
+    const releaseDir = await afs.readlink(currentDirFor(afs.appDir)).catch(() => null);
+    if (!releaseDir) throw new Error('Nothing is deployed yet');
+    return { app, afs, releaseDir, workDir: inRootDirectory(releaseDir, app.rootDirectory) };
+  }
+
+  /**
+   * The scripts of the live release's package.json — read now, every time, so
+   * what a pull or a deploy brought is what is listed — and the last run.
+   */
+  async listScripts(applicationId: string): Promise<{ scripts: Record<string, string>; run: ScriptRun | null; busy: boolean }> {
+    const { afs, workDir } = await this.liveRelease(applicationId);
+    const pkg = await afs.readText(join(workDir, 'package.json')).then((text) => JSON.parse(text), () => null);
+    const scripts = Object.fromEntries(
+      Object.entries((pkg?.scripts ?? {}) as Record<string, unknown>).filter(([name, command]) => SCRIPT_NAME.test(name) && typeof command === 'string'),
+    ) as Record<string, string>;
+    return { scripts, run: scriptRuns.get(applicationId) ?? null, busy: deploying.has(applicationId) };
+  }
+
+  /** What the last script printed (logs/script.log), its tail. */
+  async scriptLog(applicationId: string): Promise<string> {
+    const afs = await sourceFsFor(applicationId);
+    return (await afs.readText(join(logsDirFor(afs.appDir), 'script.log')).catch(() => '')).slice(-256 * 1024);
+  }
+
+  /**
+   * Run one package.json script of the live release, in the background: a
+   * seed, a backfill, a repair. Like the pre-deploy step — as the app's own
+   * user, with its Node version and environment, inside the build cgroup, its
+   * dependencies installed whole first (a release is pruned of devDependencies,
+   * and `tsx` is one) and pruned again after. One at a time per app, never
+   * during its deploy; the node's build slot, since an install is as heavy as one.
+   * Only a name package.json lists is run: the command is the repository's, not the caller's.
+   */
+  async runScript(applicationId: string, name: string): Promise<void> {
+    if (!SCRIPT_NAME.test(name)) throw new Error('Not a script name');
+    if (deploying.has(applicationId)) throw new Error('A deployment or another script is running for this app');
+    const { app, afs, releaseDir, workDir } = await this.liveRelease(applicationId);
+    const slug = app.organization?.slug;
+    if (!afs.node || !slug) throw new Error('This app has no organization node to run on');
+    const { scripts } = await this.listScripts(applicationId);
+    if (!(name in scripts)) throw new Error(`package.json has no script "${name}"`);
+
+    const detected = await detectProject(workDir, afs.readText, undefined, releaseDir, app.packageManager);
+    const prune = pruneOf(app, detected);
+    const installCommand = app.installCommand || detected.installCommand;
+    const install =
+      detected.packageManager === 'npm'
+        ? `( umask 000; : >> ${NPM_LOCK} ) 2>/dev/null || true; flock -w 1800 ${NPM_LOCK} sh -c ${q(installCommand)}`
+        : installCommand;
+    const installDir = detected.installAtRoot ? releaseDir : workDir;
+    const block = buildBlock({
+      heading: null,
+      nodeVersion: detected.nodeVersion,
+      env: {
+        ...readEnv(app.envVars),
+        PORT: String(app.port || ''),
+        ...(detected.packageManager === 'pnpm' && { pnpm_config_dangerously_allow_all_builds: 'true', pnpm_config_package_manager_strict: 'false' }),
+      },
+      installDir,
+      installs: [],
+      workDir,
+      steps: [
+        ...(prune ? [`trap ${q(`echo; echo ${q('$ ' + prune)}; cd ${q(workDir)} && ${guardedPrune(prune, installDir, install)}`)} EXIT`, `(cd ${q(installDir)} && ${install})`] : []),
+        `${detected.packageManager} run ${name}`,
+      ],
+    });
+
+    // asked twice at once: the first one in holds it
+    if (deploying.has(applicationId)) throw new Error('A deployment or another script is running for this app');
+    deploying.add(applicationId);
+    const run: ScriptRun = { name, startedAt: new Date().toISOString(), finishedAt: null, ok: null };
+    scriptRuns.set(applicationId, run);
+    const logPath = join(logsDirFor(afs.appDir), 'script.log');
+    void (async () => {
+      let release = () => {};
+      try {
+        await afs.mkdir(logsDirFor(afs.appDir));
+        await afs.writeFile(logPath, `[${run.startedAt}] ${detected.packageManager} run ${name}` + NL);
+        release = await acquireBuildSlot(afs.node!.id, () => afs.appendFile(logPath, 'Waiting for another build on this node to finish…' + NL));
+        const scriptPath = join(afs.appDir, 'build.sh');
+        await afs.rm(scriptPath, { force: true });
+        await afs.writeFile(scriptPath, buildScript([block]), { mode: 0o660 });
+        let appending: Promise<unknown> = Promise.resolve();
+        try {
+          await appBuild(slug, app.id, (text) => {
+            appending = appending.then(() => afs.appendFile(logPath, text)).catch(() => {});
+          });
+        } finally {
+          await appending;
+        }
+        run.ok = true;
+        await afs.appendFile(logPath, NL + `[${new Date().toISOString()}] SCRIPT COMPLETED` + NL);
+      } catch (error: any) {
+        run.ok = false;
+        await afs.appendFile(logPath, NL + `[${new Date().toISOString()}] SCRIPT FAILED:` + NL + buildFailureText(error) + NL).catch(() => {});
+      } finally {
+        run.finishedAt = new Date().toISOString();
+        release();
+        deploying.delete(applicationId);
+      }
+    })();
   }
 
   /** True while a deploy of this application is in flight. */
