@@ -33,6 +33,23 @@ const ALL = "__all__";
  * Beside the name, and only when something is off — health as such is the
  * dashboard's: in flight, or the reason it needs a look.
  */
+/** The one way out to the site from the list: its icon, in a new tab. The row itself opens the app. */
+function SiteLink({ host }: { host: string }) {
+  return (
+    <a
+      href={`https://${host}`}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-primary"
+      aria-label={t("Open {host} in a new tab", { host })}
+      title={t("Open {host} in a new tab", { host })}
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
 /** As on the dashboard: the hosts redirecting to this one, under it. */
 function Redirects({ project, host }: { project: Project; host: string }) {
   const from = project.applications.flatMap((app) => app.domains.filter((d) => d.redirectTo === host).map((d) => `${d.host}${d.path ?? ""}`));
@@ -216,16 +233,11 @@ export default function Projects() {
             <div className="min-w-0">
               <span className="flex min-w-0 items-center gap-1">
                 {host ? (
-                  <a
-                    href={`https://${host}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex min-w-0 items-center gap-1 font-medium hover:text-primary hover:underline"
-                  >
-                    <span className="truncate">{host}</span>
-                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  </a>
+                  // the name opens the app, like the rest of the row; only the icon leaves for the site
+                  <>
+                    <span className="truncate font-medium">{host}</span>
+                    <SiteLink host={host} />
+                  </>
                 ) : (
                   <span className="truncate font-medium">{project.description}</span>
                 )}
@@ -242,16 +254,10 @@ export default function Projects() {
           <div className="flex min-w-0 items-center gap-3">
             <Favicon host={other} className="h-8 w-8 rounded-md border bg-card p-1.5" />
             <div className="min-w-0">
-              <a
-                href={`https://${other}`}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex min-w-0 items-center gap-1 font-medium hover:text-primary hover:underline"
-              >
-                <span className="truncate">{other}</span>
-                <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-              </a>
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate font-medium">{other}</span>
+                <SiteLink host={other} />
+              </span>
               <Redirects project={project} host={other} />
             </div>
           </div>
