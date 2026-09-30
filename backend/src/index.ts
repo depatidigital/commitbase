@@ -63,13 +63,14 @@ import { startEmailWatchers } from './services/emailWatcherService';
 import aiGatewayRoutes from './routes/aiGateway';
 import aiRoutes from './routes/ai';
 import arusniagaRoutes from './routes/arusniaga';
+import stalwartRoutes from './routes/stalwart';
 import gitOAuthRoutes from './routes/gitOAuth';
 import gitRoutes from './routes/git';
 import adminRoutes from './routes/admin';
 import systemRoutes from './routes/system';
 import organizationsRoutes from './routes/organizations';
 import serversRoutes from './routes/servers';
-import { syncNodeIpsToCloudflare } from './lib/servers';
+import { syncNodeIpAllowlists } from './lib/servers';
 import databaseServersRoutes from './routes/databaseServers';
 import { authenticateToken, requireRole } from './middleware/auth';
 
@@ -165,6 +166,7 @@ app.use('/api/wa-numbers', waNumbersRoutes);
 app.use('/api/email-watcher', emailWatcherRoutes);
 app.use('/api/ai-gateway', authenticateToken, requireRole(['SUPERADMIN']), aiGatewayRoutes);
 app.use('/api/arusniaga', authenticateToken, requireRole(['SUPERADMIN']), arusniagaRoutes);
+app.use('/api/stalwart', authenticateToken, requireRole(['SUPERADMIN']), stalwartRoutes);
 // a workspace's AI and wallet: scoped per org in the router
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin', authenticateToken, requireRole(['SUPERADMIN', 'ADMIN']), adminRoutes);
@@ -248,7 +250,7 @@ async function onListening() {
   startCronJobs();
 
   // our own nodes skip Cloudflare challenges when calling each other's apps
-  void syncNodeIpsToCloudflare();
+  void syncNodeIpAllowlists();
 
   // one IMAP connection per watched mailbox, each after a random pause
   startEmailWatchers()

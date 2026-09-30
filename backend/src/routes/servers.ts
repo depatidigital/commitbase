@@ -13,7 +13,7 @@ import { restoreNode, snapshotNode } from '../services/caddySnapshotService';
 import { syncServerApps, classifyRoute, routeHosts, isNotAnApp } from '../services/appSyncService';
 import { getCaddyConfig, allRoutesOf } from '../services/caddyService';
 import { canEncrypt, encrypt } from '../lib/secretBox';
-import { appsOnServer, syncNodeIpsToCloudflare } from '../lib/servers';
+import { appsOnServer, syncNodeIpAllowlists } from '../lib/servers';
 import { appDiskUsage, cleanupApp, nodeDisk } from '../services/appDiskService';
 import { migrateToCaddy, planMigration } from '../services/nginxMigrateService';
 import { cleanSystem, measureSystem, rotatedLogsTop, SYSTEM_TARGET_IDS, type SystemTarget } from '../services/systemCleanupService';
@@ -204,7 +204,7 @@ router.post(
       ) as any;
 
       const server = await prisma.server.create({ data: fields, include: withCounts });
-      void syncNodeIpsToCloudflare();
+      void syncNodeIpAllowlists();
       const ping = await pingServer(server).catch(() => null);
 
       // Take a copy of whatever Caddy is already serving on this box before
@@ -296,7 +296,7 @@ router.put(
         data: patch,
         include: withCounts,
       });
-      if (patch.publicIp !== undefined) void syncNodeIpsToCloudflare();
+      if (patch.publicIp !== undefined) void syncNodeIpAllowlists();
 
       // A new hostname or key can mean a different box, or the first time this
       // one was reachable at all — either way its Caddy is worth re-reading.
@@ -784,7 +784,7 @@ router.delete('/:id', authenticateToken, requireRole(['SUPERADMIN']), async (req
     await prisma.organization.updateMany({ where: { defaultServerId: id }, data: { defaultServerId: null } });
 
     await prisma.server.delete({ where: { id } });
-    void syncNodeIpsToCloudflare();
+    void syncNodeIpAllowlists();
     return res.json({ success: true, message: 'Server deleted' } as ApiResponse);
   } catch (error: any) {
     if (error?.code === 'P2025') {

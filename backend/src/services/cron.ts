@@ -13,6 +13,7 @@ import { measureAllAppDisks } from './appDiskService';
 import { backfillStorageDays, meterUsage } from './usageMeterService';
 import { billAiUsage } from './aiGatewayService';
 import { checkTopUps } from './arusniagaService';
+import { alertQueueFloods } from './stalwartService';
 import { billHosting, guardWallets } from './walletService';
 import { billEmailWatchers, pruneEmailEvents, retryDeliveries } from './emailWatcherService';
 
@@ -45,6 +46,12 @@ async function systemUserId(): Promise<string | null> {
 }
 
 const jobs: Job[] = [
+  {
+    name: 'stalwart-queue',
+    // a leaked mailbox password sends thousands an hour: looked at every quarter hour
+    schedule: process.env.CRON_STALWART_QUEUE || '*/15 * * * *',
+    run: alertQueueFloods,
+  },
   {
     name: 'server-health',
     // Every five minutes. Often enough that an admin looking at the servers

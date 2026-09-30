@@ -26,7 +26,8 @@
     "check:email-rules": "tsx src/lib/emailRules.check.ts",
     "check:app-disk": "tsx src/services/appDiskService.check.ts",
     "check:system-cleanup": "tsx src/services/systemCleanupService.check.ts",
-    "check:favicon": "tsx src/routes/favicon.check.ts"
+    "check:favicon": "tsx src/routes/favicon.check.ts",
+    "check:stalwart": "tsx src/services/stalwartService.check.ts"
   },
   "keywords": [
     "api",

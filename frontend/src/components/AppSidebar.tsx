@@ -101,6 +101,7 @@ export function AppSidebar() {
     { title: "Larika Gateway", url: "/integrations/larika-gateway" },
     { title: "AI Gateway", url: "/integrations/ai-gateway" },
     { title: "ArusNiaga", url: "/integrations/arusniaga" },
+    { title: "Stalwart", url: "/integrations/stalwart" },
   ];
 
   return (

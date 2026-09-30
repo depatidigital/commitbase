@@ -219,3 +219,22 @@ export const ARUSNIAGA_GUIDE: StepGroup[] = [
     ],
   },
 ];
+
+export const STALWART_GUIDE: StepGroup[] = [
+  {
+    steps: [
+      <>
+        {t("The URL of Stalwart's admin (HTTP) listener, e.g.")} <Code>https://mail.example.com</Code> {t('— and an administrator login. The password is stored encrypted.')}
+      </>,
+      t('Pick the node Stalwart runs on, so its log can be read there.'),
+      t("Once connected, every node's IP is added to Stalwart's allowed IPs (and unblocked if it was banned), so your apps are never rate-limited by it."),
+    ],
+  },
+  {
+    steps: [
+      t('Every 15 minutes the queue is checked. When one sender has more messages waiting than the alert threshold, the superadmins are mailed.'),
+      t('Many IPs sending as one account means its password leaked: lock the account, then cancel its queue.'),
+      t('An app that provisions mailboxes (with its own sync) can set a password back: deactivate the mailbox there too.'),
+    ],
+  },
+];

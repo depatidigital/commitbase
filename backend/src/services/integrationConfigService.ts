@@ -12,6 +12,7 @@ const GITLAB_OAUTH_PROVIDER = 'gitlab_oauth';
 const LARIKA_GATEWAY_PROVIDER = 'larika_gateway';
 const LARIKA_AI_PROVIDER = 'larika_ai';
 const ARUSNIAGA_PROVIDER = 'arusniaga';
+const STALWART_PROVIDER = 'stalwart';
 
 type Provider =
   | typeof RDASH_PROVIDER
@@ -22,7 +23,8 @@ type Provider =
   | typeof GITLAB_OAUTH_PROVIDER
   | typeof LARIKA_GATEWAY_PROVIDER
   | typeof LARIKA_AI_PROVIDER
-  | typeof ARUSNIAGA_PROVIDER;
+  | typeof ARUSNIAGA_PROVIDER
+  | typeof STALWART_PROVIDER;
 
 export async function getIntegrationConfigValue(provider: Provider, key: string): Promise<string | null> {
   const entry = await prisma.integrationConfig.findUnique({
@@ -230,4 +232,27 @@ export async function getArusniagaConfig() {
   const [baseUrl, apiKey] = await Promise.all([getArusniagaValue('baseUrl'), getArusniagaValue('apiKey')]);
   if (!apiKey) return null;
   return { baseUrl: (baseUrl || ARUSNIAGA_DEFAULT_URL).replace(/\/+$/, ''), apiKey: decrypt(apiKey) };
+}
+
+export type StalwartKey = 'baseUrl' | 'username' | 'password' | 'serverId' | 'logDir' | 'alertThreshold';
+export const STALWART_LOG_DIR = '/var/log/stalwart';
+/** Messages from one sender waiting in the queue before the admins are mailed. */
+export const STALWART_ALERT_THRESHOLD = 500;
+export const setStalwartValue = (key: StalwartKey, value: string) => setIntegrationConfigValue(STALWART_PROVIDER, key, value);
+export const getStalwartValue = (key: StalwartKey) => getIntegrationConfigValue(STALWART_PROVIDER, key);
+
+/** The Stalwart mail server's admin API (Basic auth, password secretBox-encrypted) and the node its logs are on. Null until URL, user and password are saved. */
+export async function getStalwartConfig() {
+  const [baseUrl, username, password, serverId, logDir, alertThreshold] = await Promise.all(
+    (['baseUrl', 'username', 'password', 'serverId', 'logDir', 'alertThreshold'] as const).map(getStalwartValue),
+  );
+  if (!baseUrl || !username || !password) return null;
+  return {
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    username,
+    password: decrypt(password),
+    serverId: serverId || null,
+    logDir: logDir || STALWART_LOG_DIR,
+    alertThreshold: Number(alertThreshold) || STALWART_ALERT_THRESHOLD,
+  };
 }

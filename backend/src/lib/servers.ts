@@ -2,6 +2,7 @@ import { prisma } from './prisma';
 import { isIP } from 'net';
 import { exec, type SshTarget } from './runner';
 import { syncNodeAllowlist } from '../services/cloudflareService';
+import { syncStalwartAllowedIps } from '../services/stalwartService';
 
 /**
  * Which node an application runs on.
@@ -68,15 +69,18 @@ async function egressIps(server: SshTarget): Promise<string[] | null> {
 }
 
 /**
- * Push every node's addresses to Cloudflare's allowlist: its publicIp plus what
- * it actually leaves the box as (IPv6, NAT). Call after nodes change.
+ * Push every node's addresses to the allowlists: Cloudflare's, and the Stalwart
+ * mail server's allowed IPs. Its publicIp plus what it actually leaves the box
+ * as (IPv6, NAT). Call after nodes change.
  */
-export async function syncNodeIpsToCloudflare(): Promise<void> {
+export async function syncNodeIpAllowlists(): Promise<void> {
   const servers = await prisma.server.findMany({
     select: { id: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true, authMethod: true, sshPassword: true, publicIp: true },
   });
   const probed = await Promise.all(servers.map(egressIps));
   const ips = servers.flatMap((s, i) => [s.publicIp.trim(), ...(probed[i] ?? [])]).filter((ip) => isIP(ip));
   // a node we could not reach may still own rules from an earlier probe: keep them
-  await syncNodeAllowlist([...new Set(ips)], { prune: probed.every(Boolean) });
+  const unique = [...new Set(ips)];
+  const prune = probed.every(Boolean);
+  await Promise.all([syncNodeAllowlist(unique, { prune }), syncStalwartAllowedIps(unique, { prune })]);
 }
