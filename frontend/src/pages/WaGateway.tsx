@@ -670,6 +670,20 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
   const { toast } = useToast();
   const [shownKey, setShownKey] = useState<string | null>(firstKey);
   const { data: number, error, isLoading } = useNumber(id);
+  const queryClient = useQueryClient();
+  // the access fields: null until one is changed — what lights the footer's Save
+  const [access, setAccess] = useState<Access | null>(null);
+  const accessValues: Access = access ?? { ipAllowlist: number?.ipAllowlist.join(", ") ?? "", webhookUrl: number?.webhookUrl ?? "" };
+  const saveAccess = useMutation({
+    mutationFn: () => updateWaNumber(id, accessValues),
+    onSuccess: () => {
+      setAccess(null);
+      void queryClient.invalidateQueries({ queryKey: ["wa-number", id] });
+      void queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      toast({ title: t("Saved") });
+    },
+    onError: failedToast(toast, t("Failed to save the number")),
+  });
   const keys = useQuery({ queryKey: ["wa-number", id, "keys"], queryFn: () => getWaKeys(id) });
   const addKey = useMutation({
     mutationFn: () => createWaKey(id),
@@ -756,14 +770,19 @@ function ApiDialog({ id, firstKey, onClose, onApi }: { id: string; firstKey: str
               <WebhookKeySection id={id} />
 
               <section className="space-y-2 border-t pt-4">
-                <AccessSection id={id} number={number} />
+                <AccessSection values={accessValues} onChange={setAccess} onSubmit={() => saveAccess.mutate()} />
               </section>
             </>
           ) : null}
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={saveAccess.isPending}>
             {t("Close")}
+          </Button>
+          {/* saves the access fields; lit only once one of them changed */}
+          <Button type="submit" form="number-access" disabled={saveAccess.isPending || !access || !accessValues.ipAllowlist.trim()}>
+            {saveAccess.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("Save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -861,39 +880,21 @@ function WebhookTestDialog({ id, onClose, onSettings }: { id: string; onClose: (
   );
 }
 
-/** Who may call the API and where events go: saved on their own, inside the number's one dialog. */
-function AccessSection({ id, number }: { id: string; number: { ipAllowlist: string[]; webhookUrl: string | null } }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<{ ipAllowlist: string; webhookUrl: string } | null>(null);
-  const values = form ?? { ipAllowlist: number.ipAllowlist.join(", "), webhookUrl: number.webhookUrl ?? "" };
-  const save = useMutation({
-    mutationFn: (s: { ipAllowlist: string; webhookUrl: string }) => updateWaNumber(id, s),
-    onSuccess: () => {
-      setForm(null);
-      void queryClient.invalidateQueries({ queryKey: ["wa-number", id] });
-      void queryClient.invalidateQueries({ queryKey: LIST_KEY });
-      toast({ title: t("Saved") });
-    },
-    onError: failedToast(toast, t("Failed to save the number")),
-  });
+type Access = { ipAllowlist: string; webhookUrl: string };
+
+/** Who may call the API and where events go: the fields only — the dialog holds them and saves from its footer. */
+function AccessSection({ values, onChange, onSubmit }: { values: Access; onChange: (values: Access) => void; onSubmit: () => void }) {
   return (
     <form
+      id="number-access"
       className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate(values);
+        onSubmit();
       }}
     >
-      <IpAllowlistField value={values.ipAllowlist} onChange={(ipAllowlist) => setForm({ ...values, ipAllowlist })} />
-      <WebhookField value={values.webhookUrl} onChange={(webhookUrl) => setForm({ ...values, webhookUrl })} />
-      <div className="flex justify-end">
-        {/* lit only once something changed */}
-        <Button type="submit" size="sm" disabled={save.isPending || !form || !values.ipAllowlist.trim()}>
-          {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {t("Save")}
-        </Button>
-      </div>
+      <IpAllowlistField value={values.ipAllowlist} onChange={(ipAllowlist) => onChange({ ...values, ipAllowlist })} />
+      <WebhookField value={values.webhookUrl} onChange={(webhookUrl) => onChange({ ...values, webhookUrl })} />
     </form>
   );
 }
