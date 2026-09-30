@@ -69,7 +69,7 @@ export async function snapshotDatabase(databaseId: string, deploymentId: string)
 
   const script = dbs.engine === 'POSTGRESQL' ? PG_DUMP : MYSQLDUMP;
   const command = buildCommand(['bash', '-c', script, 'bash', dbs.host, String(dbs.port), username, db.dbName]);
-  const client = await connect(dbs.server);
+  const client = await connect(dbs.server, 'long');
   await new Promise<void>((resolve, reject) => {
     client.exec(command, (err, stream) => {
       if (err) return reject(new Error(`SSH exec on ${dbs.server!.hostname} failed: ${err.message}`));

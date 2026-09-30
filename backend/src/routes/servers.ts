@@ -567,32 +567,38 @@ router.get('/:id/apps', authenticateToken, requireRole(['SUPERADMIN']), async (r
 });
 
 /**
- * This node's disk: the filesystem tenant homes live on, and every panel app
- * on it with what it uses and what cleaning up would give back. One du per
- * app over SSH — a page opened on purpose, not polled.
- */
-/**
  * A node's last disk and cleanup measurements, so a page shows them at once
  * (?cached=1) while a fresh one runs: measuring walks the disk, minutes on a big node.
  * ponytail: in memory, one entry per node and kind; a restart measures afresh
  */
 const lastMeasured = new Map<string, { measuredAt: string; data: unknown }>();
-const remember = (key: string, data: object) => {
-  const entry = { measuredAt: new Date().toISOString(), data };
-  lastMeasured.set(key, entry);
-  return { ...data, measuredAt: entry.measuredAt };
+// a measurement under way: whoever asks meanwhile gets the same one, the node walks its disk once
+const measuring = new Map<string, Promise<object>>();
+const measure = (key: string, run: () => Promise<object>) => {
+  let pending = measuring.get(key);
+  if (!pending) {
+    pending = run()
+      .then((data) => {
+        const entry = { measuredAt: new Date().toISOString(), data };
+        lastMeasured.set(key, entry);
+        return { ...data, measuredAt: entry.measuredAt };
+      })
+      .finally(() => measuring.delete(key));
+    measuring.set(key, pending);
+  }
+  return pending;
 };
 const recalled = (key: string) => {
   const entry = lastMeasured.get(key);
   return entry ? { ...(entry.data as object), measuredAt: entry.measuredAt } : null;
 };
 
-router.get('/:id/disk', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    if (req.query.cached) return res.json({ success: true, data: recalled(`disk:${req.params.id}`) } as ApiResponse);
-    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
-    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
-
+/**
+ * This node's disk: the filesystem tenant homes live on, and every panel app
+ * on it with what it uses and what cleaning up would give back. One du per
+ * app over SSH — a page opened on purpose, not polled.
+ */
+async function measureNodeDisk(server: NonNullable<Awaited<ReturnType<typeof prisma.server.findUnique>>>) {
     const apps = await prisma.application.findMany({
       where: { ...appsOnServer(server.id), runtime: null, type: { not: 'STATIC' } },
       select: { id: true, name: true, domains: { select: { host: true }, orderBy: { host: 'asc' } } },
@@ -609,7 +615,15 @@ router.get('/:id/disk', authenticateToken, requireRole(['SUPERADMIN']), async (r
     };
     await Promise.all(Array.from({ length: 4 }, worker));
     rows.sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0));
-    return res.json({ success: true, data: remember(`disk:${server.id}`, { disk: await nodeDisk(server), apps: rows }) } as ApiResponse);
+    return { disk: await nodeDisk(server), apps: rows };
+}
+
+router.get('/:id/disk', authenticateToken, requireRole(['SUPERADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (req.query.cached) return res.json({ success: true, data: recalled(`disk:${req.params.id}`) } as ApiResponse);
+    const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
+    if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
+    return res.json({ success: true, data: await measure(`disk:${server.id}`, () => measureNodeDisk(server)) } as ApiResponse);
   } catch (error: any) {
     console.error('Error reading node disk:', error);
     return res.status(502).json({ success: false, error: error?.message || 'Could not read the disk usage' } as ApiResponse);
@@ -654,8 +668,11 @@ router.get('/:id/system-cleanup', authenticateToken, requireRole(['SUPERADMIN'])
     if (req.query.cached) return res.json({ success: true, data: recalled(`system:${req.params.id}`) } as ApiResponse);
     const server = await prisma.server.findUnique({ where: { id: req.params.id as string } });
     if (!server) return res.status(404).json({ success: false, error: 'Server not found' } as ApiResponse);
-    const [targets, disk, rotatedTop] = await Promise.all([measureSystem(server), nodeDisk(server), rotatedLogsTop(server).catch(() => [])]);
-    return res.json({ success: true, data: remember(`system:${server.id}`, { targets, disk, rotatedTop }) } as ApiResponse);
+    const data = await measure(`system:${server.id}`, async () => {
+      const [targets, disk, rotatedTop] = await Promise.all([measureSystem(server), nodeDisk(server), rotatedLogsTop(server).catch(() => [])]);
+      return { targets, disk, rotatedTop };
+    });
+    return res.json({ success: true, data } as ApiResponse);
   } catch (error: any) {
     console.error('Error measuring system cleanup:', error);
     return res.status(502).json({ success: false, error: error?.stderr || error?.message || 'Could not measure the node' } as ApiResponse);

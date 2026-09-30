@@ -42,7 +42,7 @@ export async function streamBackup(databaseId: string, userId: string, res: Resp
 
   const script = dbs.engine === 'POSTGRESQL' ? PG_DUMP : MYSQLDUMP;
   const command = buildCommand(['bash', '-c', script, 'bash', dbs.host, String(dbs.port), username, db.dbName]);
-  const client = await connect(dbs.server);
+  const client = await connect(dbs.server, 'long');
   const started = Date.now();
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
   const fileName = `${db.dbName}-${stamp}.sql.gz`;

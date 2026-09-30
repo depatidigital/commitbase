@@ -44,7 +44,10 @@ export interface ExecOptions {
   input?: string;
   /** Every chunk of stdout and stderr as it arrives, interleaved — for live views. */
   onOutput?: (text: string) => void;
-  /** Ends a long-running command (a log follow): TERM on the node, then the channel closes and exec resolves. */
+  /**
+   * Ends a long-running command (a log follow): TERM on the node, then the channel closes and exec resolves.
+   * Such a command runs on the node's second connection, outside the channel limit (see connect).
+   */
   signal?: AbortSignal;
 }
 
@@ -146,7 +149,36 @@ export function execOrg(server: SshTarget, slug: string, uid: number, argv: stri
 
 // One live connection per server, reused across execs. A deploy fires many
 // commands back to back and an SSH handshake per command would dominate.
+// Two per server in fact: `short` for commands that end, `long` for channels
+// held open (log follows, SFTP), so those never take the short lane's slots.
+type Lane = 'short' | 'long';
 const pool = new Map<string, Promise<Client>>();
+const poolKey = (serverId: string, lane: Lane) => (lane === 'long' ? `${serverId}#long` : serverId);
+
+/**
+ * sshd caps the session channels one connection holds (MaxSessions, 10 by
+ * default) and refuses the next. The short lane keeps under it: at most
+ * SHORT_CHANNELS open per node, the rest wait their turn in order — fair
+ * across users, and one busy node never delays another.
+ */
+const SHORT_CHANNELS = 8;
+const slots = new Map<string, { open: number; waiting: Array<() => void> }>();
+
+export async function acquireSlot(serverId: string): Promise<() => void> {
+  const node = slots.get(serverId) ?? { open: 0, waiting: [] };
+  slots.set(serverId, node);
+  if (node.open >= SHORT_CHANNELS) await new Promise<void>((resolve) => node.waiting.push(resolve));
+  else node.open++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    // handed straight to the next in line, or given back
+    const next = node.waiting.shift();
+    if (next) next();
+    else node.open--;
+  };
+}
 
 /**
  * How to authenticate to a node: a private key read from the control plane's
@@ -171,8 +203,9 @@ async function authFor(server: SshTarget): Promise<{ privateKey: Buffer } | { pa
   return { privateKey: await fs.readFile(server.sshKeyPath) };
 }
 
-export function connect(server: SshTarget): Promise<Client> {
-  const existing = pool.get(server.id);
+export function connect(server: SshTarget, lane: Lane = 'short'): Promise<Client> {
+  const key = poolKey(server.id, lane);
+  const existing = pool.get(key);
   if (existing) return existing;
 
   const pending = (async () => {
@@ -182,7 +215,7 @@ export function connect(server: SshTarget): Promise<Client> {
       const drop = () => {
         // Only evict if this exact connection is still the pooled one; a
         // reconnect that already replaced us must not be thrown away.
-        if (pool.get(server.id) === pending) pool.delete(server.id);
+        if (pool.get(key) === pending) pool.delete(key);
       };
       client
         .on('ready', () => resolve(client))
@@ -203,17 +236,16 @@ export function connect(server: SshTarget): Promise<Client> {
     });
   })();
 
-  pool.set(server.id, pending);
-  pending.catch(() => pool.delete(server.id));
+  pool.set(key, pending);
+  pending.catch(() => pool.delete(key));
   return pending;
 }
 
 /**
- * Open an exec channel on the pooled connection. sshd caps the channels one
- * connection may hold (MaxSessions, 10 by default) and refuses the next with
- * "open failed"; a page that measures a node starts more than that at once.
- * The refused one waits for another to close and tries again.
- * ponytail: a retry, not a per-node queue — a long log follow would hold a queue slot for hours
+ * Open an exec channel on a pooled connection. The short lane's slots keep it
+ * under sshd's cap; a node set lower than that (or the long lane, uncapped)
+ * can still refuse with "open failed" — then it waits for another channel to
+ * close and tries again.
  */
 async function openChannel(client: Client, command: string, hostname: string): Promise<ClientChannel> {
   for (let attempt = 0; ; attempt++) {
@@ -241,10 +273,16 @@ export async function exec(server: SshTarget, argv: string[], opts: ExecOptions 
 
   const timeout = opts.timeout ?? DEFAULT_TIMEOUT_MS;
   const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER;
-  const client = await connect(server);
+  const lane: Lane = opts.signal ? 'long' : 'short';
+  const client = await connect(server, lane);
   const command = buildCommand(argv);
 
-  const stream = await openChannel(client, command, server.hostname);
+  const release = lane === 'short' ? await acquireSlot(server.id) : () => {};
+  const stream = await openChannel(client, command, server.hostname).catch((error) => {
+    release();
+    throw error;
+  });
+  stream.once('close', release);
   return new Promise<ExecResult>((resolve, reject) => {
     {
 
@@ -351,7 +389,8 @@ export function getSftp(server: SshTarget): Promise<SFTPWrapper> {
   const existing = sftpPool.get(server.id);
   if (existing) return existing;
 
-  const pending = connect(server).then(
+  // held open for as long as the connection lives: the long lane
+  const pending = connect(server, 'long').then(
     (client) =>
       new Promise<SFTPWrapper>((resolve, reject) => {
         client.sftp((err, sftp) => {
@@ -397,10 +436,14 @@ export async function remoteReadDir(server: SshTarget, remotePath: string): Prom
  * only applies to a new connection.
  */
 export async function dropConnection(serverId: string): Promise<void> {
-  const client = pool.get(serverId);
-  pool.delete(serverId);
+  const clients = (['short', 'long'] as const).map((lane) => {
+    const key = poolKey(serverId, lane);
+    const client = pool.get(key);
+    pool.delete(key);
+    return client;
+  });
   sftpPool.delete(serverId);
-  await client?.then((c) => c.end()).catch(() => {});
+  for (const client of clients) await client?.then((c) => c.end()).catch(() => {});
 }
 
 /** Close pooled connections. For tests and shutdown. */

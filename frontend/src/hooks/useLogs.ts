@@ -73,13 +73,29 @@ const MAX_LIVE_LINES = 2000;
 export const useLiveLogs = (applicationId: string, logType: string, lines: number, enabled: boolean) =>
   useLogStream(applicationId ? `/logs/application/${applicationId}/stream?type=${logType}&lines=${lines}` : null, enabled);
 
-/** Any log stream of the API (`path`, e.g. a project's), followed as above. */
+/** Whether the tab is in front: a log nobody can see holds no stream on the node. */
+const usePageVisible = () => {
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
+  useEffect(() => {
+    const onChange = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+  return visible;
+};
+
+/**
+ * Any log stream of the API (`path`, e.g. a project's), followed as above —
+ * while the tab is in front. Hidden, it disconnects; back, it reconnects and
+ * the backlog fills in what it missed.
+ */
 export const useLogStream = (path: string | null, enabled: boolean) => {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const visible = usePageVisible();
 
   useEffect(() => {
-    if (!enabled || !path) return;
+    if (!enabled || !path || !visible) return;
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -124,7 +140,7 @@ export const useLogStream = (path: string | null, enabled: boolean) => {
       controller.abort();
       clearTimeout(retry);
     };
-  }, [path, enabled]);
+  }, [path, enabled, visible]);
 
   return { text, error };
 };

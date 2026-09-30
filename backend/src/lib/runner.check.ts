@@ -61,3 +61,27 @@ const HOSTILE = [
 
   console.log(`ok — ${HOSTILE.length} hostile arguments round-tripped through /bin/sh`);
 })();
+
+// the short lane: 8 channels per node at once, the rest in order, a slot handed straight on
+(async () => {
+  const { acquireSlot } = await import('./runner');
+  const releases = await Promise.all(Array.from({ length: 8 }, () => acquireSlot('node-a')));
+  const order: number[] = [];
+  const waiting = [1, 2].map((n) => acquireSlot('node-a').then((release) => (order.push(n), release)));
+  // another node is not held up by this one
+  (await acquireSlot('node-b'))();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(order, [], 'nine and ten wait while eight are open');
+  releases[0]!();
+  releases[0]!(); // twice is once
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(order, [1], 'one freed slot lets exactly one in, the first in line');
+  releases[1]!();
+  const [r1, r2] = await Promise.all(waiting);
+  assert.deepStrictEqual(order, [1, 2]);
+  [r1, r2, ...releases.slice(2)].forEach((release) => release!());
+  // all given back: eight more fit at once
+  const again = await Promise.all(Array.from({ length: 8 }, () => acquireSlot('node-a')));
+  again.forEach((release) => release());
+  console.log('ok — channel slots: limited per node, first come first served');
+})();

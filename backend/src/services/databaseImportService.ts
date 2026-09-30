@@ -441,7 +441,7 @@ export async function archiveToScript(databaseId: string, filePath: string, impo
     return new Promise<void>((resolve) => sftp.unlink(remote, () => resolve()));
   };
 
-  const client = await connect(node);
+  const client = await connect(node, 'long');
   client.exec(buildCommand(['pg_restore', '--no-owner', '--no-privileges', '--clean', '--if-exists', '-f', '-', remote]), (error, channel) => {
     if (error) {
       script.destroy(new Error(`SSH exec on ${node.hostname} failed: ${error.message}`));

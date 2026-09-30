@@ -147,12 +147,77 @@ router.get('/application/:appId/build-live', authenticateToken, async (req: Auth
   }
 });
 
-// Each live stream holds one channel on the node's pooled SSH connection, and
-// sshd allows 10 per connection (MaxSessions) — shared with deploys and SFTP.
-const MAX_STREAMS_PER_SERVER = 4;
+// Each distinct live stream holds one channel on the node's long-lived SSH
+// connection (runner's `long` lane), and sshd allows 10 per connection
+// (MaxSessions) — shared there with SFTP and database dumps. Viewers of the
+// same log share one stream, so this caps distinct logs, not people.
+const MAX_STREAMS_PER_SERVER = 6;
 // ponytail: the page reconnects when a stream ends, so a cap just recycles forgotten tabs
 const STREAM_MAX_MS = 30 * 60_000;
-const openStreams = new Map<string, number>();
+// what a viewer who joins a running stream gets first: its recent output
+const BACKLOG_CHARS = 256 * 1024;
+// a reload or a quick tab switch rejoins the stream instead of starting it again
+const LINGER_MS = 10_000;
+
+/** One follow running on a node, sent to every viewer of it. */
+type Shared = {
+  serverId: string;
+  viewers: Set<(text: string) => void>;
+  backlog: string[];
+  backlogChars: number;
+  controller: AbortController;
+  /** settles when the follow itself ends (the command exited, or it was stopped) */
+  ended: Promise<void>;
+  linger?: NodeJS.Timeout;
+};
+const sharedStreams = new Map<string, Shared>();
+
+/**
+ * Join the stream `key` on `server`, starting it with `follow` when nobody
+ * watches it yet. Null when a new stream would pass the server's cap. The
+ * returned function leaves; the last viewer out stops it, after LINGER_MS.
+ */
+export function joinStream(server: SshTarget, key: string, follow: Follow, send: (text: string) => void): { leave: () => void; ended: Promise<void> } | null {
+  let stream = sharedStreams.get(key);
+  if (!stream) {
+    const running = [...sharedStreams.values()].filter((s) => s.serverId === server.id).length;
+    if (running >= MAX_STREAMS_PER_SERVER) return null;
+    const controller = new AbortController();
+    const created: Shared = { serverId: server.id, viewers: new Set(), backlog: [], backlogChars: 0, controller, ended: Promise.resolve() };
+    const fan = (text: string) => {
+      created.backlog.push(text);
+      created.backlogChars += text.length;
+      while (created.backlogChars > BACKLOG_CHARS && created.backlog.length > 1) created.backlogChars -= created.backlog.shift()!.length;
+      for (const viewer of created.viewers) viewer(text);
+    };
+    created.ended = follow(fan, controller.signal)
+      .then(() => undefined)
+      .catch((err: any) => {
+        if (!controller.signal.aborted) fan(`\n[log stream ended: ${err?.message || err}]\n`);
+      })
+      .finally(() => {
+        if (sharedStreams.get(key) === created) sharedStreams.delete(key);
+      });
+    sharedStreams.set(key, created);
+    stream = created;
+  }
+  const joined = stream;
+  clearTimeout(joined.linger);
+  for (const chunk of joined.backlog) send(chunk);
+  joined.viewers.add(send);
+  return {
+    ended: joined.ended,
+    leave: () => {
+      joined.viewers.delete(send);
+      if (joined.viewers.size) return;
+      joined.linger = setTimeout(() => {
+        if (joined.viewers.size) return;
+        joined.controller.abort();
+        if (sharedStreams.get(key) === joined) sharedStreams.delete(key);
+      }, LINGER_MS);
+    },
+  };
+}
 
 /**
  * An app's log as Server-Sent Events: the last `lines` lines, then each new
@@ -172,7 +237,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
 
     // imported pm2 apps follow pm2; apps the panel deployed follow their unit's log files
     let server: SshTarget;
-    let follow: (send: (text: string) => void, signal: AbortSignal) => Promise<unknown>;
+    let follow: Follow;
     if (application.runtime === 'PM2' && application.processName) {
       const pm2Server = application.serverId
         ? await prisma.server.findUnique({ where: { id: application.serverId } })
@@ -204,7 +269,7 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
       return res.status(400).json({ success: false, error: 'Live logs are not available for this app' } as ApiResponse);
     }
 
-    return await streamFollows(res, server, [follow]);
+    return await streamFollows(res, server, [[`app:${application.id}:${type}`, follow]]);
   } catch (error) {
     console.error('Error streaming logs:', error);
     if (!res.headersSent) {
@@ -217,16 +282,27 @@ router.get('/application/:appId/stream', authenticateToken, async (req: Authenti
 type Follow = (send: (text: string) => void, signal: AbortSignal) => Promise<unknown>;
 
 /**
- * Run `follows` on `server` as one Server-Sent Events response, each holding
- * one SSH channel of it: refused when that would pass the server's cap, ended
- * when the client leaves or after STREAM_MAX_MS.
+ * Run `follows` (each keyed: the same key is the same log, shared with whoever
+ * else watches it) on `server` as one Server-Sent Events response. Refused
+ * when a new stream would pass the server's cap; ended when the client leaves,
+ * after STREAM_MAX_MS, or when every follow has ended by itself.
  */
-async function streamFollows(res: Response, server: SshTarget, follows: Follow[]) {
-  const open = openStreams.get(server.id) ?? 0;
-  if (open + follows.length > MAX_STREAMS_PER_SERVER) {
-    return res.status(429).json({ success: false, error: 'Too many live log streams on this server — close another one' } as ApiResponse);
+async function streamFollows(res: Response, server: SshTarget, follows: Array<[key: string, follow: Follow]>) {
+  // JSON-encoded so a chunk's own newlines cannot break the event framing
+  const send = (text: string) => res.write(`data: ${JSON.stringify(text)}\n\n`);
+  // joined before the headers go out: a refusal is still an ordinary JSON error. What a
+  // stream sends before the headers (its backlog) is held back until then
+  let early: string[] | null = [];
+  const deliver = (text: string) => (early ? early.push(text) : send(text));
+  const joined: Array<{ leave: () => void; ended: Promise<void> }> = [];
+  for (const [key, follow] of follows) {
+    const one = joinStream(server, key, follow, deliver);
+    if (!one) {
+      joined.forEach((j) => j.leave());
+      return res.status(429).json({ success: false, error: 'Too many live log streams on this server — close another one' } as ApiResponse);
+    }
+    joined.push(one);
   }
-  openStreams.set(server.id, open + follows.length);
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -235,19 +311,10 @@ async function streamFollows(res: Response, server: SshTarget, follows: Follow[]
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
-  // JSON-encoded so a chunk's own newlines cannot break the event framing
-  const send = (text: string) => res.write(`data: ${JSON.stringify(text)}\n\n`);
+  for (const text of early) send(text);
+  early = null;
 
   const controller = new AbortController();
-  // the slot is freed when the stream ends, not when SSH confirms the channel
-  // closed: a channel that never answers the close would hold it for good
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    openStreams.set(server.id, Math.max(0, (openStreams.get(server.id) ?? 0) - follows.length));
-  };
-  controller.signal.addEventListener('abort', release, { once: true });
   res.on('close', () => controller.abort());
   // heartbeat: a client gone without a clean close (sleeping laptop, dropped
   // network) shows up as a dead or backed-up socket here, and its stream ends
@@ -257,17 +324,14 @@ async function streamFollows(res: Response, server: SshTarget, follows: Follow[]
   const cap = setTimeout(() => controller.abort(), STREAM_MAX_MS);
 
   try {
-    await Promise.all(
-      follows.map((follow) =>
-        follow(send, controller.signal).catch((err: any) => {
-          if (!controller.signal.aborted) send(`\n[log stream ended: ${err?.message || err}]\n`);
-        }),
-      ),
-    );
+    await Promise.race([
+      new Promise<void>((resolve) => controller.signal.addEventListener('abort', () => resolve(), { once: true })),
+      Promise.all(joined.map((j) => j.ended)),
+    ]);
   } finally {
     clearInterval(heartbeat);
     clearTimeout(cap);
-    release();
+    joined.forEach((j) => j.leave());
   }
   return res.end();
 }
@@ -368,12 +432,12 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
       if (!hosts.length) return res.status(400).json({ success: false, error: 'No host yet — requests are logged once it has one' } as ApiResponse);
       const node = await serverForApplication(wanted[0]!.id);
       await ensureAccessLog(node);
-      return await streamFollows(res, node, [(send, signal) => followAccess(node, hosts, lines, formatAccess(send), signal)]);
+      return await streamFollows(res, node, [[`access:${node.id}:${[...hosts].sort().join(',')}`, (send, signal) => followAccess(node, hosts, lines, formatAccess(send), signal)]]);
     }
 
     const pm2Apps = wanted.filter((app) => app.runtime === 'PM2' && app.processName && app.serverId);
     const unitApps = wanted.filter((app) => !app.runtime && systemd.needsUnit(app.type));
-    const follows: Follow[] = [];
+    const follows: Array<[string, Follow]> = [];
     let server: SshTarget | null = null;
 
     if (pm2Apps.length) {
@@ -383,14 +447,14 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
       const names = [...new Set(pm2Apps.map((app) => app.processName!))];
       // one name, or pm2's /regex/ form for several — anchored, so no other process of the server matches
       const target = names.length === 1 ? names[0]! : `/^(${names.map(escapeRegex).join('|')})$/`;
-      follows.push((send, signal) => followPm2Logs(pm2Server, target, type, lines, send, signal));
+      follows.push([`pm2:${pm2Server.id}:${target}:${type}`, (send, signal) => followPm2Logs(pm2Server, target, type, lines, send, signal)]);
     }
     for (const app of unitApps) {
       const afs = await appFsFor(app.id);
       if (!afs.node) continue;
       server ??= afs.node;
       const node = afs.node;
-      follows.push((send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, tagLines(app.name, stampLines(send)), signal));
+      follows.push([`app:${app.id}:${type}:tagged`, (send, signal) => systemd.followLogs(node, logsDirFor(afs.appDir), type, lines, tagLines(app.name, stampLines(send)), signal)]);
     }
     // a stack's containers write to the engine, not log files: `compose logs`, which
     // prefixes each line with its service already. No out/error split there.
@@ -400,7 +464,7 @@ router.get('/project/:sourceId/stream', authenticateToken, async (req: Authentic
         include: { organization: { select: { slug: true } } },
       });
       server ??= await serverForApplication(app.id);
-      follows.push((send, signal) => compose.followLogs(withOrg, lines, tagLines(app.name, send), signal));
+      follows.push([`app:${app.id}:compose:tagged`, (send, signal) => compose.followLogs(withOrg, lines, tagLines(app.name, send), signal)]);
     }
     if (!server || follows.length === 0) {
       return res.status(400).json({ success: false, error: 'Live logs are not available for these apps' } as ApiResponse);

@@ -53,19 +53,27 @@ const lockKey = (application: { id: string }) => application.id;
 const throwIfCancelled = (key: string) => {
   if (cancelling.has(key)) throw new CancelledError('Deployment cancelled');
 };
-// per server: a build takes that node's memory, not another's — servers never wait on each other
+// per server: a build takes that node's memory, not another's — servers never wait on each other.
+// Held for the heavy part only (install and build; a compose stack's `up --build`), not the
+// clone before it nor the switch, restart and health wait after it: the next deploy on the
+// node builds while this one goes live.
 const slots = new Map<string, { running: number; waiting: Array<() => void> }>();
-async function withBuildSlot<T>(serverId: string, fn: () => Promise<T>): Promise<T> {
+export async function acquireBuildSlot(serverId: string, onWait?: () => unknown): Promise<() => void> {
   let slot = slots.get(serverId);
   if (!slot) slots.set(serverId, (slot = { running: 0, waiting: [] }));
-  if (slot.running >= BUILD_CONCURRENCY) await new Promise<void>((resolve) => slot!.waiting.push(resolve));
-  slot.running += 1;
-  try {
-    return await fn();
-  } finally {
-    slot.running -= 1;
-    slot.waiting.shift()?.();
-  }
+  if (slot.running >= BUILD_CONCURRENCY) {
+    await onWait?.();
+    await new Promise<void>((resolve) => slot!.waiting.push(resolve));
+  } else slot.running += 1;
+  let released = false;
+  // once only: the deploy releases it after the build, and again (a no-op) when it ends however it ends
+  return () => {
+    if (released) return;
+    released = true;
+    const next = slot!.waiting.shift();
+    if (next) next();
+    else slot!.running -= 1;
+  };
 }
 
 const NL = '\n';
@@ -1166,18 +1174,22 @@ export class DeploymentService {
 
   /**
    * Full deployment process. One deploy per app at a time, and at most
-   * BUILD_CONCURRENCY builds on each server.
+   * BUILD_CONCURRENCY builds on each server (see acquireBuildSlot).
    */
   async deploy(config: DeploymentConfig): Promise<DeployResult> {
     const id = lockKey(config.application);
     if (deploying.has(id)) return { success: false, error: 'A deployment is already in progress for this application' };
+    // started during an upgrade drain: stays queued for resumeQueuedDeploys
+    if (draining()) return { success: false, queued: true };
     deploying.add(id);
+    const build = { release: () => {} };
     try {
-      // no server: deployInner says so; it waits in a queue of its own meanwhile
+      // no server: deployInner says so; its build slot is a queue of its own meanwhile
       const serverId = await serverForApplication(config.application.id).then((node) => node.id, () => '');
-      // a deploy that waited for its slot through the start of an upgrade drain stays queued
-      return await withBuildSlot(serverId, () => (draining() ? Promise.resolve({ success: false, queued: true }) : this.deployInner(config)));
+      return await this.deployInner(config, serverId, build);
     } finally {
+      // however it ended, the build slot goes back
+      build.release();
       deploying.delete(id);
       cancelling.delete(id);
     }
@@ -1385,7 +1397,7 @@ export class DeploymentService {
     return { bucket, origin, folder };
   }
 
-  private async deployInner(config: DeploymentConfig): Promise<DeployResult> {
+  private async deployInner(config: DeploymentConfig, serverId: string, build: { release: () => void }): Promise<DeployResult> {
     const { application, deployment, envVars = {} } = config;
     const key = lockKey(application);
     let commitSha: string | undefined;
@@ -1633,9 +1645,14 @@ export class DeploymentService {
             (preDeploy.length ? ', running the pre-deploy step only.' : '.') + NL,
         );
       }
+      build.release = await acquireBuildSlot(serverId, () =>
+        afs.appendFile(buildLogPath, `[${new Date().toISOString()}] Waiting for another build on this node to finish…` + NL),
+      );
       const buildResult: BuildResult = reused
         ? await this.runPreDeploy(afs, group, buildLogPath, reused.path!, preDeploy)
         : await this.runBuild(afs, group, deployment, envs, config.resolveMigration, config.resolveAs, config.skipPreDeploy, config.acceptDataLoss);
+      // built: the next deploy on this node may build — unless a compose stack builds its images as it starts
+      if (!group.some((app) => compose.needsCompose(app.type))) build.release();
       // a stopped build fails — but that failure is the cancel, not the code;
       // and a build that finished still does not go live once cancel was asked
       throwIfCancelled(key);
@@ -1678,6 +1695,8 @@ export class DeploymentService {
             : await this.startApplication(app.id);
         if (!ok) failed.push(app.name);
       }
+      // a compose stack's images are built by now
+      build.release();
       const startResult = failed.length === 0;
 
       let rolledBack = false;
