@@ -136,7 +136,7 @@ async function handlePm2Action(
 
   await prisma.application.update({
     where: { id: application.id },
-    data: { status: action === 'stop' ? 'STOPPED' : 'RUNNING' },
+    data: { status: action === 'stop' ? 'STOPPED' : 'RUNNING', ...(action === 'restart' && { restartedAt: new Date() }) },
   });
 
   return res.json({
@@ -2225,7 +2225,7 @@ router.post('/:id/restart', authenticateToken, async (req: AuthenticatedRequest,
     if (restarted) {
       await prisma.application.update({
         where: { id },
-        data: { status: 'RUNNING' },
+        data: { status: 'RUNNING', restartedAt: new Date() },
       });
 
       return res.json({

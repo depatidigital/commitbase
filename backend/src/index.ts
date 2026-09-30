@@ -68,6 +68,7 @@ import adminRoutes from './routes/admin';
 import systemRoutes from './routes/system';
 import organizationsRoutes from './routes/organizations';
 import serversRoutes from './routes/servers';
+import { syncNodeIpsToCloudflare } from './lib/servers';
 import databaseServersRoutes from './routes/databaseServers';
 import { authenticateToken, requireRole } from './middleware/auth';
 
@@ -242,6 +243,9 @@ async function onListening() {
   console.log('🔍 Application status watcher started');
 
   startCronJobs();
+
+  // our own nodes skip Cloudflare challenges when calling each other's apps
+  void syncNodeIpsToCloudflare();
 
   // one IMAP connection per watched mailbox, each after a random pause
   startEmailWatchers()

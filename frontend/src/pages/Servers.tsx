@@ -261,6 +261,10 @@ export default function Servers() {
             {s.sshUser}@{s.hostname}:{s.sshPort}
             <span className="font-sans"> · {s.authMethod === "PASSWORD" ? t("password") : t("key")}</span>
           </span>
+          <span className="block truncate font-mono text-xs text-muted-foreground" title={t("Public IP")}>
+            <span className="font-sans">{t("IP")}: </span>
+            {s.publicIp}
+          </span>
           {s.tags?.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {s.tags.map((tag) => (

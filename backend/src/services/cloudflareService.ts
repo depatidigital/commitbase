@@ -796,3 +796,53 @@ export async function purgeCloudflareCache(targets: Array<{ host: string; path?:
   }
   return ok;
 }
+
+const NODE_RULE_NOTE = 'larika-node';
+
+/**
+ * Keep one account-level IP Access Rule (mode "whitelist") per node address, so
+ * calls between our own apps are never met by a Cloudflare challenge. Account
+ * level means every zone in the account, present and future, is covered at once.
+ * Rules we made are tagged by their note; stale ones (a node that left) are
+ * removed (unless `prune` is off), anything else is left alone. Best effort, never throws.
+ * The token needs "Account Firewall Access Rules: Edit".
+ */
+export async function syncNodeAllowlist(ips: string[], { prune = true } = {}): Promise<void> {
+  const shared = await getCloudflareFetchConfig();
+  const accountId = await getCloudflareAccountId();
+  if (!shared || !accountId) return;
+  const { fetchFn, config } = shared;
+  const base = `${config.apiBase}/accounts/${encodeURIComponent(accountId)}/firewall/access_rules/rules`;
+  const headers = { Authorization: `Bearer ${config.apiToken}`, 'Content-Type': 'application/json' };
+
+  try {
+    const response = await fetchFn(`${base}?notes=${NODE_RULE_NOTE}&per_page=1000`, { headers });
+    if (!response.ok) {
+      console.warn(`Cloudflare node allowlist: ${response.status} ${await response.text().catch(() => '')}`);
+      return;
+    }
+    const existing: any[] = ((await response.json())?.result ?? []).filter((r: any) => r?.notes === NODE_RULE_NOTE);
+    const wanted = new Set(ips.map((ip) => ip.trim()).filter(Boolean));
+    const have = new Set(existing.map((r) => r.configuration?.value));
+
+    for (const ip of wanted) {
+      if (have.has(ip)) continue;
+      const res = await fetchFn(base, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          mode: 'whitelist',
+          configuration: { target: ip.includes(':') ? 'ip6' : 'ip', value: ip },
+          notes: NODE_RULE_NOTE,
+        }),
+      });
+      if (!res.ok) console.warn(`Cloudflare allow ${ip}: ${res.status} ${await res.text().catch(() => '')}`);
+    }
+    for (const rule of prune ? existing : []) {
+      if (wanted.has(rule.configuration?.value)) continue;
+      await fetchFn(`${base}/${encodeURIComponent(rule.id)}`, { method: 'DELETE', headers });
+    }
+  } catch (error: any) {
+    console.warn(`Cloudflare node allowlist: ${error?.message || error}`);
+  }
+}

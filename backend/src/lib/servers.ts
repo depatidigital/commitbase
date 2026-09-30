@@ -1,5 +1,7 @@
 import { prisma } from './prisma';
-import type { SshTarget } from './runner';
+import { isIP } from 'net';
+import { exec, type SshTarget } from './runner';
+import { syncNodeAllowlist } from '../services/cloudflareService';
 
 /**
  * Which node an application runs on.
@@ -50,3 +52,31 @@ export async function allServers(): Promise<SshTarget[]> {
 export const appsOnServer = (serverId: string) => ({
   OR: [{ serverId }, { serverId: null, organization: { defaultServerId: serverId } }],
 });
+
+// both families: a node with IPv6 usually reaches Cloudflare over it, not its IPv4
+const EGRESS_PROBE =
+  'for f in -4 -6; do curl -s $f --max-time 5 https://www.cloudflare.com/cdn-cgi/trace | grep ^ip=; done; true';
+
+/** The addresses Cloudflare sees when this node calls out — null when it could not be asked. */
+async function egressIps(server: SshTarget): Promise<string[] | null> {
+  try {
+    const { stdout } = await exec(server, ['sh', '-c', EGRESS_PROBE], { timeout: 20_000 });
+    return stdout.split('\n').map((line) => line.replace(/^ip=/, '').trim()).filter((ip) => isIP(ip));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Push every node's addresses to Cloudflare's allowlist: its publicIp plus what
+ * it actually leaves the box as (IPv6, NAT). Call after nodes change.
+ */
+export async function syncNodeIpsToCloudflare(): Promise<void> {
+  const servers = await prisma.server.findMany({
+    select: { id: true, hostname: true, sshUser: true, sshPort: true, sshKeyPath: true, authMethod: true, sshPassword: true, publicIp: true },
+  });
+  const probed = await Promise.all(servers.map(egressIps));
+  const ips = servers.flatMap((s, i) => [s.publicIp.trim(), ...(probed[i] ?? [])]).filter((ip) => isIP(ip));
+  // a node we could not reach may still own rules from an earlier probe: keep them
+  await syncNodeAllowlist([...new Set(ips)], { prune: probed.every(Boolean) });
+}

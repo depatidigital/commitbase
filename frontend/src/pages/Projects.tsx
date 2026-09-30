@@ -278,6 +278,23 @@ export default function Projects() {
         );
       },
     },
+    {
+      header: t("Last restart"),
+      sortKey: "restartedAt",
+      sortFirst: "desc",
+      className: "w-32 whitespace-nowrap text-xs text-muted-foreground",
+      cell: (project) => {
+        // its most recently restarted service
+        const at = project.applications.map((app) => app.restartedAt).filter((d): d is string => !!d).sort().at(-1);
+        if (!at) return <span>—</span>;
+        return (
+          <span className="block" title={new Date(at).toLocaleString(locale)}>
+            {new Date(at).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}
+            <span className="block">{timeAgo(at)}</span>
+          </span>
+        );
+      },
+    },
     ...(superAdmin
       ? [
           {

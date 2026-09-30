@@ -462,6 +462,8 @@ model Application {
   /// after each deploy and by the app-disk cron. Null until measured.
   diskBytes      BigInt?
   diskMeasuredAt DateTime?
+  /// when it was last restarted from the panel (restart button). Null if never.
+  restartedAt    DateTime?
 
   // Server inventory — filled by the app sync (pm2 + Caddy site files)
   runtime      String? // "PM2" | "CADDY_PHP" | "CADDY_STATIC" | "CADDY_PROXY" | null for apps we deploy

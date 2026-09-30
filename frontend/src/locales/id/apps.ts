@@ -103,6 +103,7 @@ export default {
   Health: "Kesehatan",
   Uptime: "Uptime",
   "Last deploy": "Deploy terakhir",
+  "Last restart": "Restart terakhir",
   "Deployed {ago}": "Deploy {ago}",
   "Change workspace": "Ubah workspace",
   "Unassigned — assign": "Belum ditetapkan — tetapkan",

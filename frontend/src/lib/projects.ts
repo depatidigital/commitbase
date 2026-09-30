@@ -30,6 +30,7 @@ export interface ProjectApp {
   /** bytes on disk (or in R2), null until measured */
   diskBytes: number | null;
   diskMeasuredAt: string | null;
+  restartedAt: string | null;
   /** its migrations, run before each build; the deploy confirmation can leave it out */
   preDeployCommand: string | null;
 }

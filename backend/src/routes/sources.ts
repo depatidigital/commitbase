@@ -42,6 +42,7 @@ const instanceSelect = {
   createdAt: true,
   diskBytes: true,
   diskMeasuredAt: true,
+  restartedAt: true,
   preDeployCommand: true,
 } satisfies Prisma.ApplicationSelect;
 
@@ -192,6 +193,11 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
           return direction * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || byName(a, b);
         case 'apps':
           return direction * (a.applications.length - b.applications.length) || byName(a, b);
+        case 'restartedAt': {
+          // its most recently restarted service; never restarted sorts as oldest
+          const at = (row: (typeof rows)[number]) => Math.max(0, ...row.applications.map((app) => app.restartedAt?.getTime() ?? 0));
+          return direction * (at(a) - at(b)) || byName(a, b);
+        }
         case 'disk': {
           const bytes = (row: (typeof rows)[number]) => row.applications.reduce((sum, app) => sum + Number(app.diskBytes ?? 0), 0);
           return direction * (bytes(a) - bytes(b)) || byName(a, b);
