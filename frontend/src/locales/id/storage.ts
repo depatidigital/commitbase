@@ -2,6 +2,9 @@
 // Keys are the English source text — see src/lib/i18n.ts.
 export default {
   Storage: "Penyimpanan",
+  "System cleanup": "Pembersihan Sistem",
+  "Free disk on every node, and in the mailboxes, from one place.": "Bersihkan disk di semua node dan mailbox dari satu tempat.",
+  "No node to clean up yet.": "Belum ada node untuk dibersihkan.",
   "For rollback": "Cadangan rollback",
   "Not used": "Tidak dipakai",
   "Clean up": "Bersihkan",

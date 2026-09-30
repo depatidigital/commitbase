@@ -45,6 +45,7 @@ import OrganizationDetail from "./pages/OrganizationDetail";
 import Users from "./pages/Users";
 import Servers from "./pages/Servers";
 import SystemUpdate from "./pages/SystemUpdate";
+import SystemCleanup from "./pages/SystemCleanup";
 import ServerDetail from "./pages/ServerDetail";
 import DatabaseServers from "./pages/DatabaseServers";
 import DatabaseServerDetail from "./pages/DatabaseServerDetail";
@@ -175,6 +176,14 @@ const App = () => (
                 <AdminRoute>
                   <Admin />
                 </AdminRoute>
+              }
+            />
+            <Route
+              path="system/cleanup"
+              element={
+                <SuperAdminRoute>
+                  <SystemCleanup />
+                </SuperAdminRoute>
               }
             />
             <Route
