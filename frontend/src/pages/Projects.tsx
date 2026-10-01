@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Column, DataTable, useTableQuery } from "@/components/DataTable";
+import { Column, DataTable, useRemembered, useTableQuery } from "@/components/DataTable";
 import { PageLayout } from "@/components/PageLayout";
 import { OrganizationFilter } from "@/components/OrganizationFilter";
 import { OrganizationCombobox } from "@/components/OrganizationCombobox";
@@ -95,9 +95,10 @@ export default function Projects() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const superAdmin = isSuperAdmin();
-  const query = useTableQuery(25, { sort: "restartedAt", order: "desc" });
+  // remembered: back from an app's page, the list is where it was left — page, search, order
+  const query = useTableQuery(25, { sort: "restartedAt", order: "desc" }, "projects");
   const syncApps = useSyncServerApps();
-  const [serverFilter, setServerFilter] = useState("");
+  const [serverFilter, setServerFilter] = useRemembered("projects:server", "");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOrgId, setBulkOrgId] = useState("");
   const [moveTarget, setMoveTarget] = useState<Project | null>(null);

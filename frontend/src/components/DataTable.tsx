@@ -53,6 +53,18 @@ export interface Column<T> {
 
 const PAGE_SIZES = [10, 25, 50, 100];
 
+// what a list was left at, by key: there again when its page is come back to (not after a reload)
+const remembered = new Map<string, unknown>();
+
+/** useState that outlives its page: given a key, the value is there again on the way back from another page. */
+export function useRemembered<T>(key: string | undefined, initial: T) {
+  const [value, setValue] = useState<T>(() => (key && remembered.has(key) ? (remembered.get(key) as T) : initial));
+  useEffect(() => {
+    if (key) remembered.set(key, value);
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+
 /**
  * Server-side table state. `params` goes straight to the list endpoint;
  * `search` is debounced so typing does not fire a request per keystroke.
@@ -61,21 +73,27 @@ export function useTableQuery(
   initialLimit = 10,
   /** the order a list opens in; omit for the endpoint's own default */
   initialSort?: { sort: string; order: "asc" | "desc" },
+  /** a name for this list: its page, page size, search and order are kept while away on another page (a row's detail) */
+  remember?: string,
 ) {
-  const [page, setPage] = useState(1);
-  const [limit, setLimitState] = useState(initialLimit);
-  const [input, setInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [organizationId, setOrganizationIdState] = useState("");
-  const [sort, setSort] = useState(initialSort?.sort ?? "");
-  const [order, setOrder] = useState<"asc" | "desc">(initialSort?.order ?? "asc");
+  const key = (name: string) => (remember ? `${remember}:${name}` : undefined);
+  const [page, setPage] = useRemembered(key("page"), 1);
+  const [limit, setLimitState] = useRemembered(key("limit"), initialLimit);
+  const [input, setInput] = useRemembered(key("input"), "");
+  const [search, setSearch] = useRemembered(key("search"), "");
+  const [organizationId, setOrganizationIdState] = useRemembered(key("organizationId"), "");
+  const [sort, setSort] = useRemembered(key("sort"), initialSort?.sort ?? "");
+  const [order, setOrder] = useRemembered<"asc" | "desc">(key("order"), initialSort?.order ?? "asc");
 
   useEffect(() => {
+    // nothing typed since (the first render, or back on a remembered list): the page stays where it is
+    if (input.trim() === search) return;
     const t = setTimeout(() => {
       setSearch(input.trim());
       setPage(1);
     }, 300);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input]);
 
   const setLimit = (next: number) => {
