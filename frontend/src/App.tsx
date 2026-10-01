@@ -50,6 +50,9 @@ import ServerDetail from "./pages/ServerDetail";
 import DatabaseServers from "./pages/DatabaseServers";
 import DatabaseServerDetail from "./pages/DatabaseServerDetail";
 import AcceptInvite from "./pages/AcceptInvite";
+import ResetPassword from "./pages/ResetPassword";
+import Legal from "./pages/Legal";
+import VerifyEmail from "./pages/VerifyEmail";
 import ChangePassword from "./pages/ChangePassword";
 import {
   isAdmin,
@@ -125,6 +128,11 @@ const App = () => (
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Login mode="register" />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
+          <Route path="/forgot-password" element={<ResetPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/terms" element={<Legal doc="terms" />} />
+          <Route path="/privacy" element={<Legal doc="privacy" />} />
           <Route path="/change-password" element={<ChangePassword />} />
           <Route
             path="/"

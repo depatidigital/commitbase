@@ -108,7 +108,18 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: 'Too many failed sign-in attempts — wait 15 minutes, then try again.' },
 });
-app.use(['/api/auth/login', '/api/auth/register', '/api/auth/google', '/api/auth/accept-invite'], authLimiter);
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/google', '/api/auth/accept-invite', '/api/auth/reset-password'], authLimiter);
+// every one of these sends a mail (and answers 200), so all of them count
+app.use(
+  ['/api/auth/forgot-password', '/api/auth/resend-verification'],
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Too many emails requested — wait 15 minutes, then try again.' },
+  }),
+);
 
 // Compression middleware
 app.use(compression());

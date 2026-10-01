@@ -18,6 +18,8 @@ model User {
   role               UserRole @default(USER)
   isActive           Boolean  @default(true)
   mustChangePassword Boolean  @default(false)
+  /// set when they open the link mailed at sign-up (or sign in with Google, accept an invite, reset their password); gates the welcome credit
+  emailVerifiedAt    DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

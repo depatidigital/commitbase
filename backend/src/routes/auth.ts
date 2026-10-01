@@ -8,31 +8,57 @@ import { CreateUserSchema, LoginSchema, ApiResponse } from '../types';
 import { validateRequest } from '../middleware/validation';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { grantWelcomeCredit } from '../services/walletService';
-import { freeSlug } from './organizations';
+import { mailEnabled, sendMail } from '../lib/mailer';
 
 const router: Router = Router();
 
 /**
- * A new account plus its first workspace, named after them, which they own.
+ * A new account. No workspace yet: the panel asks them to name their first one
+ * (AuthGuard → Onboarding) before anything else.
  * The very first account on an install owns the platform (SUPERADMIN).
  */
-async function createAccount(email: string, name: string | undefined, password: string) {
+async function createAccount(email: string, name: string | undefined, password: string, emailVerified: boolean) {
   const first = (await prisma.user.count()) === 0;
-  const orgName = name || email.split('@')[0] || email;
   const user = await prisma.user.create({
     data: {
       email,
       name: name || null,
       password: await bcrypt.hash(password, 12),
       role: first ? 'SUPERADMIN' : 'CLIENT',
-      memberships: {
-        create: { role: 'OWNER', organization: { create: { name: orgName, slug: await freeSlug(orgName) } } },
-      },
+      // the install's owner, and installs that cannot send mail, skip the link
+      emailVerifiedAt: emailVerified || first || !mailEnabled ? new Date() : null,
     },
   });
-  // ponytail: open sign-up hands this credit to anyone with an email; add email verification or a captcha if it gets farmed
-  await grantWelcomeCredit(user.id).catch((error) => console.error('Welcome credit failed:', error));
+  if (user.emailVerifiedAt) await grantWelcomeCredit(user.id).catch((error) => console.error('Welcome credit failed:', error));
+  else await sendVerification(user);
   return user;
+}
+
+/**
+ * Verify links: a JWT naming this user and address, so a link mailed to an old
+ * address does not confirm a new one. Three days.
+ */
+async function sendVerification(user: { id: string; email: string }) {
+  const appUrl = process.env.APP_URL?.replace(/\/$/, '');
+  if (!appUrl) return console.warn('APP_URL not set — verification email skipped');
+  const token = jwt.sign({ userId: user.id, email: user.email, purpose: 'verify' }, process.env.JWT_SECRET as string, { expiresIn: '3d' });
+  const link = `${appUrl}/verify-email?token=${token}`;
+  const appName = process.env.APP_NAME || 'Larika';
+  await sendMail({
+    to: user.email,
+    subject: `Confirm your email for ${appName}`,
+    text: [`Welcome to ${appName}!`, '', `Confirm your email to start: ${link}`, '', 'The link expires in 3 days.'].join('\n'),
+    html: `<p>Welcome to ${appName}!</p>
+<p><a href="${link}">Confirm your email</a> to start.</p>
+<p>The link expires in 3 days.</p>`,
+  });
+}
+
+/** Their address is proven (link, Google, invite, reset): mark it, and hand the welcome credit that waited on it. */
+async function markVerified(user: { id: string; emailVerifiedAt: Date | null }) {
+  if (user.emailVerifiedAt) return;
+  await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
+  await grantWelcomeCredit(user.id).catch((error) => console.error('Welcome credit failed:', error));
 }
 
 const publicUser = (user: { id: string; email: string; name: string | null; role: string }) => ({
@@ -54,7 +80,7 @@ router.post('/register', validateRequest(CreateUserSchema), async (req: Request,
       } as ApiResponse);
     }
 
-    const user = await createAccount(email, req.body.name?.trim(), req.body.password);
+    const user = await createAccount(email, req.body.name?.trim(), req.body.password, false);
 
     return res.status(201).json({
       success: true,
@@ -101,9 +127,11 @@ router.post('/google', validateRequest(GoogleSchema), async (req: Request, res: 
     let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       // they sign in with Google; the random password only fills the column
-      user = await createAccount(email, info.name, crypto.randomBytes(32).toString('hex'));
+      user = await createAccount(email, info.name, crypto.randomBytes(32).toString('hex'), true);
     } else if (!user.isActive) {
       return res.status(403).json({ success: false, error: 'Account is disabled' } as ApiResponse);
+    } else {
+      await markVerified(user); // Google vouches for the address
     }
 
     return res.json({
@@ -120,11 +148,12 @@ router.post('/google', validateRequest(GoogleSchema), async (req: Request, res: 
 // Login user
 router.post('/login', validateRequest(LoginSchema), async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = String(req.body.email).trim();
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email },
+    // case-insensitive: "Budi@Gmail.com" signs in to budi@gmail.com
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
     });
 
     if (!user) {
@@ -329,10 +358,13 @@ router.post('/accept-invite', validateRequest(AcceptInviteSchema), async (req: R
           name: name ?? null,
           password: await bcrypt.hash(password, 12),
           role: 'CLIENT',
+          emailVerifiedAt: new Date(), // the invite link reached this address
         },
       });
     } else if (!user.isActive) {
       return res.status(403).json({ success: false, error: 'Account is disabled' } as ApiResponse);
+    } else {
+      await markVerified(user);
     }
 
     await prisma.$transaction([
@@ -359,6 +391,119 @@ router.post('/accept-invite', validateRequest(AcceptInviteSchema), async (req: R
   }
 });
 
+/**
+ * Reset links: a JWT signed with the server secret plus the user's current
+ * password hash, so it dies the moment the password changes (single use) and
+ * needs no table. Expires in an hour.
+ */
+const resetSecret = (passwordHash: string) => `${process.env.JWT_SECRET}:${passwordHash}`;
+
+// Mail a reset link. Always the same answer, so it does not tell who has an account.
+router.post(
+  '/forgot-password',
+  validateRequest(z.object({ email: z.string().email() })),
+  async (req: Request, res: Response) => {
+    try {
+      const email = String(req.body.email).trim();
+      const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+      const appUrl = process.env.APP_URL?.replace(/\/$/, '');
+      if (!appUrl) console.warn('APP_URL not set — password reset email skipped');
+
+      if (user?.isActive && appUrl) {
+        const token = jwt.sign({ userId: user.id, purpose: 'reset' }, resetSecret(user.password), { expiresIn: '1h' });
+        const link = `${appUrl}/reset-password?token=${token}`;
+        const appName = process.env.APP_NAME || 'Larika';
+        await sendMail({
+          to: user.email,
+          subject: `Reset your ${appName} password`,
+          text: [
+            `Someone asked to reset the password of your ${appName} account.`,
+            '',
+            `Choose a new password: ${link}`,
+            '',
+            'The link works once and expires in an hour. If it was not you, ignore this email.',
+          ].join('\n'),
+          html: `<p>Someone asked to reset the password of your ${appName} account.</p>
+<p><a href="${link}">Choose a new password</a></p>
+<p>The link works once and expires in an hour. If it was not you, ignore this email.</p>`,
+        });
+      }
+
+      return res.json({ success: true, message: 'If that email has an account, a reset link is on its way' } as ApiResponse);
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
+
+// Set a new password from a reset link, and sign in
+router.post(
+  '/reset-password',
+  validateRequest(z.object({ token: z.string().min(1), password: z.string().min(8) })),
+  async (req: Request, res: Response) => {
+    const invalid = () =>
+      res.status(400).json({ success: false, error: 'This reset link is invalid or expired' } as ApiResponse);
+    try {
+      const claims = jwt.decode(req.body.token) as { userId?: string; purpose?: string } | null;
+      if (!claims?.userId || claims.purpose !== 'reset') return invalid();
+      const user = await prisma.user.findUnique({ where: { id: claims.userId } });
+      if (!user?.isActive) return invalid();
+      try {
+        jwt.verify(req.body.token, resetSecret(user.password));
+      } catch {
+        return invalid();
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: user.id },
+        data: { password: await bcrypt.hash(req.body.password, 12), mustChangePassword: false },
+      });
+      await markVerified(user); // the link reached their inbox
+      return res.json({ success: true, data: { token: signToken(updated) }, message: 'Password updated' } as ApiResponse);
+    } catch (error) {
+      console.error('Reset password error:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
+
+// Confirm the address from the link mailed at sign-up
+router.post(
+  '/verify-email',
+  validateRequest(z.object({ token: z.string().min(1) })),
+  async (req: Request, res: Response) => {
+    const invalid = () => res.status(400).json({ success: false, error: 'This link is invalid or expired' } as ApiResponse);
+    try {
+      let claims: { userId?: string; email?: string; purpose?: string };
+      try {
+        claims = jwt.verify(req.body.token, process.env.JWT_SECRET as string) as typeof claims;
+      } catch {
+        return invalid();
+      }
+      const user = claims.purpose === 'verify' && claims.userId ? await prisma.user.findUnique({ where: { id: claims.userId } }) : null;
+      if (!user || user.email !== claims.email) return invalid();
+      await markVerified(user);
+      return res.json({ success: true, message: 'Email confirmed' } as ApiResponse);
+    } catch (error) {
+      console.error('Verify email error:', error);
+      return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+    }
+  }
+);
+
+// Mail the link again
+router.post('/resend-verification', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+    if (user && !user.emailVerifiedAt) await sendVerification(user);
+    return res.json({ success: true, message: 'Verification email sent' } as ApiResponse);
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' } as ApiResponse);
+  }
+});
+
 // Validate user token
 router.get('/validate', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -371,6 +516,7 @@ router.get('/validate', authenticateToken, async (req: AuthenticatedRequest, res
         name: true,
         role: true,
         isActive: true,
+        emailVerifiedAt: true,
         createdAt: true,
       },
     });

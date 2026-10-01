@@ -26,7 +26,7 @@ import { t } from "@/lib/i18n";
  * organization column or filter of their own.
  */
 // its own key: ["organizations", "mine"] is a paged answer elsewhere (AddProject), and sharing it broke the list here
-const MINE = ["organizations", "switcher"];
+export const MINE = ["organizations", "switcher"];
 
 export function OrgSwitcher() {
   const queryClient = useQueryClient();

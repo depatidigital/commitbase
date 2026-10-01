@@ -125,6 +125,7 @@ router.post('/users', validateRequest(CreateClientSchema), async (req: Authentic
         password: await bcrypt.hash(password, 12),
         role: role ?? 'CLIENT',
         mustChangePassword: true, // the admin knows this password; force a rotation
+        emailVerifiedAt: new Date(), // the admin vouches for the address
       },
       select: userSelect,
     });

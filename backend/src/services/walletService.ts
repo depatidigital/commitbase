@@ -92,8 +92,12 @@ export async function refundCharge(ref: string, note: string) {
 }
 
 /** The welcome credit, into the user's wallet — once per user. */
-export const grantWelcomeCredit = (userId: string) =>
-  addWalletEntry({ userId, kind: 'WELCOME', amount: WELCOME_CREDIT, ref: `welcome:${userId}`, note: 'Welcome credit' });
+export async function grantWelcomeCredit(userId: string) {
+  // only a confirmed email gets it, so throwaway sign-ups cannot farm it; called again once they verify
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
+  if (!user?.emailVerifiedAt) return false;
+  return addWalletEntry({ userId, kind: 'WELCOME', amount: WELCOME_CREDIT, ref: `welcome:${userId}`, note: 'Welcome credit' });
+}
 
 /** Who pays a workspace: its billing user while still an OWNER, else its longest-standing OWNER. */
 export async function billingUserOf(organizationId: string) {

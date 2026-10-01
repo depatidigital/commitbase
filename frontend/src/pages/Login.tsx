@@ -155,7 +155,14 @@ const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">{t('Password')}</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">{t('Password')}</Label>
+                {!isRegister && (
+                  <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-primary hover:underline">
+                    {t('Forgot password?')}
+                  </Link>
+                )}
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -177,6 +184,20 @@ const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
               {isRegister ? t('Sign In') : t('Sign up')}
             </Link>
           </p>
+
+          {isRegister && (
+            <p className="mt-4 text-center text-xs text-muted-foreground">
+              {t('By signing up you agree to the')}{' '}
+              <Link to="/terms" target="_blank" className="underline hover:text-primary">
+                {t('Terms of Service')}
+              </Link>{' '}
+              {t('and')}{' '}
+              <Link to="/privacy" target="_blank" className="underline hover:text-primary">
+                {t('Privacy Policy')}
+              </Link>
+              .
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
