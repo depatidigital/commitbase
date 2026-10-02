@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpCircle, CheckCircle2, Loader2, RefreshCw, RotateCcw, XCircle } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2, GitBranch, Loader2, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import { PageLayout } from "@/components/PageLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { t } from "@/lib/i18n";
-import { getSystemUpdate, startSystemUpdate } from "@/lib/system";
+import { getSystemUpdate, setSystemUpdateRepo, startSystemUpdate } from "@/lib/system";
 import { timeAgo } from "@/lib/utils";
 
 /**
@@ -32,6 +36,8 @@ export default function SystemUpdate() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<"update" | "rollback" | null>(null);
   const [fetchRemote, setFetchRemote] = useState(true);
+  // the "change repository" modal: null = closed, else the URL being typed
+  const [repoUrl, setRepoUrl] = useState<string | null>(null);
 
   const status = useQuery({
     queryKey: ["system-update", fetchRemote],
@@ -61,6 +67,16 @@ export default function SystemUpdate() {
       void queryClient.invalidateQueries({ queryKey: ["system-update"] });
     },
     onError: (error: Error) => toast({ title: t("Could not start"), description: error.message, variant: "destructive" }),
+  });
+
+  const changeRepo = useMutation({
+    mutationFn: setSystemUpdateRepo,
+    onSuccess: () => {
+      setRepoUrl(null);
+      toast({ title: t("Repository changed"), description: t("The next update pulls from it.") });
+      void queryClient.invalidateQueries({ queryKey: ["system-update"] });
+    },
+    onError: (error: Error) => toast({ title: t("Could not change the repository"), description: error.message, variant: "destructive" }),
   });
 
   const running = !!data?.running;
@@ -152,6 +168,20 @@ export default function SystemUpdate() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">{t("Repository")}</CardTitle>
+              <Button variant="outline" size="sm" disabled={running} onClick={() => setRepoUrl(data.repo ?? "")}>
+                <GitBranch className="mr-2 h-3.5 w-3.5" />
+                {t("Change")}
+              </Button>
+            </CardHeader>
+            <CardContent className="text-sm">
+              <span className="font-mono break-all">{data.repo ?? "—"}</span>
+              <span className="ml-2 text-muted-foreground">({data.branch})</span>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">
                 {data.pending.length
                   ? t("{count} new on {branch}", { count: data.pending.length, branch: data.branch })
@@ -204,6 +234,50 @@ export default function SystemUpdate() {
           )}
         </div>
       )}
+
+      <Dialog open={repoUrl !== null} onOpenChange={(open) => !open && setRepoUrl(null)}>
+        <DialogContent>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (repoUrl?.trim()) changeRepo.mutate(repoUrl.trim());
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("Change repository")}</DialogTitle>
+              <DialogDescription>
+                {t("Updates pull {branch} from here. It must already hold the running version, so push the full history first.", { branch: data?.branch ?? "main" })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="repo-url">{t("Repository URL")}</Label>
+              <Input
+                id="repo-url"
+                placeholder="git@gitlab.com:group/repo.git"
+                value={repoUrl ?? ""}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                autoFocus
+              />
+            </div>
+            {data?.sshKey && (
+              <div className="space-y-2">
+                <Label htmlFor="repo-key">{t("Deploy key (read-only) for a private repository")}</Label>
+                <Textarea id="repo-key" readOnly rows={3} className="font-mono text-xs" value={data.sshKey} onFocus={(e) => e.target.select()} />
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRepoUrl(null)}>
+                {t("Cancel")}
+              </Button>
+              <Button type="submit" disabled={changeRepo.isPending || !repoUrl?.trim() || repoUrl.trim() === data?.repo}>
+                {changeRepo.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {t("Check & save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
         <AlertDialogContent>

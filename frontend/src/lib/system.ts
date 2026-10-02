@@ -9,6 +9,10 @@ export type SystemUpdate =
   | {
       supported: true;
       branch: string;
+      /** origin of /opt/larika/repo — where updates are pulled from */
+      repo: string | null;
+      /** the panel user's SSH public key, to add as a deploy key on a private repo */
+      sshKey: string | null;
       current: Commit | null;
       previous: Commit | null;
       latest: string | null;
@@ -26,4 +30,9 @@ export const getSystemUpdate = async (fetchRemote = false): Promise<SystemUpdate
 export const startSystemUpdate = async (action: 'update' | 'rollback'): Promise<void> => {
   const response = await apiRequest('/system/update', { method: 'POST', body: JSON.stringify({ action }) });
   if (!response.success) throw new Error(response.error || t('Could not start the update'));
+};
+
+export const setSystemUpdateRepo = async (url: string): Promise<void> => {
+  const response = await apiRequest('/system/update/repo', { method: 'POST', body: JSON.stringify({ url }) });
+  if (!response.success) throw new Error(response.error || t('Could not change the repository'));
 };
