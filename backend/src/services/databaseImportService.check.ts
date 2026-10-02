@@ -125,6 +125,22 @@ assert.equal(
 assert.equal(prepare('MYSQL', "INSERT INTO t VALUES ('DEFINER=`x`@`y`')"), "INSERT INTO t VALUES ('DEFINER=`x`@`y`')");
 assert.equal(prepare('POSTGRESQL', 'CREATE VIEW v AS SELECT 1'), 'CREATE VIEW v AS SELECT 1');
 
+// MariaDB's TEXT DEFAULT 'x' → MySQL's DEFAULT ('x'); other columns, NULL defaults and data untouched
+assert.equal(
+  prepare(
+    'MYSQL',
+    "CREATE TABLE `k` (\n  `jenis` varchar(255) NOT NULL DEFAULT 'umum',\n  `alamat` text COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Jl. A, No. 1',\n  `memo` longtext DEFAULT NULL,\n  `meta` json NOT NULL DEFAULT '{}',\n  `n` mediumblob DEFAULT 'it''s',\n  `text` int DEFAULT '0'\n)",
+  ),
+  "CREATE TABLE `k` (\n  `jenis` varchar(255) NOT NULL DEFAULT 'umum',\n  `alamat` text COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT ('Jl. A, No. 1'),\n  `memo` longtext DEFAULT NULL,\n  `meta` json NOT NULL DEFAULT ('{}'),\n  `n` mediumblob DEFAULT ('it''s'),\n  `text` int DEFAULT '0'\n)",
+);
+assert.equal(prepare('MYSQL', "ALTER TABLE t ADD c text DEFAULT 'x'"), "ALTER TABLE t ADD c text DEFAULT ('x')");
+// MariaDB uuid/inet columns → MySQL types; uuid() as a function and a column named `uuid` untouched
+assert.equal(
+  prepare('MYSQL', 'CREATE TABLE `n` (\n  `id` uuid NOT NULL,\n  `ip` INET6 NULL,\n  `uuid` varchar(36) DEFAULT uuid()\n)'),
+  'CREATE TABLE `n` (\n  `id` char(36) NOT NULL,\n  `ip` varchar(39) NULL,\n  `uuid` varchar(36) DEFAULT uuid()\n)',
+);
+assert.equal(prepare('MYSQL', "INSERT INTO t VALUES ('text DEFAULT ''x''')"), "INSERT INTO t VALUES ('text DEFAULT ''x''')");
+
 // sniffing: which engine a dump was made for
 assert.equal(sniffEngine('--\n-- PostgreSQL database dump\n--'), 'POSTGRESQL');
 assert.equal(sniffEngine('-- MySQL dump 10.13  Distrib 8.0'), 'MYSQL');

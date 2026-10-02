@@ -268,9 +268,28 @@ export function planMeta(command: string, dbName: string): 'skip' {
   throw new ImportError(`${command.split(/\s/)[0]} is a psql command, not SQL, and is never run here — remove it from the file.`);
 }
 
-/** MySQL: DEFINER=`someone`@`host` needs SUPER unless it is us — drop it, the object is then ours. */
+// a TEXT/BLOB/JSON/spatial column's attributes up to a literal DEFAULT, within one column (no comma, quote or paren between)
+const LITERAL_DEFAULT_RE =
+  /(?<![`\w])((?:tiny|medium|long)?(?:text|blob)(?:\(\d+\))?|json|geometry|point|linestring|polygon|multipoint|multilinestring|multipolygon|geometrycollection)\b([^,'()]*?)\bDEFAULT\s+('(?:[^'\\]|\\.|'')*'|-?\d+(?:\.\d+)?)/gi;
+
+/**
+ * MySQL: DEFINER=`someone`@`host` needs SUPER unless it is us — drop it, the object is then ours.
+ * And a MariaDB dump's `TEXT ... DEFAULT 'x'`, which MySQL refuses (BLOB, TEXT, GEOMETRY or JSON
+ * column can't have a default value), becomes `DEFAULT ('x')`: the same default as an expression,
+ * which MySQL 8.0.13+ and MariaDB both take. MariaDB's own uuid/inet4/inet6 columns become
+ * char(36)/varchar(15)/varchar(39).
+ */
 export function prepare(engine: Engine, sql: string): string {
-  if (engine !== 'MYSQL' || /^INSERT\s/i.test(sql) || !/DEFINER\s*=/i.test(sql)) return sql;
+  if (engine !== 'MYSQL' || /^INSERT\s/i.test(sql)) return sql;
+  if (/^(CREATE|ALTER)\s+TABLE\s/i.test(sql)) {
+    sql = sql
+      .replace(LITERAL_DEFAULT_RE, '$1$2DEFAULT ($3)')
+      // MariaDB-only column types → what MySQL (and Laravel's MySQL grammar) stores them as
+      .replace(/(`[^`]+`\s+)(uuid|inet4|inet6)\b/gi, (_, col: string, type: string) =>
+        col + ({ uuid: 'char(36)', inet4: 'varchar(15)', inet6: 'varchar(39)' } as Record<string, string>)[type.toLowerCase()],
+      );
+  }
+  if (!/DEFINER\s*=/i.test(sql)) return sql;
   return sql.replace(/DEFINER\s*=\s*(?:`[^`]*`|'[^']*'|\w+(?:\(\))?)(?:\s*@\s*(?:`[^`]*`|'[^']*'|[\w.%-]+))?/gi, '');
 }
 
