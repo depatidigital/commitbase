@@ -36,7 +36,7 @@ import { ORG_SLUG_RE, APP_ID_RE, osUserFor } from '../lib/appPaths';
 
 // Same depth from src/services (tsx) and dist/services (node): backend/<x>/services → repo root.
 const RUNNER_DIR = path.resolve(__dirname, '../../../runner');
-type RunnerScript = 'cb-provision-org' | 'cb-app-unit' | 'cb-org-redis';
+type RunnerScript = 'cb-provision-org' | 'cb-app-unit' | 'cb-org-redis' | 'cb-renumber-org';
 const scripts = new Map<string, string>();
 
 function script(name: RunnerScript): string {
@@ -91,6 +91,39 @@ async function takenIdsOn(node: SshTarget): Promise<Set<number>> {
   return new Set(stdout.split('\n').map(Number).filter(Number.isInteger));
 }
 
+/** The next number in the org range that no organization has and the node does not use. */
+async function nextFreeUid(taken: Set<number>): Promise<number> {
+  let uid = Math.max(ORG_UID_BASE - 1, (await prisma.organization.aggregate({ _max: { uid: true } }))._max.uid ?? 0) + 1;
+  while (taken.has(uid)) uid++;
+  return uid;
+}
+
+/**
+ * The org's UID is held on this node by another organization's user — one a
+ * second panel or a reset database left with a number this panel handed out
+ * again. That user is moved: to its own organization's UID when this panel
+ * has one for it, else to a free number. A node's own accounts are never
+ * touched; cb-provision-org refuses those with the holder's name.
+ */
+async function freeUidOn(node: SshTarget, uid: number, owner: string, onOutput?: (text: string) => void): Promise<void> {
+  const holder = await exec(node, ['getent', 'passwd', String(uid)], { timeout: 15_000 })
+    .then(({ stdout }) => stdout.split(':')[0]!.trim())
+    .catch(() => '');
+  const slug = /^cb-([a-z0-9-]+)$/.exec(holder)?.[1];
+  if (!slug || holder === owner) return;
+
+  const taken = await takenIdsOn(node);
+  const own = (await prisma.organization.findUnique({ where: { slug }, select: { uid: true } }))?.uid ?? null;
+  if (own !== null && taken.has(own)) {
+    throw new Error(`UID ${uid} is held here by ${holder}, and its own UID ${own} is taken here too — renumber it by hand`);
+  }
+  // ponytail: a free number is not recorded for the holder — its next provision here adopts it (uidFor's `existing`)
+  const target = own ?? (await nextFreeUid(taken));
+  onOutput?.(`UID ${uid} is held here by ${holder} — moving ${holder} to UID ${target}
+`);
+  await sudo(node, 'cb-renumber-org', [slug, String(target)], 30 * 60_000, onOutput);
+}
+
 /**
  * The org's UID, assigned once. An org provisioned before UIDs were tracked
  * already has cb-<slug> on this node with whatever UID useradd picked — that
@@ -114,11 +147,10 @@ async function uidFor(org: { id: string; slug: string; uid: number | null }, nod
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    let uid =
+    const uid =
       existing && Number.isInteger(existing)
         ? existing
-        : Math.max(ORG_UID_BASE - 1, (await prisma.organization.aggregate({ _max: { uid: true } }))._max.uid ?? 0) + 1;
-    if (!existing) while (taken.has(uid)) uid++;
+        : await nextFreeUid(taken);
     try {
       // conditional on uid still being null: two provisions of one org racing agree on one value
       const set = await prisma.organization.updateMany({ where: { id: org.id, uid: null }, data: { uid } });
@@ -163,6 +195,7 @@ export async function provisionOrgOnNode(
   if (!QUOTA_RE.test(memoryMax)) throw new Error(`Invalid memory max: ${memoryMax}`);
 
   const uid = await uidFor(org, node);
+  await freeUidOn(node, uid, osUserFor(org.slug), opts.onOutput);
   // minutes on a fresh node: the group, users, quota and PHP-FPM pool — a minute is not enough
   return sudo(node, 'cb-provision-org', [org.slug, diskQuota, cpuQuota, memoryMax, String(uid)], 10 * 60_000, opts.onOutput);
 }
