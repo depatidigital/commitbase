@@ -76,7 +76,9 @@ const randomBase64 = (bytes = 32) => {
  * Laravel wants `base64:` + 32 bytes; Strapi's APP_KEYS is four of them.
  */
 export function generateSecret(key: string): string | null {
-  if (!GENERATED_SECRETS.has(key)) return null;
+  // any other *_SECRET (CRON_SECRET…) too — except the ones a provider issues (GOOGLE_CLIENT_SECRET, STRIPE_WEBHOOK_SECRET)
+  const anySecret = /(^|_)SECRET$/.test(key) && !/(CLIENT|WEBHOOK|API|CONSUMER|ACCESS|APP)_SECRET$/.test(key);
+  if (!GENERATED_SECRETS.has(key) && !anySecret) return null;
   if (key === "APP_KEY") return `base64:${randomBase64()}`;
   if (key === "APP_KEYS") return Array.from({ length: 4 }, () => randomBase64(16)).join(",");
   return randomBase64();

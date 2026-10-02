@@ -417,7 +417,7 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
           rows={extraRows[activeFile] ?? []}
           suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
           options={(row) => systemPathOptions(row.key, enabledPackages)}
-          generate={(row) => (row.value ? null : generateSecret(row.key))}
+          generate={(row) => generateSecret(row.key)}
           urlOptions={urlOptions}
           disabled={saving}
           onChange={(next) => {
@@ -451,8 +451,8 @@ export function AppEnvironment({ application, detected, onStatus, saveRef, conne
         suggest={(row) => suggestAppUrl(row.key, row.value, hostsOf(application)[0] ?? '')}
         // where apt put LibreOffice, for LIBREOFFICE_PATH and friends
         options={(row) => systemPathOptions(row.key, enabledPackages)}
-        // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY…)
-        generate={(row) => (row.value ? null : generateSecret(row.key))}
+        // a fresh secret for the ones the app mints itself (BETTER_AUTH_SECRET, APP_KEY, any *_SECRET…) — empty or not
+        generate={(row) => generateSecret(row.key)}
         // tried from the node the app runs on, with the value as typed
         verify={(row) => (isDatabaseUrl(row) ? () => testDatabaseUrl(application.id, row.key, row.value) : null)}
         urlOptions={urlOptions}
