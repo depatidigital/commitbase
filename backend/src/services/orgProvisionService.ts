@@ -95,7 +95,7 @@ async function takenIdsOn(node: SshTarget): Promise<Set<number>> {
  * The org's UID, assigned once. An org provisioned before UIDs were tracked
  * already has cb-<slug> on this node with whatever UID useradd picked — that
  * one is adopted rather than fought, since its files are already owned by it.
- * Otherwise the next free number in the org range.
+ * Otherwise the next number in the org range that is free on this node.
  */
 async function uidFor(org: { id: string; slug: string; uid: number | null }, node: SshTarget): Promise<number> {
   const existing = await exec(node, ['id', '-u', osUserFor(org.slug)], { timeout: 15_000 })
