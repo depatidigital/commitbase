@@ -119,8 +119,7 @@ async function freeUidOn(node: SshTarget, uid: number, owner: string, onOutput?:
   }
   // ponytail: a free number is not recorded for the holder — its next provision here adopts it (uidFor's `existing`)
   const target = own ?? (await nextFreeUid(taken));
-  onOutput?.(`UID ${uid} is held here by ${holder} — moving ${holder} to UID ${target}
-`);
+  onOutput?.(`UID ${uid} is held here by ${holder} — moving ${holder} to UID ${target}\n`);
   await sudo(node, 'cb-renumber-org', [slug, String(target)], 30 * 60_000, onOutput);
 }
 
