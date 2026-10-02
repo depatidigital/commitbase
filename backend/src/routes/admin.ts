@@ -309,7 +309,7 @@ const ProvisionSchema = z.object({
   serverId: z.string().min(1).optional(),
   diskQuota: z.string().optional(),
   cpuQuota: z.string().optional(),
-  memoryMax: z.string().optional(),
+  memoryMax: z.string().regex(/^[0-9]+[MG]$/, 'Memory like 512M or 2G').optional(),
 });
 
 // Run (or re-run) provisioning. The script is idempotent, so this doubles as
@@ -323,6 +323,10 @@ router.post('/organizations/:id/provision', validateRequest(ProvisionSchema), as
 
     // Queued, not run: the list polls each node's state for the outcome.
     const { serverId, diskQuota, cpuQuota, memoryMax } = ProvisionSchema.parse(req.body ?? {});
+    // kept on the org: later provisioning (new node, automatic repair) applies it too
+    if (memoryMax && memoryMax !== org.memoryMax) {
+      await prisma.organization.update({ where: { id: org.id }, data: { memoryMax } });
+    }
     const job = {
       userId: req.user!.userId,
       trigger: 'admin',

@@ -179,7 +179,7 @@ export interface ProvisionLimits {
  * apply new limits, and safe to retry after a dropped connection.
  */
 export async function provisionOrgOnNode(
-  org: { id: string; slug: string; uid: number | null },
+  org: { id: string; slug: string; uid: number | null; memoryMax?: string | null },
   node: SshTarget,
   opts: ProvisionLimits & { onOutput?: (text: string) => void } = {},
 ): Promise<string> {
@@ -187,7 +187,8 @@ export async function provisionOrgOnNode(
 
   const diskQuota = opts.diskQuota || DEFAULT_DISK_QUOTA;
   const cpuQuota = opts.cpuQuota || DEFAULT_CPU_QUOTA;
-  const memoryMax = opts.memoryMax || DEFAULT_MEMORY_MAX;
+  // the org's own cap, so a re-provision (or a new node) never drops it back to the default
+  const memoryMax = opts.memoryMax || org.memoryMax || DEFAULT_MEMORY_MAX;
 
   if (!QUOTA_RE.test(diskQuota)) throw new Error(`Invalid disk quota: ${diskQuota}`);
   if (!CPU_RE.test(cpuQuota)) throw new Error(`Invalid CPU quota: ${cpuQuota}`);
@@ -397,7 +398,7 @@ export async function runOrgNode(orgNodeId: string): Promise<string> {
 
     const row = await prisma.orgNode.findUniqueOrThrow({
       where: { id: orgNodeId },
-      include: { organization: { select: { id: true, slug: true, uid: true } }, server: true },
+      include: { organization: { select: { id: true, slug: true, uid: true, memoryMax: true } }, server: true },
     });
     const { organization: org, server } = row;
     const { userId, trigger, ...limits } = (row.job ?? { trigger: 'none' }) as unknown as ProvisionJob;

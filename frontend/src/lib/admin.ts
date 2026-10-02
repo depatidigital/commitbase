@@ -158,6 +158,8 @@ export interface AdminOrganization extends OrgSummary {
   defaultServer: { id: string; name: string; status: string } | null;
   /** The nodes the org is provisioned on — one per node its apps use. */
   nodes: OrgNode[];
+  /** RAM its apps share per node ("2G"); null = the server default (1G). */
+  memoryMax: string | null;
 }
 
 export interface ProvisionLog {

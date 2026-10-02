@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -61,6 +63,7 @@ export default function Admin() {
   } | null>(null);
 
   // re-running provisioning is idempotent but touches a live tenant — confirm too
+  const [memoryMax, setMemoryMax] = useState("");
   const [pendingProvision, setPendingProvision] =
     useState<AdminOrganization | null>(null);
 
@@ -126,7 +129,8 @@ export default function Admin() {
   });
 
   const provisionMutation = useMutation({
-    mutationFn: (organizationId: string) => provisionOrganization(organizationId),
+    mutationFn: ({ id, memoryMax }: { id: string; memoryMax: string }) =>
+      provisionOrganization(id, memoryMax ? { memoryMax } : undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] });
       queryClient.invalidateQueries({ queryKey: ["organizations"] });
@@ -228,9 +232,12 @@ export default function Admin() {
           variant={o.nodes.length ? "outline" : "default"}
           // nothing to do until the org is on a server or has a default one
           disabled={provisionMutation.isPending || (!o.nodes.length && !o.defaultServer)}
-          onClick={() => setPendingProvision(o)}
+          onClick={() => {
+            setPendingProvision(o);
+            setMemoryMax(o.memoryMax ?? "");
+          }}
         >
-          {provisionMutation.isPending && provisionMutation.variables === o.id ? (
+          {provisionMutation.isPending && provisionMutation.variables?.id === o.id ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : o.nodes.length ? (
             t("Re-provision")
@@ -421,11 +428,26 @@ export default function Admin() {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="org-memory-max">{t("RAM limit (all its services, per server)")}</Label>
+            <Input
+              id="org-memory-max"
+              placeholder="1G"
+              value={memoryMax}
+              onChange={(e) => setMemoryMax(e.target.value.trim().toUpperCase())}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("Like 512M or 2G. Saved on the workspace and applied right away; empty keeps {value}.", {
+                value: pendingProvision?.memoryMax ?? "1G",
+              })}
+            </p>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
+              disabled={!!memoryMax && !/^[0-9]+[MG]$/.test(memoryMax)}
               onClick={() =>
-                pendingProvision && provisionMutation.mutate(pendingProvision.id)
+                pendingProvision && provisionMutation.mutate({ id: pendingProvision.id, memoryMax })
               }
             >
               {t("Provision")}

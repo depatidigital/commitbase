@@ -71,6 +71,10 @@ model Organization {
   /// Its apps stopped: its payer's balance went past the negative limit (walletService.guardWallet). Cleared by a top-up.
   suspendedAt   DateTime?
 
+  /// RAM all its apps share on each node (cgroup slice MemoryMax, e.g. "2G"). Null = ORG_MEMORY_MAX (1G).
+  /// Set from the Admin page's (re-)provision; every later provisioning, automatic ones too, keeps it.
+  memoryMax     String?
+
   // Which database server this org's databases are created on, per engine.
   // Same rule as serverId: null means "not placed", and creating a database
   // is refused rather than guessing a server.
