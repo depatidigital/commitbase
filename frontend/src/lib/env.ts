@@ -65,7 +65,10 @@ const GENERATED_SECRETS = new Set([
   "ADMIN_JWT_SECRET", "API_TOKEN_SALT", "TRANSFER_TOKEN_SALT", "HASH_SALT", "APP_KEY", "APP_KEYS",
 ]);
 
-const randomBase64 = (bytes = 32) => {
+// ponytail: known providers by name prefix — a new one slips through until added here
+const THIRD_PARTY = /^(NEXT_PUBLIC_|VITE_)?(STRIPE|GOOGLE|GITHUB|GITLAB|FACEBOOK|META|TWITTER|X|DISCORD|SLACK|MICROSOFT|AZURE|AWS|S3|R2|CLOUDFLARE|CF|SUPABASE|FIREBASE|CLERK|AUTH0|OKTA|PAYPAL|XENDIT|MIDTRANS|DOKU|TRIPAY|OPENAI|ANTHROPIC|RESEND|SENDGRID|MAILGUN|POSTMARK|TWILIO|PUSHER|ALGOLIA|SENTRY|VERCEL|UPSTASH|LINKEDIN|APPLE|TIKTOK|SPOTIFY|SHOPIFY|NOTION|ZOOM|DROPBOX|BITBUCKET|KEYCLOAK|LINE|TELEGRAM|WHATSAPP|FONNTE|WABLAS|CLOUDINARY|UPLOADTHING|MINIO|DIGITALOCEAN|DO)_/;
+
+const randomBase64 =(bytes = 32) => {
   const buffer = new Uint8Array(bytes);
   crypto.getRandomValues(buffer);
   return btoa(String.fromCharCode(...buffer));
@@ -76,8 +79,8 @@ const randomBase64 = (bytes = 32) => {
  * Laravel wants `base64:` + 32 bytes; Strapi's APP_KEYS is four of them.
  */
 export function generateSecret(key: string): string | null {
-  // any other *_SECRET (CRON_SECRET…) too — except the ones a provider issues (GOOGLE_CLIENT_SECRET, STRIPE_WEBHOOK_SECRET)
-  const anySecret = /(^|_)SECRET$/.test(key) && !/(CLIENT|WEBHOOK|API|CONSUMER|ACCESS|APP)_SECRET$/.test(key);
+  // any other *_SECRET (CRON_SECRET…) too — except the ones a provider issues (GOOGLE_CLIENT_SECRET, STRIPE_WEBHOOK_SECRET, MIDTRANS_…)
+  const anySecret = /(^|_)SECRET$/.test(key) && !/(CLIENT|WEBHOOK|API|CONSUMER|ACCESS|APP)_SECRET$/.test(key) && !THIRD_PARTY.test(key);
   if (!GENERATED_SECRETS.has(key) && !anySecret) return null;
   if (key === "APP_KEY") return `base64:${randomBase64()}`;
   if (key === "APP_KEYS") return Array.from({ length: 4 }, () => randomBase64(16)).join(",");

@@ -94,7 +94,7 @@ assert.match(generateSecret("APP_KEY")!, /^base64:[A-Za-z0-9+/]{43}=$/);
 assert.strictEqual(generateSecret("APP_KEYS")!.split(",").length, 4);
 assert.notStrictEqual(generateSecret("JWT_SECRET"), generateSecret("JWT_SECRET"), "fresh every time");
 assert.match(generateSecret("CRON_SECRET")!, /^[A-Za-z0-9+/]{43}=$/);
-for (const key of ["STRIPE_SECRET_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "DATABASE_URL", "PORT", "GOOGLE_CLIENT_SECRET", "STRIPE_WEBHOOK_SECRET"]) {
+for (const key of ["STRIPE_SECRET_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "DATABASE_URL", "PORT", "GOOGLE_CLIENT_SECRET", "STRIPE_WEBHOOK_SECRET", "MIDTRANS_SECRET", "AWS_SECRET", "SUPABASE_JWT_SECRET"]) {
   assert.strictEqual(generateSecret(key), null, `${key} comes from a provider, not from us`);
 }
 
