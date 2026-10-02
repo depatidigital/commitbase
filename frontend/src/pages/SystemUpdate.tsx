@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { t } from "@/lib/i18n";
-import { getSystemUpdate, setSystemUpdateRepo, startSystemUpdate } from "@/lib/system";
+import { createSystemSshKey, getSystemUpdate, setSystemUpdateRepo, startSystemUpdate } from "@/lib/system";
 import { timeAgo } from "@/lib/utils";
 
 /**
@@ -77,6 +77,12 @@ export default function SystemUpdate() {
       void queryClient.invalidateQueries({ queryKey: ["system-update"] });
     },
     onError: (error: Error) => toast({ title: t("Could not change the repository"), description: error.message, variant: "destructive" }),
+  });
+
+  const createKey = useMutation({
+    mutationFn: createSystemSshKey,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["system-update"] }),
+    onError: (error: Error) => toast({ title: t("Could not create the deploy key"), description: error.message, variant: "destructive" }),
   });
 
   const running = !!data?.running;
@@ -260,10 +266,19 @@ export default function SystemUpdate() {
                 autoFocus
               />
             </div>
-            {data?.sshKey && (
+            {data?.sshKey ? (
               <div className="space-y-2">
                 <Label htmlFor="repo-key">{t("Deploy key (read-only) for a private repository")}</Label>
                 <Textarea id="repo-key" readOnly rows={3} className="font-mono text-xs" value={data.sshKey} onFocus={(e) => e.target.select()} />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>{t("Deploy key (read-only) for a private repository")}</Label>
+                <p className="text-sm text-muted-foreground">{t("This server has no SSH key yet. A private repository needs one as its deploy key.")}</p>
+                <Button type="button" variant="outline" size="sm" disabled={createKey.isPending} onClick={() => createKey.mutate()}>
+                  {createKey.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {t("Create deploy key")}
+                </Button>
               </div>
             )}
             <DialogFooter>

@@ -2,9 +2,9 @@ import { Router, Response } from 'express';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
-import { readFile, realpath } from 'fs/promises';
+import { mkdir, readFile, realpath } from 'fs/promises';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, hostname } from 'os';
 import { ApiResponse } from '../types';
 import { AuthenticatedRequest } from '../middleware/auth';
 
@@ -130,6 +130,22 @@ router.post('/update', async (req: AuthenticatedRequest, res: Response) => {
     return res.status(202).json({ success: true, message: rollback ? 'Rollback started' : 'Update started' } as ApiResponse);
   } catch (error: any) {
     return res.status(500).json({ success: false, error: String(error?.stderr || error?.message || error).slice(0, 500) } as ApiResponse);
+  }
+});
+
+/** Make the panel user's SSH key when there is none, so a private repo can take it as a deploy key. */
+router.post('/update/ssh-key', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    let key = await sshKey();
+    if (!key) {
+      const dir = join(homedir(), '.ssh');
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', `larika@${hostname()}`, '-f', join(dir, 'id_ed25519')], { timeout: 30_000 });
+      key = await sshKey();
+    }
+    return res.json({ success: true, data: { sshKey: key } } as ApiResponse);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: String(error?.stderr || error?.message || error).trim().slice(0, 500) } as ApiResponse);
   }
 });
 

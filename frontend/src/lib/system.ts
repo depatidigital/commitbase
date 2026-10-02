@@ -36,3 +36,9 @@ export const setSystemUpdateRepo = async (url: string): Promise<void> => {
   const response = await apiRequest('/system/update/repo', { method: 'POST', body: JSON.stringify({ url }) });
   if (!response.success) throw new Error(response.error || t('Could not change the repository'));
 };
+
+export const createSystemSshKey = async (): Promise<string> => {
+  const response = await apiRequest<{ sshKey: string }>('/system/update/ssh-key', { method: 'POST' });
+  if (response.success && response.data?.sshKey) return response.data.sshKey;
+  throw new Error(response.error || t('Could not create the deploy key'));
+};
