@@ -85,6 +85,12 @@ async function sudo(
   return stdout.trim();
 }
 
+/** Every UID and GID in use on the node — the provision script refuses either. */
+async function takenIdsOn(node: SshTarget): Promise<Set<number>> {
+  const { stdout } = await exec(node, ['sh', '-c', 'getent passwd | cut -d: -f3; getent group | cut -d: -f3'], { timeout: 15_000 });
+  return new Set(stdout.split('\n').map(Number).filter(Number.isInteger));
+}
+
 /**
  * The org's UID, assigned once. An org provisioned before UIDs were tracked
  * already has cb-<slug> on this node with whatever UID useradd picked — that
@@ -92,17 +98,27 @@ async function sudo(
  * Otherwise the next free number in the org range.
  */
 async function uidFor(org: { id: string; slug: string; uid: number | null }, node: SshTarget): Promise<number> {
-  if (org.uid !== null) return org.uid;
-
   const existing = await exec(node, ['id', '-u', osUserFor(org.slug)], { timeout: 15_000 })
     .then(({ stdout }) => Number(stdout.trim()))
     .catch(() => null);
 
+  // ponytail: checks only this node — a number taken on a node the org has not reached yet still fails there
+  const taken = await takenIdsOn(node);
+  if (org.uid !== null) {
+    if (existing || !taken.has(org.uid)) return org.uid;
+    // The number is held here by someone else (a deleted workspace's user is
+    // never removed). Before the org exists on any node it is free to move.
+    const created = await prisma.orgNode.count({ where: { organizationId: org.id, state: 'DONE' } });
+    if (created > 0) return org.uid;
+    await prisma.organization.updateMany({ where: { id: org.id, uid: org.uid }, data: { uid: null } });
+  }
+
   for (let attempt = 0; attempt < 5; attempt++) {
-    const uid =
+    let uid =
       existing && Number.isInteger(existing)
         ? existing
         : Math.max(ORG_UID_BASE - 1, (await prisma.organization.aggregate({ _max: { uid: true } }))._max.uid ?? 0) + 1;
+    if (!existing) while (taken.has(uid)) uid++;
     try {
       // conditional on uid still being null: two provisions of one org racing agree on one value
       const set = await prisma.organization.updateMany({ where: { id: org.id, uid: null }, data: { uid } });
