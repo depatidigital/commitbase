@@ -173,6 +173,22 @@ if command -v podman >/dev/null 2>&1; then
   fi
 fi
 
+# --- 1c. caddy in the group -------------------------------------------------
+# Caddy reads tenant homes (2770) through $CB_GROUP. A process keeps the groups
+# it started with, so one added to the group while running still gets a bare
+# 403 from file_server until restarted. caddy-api resumes its saved config.
+if id -u caddy >/dev/null 2>&1; then
+  CB_GID="$(getent group "$CB_GROUP" | cut -d: -f3)"
+  id -nG caddy | tr ' ' '\n' | grep -qx "$CB_GROUP" || { usermod -aG "$CB_GROUP" caddy; echo "caddy added to group $CB_GROUP"; }
+  for PID in $(pgrep -x -u caddy caddy || true); do
+    if ! grep '^Groups:' "/proc/$PID/status" | tr -s ' \t' '\n' | grep -qx "$CB_GID"; then
+      for SVC in caddy-api caddy; do
+        if systemctl is-active --quiet "$SVC"; then systemctl restart "$SVC"; echo "restarted $SVC: it was running without group $CB_GROUP"; break 2; fi
+      done
+    fi
+  done
+fi
+
 # --- 2. Disk quota ----------------------------------------------------------
 # Best effort. Needs quotas enabled on the filesystem holding $HOME_ROOT
 # (ext4: usrquota mount option + quotaon; xfs: uquota).
