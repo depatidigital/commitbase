@@ -267,6 +267,23 @@ function startScript(pm: PackageManager): string {
   return pm === 'bun' ? 'bun run start' : 'npm start';
 }
 
+/**
+ * The start script, run the cheapest way that does the same. `tsx src/server.ts`
+ * behind `npm start` is five processes (npm, sh, the tsx CLI, the node it forks,
+ * esbuild) where `node --import tsx` is two — ~100 MB less per app, which the
+ * workspace's shared RAM cap felt as OOM kills. tsx 4+ only: older ones have no
+ * `--import` entry. Anything else (watch mode, `&&` chains, flags of tsx's own,
+ * a prestart/poststart npm would run around it) runs as written.
+ */
+export function startOf(pm: PackageManager, scripts: Record<string, string>, deps: Record<string, string>): string {
+  const script = String(scripts.start ?? '');
+  if (scripts.prestart || scripts.poststart) return startScript(pm);
+  const tsxMajor = Number(/\d+/.exec(String(deps.tsx ?? ''))?.[0] ?? 0);
+  const m = /^\s*tsx((?:\s+--env-file(?:-if-exists)?=\S+)*)\s+([\w./-]+\.[cm]?tsx?)\s*$/.exec(script);
+  if (pm === 'bun' || !m || tsxMajor < 4) return startScript(pm);
+  return `node --import tsx${m[1]} ${m[2]}`;
+}
+
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
@@ -590,7 +607,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
       framework: fw.framework,
       label: fw.label,
       buildCommand: scripts.build ? buildOf(pm, scripts.build) : fw.build || null,
-      startCommand: scripts.start && !plainNextStart ? startScript(pm) : fw.start,
+      startCommand: scripts.start && !plainNextStart ? startOf(pm, scripts, deps) : fw.start,
       port: fw.port,
     });
   }
@@ -615,7 +632,7 @@ function presetFromFiles(files: DetectInput, chosen?: string | null): Omit<Detec
     framework: 'node',
     label: 'Node.js',
     buildCommand: scripts.build ? buildOf(pm, scripts.build) : null,
-    startCommand: scripts.start ? startScript(pm) : pkg.main ? `node ${pkg.main}` : 'node index.js',
+    startCommand: scripts.start ? startOf(pm, scripts, deps) : pkg.main ? `node ${pkg.main}` : 'node index.js',
     port: 3000,
   });
 }

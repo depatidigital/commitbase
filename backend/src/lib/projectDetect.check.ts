@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { appFoldersOf, foldersOf, isEnvFile, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
+import { startOf, appFoldersOf, foldersOf, isEnvFile, detectFromFiles,nvmPreamble, parseLsRemote, parseEnvFile, preDeployOf, presenceOnly, withRootFiles, pnpmAllowBuildsInFolder, PNPM_ALLOW_BUILDS_ENV } from './projectDetect';
 
 const NL = String.fromCharCode(10);
 
@@ -361,3 +361,20 @@ for (const name of ['.env', '.ckan-env', '.env.local', '.env.production', 'app.e
 for (const name of ['.env.example', '.env.sample', '.env.template', '.env.dist', 'environment.ts', 'docker-compose.yml', 'venv', 'envs', 'Dockerfile', '.envrc']) {
   assert.ok(!isEnvFile(name), name);
 }
+
+// `tsx file.ts` runs as node with tsx's loader: no npm, sh or tsx CLI process in between
+assert.strictEqual(startOf('pnpm', { start: 'tsx src/server.ts' }, { tsx: '^4.19.0' }), 'node --import tsx src/server.ts');
+assert.strictEqual(startOf('npm', { start: 'tsx --env-file=.env src/server.ts' }, { tsx: '4.7.1' }), 'node --import tsx --env-file=.env src/server.ts');
+// kept as written: tsx 3 (no --import entry), watch mode, chains, no tsx dependency, bun
+assert.strictEqual(startOf('pnpm', { start: 'tsx src/server.ts' }, { tsx: '^3.14.0' }), 'npm start');
+assert.strictEqual(startOf('pnpm', { start: 'tsx watch src/server.ts' }, { tsx: '^4' }), 'npm start');
+assert.strictEqual(startOf('pnpm', { start: 'prisma migrate deploy && tsx src/server.ts' }, { tsx: '^4' }), 'npm start');
+assert.strictEqual(startOf('pnpm', { start: 'tsx src/server.ts' }, {}), 'npm start');
+assert.strictEqual(startOf('pnpm', { prestart: 'prisma generate', start: 'tsx src/server.ts' }, { tsx: '^4' }), 'npm start');
+assert.strictEqual(startOf('bun', { start: 'tsx src/server.ts' }, { tsx: '^4' }), 'bun run start');
+const tsxApp = detectFromFiles({
+  'package.json': JSON.stringify({ dependencies: { express: '^4', tsx: '^4.19.0' }, scripts: { start: 'tsx --env-file=.env src/server.ts' } }),
+  'pnpm-lock.yaml': '',
+});
+assert.strictEqual(tsxApp.startCommand, 'node --import tsx --env-file=.env src/server.ts');
+console.log('startOf ok');
