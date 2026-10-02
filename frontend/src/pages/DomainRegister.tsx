@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Globe, Loader2, Search, Sparkles } from "lucide-react";
 
 import {
@@ -125,7 +125,9 @@ const DomainRegister = () => {
   // registering spends real money, so it never happens on a single click
   const [confirming, setConfirming] = useState(false);
 
-  const [term, setTerm] = useState("");
+  // ?q= — the landing page's "Beli" links here with the name already picked
+  const [params] = useSearchParams();
+  const [term, setTerm] = useState(params.get("q") ?? "");
   const [idea, setIdea] = useState("");
   const [context, setContext] = useState("");
 
@@ -141,6 +143,11 @@ const DomainRegister = () => {
     setSelected(offer);
     setYears(periodOptions(offer)[0]);
   };
+
+  useEffect(() => {
+    if (term.trim()) lookup.search(term.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, for the ?q= name
+  }, []);
 
   const runSearch = async (e: React.FormEvent) => {
     e.preventDefault();

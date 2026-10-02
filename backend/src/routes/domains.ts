@@ -178,7 +178,9 @@ router.get('/choices', authenticateToken, async (req: AuthenticatedRequest, res:
  * immediately and the UI can paint the whole result list (with prices) before
  * a single availability answer is in.
  */
-router.get('/search/tlds', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+// public (no token): the landing page prices and checks names before sign-up —
+// CORS + rate limit for these two live in index.ts
+router.get('/search/tlds', async (req: Request, res: Response) => {
   try {
     const label = searchLabel(req.query.q);
     if (!label) {
@@ -298,7 +300,7 @@ router.get('/search/suggest', authenticateToken, async (req: AuthenticatedReques
  * answer the moment it lands instead of waiting on the slowest registry —
  * the RDAP gate in rdapService keeps the fan-out from bursting the registries.
  */
-router.get('/search/check', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/search/check', async (req: Request, res: Response) => {
   try {
     const domain = String(req.query.domain ?? '').trim().toLowerCase();
     if (!/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+$/.test(domain)) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, type Location } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,7 @@ declare global {
  * the backend checks it and signs in — or signs up — that email.
  * Renders nothing while the backend has no GOOGLE_CLIENT_ID.
  */
-function GoogleButton({ text }: { text: 'signin_with' | 'signup_with' }) {
+function GoogleButton({ text, next }: { text: 'signin_with' | 'signup_with'; next: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -46,7 +46,7 @@ function GoogleButton({ text }: { text: 'signin_with' | 'signup_with' }) {
               body: JSON.stringify({ credential }),
             });
             setAuthToken(res.data!.token);
-            navigate('/');
+            navigate(next);
           } catch (error) {
             toast({ title: t('Error'), description: (error as Error).message, variant: 'destructive' });
           }
@@ -65,7 +65,7 @@ function GoogleButton({ text }: { text: 'signin_with' | 'signup_with' }) {
     script.async = true;
     script.onload = render;
     document.head.appendChild(script);
-  }, [clientId, text, navigate, toast]);
+  }, [clientId, text, next, navigate, toast]);
 
   if (!clientId) return null;
   return (
@@ -83,6 +83,10 @@ function GoogleButton({ text }: { text: 'signin_with' | 'signup_with' }) {
 /** Sign in (/login) and sign up (/register): one page, Google first, email as the fallback. */
 const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  // the page ProtectedRoute bounced them from; kept across the login ↔ sign-up switch
+  const from = (location.state as { from?: Location } | null)?.from;
+  const next = from ? `${from.pathname}${from.search}` : '/';
   const login = useLogin();
   const signup = useRegister();
   const [name, setName] = useState('');
@@ -92,14 +96,14 @@ const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
   const isRegister = mode === 'register';
   const pending = login.isPending || signup.isPending;
 
-  if (isAuthenticated()) return <Navigate to="/" replace />;
+  if (isAuthenticated()) return <Navigate to={next} replace />;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (isRegister) await signup.mutateAsync({ name, email, password });
       else await login.mutateAsync({ email, password });
-      navigate('/');
+      navigate(next);
     } catch {
       // the mutation shows the error
     }
@@ -134,7 +138,7 @@ const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <GoogleButton text={isRegister ? 'signup_with' : 'signin_with'} />
+          <GoogleButton text={isRegister ? 'signup_with' : 'signin_with'} next={next} />
 
           <form onSubmit={onSubmit} className="space-y-4">
             {isRegister && (
@@ -180,7 +184,7 @@ const Login = ({ mode = 'login' }: { mode?: 'login' | 'register' }) => {
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
             {isRegister ? t('Already have an account?') : t("Don't have an account?")}{' '}
-            <Link to={isRegister ? '/login' : '/register'} className="font-medium text-primary hover:underline">
+            <Link to={isRegister ? '/login' : '/register'} state={location.state} className="font-medium text-primary hover:underline">
               {isRegister ? t('Sign In') : t('Sign up')}
             </Link>
           </p>

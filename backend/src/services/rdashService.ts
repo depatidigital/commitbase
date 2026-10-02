@@ -316,7 +316,7 @@ export async function renewRdashDomain(domain: string, years = 1): Promise<any> 
  *
  * Also the fallback list when the price list cannot be read at all.
  */
-export const SEARCH_TLDS = ['com', 'id', 'co.id', 'my.id', 'net', 'org', 'web.id', 'biz.id'];
+export const SEARCH_TLDS = ['com', 'id', 'ai.id', 'co.id', 'my.id', 'net', 'org', 'web.id', 'biz.id'];
 
 /**
  * `GET /account/prices` prices a whole period at a time — `registration["3"]`

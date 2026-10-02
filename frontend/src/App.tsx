@@ -69,8 +69,10 @@ document.title = APP_NAME;
 
 // Protected Route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const location = useLocation();
   if (!isAuthenticated()) {
-    return <Navigate to="/login" replace />;
+    // remember where they were going (e.g. /domains/register?q= from the landing page)
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
   // an admin-issued temporary password must be rotated before anything else
   if (mustChangePassword()) {

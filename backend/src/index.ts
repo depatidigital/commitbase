@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import { config } from 'dotenv';
 
 // Application.diskBytes is a BigInt; res.json() has no idea what to do with one.
@@ -86,14 +87,17 @@ app.set('trust proxy', 'loopback');
 app.use(helmet());
 
 // CORS configuration
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.CORS_ORIGIN 
-    : true, // Allow all origins in development
+// The public domain search (price + availability) is called from the landing
+// site too, so any origin may read it — it carries no token and no user data.
+const PUBLIC_PATHS = ['/api/domains/search/tlds', '/api/domains/search/check'];
+app.use(cors((req, callback) => callback(null, {
+  origin: process.env.NODE_ENV !== 'production' || PUBLIC_PATHS.includes(req.url?.split('?')[0] ?? '')
+    ? true // Allow all origins in development
+    : process.env.CORS_ORIGIN,
   credentials: true,
   // downloads (database backups) name their file here
   exposedHeaders: ['Content-Disposition'],
-}));
+})));
 
 // Rate limiting: only where guessing pays — signing in and redeeming an invite.
 // No limit on the API as a whole: the dashboard polls (project, health, source,
@@ -118,6 +122,28 @@ app.use(
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, error: 'Too many emails requested — wait 15 minutes, then try again.' },
+  }),
+);
+
+// anonymous domain lookups each fan out to the registries (RDAP/RDASH); signed-in
+// panel searches stay unlimited, like the rest of the API
+app.use(
+  PUBLIC_PATHS,
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    // a valid token, not just the header — any caller can send `Authorization: x`
+    skip: (req) => {
+      const token = req.headers.authorization?.split(' ')[1];
+      try {
+        return Boolean(token && jwt.verify(token, process.env.JWT_SECRET ?? ''));
+      } catch {
+        return false;
+      }
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Too many domain lookups — wait a minute, then try again.' },
   }),
 );
 
